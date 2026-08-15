@@ -104,8 +104,8 @@ export function mediaClaimFilter(): MediaClaimFilter {
 }
 
 /**
- * The v5 switches live in store.ts with the rest of the settings surface the
- * server reads; what belongs here is only the shape the claim wants. Voice
+ * The v5 switches live in db/settings.ts with the rest of the settings surface
+ * the server reads; what belongs here is only the shape the claim wants. Voice
  * notes and video audio gate independently — someone who wants their voice
  * notes read has not thereby asked for every forwarded clip to be transcribed.
  */

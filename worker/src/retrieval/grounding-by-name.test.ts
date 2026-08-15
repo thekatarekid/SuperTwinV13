@@ -631,7 +631,7 @@ describe("lever 3 — a section spends its own share", () => {
     // Rashmi's chat is small enough to arrive whole, and says so.
     expect(formatContextBlock(result)).toContain("— the whole chat");
     // Starved, it is no longer whole — and a model told it has the whole chat
-    // has no reason to go and Grep the corpus for the rest.
+    // has no reason to ask for the rest.
     expect(formatContextBlock(result, { maxChars: 900 })).not.toContain(
       "— the whole chat",
     );

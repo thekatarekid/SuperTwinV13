@@ -1,6 +1,6 @@
 // ===========================================================================
 // Unit tests for db/settings.ts over a real temp SQLite DB: a temp DB per test,
-// migrations fresh. Moved here from store/ when store.ts was deleted (V2 §3.2);
+// migrations fresh. Moved here when the old store module was deleted (V2 §3.2);
 // the assertions are the ones that guarded these switches there.
 //
 // Two things are under test and neither is cosmetic:

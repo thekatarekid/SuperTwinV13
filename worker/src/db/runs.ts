@@ -1,11 +1,11 @@
 // ===========================================================================
 // [CODE] Run history, media spend, media-queue progress and evaluations.
 //
-// The other half of what survived `store/store.ts` (V2 §3.2): the read side the
+// The other half of what survived the old store module (V2 §3.2): the read side
 // Settings tab and the system routes serve. Every LLM call is logged into
 // `extraction_runs` by db/index.ts `logRun`; this module only reads it back.
 //
-// Kept apart from db/settings.ts on purpose — settings are typed views over one
+// Kept apart from db/settings.ts on purpose: settings are typed views over one
 // `app_state` row each, these are aggregate queries over three tables, and one
 // file holding both would be past the size where either is findable.
 // ===========================================================================

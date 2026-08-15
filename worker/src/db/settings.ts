@@ -1,10 +1,10 @@
 // ===========================================================================
 // [CODE] app_state settings + model selection (V2 §3.2).
 //
-// This is what survived `store/store.ts`: the key/value settings layer that the
+// This is what survived the old store module: the key/value settings layer the
 // media reader, the retrieval encoder, the model picker and the server routes
 // all read. The 1,864-line spaces/goals/milestones/tasks ontology around it is
-// gone — it had zero runtime callers and encoded a model this build rejects.
+// deleted — it had zero runtime callers and encoded a model this build rejects.
 //
 // Every helper here is a typed view over ONE `app_state` row. Reads go through
 // `appStateGet` / `appStateSet` (db/ingest.ts) so there is a single prepared

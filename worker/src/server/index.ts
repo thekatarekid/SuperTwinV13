@@ -849,7 +849,8 @@ async function handleChat(
   };
 
   // ---- Pre-turn retrieval (grounded only): inject the conversation around the
-  // hits for this question, and refresh the on-disk corpus the run can Grep.
+  // hits for this question. Nothing is written to disk — the plaintext message
+  // dump the run used to be able to Grep is gone (V2 §3.2).
   // The RAW message is what gets persisted/displayed; the augmented text is
   // what gets dispatched. Awaited because the semantic tier is async; it costs
   // nothing when there is no embedding model, which is its default state.

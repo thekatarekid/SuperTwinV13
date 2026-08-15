@@ -1,6 +1,6 @@
 // Resolving a citation back to the message it points at.
 //
-// The context block and the corpus print the short form of an event id — a
+// The context block prints the short form of an event id — a
 // WhatsApp id is `wa:<chat jid>/<stanza>` and the jid half repeats the chat the
 // section header already names, ~7,900 chars of one measured section (v7 §6,
 // lever 5). Shortening it is only safe because this resolves it, so this is

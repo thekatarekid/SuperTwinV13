@@ -1,6 +1,6 @@
 // ===========================================================================
-// Unit tests for db/runs.ts over a real temp SQLite DB. Moved here from store/
-// when store.ts was deleted (V2 §3.2).
+// Unit tests for db/runs.ts over a real temp SQLite DB. Moved here when the old
+// store module was deleted (V2 §3.2).
 //
 // The three reads exist for reasons the assertions below pin down:
 //

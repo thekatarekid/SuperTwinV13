@@ -1,0 +1,20 @@
+import Database from "better-sqlite3";
+import { runMigrationsOn } from "./connection.js";
+const db = new Database(":memory:");
+db.pragma("foreign_keys = ON");
+runMigrationsOn(db);
+const names = (db.prepare("SELECT type, name FROM sqlite_master ORDER BY type, name").all() as any[]);
+console.log("TABLES:", names.filter(n=>n.type==="table").map(n=>n.name).join(" "));
+console.log("VIEWS:", names.filter(n=>n.type==="view").map(n=>n.name).join(" "));
+console.log("TRIGGERS:", names.filter(n=>n.type==="trigger").map(n=>n.name).join(" "));
+console.log("EVENT COLS:", (db.prepare("PRAGMA table_info(events)").all() as any[]).map(r=>r.name).join(","));
+console.log("integrity:", JSON.stringify(db.pragma("integrity_check")), JSON.stringify(db.pragma("foreign_key_check")));
+// compat trigger + FTS behaviour
+db.prepare("INSERT INTO sources (id, type) VALUES ('whatsapp','whatsapp')").run();
+db.prepare("INSERT INTO channels (id, source_id, name) VALUES ('c1','whatsapp','Fam')").run();
+db.prepare("INSERT INTO events (id, source_id, channel_id, ts, kind, text) VALUES ('e1','whatsapp','c1','2026-01-01T00:00:00Z','message','hello supertwin world')").run();
+console.log("compat row:", JSON.stringify(db.prepare("SELECT id, stream_id, channel_id FROM events WHERE id='e1'").get()));
+console.log("fts:", JSON.stringify(db.prepare("SELECT rowid FROM events_fts WHERE events_fts MATCH 'supertwin'").all()));
+db.prepare("INSERT INTO streams (id, source_id, external_key, label) VALUES ('s1','whatsapp','k1','Fam')").run();
+db.prepare("INSERT INTO events (id, source_id, stream_id, ts, kind, text) VALUES ('e2','whatsapp','s1','2026-01-02T00:00:00Z','message','second one')").run();
+console.log("reverse row:", JSON.stringify(db.prepare("SELECT id, stream_id, channel_id FROM events WHERE id='e2'").get()));

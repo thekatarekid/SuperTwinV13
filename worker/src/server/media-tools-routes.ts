@@ -70,6 +70,17 @@ export interface ModelDownload {
 
 interface DownloadEntry extends ModelDownload {
   controller: AbortController | null;
+  /**
+   * True from the moment the bytes are whole to the moment the file has its
+   * real name. The entry stays in the map across that window so a second
+   * request cannot start a duplicate fetch, but it stops being reported: the
+   * rename makes the model present on disk BEFORE the continuation after it
+   * runs, and a caller that sees `present: true` must never also see a
+   * download still in flight for the same id. The inverse window it leaves —
+   * not present yet, nothing downloading — is one a poller simply polls
+   * through.
+   */
+  finalizing: boolean;
 }
 
 const downloads = new Map<string, DownloadEntry>();
@@ -93,7 +104,7 @@ export interface WhisperModelReport extends WhisperModelState {
 function modelReports(): WhisperModelReport[] {
   return whisperModelStates().map((m) => {
     const entry = downloads.get(m.id);
-    return { ...m, download: entry ? publicDownload(entry) : null };
+    return { ...m, download: entry && !entry.finalizing ? publicDownload(entry) : null };
   });
 }
 
@@ -168,7 +179,20 @@ async function runDownload(entry: DownloadEntry): Promise<void> {
         `the download stopped early — ${entry.receivedBytes} of ${entry.totalBytes} bytes`,
       );
     }
-    await rename(part, dest);
+    // Stop reporting the download BEFORE the rename lands, not after. The OS
+    // makes the file present under its real name the instant rename returns,
+    // while the delete below only runs once this function is resumed — a GET
+    // serviced in between would answer `present: true` next to a stale
+    // `status: "downloading"`, which is the one pair of states that cannot
+    // both be true.
+    entry.finalizing = true;
+    try {
+      await rename(part, dest);
+    } catch (err) {
+      // Nothing was named, so this is still a live download that failed.
+      entry.finalizing = false;
+      throw err;
+    }
     downloads.delete(entry.id);
   } catch (err) {
     await rm(part, { force: true }).catch(() => {
@@ -230,6 +254,12 @@ export async function handleMediaToolsRoute(
       return true;
     }
     const existing = downloads.get(id);
+    if (existing?.finalizing) {
+      // The bytes are whole and the file is being given its real name. Not a
+      // download to report, and not one to start over.
+      sendJson(res, 200, { id, download: null, models: modelReports() });
+      return true;
+    }
     if (existing?.status === "downloading") {
       sendJson(res, 200, { id, download: publicDownload(existing), models: modelReports() });
       return true;
@@ -241,6 +271,7 @@ export async function handleMediaToolsRoute(
       totalBytes: null,
       error: null,
       controller: new AbortController(),
+      finalizing: false,
     };
     downloads.set(id, entry);
     // Not awaited: the file is up to 3 GB, and the caller polls GET

@@ -13,6 +13,8 @@
 // connection enables `PRAGMA foreign_keys = ON`).
 // ===========================================================================
 
+import { V2_CORE } from "./migrations/0020_v2_core.js";
+
 export interface Migration {
   id: string;
   sql: string;
@@ -890,4 +892,13 @@ export const MIGRATIONS: Migration[] = [
   { id: "0019_drop_albums", sql: DROP_ALBUMS },
   { id: "0020_video_posters", sql: VIDEO_POSTERS },
   { id: "0021_v2_prep", sql: V2_PREP },
+  // 0020_v2_core is the V2 ontology (arch §6) and lives in
+  // ./migrations/0020_v2_core.sql, mirrored by ./migrations/0020_v2_core.ts.
+  // It is LAST because this array's order is the apply order and its body
+  // ALTERs `events` and drops the legacy spaces/tasks ontology the ids above
+  // created. Its numeric prefix collides with the already-shipped
+  // `0020_video_posters`; the two ids are distinct strings and
+  // `schema_migrations` records both, so neither is ever skipped. The name is
+  // the one the build doc assigns to the file.
+  { id: "0020_v2_core", sql: V2_CORE },
 ];

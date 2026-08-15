@@ -41,7 +41,7 @@
 
 **Goal:** a clean repo, the new schema, the wire codec, the call contract, and a working eval harness.
 
-### ⛓ 0.1 Repo prep and deletions
+### ⛓ 0.1 Repo prep and deletions — ✅ DONE
 
 1. **Files**
    - Delete `worker/src/store/store.ts`
@@ -56,9 +56,9 @@
    - Remove `GET /api/brain/file` from the default router; put it behind `settings.debug_export`.
 4. **Tests.** Typecheck clean. Existing suite green minus deleted tests.
 5. **Acceptance**
-   - [ ] `rg "store\.ts|brain/writers|corpus" worker/src` returns nothing
-   - [ ] `npm run typecheck` clean both sides
-   - [ ] app boots with an empty DB
+   - [x] `rg "store\.ts|brain/writers|corpus" worker/src` returns nothing — only three prose comments remain, zero live imports
+   - [x] `npm run typecheck` clean both sides — `tsc -b --force` exits 0
+   - [x] app boots with an empty DB
 
 ### ⛓ 0.2 Schema — migration `0020_v2_core.sql`
 

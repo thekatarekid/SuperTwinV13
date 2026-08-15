@@ -153,6 +153,31 @@ I could not produce the `.dmg` here — this sandbox has Node but no Rust, Go, o
 Xcode, and macOS bundles only build on macOS. Everything that *can* be verified
 without them is verified (below).
 
+## Cutting a release
+
+The `.dmg` is built by a macOS runner, not by hand — `.github/workflows/release-dmg.yml`.
+
+```bash
+npm run release -- --minor --no-build   # or --patch / --major / --set 0.6.0
+git commit -am "Release 0.6.0" && git tag v0.6.0 && git push --follow-tags
+```
+
+The bump moves `package.json`, `worker/package.json`, `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml` and `package-lock.json` together, and adds a `pending` row
+to `RELEASES.md`. Pushing the tag runs the workflow: it re-checks that all five
+files agree with the tag, runs the test suites, builds, and attaches
+`SuperTwinV11_<version>_aarch64.dmg` to Release `v<version>` — as a workflow
+artifact too, so a failed upload never loses the installer. Copy the manifest row
+the job summary prints over the `pending` one and commit it.
+
+Nothing in the pipeline ever replaces an installer: `npm run release` refuses a
+version whose `.dmg` is already in `releases/` or whose digest is already in
+`RELEASES.md`, and the workflow refuses a tag whose Release already carries a
+`.dmg`. To fix a bad build, ship the next version.
+
+`npm run release` on a macOS machine still does the whole thing locally
+(build, archive into `releases/`, fill in `RELEASES.md`, `--publish` to upload).
+
 ## First run
 
 The app defaults to `~/SuperTwinV11` and starts empty. **Nothing is migrated

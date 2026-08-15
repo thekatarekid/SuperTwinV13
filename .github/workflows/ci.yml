@@ -1,0 +1,59 @@
+# Fast feedback on every push and pull request.
+#
+# Linux only and deliberately cheap: no Rust, no Tauri, no 700 MB of staged
+# media. Anything that needs macOS lives in release-dmg.yml.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Unit tests
+        # The root config covers src/; the scripts project is run separately
+        # below because it needs the node environment, not jsdom.
+        run: npx vitest run
+
+      - name: Build script tests
+        run: npx vitest run --config scripts/vitest.config.mjs
+
+      - name: Worker tests
+        run: npm test --if-present -w @supertwinv11/worker
+
+      # `npm run eval` does not exist yet. Guarded rather than omitted so the
+      # evals start running here the day the script lands, without a workflow
+      # edit — and so a typo'd script name still fails the job.
+      - name: Golden evals
+        run: |
+          set -euo pipefail
+          if node -e "process.exit(require('./package.json').scripts?.eval ? 0 : 1)"; then
+            npm run eval
+          else
+            echo "no 'eval' script in package.json — skipping"
+            echo "No \`eval\` script in package.json yet — skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi

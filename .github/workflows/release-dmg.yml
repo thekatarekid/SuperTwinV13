@@ -1,0 +1,288 @@
+# Cut a versioned macOS .dmg on a real macOS runner.
+#
+# The container the repo is usually developed in is Linux and cannot produce a
+# .dmg at all, so this workflow is the only supported way to build a release
+# installer.
+#
+# Two ways in:
+#   * push a tag `v0.6.0`                  — the usual path
+#   * Actions ▸ Release .dmg ▸ Run workflow — same build, version typed by hand
+#
+# In both cases the version must ALREADY be committed: `npm run release --
+# --no-build` bumps package.json / worker/package.json / tauri.conf.json /
+# Cargo.toml / package-lock.json and adds the pending RELEASES.md row. This
+# workflow builds what is on the commit; it never bumps anything itself.
+#
+# A version ships exactly once. If a GitHub Release for the tag already carries
+# a SuperTwinV11_<version>_*.dmg, the job fails before spending an hour on a
+# build whose output it would refuse to upload.
+
+name: Release .dmg
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. 0.6.0 (must match package.json; leave blank to use it)"
+        required: false
+        type: string
+
+permissions:
+  contents: write # creating the Release and uploading its asset
+
+# Two runs for the same version would race on the same release asset.
+concurrency:
+  group: release-dmg-${{ github.event.inputs.version || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dmg:
+    # macos-latest is Apple silicon, which is what the bundle needs: the staged
+    # ffmpeg is an arm64 static build and whisper-cli is compiled with
+    # -DCMAKE_OSX_ARCHITECTURES=arm64 (see scripts/stage-media-tools.mjs), so the
+    # installer this produces is SuperTwinV11_<version>_aarch64.dmg. The x86_64
+    # target below is installed so a future universal build has its toolchain,
+    # not because the current bundle is fat — the upload step reads whatever
+    # arch suffix Tauri actually emitted rather than assuming one.
+    runs-on: macos-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Which version are we building, and is it already shipped?
+      # Both questions are answered before anything expensive happens.
+      # ------------------------------------------------------------------
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          committed="$(node -p "require('./package.json').version")"
+
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            wanted="${GITHUB_REF_NAME#v}"
+          else
+            wanted="${INPUT_VERSION:-$committed}"
+          fi
+
+          case "$wanted" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$wanted' is not an X.Y.Z version"; exit 1 ;;
+          esac
+
+          if [ "$wanted" != "$committed" ]; then
+            echo "::error::asked for $wanted but this commit says $committed."
+            echo "::error::Run 'npm run release -- --set $wanted --no-build', commit, then tag."
+            exit 1
+          fi
+
+          # All four version files must agree, or the .app, the .dmg name and
+          # the tag drift apart.
+          for check in \
+            "worker/package.json:$(node -p "require('./worker/package.json').version")" \
+            "src-tauri/tauri.conf.json:$(node -p "require('./src-tauri/tauri.conf.json').version")" \
+            "src-tauri/Cargo.toml:$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
+          do
+            file="${check%%:*}"; got="${check#*:}"
+            if [ "$got" != "$committed" ]; then
+              echo "::error::$file is at $got but package.json is at $committed"
+              exit 1
+            fi
+          done
+
+          echo "version=$committed" >> "$GITHUB_OUTPUT"
+          echo "tag=v$committed" >> "$GITHUB_OUTPUT"
+          echo "Building SuperTwinV11 $committed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Refuse to re-ship a version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)"
+          if printf '%s\n' "$assets" | grep -Eq "^SuperTwinV11_${VERSION}_.*\.dmg$"; then
+            echo "::error::Release $TAG already has a .dmg asset for $VERSION."
+            echo "::error::Releases are append-only. Cut a new version instead:"
+            echo "::error::  npm run release -- --minor --no-build   # then commit and tag"
+            exit 1
+          fi
+          echo "no existing .dmg asset on $TAG — clear to build"
+
+      # ------------------------------------------------------------------
+      # Toolchain
+      # ------------------------------------------------------------------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        # rustup ships on the GitHub macOS image, so this needs no third-party
+        # action: pin the toolchain and add both Apple targets.
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc -vV
+          cargo --version
+
+      - name: Cache cargo registry
+        # The registry/index only. src-tauri/target and src-tauri/resources are
+        # deliberately NOT cached: a release build reproduces the installer from
+        # source and re-verifies every staged artefact's SHA-256.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - run: npm ci
+
+      # ------------------------------------------------------------------
+      # Tests, then the build. A red suite must not produce an installer.
+      # ------------------------------------------------------------------
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Test suite
+        run: npm test
+
+      - name: Worker tests
+        run: npm test --if-present -w @supertwinv11/worker
+
+      - name: Build the .dmg
+        # build:app = vite build + worker bundle + node sidecar + staged media
+        # (ffmpeg, whisper-cli, yt-dlp, the whisper model and the retrieval
+        # encoder, each checksummed) + tauri build. Roughly an hour.
+        run: npm run build:app
+
+      # ------------------------------------------------------------------
+      # Locate, verify, publish
+      # ------------------------------------------------------------------
+      - name: Locate the installer
+        id: dmg
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # No mapfile/readarray: the macOS runner's /bin/bash is 3.2.
+          set -euo pipefail
+          find src-tauri/target -type f -name "SuperTwinV11_${VERSION}_*.dmg" | sort > /tmp/dmgs.txt
+          count="$(wc -l < /tmp/dmgs.txt | tr -d ' ')"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::build finished but no SuperTwinV11_${VERSION}_*.dmg exists under src-tauri/target"
+            echo "::error::(the .app may still be fine — look in src-tauri/target/release/bundle/macos/)"
+            find src-tauri/target -type f -name '*.dmg' || true
+            exit 1
+          fi
+          if [ "$count" -gt 1 ]; then
+            echo "::error::several installers match ${VERSION}; refusing to guess which one ships:"
+            sed 's/^/::error::  /' /tmp/dmgs.txt
+            exit 1
+          fi
+
+          path="$(head -1 /tmp/dmgs.txt)"
+          name="$(basename "$path")"
+          sha="$(shasum -a 256 "$path" | cut -d' ' -f1)"
+          size="$(( $(stat -f%z "$path") / 1024 / 1024 )) MB"
+
+          mkdir -p dist-release
+          cp "$path" "dist-release/$name"
+          printf '%s  %s\n' "$sha" "$name" > "dist-release/$name.sha256"
+
+          {
+            echo "name=$name"
+            echo "path=dist-release/$name"
+            echo "sha=$sha"
+            echo "size=$size"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check the row RELEASES.md claims
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ steps.dmg.outputs.sha }}
+          SIZE: ${{ steps.dmg.outputs.size }}
+        run: |
+          set -euo pipefail
+          row="$(grep -E "^\| ${VERSION//./\\.} \|" RELEASES.md || true)"
+          if [ -n "$row" ] && ! printf '%s' "$row" | grep -q 'pending'; then
+            # A committed digest for this version that disagrees with the build
+            # means the manifest is describing an installer nobody can rebuild.
+            if ! printf '%s' "$row" | grep -q "$SHA"; then
+              echo "::error::RELEASES.md records a different SHA-256 for $VERSION than this build produced."
+              echo "::error::  manifest: $row"
+              echo "::error::  built:    $SHA"
+              exit 1
+            fi
+          fi
+          {
+            echo ""
+            echo "### RELEASES.md row"
+            echo ""
+            echo '```'
+            echo "| $VERSION | $SIZE | \`$SHA\` |"
+            echo '```'
+            echo ""
+            echo "Commit that row (replacing any \`pending\` one) so the manifest matches the shipped installer."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.dmg.outputs.name }}
+          path: dist-release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish the Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          NAME: ${{ steps.dmg.outputs.name }}
+          DMG: ${{ steps.dmg.outputs.path }}
+          SHA: ${{ steps.dmg.outputs.sha }}
+          SIZE: ${{ steps.dmg.outputs.size }}
+        run: |
+          set -euo pipefail
+
+          # Re-check: the guard at the top of the job ran an hour ago.
+          assets="$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)"
+          if printf '%s\n' "$assets" | grep -Eq "^SuperTwinV11_${VERSION}_.*\.dmg$"; then
+            echo "::error::Release $TAG gained a .dmg asset while this build ran — refusing to overwrite it."
+            echo "::error::The installer is still available as this run's workflow artifact."
+            exit 1
+          fi
+
+          # Written to a file so the markdown table is not indented by YAML.
+          {
+            echo "macOS (Apple silicon) installer."
+            echo ""
+            echo "| Version | Size | SHA-256 |"
+            echo "|---|---|---|"
+            echo "| $VERSION | $SIZE | \`$SHA\` |"
+            echo ""
+            echo "Built by \`$GITHUB_WORKFLOW\` from $GITHUB_SHA."
+          } > /tmp/notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # No --clobber anywhere in this file: gh fails if the name is taken.
+            gh release upload "$TAG" "$DMG" "$DMG.sha256"
+          else
+            gh release create "$TAG" "$DMG" "$DMG.sha256" \
+              --title "SuperTwinV11 $VERSION" \
+              --notes-file /tmp/notes.md \
+              --target "$GITHUB_SHA"
+          fi
+
+          echo "published $NAME on $TAG" >> "$GITHUB_STEP_SUMMARY"

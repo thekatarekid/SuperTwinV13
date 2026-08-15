@@ -1066,7 +1066,7 @@ export interface EvaluationSummary {
   by_type: Partial<Record<EvalOutputType, { up: number; down: number }>>;
 }
 
-/** GET /api/brain/file?path=… — one markdown file out of the brain wiki. */
+/** GET /api/brain/file?path=… — one file out of the brain folder. */
 export interface BrainFile {
   path: string;
   content: string;
@@ -1114,7 +1114,11 @@ export async function getEventDetail(
 
 // ---- Brain files -------------------------------------------------------------
 
-/** GET /api/brain/file?path=… — read a brain markdown file (brain root only). */
+/**
+ * GET /api/brain/file?path=… — read a file out of the brain folder (brain root
+ * only). DEBUG EXPORT: the worker mounts this route only while
+ * `settings.debug_export` is on, so a default install answers 404 here.
+ */
 export async function getBrainFile(
   path: string,
   signal?: AbortSignal,

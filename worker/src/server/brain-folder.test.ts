@@ -2,6 +2,7 @@
 // HTTP tests for the Settings "extras" wired in this stage:
 //   - GET  /api/brain/info           → { dir, fileCount }
 //   - POST /api/brain/reveal         → { ok }  (best-effort `open <brainRoot>`)
+//   - GET  /api/brain/file           → 404 unless settings.debug_export is on
 //   - GET  /api/settings/models      → now carries enabledByRole (per-process)
 //   - POST /api/settings/models/enabled { role, enabled } → per-process on/off
 //   - the chat kill-switch: chat disabled → notice, provider NEVER called.
@@ -14,7 +15,7 @@
 // ===========================================================================
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -113,6 +114,40 @@ describe("POST /api/brain/reveal", () => {
     expect(body.ok).toBe(true);
     // The route called the injected reveal with the brain root — no real `open`.
     expect(revealed).toEqual([brainRoot()]);
+  });
+});
+
+describe("GET /api/brain/file (debug export, V2 §3.2)", () => {
+  it("is not on the default router — reading the brain has to be asked for", async () => {
+    // The markdown brain is not a product surface any more, so a default
+    // install must not serve message text out of the folder over HTTP at all.
+    store.setDebugExportEnabled(false);
+    writeFileSync(join(brainRoot(), "me", "notes.md"), "# Notes\n", "utf8");
+    const { status } = await getJson<{ error?: string }>(
+      "/api/brain/file?path=me/notes.md",
+    );
+    expect(status).toBe(404);
+  });
+
+  it("serves the file once settings.debug_export is on, and stops again when it is off", async () => {
+    store.setDebugExportEnabled(true);
+    const on = await getJson<{ path: string; content: string }>(
+      "/api/brain/file?path=me/notes.md",
+    );
+    expect(on.status).toBe(200);
+    expect(on.body.content).toContain("# Notes");
+
+    // The flag is read per request, so turning it off takes effect at once
+    // rather than at the next boot.
+    store.setDebugExportEnabled(false);
+    const off = await getJson<{ error?: string }>("/api/brain/file?path=me/notes.md");
+    expect(off.status).toBe(404);
+  });
+
+  it("leaves the brain FOLDER routes alone — those are not the export", async () => {
+    store.setDebugExportEnabled(false);
+    const { status } = await getJson<{ dir: string }>("/api/brain/info");
+    expect(status).toBe(200);
   });
 });
 

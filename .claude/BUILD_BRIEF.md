@@ -26,7 +26,14 @@ to read only those line ranges. These files are 100–200 KB each.
 
 1. **TypeScript strict.** `npx tsc -b` must be clean for anything you touch.
 2. **Tests are mandatory and ship in the same change.** Framework is `vitest`. Put tests next to the
-   source as `<name>.test.ts`. Run `npx vitest run <paths>` for your files before you finish.
+   source as `<name>.test.ts`. There are **three separate suites** — know which one covers your files:
+   - `worker/` → `npm test -w worker` (~950 tests, its own vitest config). **The root `npx vitest run`
+     does NOT run these.** If you touched `worker/src`, this is the suite you must run.
+   - `src/` (React) → `npx vitest run` from the repo root.
+   - `scripts/` → `npx vitest run --config scripts/vitest.config.mjs`.
+   Run the targeted files first (`npx vitest run <path>`), then the whole suite that owns them.
+   Note: `worker/src/server/media-tools.test.ts` has one pre-existing flaky download assertion that
+   also fails on `main` — it is not yours, leave it be and say so if you see it.
 3. **No file over ~600 lines.** Split by concern.
 4. Executor tags in code comments where the doc names one: `[CODE] [ML] [LLM-S] [LLM-M] [AGENT]`.
 5. **No data migration.** Fresh install only. Never edit an already-applied migration.

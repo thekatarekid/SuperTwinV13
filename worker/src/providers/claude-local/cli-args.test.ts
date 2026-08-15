@@ -16,6 +16,33 @@ function argValue(args: string[], flag: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/**
+ * Run `fn` with `process.env` patched, then restore exactly. A patch value of
+ * `undefined` DELETES the variable for the duration of the call.
+ *
+ * buildChildEnv() starts from `{ ...process.env }` — inheriting the parent
+ * environment is the whole point of it — so any assertion about what the
+ * function itself contributes has to control the ambient value first.
+ * Otherwise the test is really asserting on the shell that launched vitest
+ * (CI sandboxes that export MAX_THINKING_TOKENS made this fail).
+ */
+function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
+  const saved = new Map<string, string | undefined>();
+  for (const [k, v] of Object.entries(patch)) {
+    saved.set(k, process.env[k]);
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 describe("buildCliArgs — plain completion mode", () => {
   it("forces --max-turns 1, tool denial, and neutral settings", () => {
     const args = buildCliArgs({ allowedTools: [], plainCompletion: true });
@@ -174,11 +201,19 @@ describe("isValidModelId / catalog", () => {
 
 describe("buildChildEnv — plain completion disables extended thinking", () => {
   it("sets MAX_THINKING_TOKENS=0 only in plain-completion mode", () => {
-    const plain = buildChildEnv("claude", true);
-    expect(plain.MAX_THINKING_TOKENS).toBe("0");
+    // With nothing ambient, plain completion pins the budget to 0 and normal
+    // mode contributes nothing of its own.
+    withEnv({ MAX_THINKING_TOKENS: undefined }, () => {
+      expect(buildChildEnv("claude", true).MAX_THINKING_TOKENS).toBe("0");
+      expect(buildChildEnv("claude", false).MAX_THINKING_TOKENS).toBeUndefined();
+    });
+  });
 
-    const normal = buildChildEnv("claude", false);
-    expect(normal.MAX_THINKING_TOKENS).toBeUndefined();
+  it("overrides an inherited budget in plain completion but inherits it otherwise", () => {
+    withEnv({ MAX_THINKING_TOKENS: "31999" }, () => {
+      expect(buildChildEnv("claude", true).MAX_THINKING_TOKENS).toBe("0");
+      expect(buildChildEnv("claude", false).MAX_THINKING_TOKENS).toBe("31999");
+    });
   });
 });
 
@@ -193,22 +228,6 @@ describe("buildChildEnv — plain completion disables extended thinking", () => 
 // out; the same argv run from a shell (which always keeps PWD == cwd) was fine.
 // ---------------------------------------------------------------------------
 describe("buildChildEnv — PWD agrees with the spawn cwd", () => {
-  const withEnv = <T>(patch: Record<string, string>, fn: () => T): T => {
-    const saved = new Map<string, string | undefined>();
-    for (const [k, v] of Object.entries(patch)) {
-      saved.set(k, process.env[k]);
-      process.env[k] = v;
-    }
-    try {
-      return fn();
-    } finally {
-      for (const [k, v] of saved) {
-        if (v === undefined) delete process.env[k];
-        else process.env[k] = v;
-      }
-    }
-  };
-
   it("overwrites an inherited PWD that points somewhere else", () => {
     const env = withEnv(
       { PWD: "/Users/someone/Documents/some-repo" },

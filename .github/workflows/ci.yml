@@ -6,8 +6,15 @@
 name: CI
 
 on:
+  # Branch pushes are covered by the pull_request trigger, so restricting push
+  # to main keeps a PR'd branch from running the whole suite twice per commit.
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

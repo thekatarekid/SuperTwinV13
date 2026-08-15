@@ -1,41 +1,39 @@
 # SuperTwinV11 — Golden Evals V1
-
 **1,000 labelled evals** for the chunking build (Phase 1 + Phase 2). Human-reviewable source of truth; the harness materialises each row into a JSON fixture (frozen events in, expected labels out) keyed by the eval ID.
-
 ## Format
-
 1. **ID** — stable key (`<CAT>-<n>`); fixtures live at `evals/fixtures/<ID>.json`.
+  
 2. **Context** — stream kind / source / sub-area under test.
+  
 3. **Input** — compact scenario; the fixture holds the full synthetic events.
+  
 4. **Expected** — the label the pipeline must produce.
+  
 5. **Why** — the rule under test (traces to the Phase 1/2 docs).
+  
 
 Determinism rule: `[CODE]`-only categories (A–E, I, L-partial) must match **exactly**; model categories (F partial, G, H, J, K) are scored against gates in the Phase docs (§14 Phase 1, §11 Phase 2). Model-call fixtures freeze verdicts so the suite runs offline.
-
 ## Coverage
-
 | Cat | Name | Count | Tests |
-|---|---|---|---|
-| A | SESS-CONV | 180 | Session boundaries — conversation streams (WhatsApp/Slack-shaped) |
-| B | SESS-DOC | 60 | Session boundaries — document streams (Docs/Notes sittings) |
-| C | SESS-ACT | 80 | Session boundaries — activity streams (browser/commerce/watch) |
-| D | SESS-AMB | 60 | Session boundaries — ambient streams (screen/voice) + prefilter |
-| E | SESS-BND | 40 | Session boundaries — bounded records (calendar/meetings/rides) |
-| F | ENT-RES | 170 | Entity identity resolution (bind/merge/split/negative/me) |
-| G | ENT-MEN | 90 | Mention linking (roster, pronouns, hints, ambiguity) |
-| H | ENT-EDGE | 70 | Relations / edges (family, work, care, metadata edges, validity) |
-| I | ENR | 30 | Enrichment executor routing (LLM-S vs ML vs CODE) |
-| J | EPI | 100 | Episodes (1:1 default, split, attach, aging, replay) — Phase 2 |
-| K | ARC | 100 | Arcs (bridges, overlap, similarity, adjudication, aging) — Phase 2 |
-| L | CAL | 20 | Embedder calibration (floor, normalisation, per-use-case) |
-| — | **Total** | **1000** | |
-
+| --- | --- | --- | --- |
+| A   | SESS-CONV | 180 | Session boundaries — conversation streams (WhatsApp/Slack-shaped) |
+| B   | SESS-DOC | 60  | Session boundaries — document streams (Docs/Notes sittings) |
+| C   | SESS-ACT | 80  | Session boundaries — activity streams (browser/commerce/watch) |
+| D   | SESS-AMB | 60  | Session boundaries — ambient streams (screen/voice) + prefilter |
+| E   | SESS-BND | 40  | Session boundaries — bounded records (calendar/meetings/rides) |
+| F   | ENT-RES | 170 | Entity identity resolution (bind/merge/split/negative/me) |
+| G   | ENT-MEN | 90  | Mention linking (roster, pronouns, hints, ambiguity) |
+| H   | ENT-EDGE | 70  | Relations / edges (family, work, care, metadata edges, validity) |
+| I   | ENR | 30  | Enrichment executor routing (LLM-S vs ML vs CODE) |
+| J   | EPI | 100 | Episodes (1:1 default, split, attach, aging, replay) — Phase 2 |
+| K   | ARC | 100 | Arcs (bridges, overlap, similarity, adjudication, aging) — Phase 2 |
+| L   | CAL | 20  | Embedder calibration (floor, normalisation, per-use-case) |
+| —   | **Total** | **1000** |     |
 ## A — SESS-CONV (180)
-
 _Session boundaries — conversation streams (WhatsApp/Slack-shaped)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | A-001 | conversation · WhatsApp 1:1 Pranjali | msg 'lunch?' at t0; next msg at t0+5h59m; stream G=6h | NO cut | just under G=6h |
 | A-002 | conversation · WhatsApp 1:1 Pranjali | msg 'sent the doc' at t0; next msg at t0+6h01m; stream G=6h | CUT (gap) | just over G=6h |
 | A-003 | conversation · WhatsApp 1:1 Pranjali | msg voice note at t0; next msg at t0+30m; stream G=6h | NO cut | well under G |
@@ -216,13 +214,11 @@ _Session boundaries — conversation streams (WhatsApp/Slack-shaped)_
 | A-178 | conversation · tz Asia/Kolkata→America/New_York (travel) | msgs at 23:50 and 00:10 local-to-stream | CUT (day_boundary) computed in the STREAM's tz, not UTC | midnight is local; travel changes are per-stream override |
 | A-179 | conversation · skew | msg ts 12 min in the future | clamp to now, flag in structured_json | future timestamps are device bugs, not data |
 | A-180 | conversation · skew | msg ts 3 min in the future | accept (≤5m tolerance) | small skew tolerated |
-
 ## B — SESS-DOC (60)
-
 _Session boundaries — document streams (Docs/Notes sittings)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | B-001 | document · Google Docs · rent agreement draft | revision burst; next revision after 20m; doc gap G=45m | NO cut | a sitting ends when the author stops for >45m |
 | B-002 | document · Google Docs · rent agreement draft | revision burst; next revision after 40m; doc gap G=45m | NO cut | a sitting ends when the author stops for >45m |
 | B-003 | document · Google Docs · rent agreement draft | revision burst; next revision after 50m; doc gap G=45m | CUT (gap) | a sitting ends when the author stops for >45m |
@@ -283,13 +279,11 @@ _Session boundaries — document streams (Docs/Notes sittings)_
 | B-058 | document · Notes → Docs same title | note 'Goa packing' edited in Notes, later a Doc 'Goa packing' created | TWO streams, two sessions (different artifacts); linking is arc-layer work | sessions never merge across artifacts |
 | B-059 | document · Notes → Docs same title | note 'Goa packing' edited in Notes, later a Doc 'Goa packing' created | TWO streams, two sessions (different artifacts); linking is arc-layer work | sessions never merge across artifacts |
 | B-060 | document · Notes → Docs same title | note 'Goa packing' edited in Notes, later a Doc 'Goa packing' created | TWO streams, two sessions (different artifacts); linking is arc-layer work | sessions never merge across artifacts |
-
 ## C — SESS-ACT (80)
-
 _Session boundaries — activity streams (browser/commerce/watch)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | C-001 | activity · browser · airbnb.com | visit burst; next visit after 25m; activity G=30m | NO cut | browsing bursts end at 30m silence |
 | C-002 | activity · browser · airbnb.com | visit burst; next visit after 35m; activity G=30m | CUT (gap) | browsing bursts end at 30m silence |
 | C-003 | activity · browser · booking.com | visit burst; next visit after 25m; activity G=30m | NO cut | browsing bursts end at 30m silence |
@@ -370,13 +364,11 @@ _Session boundaries — activity streams (browser/commerce/watch)_
 | C-078 | activity · browser bookmark | bookmark saved mid-burst on same domain | same session as the burst (same context) | a save is part of the sitting, not a transaction |
 | C-079 | activity · browser bookmark | bookmark saved mid-burst on same domain | same session as the burst (same context) | a save is part of the sitting, not a transaction |
 | C-080 | activity · browser bookmark | bookmark saved mid-burst on same domain | same session as the burst (same context) | a save is part of the sitting, not a transaction |
-
 ## D — SESS-AMB (60)
-
 _Session boundaries — ambient streams (screen/voice) + prefilter_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | D-001 | ambient · PC voice | 20m of room silence between two conversations, VAD on | silence never written to disk; two sessions (context_shift: silence>90s) | VAD gates the recorder itself |
 | D-002 | ambient · PC voice | 25m of room silence between two conversations, VAD on | silence never written to disk; two sessions (context_shift: silence>90s) | VAD gates the recorder itself |
 | D-003 | ambient · PC voice | 30m of room silence between two conversations, VAD on | silence never written to disk; two sessions (context_shift: silence>90s) | VAD gates the recorder itself |
@@ -437,13 +429,11 @@ _Session boundaries — ambient streams (screen/voice) + prefilter_
 | D-058 | ambient · manifest validation | register ambient source with prefilter=dedupe | accept | ambient without a prefilter is a boot error |
 | D-059 | ambient · manifest validation | register ambient source with prefilter=diff | accept | ambient without a prefilter is a boot error |
 | D-060 | ambient · manifest validation | register ambient source with prefilter=threshold | accept | ambient without a prefilter is a boot error |
-
 ## E — SESS-BND (40)
-
 _Session boundaries — bounded records (calendar/meetings/rides)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | E-001 | bounded · Calendar | event 'Standup 10:00–10:15' | session = the record; boundary_reason=record_bounded; no inference | bounded records carry their own boundaries |
 | E-002 | bounded · Calendar | event 'Dr. Shreedhar 16:00–16:30' | session = the record; boundary_reason=record_bounded; no inference | bounded records carry their own boundaries |
 | E-003 | bounded · Calendar | event 'Gargi's 40th 19:00–23:00' | session = the record; boundary_reason=record_bounded; no inference | bounded records carry their own boundaries |
@@ -484,13 +474,11 @@ _Session boundaries — bounded records (calendar/meetings/rides)_
 | E-038 | bounded · size-cap interaction | calendar event with 140 embedded agenda lines | NO size-cap cut (bounded exempt) | record_bounded overrides caps |
 | E-039 | bounded · size-cap interaction | calendar event with 170 embedded agenda lines | NO size-cap cut (bounded exempt) | record_bounded overrides caps |
 | E-040 | bounded · size-cap interaction | calendar event with 200 embedded agenda lines | NO size-cap cut (bounded exempt) | record_bounded overrides caps |
-
 ## F — ENT-RES (170)
-
 _Entity identity resolution (bind/merge/split/negative/me)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | F-001 | identity · exact rebind | known jid of Pranjali appears in a new group | BIND to existing ent(Pranjali) [CODE]; no new entity | exact (source,kind,value) match is rung 1 |
 | F-002 | identity · exact rebind | known jid of Rahul appears in a new group | BIND to existing ent(Rahul) [CODE]; no new entity | exact (source,kind,value) match is rung 1 |
 | F-003 | identity · exact rebind | known jid of Rashmi appears in a new group | BIND to existing ent(Rashmi) [CODE]; no new entity | exact (source,kind,value) match is rung 1 |
@@ -661,13 +649,11 @@ _Entity identity resolution (bind/merge/split/negative/me)_
 | F-168 | identity · handle collision | handle @aditya on github — same string exists on another source for a different person | handles are per-source identities; NO cross-source bind on handle string alone | handle strings collide; only phone/email bind cross-source at CODE rung |
 | F-169 | identity · handle collision | handle @keerti_k on instagram — same string exists on another source for a different person | handles are per-source identities; NO cross-source bind on handle string alone | handle strings collide; only phone/email bind cross-source at CODE rung |
 | F-170 | identity · handle collision | handle @keerti on slack — same string exists on another source for a different person | handles are per-source identities; NO cross-source bind on handle string alone | handle strings collide; only phone/email bind cross-source at CODE rung |
-
 ## G — ENT-MEN (90)
-
 _Mention linking (roster, pronouns, hints, ambiguity)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | G-001 | mention · roster person | msg: 'ask Pranjali about the Goa trip' | mention → ent(Pranjali), confidence ≥0.9 | plain roster hit |
 | G-002 | mention · roster person | msg: 'ask Rahul about the housing search' | mention → ent(Rahul), confidence ≥0.9 | plain roster hit |
 | G-003 | mention · roster person | msg: 'ask Rashmi about the bhangra class' | mention → ent(Rashmi), confidence ≥0.9 | plain roster hit |
@@ -758,13 +744,11 @@ _Mention linking (roster, pronouns, hints, ambiguity)_
 | G-088 | mention · ambiguous → ask | 'tell Amit' — TWO roster Amits, both plausible in context | entity_id NULL + hint 'Amit (which?)' + question raised | two live candidates is a question, never a coin flip |
 | G-089 | mention · ambiguous → ask | 'tell Amit' — TWO roster Amits, both plausible in context | entity_id NULL + hint 'Amit (which?)' + question raised | two live candidates is a question, never a coin flip |
 | G-090 | mention · ambiguous → ask | 'tell Amit' — TWO roster Amits, both plausible in context | entity_id NULL + hint 'Amit (which?)' + question raised | two live candidates is a question, never a coin flip |
-
 ## H — ENT-EDGE (70)
-
 _Relations / edges (family, work, care, metadata edges, validity)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | H-001 | edge · family_of | quote 'meri didi' about Rashmi | family_of:sibling edge with verbatim quote, conf model-set | family edges from text need quotes |
 | H-002 | edge · family_of | quote 'maa' about Mummy | family_of:mother edge with verbatim quote, conf model-set | family edges from text need quotes |
 | H-003 | edge · family_of | quote 'papa' about Papa | family_of:father edge with verbatim quote, conf model-set | family edges from text need quotes |
@@ -835,13 +819,11 @@ _Relations / edges (family, work, care, metadata edges, validity)_
 | H-068 | edge · about/participant_in | calendar invite 'Standup 10:00–10:15' with attendees | participant_in edges [CODE] from attendees; about edge to occasion topic | calendar metadata yields free edges |
 | H-069 | edge · about/participant_in | calendar invite 'Dr. Shreedhar 16:00–16:30' with attendees | participant_in edges [CODE] from attendees; about edge to occasion topic | calendar metadata yields free edges |
 | H-070 | edge · about/participant_in | calendar invite 'Gargi's 40th 19:00–23:00' with attendees | participant_in edges [CODE] from attendees; about edge to occasion topic | calendar metadata yields free edges |
-
 ## I — ENR (30)
-
 _Enrichment executor routing (LLM-S vs ML vs CODE)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | I-001 | enrich routing · image | photo #1 (menu/screenshot/document/person/receipt) | caption via [LLM-S] Haiku-class CLI bare call (batched, hallucination guard) | vision is a small hosted LLM, NOT on-device ML |
 | I-002 | enrich routing · image | photo #2 (menu/screenshot/document/person/receipt) | caption via [LLM-S] Haiku-class CLI bare call (batched, hallucination guard) | vision is a small hosted LLM, NOT on-device ML |
 | I-003 | enrich routing · image | photo #3 (menu/screenshot/document/person/receipt) | caption via [LLM-S] Haiku-class CLI bare call (batched, hallucination guard) | vision is a small hosted LLM, NOT on-device ML |
@@ -872,13 +854,11 @@ _Enrichment executor routing (LLM-S vs ML vs CODE)_
 | I-028 | enrich routing · embedding | any text event | [ML] e5-small int8 on-device | embeddings are on-device |
 | I-029 | enrich routing · budget | quiet day, 4 texts, no media | ZERO LLM enrichment calls | enrichment cost scales with media, not time |
 | I-030 | enrich routing · budget | quiet day, 4 texts, no media | ZERO LLM enrichment calls | enrichment cost scales with media, not time |
-
 ## J — EPI (100)
-
 _Episodes (1:1 default, split, attach, aging, replay) — Phase 2_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | J-001 | episode · 1:1 default | sealed session solely about Goa trip; no drift; no open episodes in stream | episode := session, NO model call | the common case is free |
 | J-002 | episode · 1:1 default | sealed session solely about housing search; no drift; no open episodes in stream | episode := session, NO model call | the common case is free |
 | J-003 | episode · 1:1 default | sealed session solely about bhangra class; no drift; no open episodes in stream | episode := session, NO model call | the common case is free |
@@ -979,13 +959,11 @@ _Episodes (1:1 default, split, attach, aging, replay) — Phase 2_
 | J-098 | episode · pre-flag | session with high intra-session embedding drift | drift high → P-EP2 runs; no drift & no open episodes → skip call | the [ML] pre-flag decides whether to spend the [LLM-M] call |
 | J-099 | episode · pre-flag | session with no intra-session embedding drift | drift high → P-EP2 runs; no drift & no open episodes → skip call | the [ML] pre-flag decides whether to spend the [LLM-M] call |
 | J-100 | episode · pre-flag | session with high intra-session embedding drift | drift high → P-EP2 runs; no drift & no open episodes → skip call | the [ML] pre-flag decides whether to spend the [LLM-M] call |
-
 ## K — ARC (100)
-
 _Arcs (bridges, overlap, similarity, adjudication, aging) — Phase 2_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | K-001 | arc · url bridge | link airbnb.com/item0 shared in WhatsApp; same canonical url visited in browser | bridge(url) [CODE] → episodes JOIN one arc, precision 1.0 | exact join before any similarity |
 | K-002 | arc · url bridge | link booking.com/item1 shared in WhatsApp; same canonical url visited in browser | bridge(url) [CODE] → episodes JOIN one arc, precision 1.0 | exact join before any similarity |
 | K-003 | arc · url bridge | link zomato.com/item2 shared in WhatsApp; same canonical url visited in browser | bridge(url) [CODE] → episodes JOIN one arc, precision 1.0 | exact join before any similarity |
@@ -1086,13 +1064,11 @@ _Arcs (bridges, overlap, similarity, adjudication, aging) — Phase 2_
 | K-098 | arc · key stability | full re-derivation run #4 on same corpus | same arc_keys → same ids; labels & pins survive | arc_key = anchors+label stem keeps ids stable |
 | K-099 | arc · key stability | full re-derivation run #5 on same corpus | same arc_keys → same ids; labels & pins survive | arc_key = anchors+label stem keeps ids stable |
 | K-100 | arc · key stability | full re-derivation run #6 on same corpus | same arc_keys → same ids; labels & pins survive | arc_key = anchors+label stem keeps ids stable |
-
 ## L — CAL (20)
-
 _Embedder calibration (floor, normalisation, per-use-case)_
 
-| ID | Context | Input | Expected | Why |
-|---|---|---|---|---|
+| ID  | Context | Input | Expected | Why |
+| --- | --- | --- | --- | --- |
 | L-001 | calibration · floor | measure e5 floor from 1000 random unrelated pairs | floor ≈0.75–0.85 persisted to embedder_calib per (model,use_case) | the floor is measured, never assumed |
 | L-002 | calibration · floor | measure e5 floor from 1500 random unrelated pairs | floor ≈0.75–0.85 persisted to embedder_calib per (model,use_case) | the floor is measured, never assumed |
 | L-003 | calibration · floor | measure e5 floor from 2000 random unrelated pairs | floor ≈0.75–0.85 persisted to embedder_calib per (model,use_case) | the floor is measured, never assumed |

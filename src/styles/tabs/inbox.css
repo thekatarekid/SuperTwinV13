@@ -1,0 +1,1061 @@
+/* ===================================================================== */
+/* Inbox tab — Dayflow language: warm gradient onboarding wizard + white  */
+/* timeline-style chat cards. Read-only WhatsApp inbox.                   */
+/* ===================================================================== */
+
+/* The content area applies its own padding; the inbox fills it edge-to-edge. */
+.content:has(.inbox) {
+  padding: 0;
+}
+
+.inbox {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* ---- Onboarding: warm gradient empty state + wizard card -------------- */
+.wa-onboard {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  overflow: auto;
+  /* Dayflow gated/empty state: soft peach glow rising from the bottom. */
+  background:
+    radial-gradient(120% 90% at 50% 108%, var(--bg-apricot) 0%, var(--bg-peach) 42%, transparent 78%),
+    linear-gradient(180deg, var(--surface) 0%, var(--bg-cream) 100%);
+}
+
+.wa-onboard__inner {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.wa-onboard__hero {
+  text-align: center;
+}
+
+.wa-onboard__heading {
+  position: relative;
+  display: inline-block;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+  color: var(--text-display);
+}
+
+/* Rotated orange ticket-tag accent (Dayflow "BETA" tag pattern). */
+.wa-onboard__tag {
+  position: absolute;
+  top: -14px;
+  right: -34px;
+  transform: rotate(8deg);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--accent-cta);
+  border-radius: 6px;
+  padding: 3px 8px;
+  box-shadow: var(--shadow-cta);
+}
+
+.wa-onboard__card {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border-peach);
+  border-radius: var(--radius-panel);
+  padding: 28px 28px 32px;
+  box-shadow: var(--shadow-modal);
+}
+
+/* ---- Wizard step list (check circles) --------------------------------- */
+.wa-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+}
+.wa-steps__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex: 1;
+}
+.wa-steps__item:not(:last-child)::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-strong);
+  margin-left: 4px;
+}
+.wa-steps__dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--well);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  flex: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.wa-steps__item--active .wa-steps__dot {
+  background: var(--accent-cta);
+  border-color: var(--accent-cta);
+  color: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.wa-steps__item--active .wa-steps__label {
+  color: var(--text);
+  font-weight: 600;
+}
+.wa-steps__item--done .wa-steps__dot {
+  background: var(--success);
+  border-color: transparent;
+  color: #fff;
+}
+
+.wa-onboard__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wa-onboard__body--center {
+  align-items: center;
+  padding: 24px 0;
+}
+.wa-onboard__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 25px;
+  letter-spacing: -0.01em;
+  color: var(--text-display);
+  margin: 0;
+}
+.wa-onboard__hint {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  margin: 0;
+}
+.wa-onboard__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+.wa-onboard__error {
+  font-size: 12.5px;
+  color: var(--error);
+  background: var(--error-bg);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, var(--border));
+  border-radius: var(--radius-input);
+  padding: 8px 12px;
+  margin-bottom: 16px;
+}
+
+.wa-qr {
+  align-self: center;
+  padding: 16px;
+  background: #fff;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--border-peach);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  place-items: center;
+  min-width: 252px;
+  min-height: 252px;
+}
+.wa-qr__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  /* On the solid-white QR frame keep a dark warm neutral so the
+     "generating…" hint stays readable. */
+  color: var(--text);
+}
+.wa-qr__waiting {
+  font-size: 13px;
+}
+.wa-qr__actions {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---- Range picker: Dayflow option cards -------------------------------- */
+.wa-ranges {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.wa-range {
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: var(--radius-tile);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.24s var(--spring), border-color 0.12s ease,
+    background 0.12s ease;
+}
+.wa-range:hover {
+  border-color: var(--accent-border);
+  transform: scale(1.02);
+}
+.wa-range:active {
+  transform: scale(0.97);
+}
+.wa-range--selected {
+  border-color: var(--accent-border);
+  background: var(--accent-tint);
+  color: #89380e;
+  font-weight: 600;
+}
+
+/* ---- Inbox status bar --------------------------------------------------- */
+.inbox__grid {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.inbox__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+.inbox__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+}
+.inbox__conn-label {
+  font-weight: 600;
+  color: var(--text);
+}
+.inbox__conn-name {
+  color: var(--text-muted);
+}
+.inbox__bar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.inbox__killswitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.inbox__killswitch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.inbox__killswitch-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  transition: background 0.15s ease;
+}
+.inbox__killswitch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.24s var(--spring);
+  box-shadow: 0 1px 2px rgba(90, 60, 20, 0.3);
+}
+.inbox__killswitch input:checked + .inbox__killswitch-track {
+  background: var(--success);
+}
+.inbox__killswitch input:checked + .inbox__killswitch-track::after {
+  transform: translateX(16px);
+}
+.inbox__killswitch-text {
+  min-width: 42px;
+  font-weight: 600;
+}
+
+.inbox__error {
+  margin: 0;
+  padding: 8px 20px;
+  font-size: 13px;
+  color: var(--error);
+  background: var(--error-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--error) 25%, var(--border));
+}
+
+/* ---- R5.1: non-blocking import banner (top of the Inbox) ---------------- */
+.inbox__import-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 20px;
+  font-size: 13px;
+  color: #89380e;
+  background: var(--accent-tint);
+  border-bottom: 1px solid var(--border-peach);
+  flex: none;
+}
+.inbox__import-banner-text {
+  min-width: 0;
+}
+.inbox__import-banner-hint {
+  color: var(--text-muted);
+}
+
+/* ---- Inbox panes: list | thread ----------------------------------------- */
+.inbox__panes {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.inbox__list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-wash);
+}
+.inbox__search {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.inbox__search-input {
+  width: 100%;
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  padding: 9px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+.inbox__search-input::placeholder {
+  color: var(--text-faint);
+}
+.inbox__search-input:focus {
+  border-color: var(--accent-border);
+}
+
+.inbox__chats,
+.inbox__results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inbox__empty {
+  padding: 20px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.inbox__empty--error {
+  color: var(--error);
+}
+.inbox__muted {
+  color: var(--text-muted);
+}
+
+/* Chat rows: Dayflow timeline-style cards — white, radius 12, hairline
+   border, soft warm shadow, meta right-aligned 13px gray. */
+.inbox__chat {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  transition: transform 0.24s var(--spring), background 0.12s ease,
+    border-color 0.12s ease;
+}
+.inbox__chat:hover {
+  background: var(--accent-tint);
+  border-color: var(--border-peach);
+  transform: scale(1.01);
+}
+.inbox__chat:active {
+  transform: scale(0.98);
+}
+.inbox__chat--active {
+  background: var(--accent-tint);
+  border-color: var(--accent-border);
+}
+.inbox__chat-icon {
+  font-size: 20px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--well);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.inbox__chat-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.inbox__chat-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.inbox__chat-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox__chat-when {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex: none;
+}
+.inbox__chat-preview {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Search results (same card language as chat rows) */
+.inbox__result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  transition: transform 0.24s var(--spring), background 0.12s ease,
+    border-color 0.12s ease;
+}
+.inbox__result:hover {
+  background: var(--accent-tint);
+  border-color: var(--border-peach);
+  transform: scale(1.01);
+}
+.inbox__result-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.inbox__result-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.inbox__result-when {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.inbox__result-snippet {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.inbox__result-snippet b {
+  color: #89380e;
+  background: var(--accent-tint-strong);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* ---- Thread pane --------------------------------------------------------- */
+.inbox__thread-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--surface);
+}
+.inbox__thread-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+.inbox__thread-icon {
+  font-size: 18px;
+}
+.inbox__thread-title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  color: var(--text-display);
+}
+.inbox__thread-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.inbox__thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Loading an older page grows the document above the viewport, and InboxTab's
+     layout effect already puts the position back. Chromium's own scroll
+     anchoring would do it a second time, and the two together overshot by about
+     a page (v7 §5.3) — one mechanism compensates, and it is the one in JS. */
+  overflow-anchor: none;
+}
+/* R7.1: scroll-up pagination affordances at the top of the thread. */
+.inbox__older-loading,
+.inbox__older-start {
+  align-self: center;
+  margin: 2px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+.inbox__thread-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.inbox__system {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--well);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+  margin: 4px 0;
+}
+
+.inbox__msg {
+  display: flex;
+  width: 100%;
+}
+.inbox__msg--out {
+  justify-content: flex-end;
+}
+.inbox__msg--in {
+  justify-content: flex-start;
+}
+/* Messages carrying reactions get extra bottom room so the overlaid emoji
+   chips (which hang past the bubble's lower edge) don't collide with the next
+   message. R5.3. */
+.inbox__msg:has(> .inbox__bubble > .inbox__reactions) {
+  margin-bottom: 12px;
+}
+.inbox__bubble {
+  position: relative;
+  max-width: min(560px, 76%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 12px 6px;
+  border-radius: var(--radius-card);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  box-shadow: var(--shadow-card);
+}
+.inbox__bubble--out {
+  background: var(--accent-tint);
+  border: 1px solid var(--border-peach);
+  color: var(--text);
+  border-bottom-right-radius: 4px;
+}
+.inbox__bubble--in {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.inbox__msg-actor {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.inbox__msg--out .inbox__msg-actor {
+  color: #c04a00;
+}
+.inbox__msg-text {
+  white-space: pre-wrap;
+}
+.inbox__msg-caption {
+  margin-top: 2px;
+}
+.inbox__msg-time {
+  align-self: flex-end;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.inbox__msg-revoked {
+  font-style: italic;
+  color: var(--text-muted);
+}
+.inbox__msg-forwarded {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+/* Sits inside the timestamp line, so it inherits its size and colour. */
+.inbox__msg-edited::after {
+  content: "·";
+  margin: 0 4px;
+}
+
+/* ---- R5.4: quoted-reply block (above a reply's content) ----------------- */
+.inbox__quote {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 9px;
+  margin-bottom: 3px;
+  border-left: 3px solid var(--accent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-display) 6%, transparent);
+  font-size: 12.5px;
+  line-height: 1.35;
+  max-width: 100%;
+}
+.inbox__bubble--out .inbox__quote {
+  border-left-color: #c04a00;
+  background: rgba(255, 255, 255, 0.55);
+}
+.inbox__quote-actor {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inbox__bubble--out .inbox__quote-actor {
+  color: #c04a00;
+}
+.inbox__quote-text {
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- R5.3: reaction chips (overlaid at the bubble's lower edge) --------- */
+/* The chips lie over that edge, so a bubble carrying them owes them a band of
+   its own: a chip naming its reactor is as wide as the bubble, and without the
+   room it is the time it lands on. */
+.inbox__bubble:has(> .inbox__reactions) {
+  padding-bottom: 14px;
+}
+.inbox__reactions {
+  position: absolute;
+  bottom: -11px;
+  display: inline-flex;
+  gap: 3px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+}
+.inbox__msg--in .inbox__reactions {
+  left: 8px;
+}
+.inbox__msg--out .inbox__reactions {
+  right: 8px;
+}
+.inbox__reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 1px 8px 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-tile);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.inbox__reaction-emoji {
+  font-size: 12.5px;
+}
+/* The names, when there is room for them: the chip shrinks before the thread
+   does, so a long one ellipses rather than pushing past the bubble. */
+.inbox__reaction-who {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox__media-link {
+  display: block;
+}
+/* InboxTab states the box on the element itself, computed from the picture's
+   own dimensions (MEDIA_MAX_W / MEDIA_MAX_H are these two numbers). These are
+   the floor under anything that somehow arrives without one. */
+.inbox__media-img {
+  max-width: 260px;
+  max-height: 300px;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-tile);
+  display: block;
+  /* The box is that of the picture's declared shape, so this is a no-op — and
+     when a video's poster turns out not to share the clip's shape it letterboxes
+     rather than stretching a face sideways. */
+  object-fit: contain;
+}
+/* A row WhatsApp sent no dimensions for. A guessed shape is wrong for a
+   portrait photo, but it is wrong before the load and after it — which is what
+   the thread needs; `contain` keeps the whole picture rather than cropping it
+   to a shape it never had. */
+.inbox__media-img--unsized {
+  width: 260px;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+  background: var(--well);
+}
+/* A video shown as its stored frame: the play badge is what says it is a clip
+   and not a photo, since the frame itself looks like one. */
+.inbox__media-link--poster {
+  position: relative;
+  width: max-content;
+}
+.inbox__media-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* the triangle's mass sits left of its box, so nudge it back to centre */
+  padding-left: 3px;
+  border-radius: 50%;
+  background: rgba(20, 18, 16, 0.55);
+  color: #ffffff;
+  font-size: 15px;
+  pointer-events: none;
+}
+/* How long the clip runs, on the poster the way every video player puts it.
+   The badge is what turns "a picture with a play button" into a video with a
+   known length, and it never appears on a thumbnail-only fallback row — those
+   seconds belong to a file nobody has. */
+.inbox__media-duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(20, 18, 16, 0.62);
+  color: #ffffff;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* v5 §2: the moments sampled out of a video. Laid out as a strip rather than a
+   grid so it reads along the clip, and each tile carries the offset it was
+   taken at — without that it is N pictures with no claim to being one video. */
+.inbox__frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 264px;
+}
+.inbox__frame {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  border-radius: 5px;
+  overflow: hidden;
+  display: block;
+}
+.inbox__frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.inbox__frame-at {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(20, 18, 16, 0.62);
+  color: #ffffff;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one control in a bubble: opens a folded note, or the frames behind a
+   poster. Text, not a button shape — it sits inside prose and a chrome-heavy
+   control would read as louder than the message it belongs to. */
+.inbox__more {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+.inbox__more:hover {
+  text-decoration: underline;
+}
+.inbox__msg--out .inbox__more {
+  color: #c04a00;
+}
+
+.inbox__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-input);
+  background: var(--well);
+  border: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.12s ease;
+}
+.inbox__msg--out .inbox__file {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--border-peach);
+}
+.inbox__file:hover {
+  background: var(--accent-tint-strong);
+}
+.inbox__file-icon {
+  font-size: 15px;
+}
+.inbox__file-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.inbox__file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inbox__file-meta,
+.inbox__media-meta {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Link preview card: the title, blurb and picture WhatsApp sent with the URL. */
+.inbox__link {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  max-width: 300px;
+  margin-top: 4px;
+  padding: 7px 9px;
+  border-radius: var(--radius-input);
+  background: var(--well);
+  border: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.inbox__msg--out .inbox__link {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: var(--border-peach);
+}
+.inbox__link:hover {
+  background: var(--accent-tint-strong);
+}
+.inbox__link-thumb {
+  width: 54px;
+  height: 54px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 5px;
+  display: block;
+}
+.inbox__link-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.inbox__link-title,
+.inbox__link-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.inbox__link-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.inbox__link-desc {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+.inbox__link-host {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Model-written media description: quieter than the message text, tagged so it
+   never reads as something the sender wrote. */
+.inbox__ai-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 3px;
+  padding: 5px 9px;
+  border-left: 2px dashed var(--border-strong);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-display) 4%, transparent);
+}
+.inbox__ai-desc-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.inbox__ai-desc-text {
+  font-size: 12.5px;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+/* v7 §2: folded to two lines so a ten-line description stops owning the
+   thread. The height is stated rather than left to the content, because this
+   list puts its scroll position back in a layout effect and a box that finds
+   its height later moves everything under the reader (§5). 1em is this
+   element's own 12.5px and line-height is 1.4, so this is exactly two lines. */
+.inbox__ai-desc-text--folded {
+  height: calc(2 * 1.4em);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.wa-msg--flash {
+  animation: wa-flash 1.4s ease;
+}
+@keyframes wa-flash {
+  0%,
+  100% {
+    background: transparent;
+  }
+  20% {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+}

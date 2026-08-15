@@ -1,0 +1,812 @@
+/* ==========================================================================
+   Settings tab — Dayflow settings layout.
+   Serif page title (base .panel__title), left subnav (active = dark text on
+   gray-beige pill), single content column of hairline-separated sections,
+   orange-gradient toggles, warm-bordered white inputs, version footer
+   bottom-left.
+   ========================================================================== */
+
+/* The subnav needs more room than the default 900px panel, and the runs table
+   is nine columns that must not wrap. */
+.panel--settings {
+  max-width: 1280px;
+}
+
+/* ---- Layout: subnav + content column --------------------------------- */
+.settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+  flex: none;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 60vh;
+}
+
+.settings-nav__items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav__item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-radius: var(--radius-tile);
+  cursor: pointer;
+  transition: var(--transition-press), background 0.12s ease,
+    color 0.12s ease;
+}
+
+.settings-nav__item:hover {
+  color: var(--text-ink);
+  background: var(--well);
+  transform: scale(1.02);
+}
+
+.settings-nav__item:active {
+  transform: scale(0.97);
+}
+
+.settings-nav__item--active,
+.settings-nav__item--active:hover {
+  color: var(--text-ink);
+  font-weight: 600;
+  background: #efe9e0; /* Dayflow gray-beige active pill */
+}
+
+/* Version footer pinned bottom-left of the subnav column. */
+.settings-nav__footer {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---- Content column: hairline-separated sections ---------------------- */
+.settings {
+  flex: 1;
+  min-width: 0;
+  max-width: 1048px;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings__section {
+  padding: 24px 0 28px;
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 12px;
+}
+
+/* The column is as wide as the widest thing in it; everything else keeps the
+   reading width it had, because a 1000px-wide paragraph is worse than a narrow
+   one. Only a section that says so spends the extra room, and even there its
+   prose does not. */
+.settings__section > * {
+  max-width: 720px;
+}
+
+.settings__section--wide > *:not(p) {
+  max-width: none;
+}
+
+.settings__section:first-child {
+  padding-top: 4px;
+}
+
+.settings__section:last-child {
+  border-bottom: none;
+}
+
+.settings__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings__section-title {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-ink);
+  margin: 0;
+}
+
+.settings__section-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 16px;
+}
+
+.settings__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings__warn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn);
+  background: var(--accent-tint);
+  border: 1px solid var(--accent-border);
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+}
+
+/* Capsule pills for the section action buttons (Refresh / Open …). */
+.settings .wa-btn {
+  border-radius: var(--radius-pill);
+}
+
+/* ---- Stat rows (Worker / Usage) ---------------------------------------- */
+.settings__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 40px;
+  margin: 0;
+}
+
+.settings__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings__stat dt {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.settings__stat dd {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--text-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__note {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 2px 0;
+}
+
+.settings__note--field {
+  margin-top: 10px;
+}
+
+.settings__note--switch {
+  margin: 2px 0 0 52px; /* clears the switch, so it reads as that switch's copy */
+  max-width: 52ch;
+}
+
+.settings__note--future {
+  margin-top: 6px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+.settings__note--warn {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--warn);
+}
+
+/* ---- Usage: one block per spender (chat / media) ------------------------- */
+.settings__spend + .settings__spend {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.settings__spend-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-ink);
+  margin: 0 0 10px;
+}
+
+/* Six figures per spender: a grid, because in a row they read as one number.
+   The width is what holds it to three across, so it wraps to two rows. */
+.settings__spend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 14px 24px;
+  max-width: 420px;
+}
+
+.settings__spend-grid .settings__stat dd {
+  font-size: 18px;
+}
+
+/* Not a count of anything — the four above it, re-weighted. */
+.settings__spend-billable {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Model role rows ----------------------------------------------------- */
+.settings__model-roles {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings__model-role {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__model-role:first-child {
+  padding-top: 0;
+}
+
+.settings__model-role:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings__model-role-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings__model-role-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-ink);
+}
+
+.settings__model-role-caption {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+}
+
+/* Model select + its per-process switch sit on one row. */
+.settings__model-role-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Dayflow inputs: white, warm border, radius 5. */
+.settings__select,
+.settings__input {
+  width: 100%;
+  max-width: 340px;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  outline: none;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.12s ease;
+}
+
+.settings__select:focus,
+.settings__input:focus {
+  border-color: var(--accent-border);
+}
+
+.settings__select:disabled,
+.settings__input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.settings__process-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.settings__process-toggle-text {
+  min-width: 22px;
+}
+
+/* Subtle "off" state: dim the role's label and caption. */
+.settings__model-role--off .settings__model-role-label,
+.settings__model-role--off .settings__model-role-caption {
+  opacity: 0.55;
+}
+
+/* ---- Switch (Dayflow orange gradient on, gray-beige off) ----------------- */
+.settings__switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 25px;
+  flex: none;
+}
+
+.settings__switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.settings__switch input:disabled {
+  cursor: not-allowed;
+}
+
+.settings__switch-track {
+  position: absolute;
+  inset: 0;
+  background: var(--well-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  transition: background 0.18s ease, border-color 0.18s ease;
+  pointer-events: none;
+}
+
+.settings__switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(90, 60, 20, 0.25);
+  transition: transform 0.24s var(--spring);
+}
+
+.settings__switch input:checked + .settings__switch-track {
+  /* Dayflow toggle-on: warm orange gradient ending at #FF7506. */
+  background: linear-gradient(180deg, #ff8d40 0%, #ff7506 100%);
+  border-color: #f96e00;
+}
+
+.settings__switch input:checked + .settings__switch-track .settings__switch-knob {
+  transform: translateX(17px);
+}
+
+.settings__switch input:disabled + .settings__switch-track {
+  opacity: 0.5;
+}
+
+/* ---- Runs viewer: scrollable table of recent LLM calls ------------------- */
+.settings__runs-refresh {
+  flex-shrink: 0;
+}
+
+.settings__runs {
+  max-height: 460px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* How much of the log is on screen, and the way to the rest of it. */
+.settings__runs-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.settings__runs-foot .settings__note {
+  margin: 0;
+}
+
+.settings__runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.settings__runs-table th,
+.settings__runs-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.settings__runs-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.settings__runs-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.settings__runs-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__run-status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  text-transform: capitalize;
+}
+
+.settings__run-status--ok {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.settings__run-status--error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+/* ---- Brain / Logs rows + notifications switch ----------------------------- */
+.settings__logs-dirbox {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings__logs-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.settings__logs-dir {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.settings__logs-files {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings__logs-file {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__logs-file:last-child {
+  border-bottom: none;
+}
+
+.settings__logs-file-name {
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__logs-file-meta {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.settings__notif {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 18px;
+}
+
+.settings__notif-text {
+  color: var(--text);
+}
+
+/* ---- Media reader: switches, rate field, backlog counters ---------------- */
+.settings__media-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.settings__media-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.settings__media-switch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Captions carry the rows apart, so each row needs less of its own space. */
+.settings__media-switch .settings__notif {
+  margin-top: 12px;
+}
+
+/* A heading owns the gap above its group; its first switch tucks under it. */
+.settings__media-group > .settings__logs-label {
+  margin-top: 22px;
+}
+
+.settings__media-group
+  > .settings__logs-label
+  + .settings__media-switch
+  .settings__notif {
+  margin-top: 6px;
+}
+
+.settings__media-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 40px;
+  margin-top: 18px;
+}
+
+.settings__media-number {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 260px;
+}
+
+.settings__media-queue {
+  margin-top: 22px;
+}
+
+/* ---- Transcription: bundled binaries + the whisper model catalogue ------- */
+.settings__toolchain {
+  margin-top: 24px;
+}
+
+.settings__models {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.settings__models .settings__note {
+  margin: 0;
+  max-width: 56ch;
+}
+
+.settings__model-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Name, state and action on one row; the state carries the size and whether the
+   file is here, so the row reads as one sentence about one model. */
+.settings__model-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__model-item:last-child {
+  border-bottom: none;
+}
+
+.settings__model-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  min-width: 200px;
+}
+
+.settings__model-pick input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings__model-pick input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.settings__model-name {
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.settings__model-item--selected .settings__model-name {
+  font-weight: 700;
+}
+
+.settings__model-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.settings__model-status {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__model-actions {
+  flex: none;
+}
+
+/* ---- Re-scan: the one control here that starts model calls --------------- */
+.settings__rescan {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.settings__rescan .settings__note {
+  margin: 0;
+  max-width: 56ch;
+}
+
+.settings__rescan-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.settings__rescan-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings__rescan-type input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ---- The encoder catalogue ----------------------------------------------
+   Same list as the transcription picker, but each row carries a sentence
+   explaining what the model buys, so it stacks instead of sitting on one
+   line. The actions column stays vertically centred against all three rows. */
+.settings__model-item--stacked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name    actions"
+    "status  actions"
+    "note    actions";
+  align-items: start;
+  gap: 3px 12px;
+  padding: 12px 0;
+}
+
+.settings__model-item--stacked .settings__model-pick {
+  grid-area: name;
+}
+
+.settings__model-item--stacked .settings__model-status {
+  grid-area: status;
+}
+
+.settings__model-item--stacked .settings__note {
+  grid-area: note;
+  margin: 2px 0 0;
+  max-width: 58ch;
+}
+
+.settings__model-item--stacked .settings__model-actions {
+  grid-area: actions;
+  align-self: center;
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* The one upgrade the card leads with. Loud enough to find, quiet enough that
+   it does not read as a warning. */
+.settings__model-tag--rec {
+  color: var(--accent-strong, var(--accent-border));
+}
+
+/* ---- What the benchmark measured ---------------------------------------- */
+.settings__benchmark {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-border);
+  border-radius: var(--radius-card);
+}
+
+.settings__benchmark-verdict {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  max-width: 68ch;
+}

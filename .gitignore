@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.tsbuildinfo
+
+# Generated worker bundle (produced by `npm run bundle:worker`)
+worker/bundle/
+
+# Staged Node sidecar binary (~110MB, copied from the system node by the
+# packaging step — regenerated, never committed)
+src-tauri/binaries/
+
+# Staged artefacts: ffmpeg (~52MB), whisper-cli, the 574MB whisper model, the
+# 129MB retrieval encoder and the download/build cache behind them. Fetched and
+# checksummed by `npm run stage:media` — regenerated, never committed.
+src-tauri/resources/
+
+# SQLite (runtime db lives in ~/SuperTwin, but ignore any local copies)
+*.db
+*.db-wal
+*.db-shm
+
+# Local / editor
+*.local
+.DS_Store
+
+# Built installers are archived in releases/ and published as GitHub Release
+# assets. ~700 MB each since the whisper model ships inside — still under
+# GitHub's 2 GB per-asset limit, and emphatically not something to keep one
+# copy of per version in git history.
+releases/*.dmg

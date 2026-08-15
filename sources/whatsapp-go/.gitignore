@@ -1,0 +1,8 @@
+# Built daemon binary (host + cross builds). Regenerated via `make build` /
+# `./build.sh`; the Tauri packaging step copies it into worker/bundle/bin/.
+/whatsapp-go
+
+# Local session store + WAL side files (whatsmeow sqlstore).
+*.db
+*.db-wal
+*.db-shm

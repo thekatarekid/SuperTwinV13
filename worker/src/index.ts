@@ -1,0 +1,80 @@
+// Worker entrypoint.
+//
+// Boot sequence (docs/PHASE0_ARCHITECTURE.md §7, §9):
+//   1. run DB migrations (idempotent).
+//   2. register the claude-local provider (default) into the registry.
+//   3. start the HTTP/SSE server, which prints exactly
+//      `WORKER_READY port=<port>` to stdout so Tauri + tests detect readiness.
+//   4. on SIGINT/SIGTERM: close the server and kill any in-flight `claude`
+//      children, then exit clean (kill-switch foundation — no orphans).
+//
+// V8 scope: Phase 0 (provider + chat) + Phase 1 (WhatsApp ingestion) + grounded
+// chat retrieval. There is no extraction engine, executor, scheduler or nightly
+// runner — messages are ingested and served, and chat grounds itself with FTS
+// over those events at query time.
+
+import { runMigrations } from "./db/index.js";
+import { startServer, type ServerHandle } from "./server/index.js";
+import { register } from "./providers/index.js";
+import { claudeLocalProvider } from "./providers/claude-local/index.js";
+import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
+import { Ingestion } from "./ingest/index.js";
+import { ensureLogsDir, teeConsole } from "./logs.js";
+
+async function main(): Promise<void> {
+  runMigrations();
+  register(claudeLocalProvider);
+
+  // ---- Logs: create ~/SuperTwinV11/logs (+ /runs) and tee the node console into a
+  // durable file next to the per-run transcripts (both best-effort; §9).
+  ensureLogsDir();
+  teeConsole();
+
+  // ---- WhatsApp ingestion. Resilient: if the daemon binary is missing (dev),
+  // the adapter surfaces an error status but the worker still boots + serves the
+  // API. SUPERTWIN_WHATSAPP_MOCK=1 passes --mock through to the daemon.
+  let ingestion: Ingestion | null = null;
+  let adapter: WhatsAppAdapter | null = null;
+  try {
+    adapter = new WhatsAppAdapter({
+      mock: process.env.SUPERTWIN_WHATSAPP_MOCK === "1",
+      log: (line) => console.error(line),
+    });
+    ingestion = new Ingestion(adapter);
+    ingestion.start();
+    // connect() spawns the daemon; a spawn failure is surfaced as status, not a
+    // throw, so we don't guard the await beyond the outer try/catch.
+    await adapter.connect();
+  } catch (err) {
+    console.error("[worker] whatsapp ingestion init failed (continuing):", err);
+    ingestion = null;
+    adapter = null;
+  }
+
+  const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? 8011);
+  const server: ServerHandle = await startServer({ port, ingestion });
+
+  let shuttingDown = false;
+  const shutdown = async (sig: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.error(`[worker] ${sig} received — shutting down`);
+    try {
+      // Kill any live children so nothing is orphaned...
+      claudeLocalProvider.killAll();
+      if (adapter) await adapter.disconnect();
+      // ...then stop accepting connections and let sockets drain.
+      await server.close();
+    } finally {
+      process.exit(0);
+    }
+  };
+
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+main().catch((err) => {
+  console.error("[worker] fatal:", err);
+  process.exitCode = 1;
+});

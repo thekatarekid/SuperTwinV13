@@ -1,0 +1,10 @@
+/* SuperTwinV11 global stylesheet — Dayflow design system.
+   Split into layers for parallel per-tab work; this file only aggregates. */
+
+@import "./styles/tokens.css";
+@import "./styles/base.css";
+@import "./styles/shell.css";
+
+@import "./styles/tabs/inbox.css";
+@import "./styles/tabs/chat.css";
+@import "./styles/tabs/settings.css";

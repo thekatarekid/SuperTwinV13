@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SuperTwinV11",
+  "version": "0.5.3",
+  "identifier": "com.supertwin.v11",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build && npm run bundle:worker",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "SuperTwinV11",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/node"],
+    "resources": {
+      "../worker/bundle": "worker",
+      "resources/bin/ffmpeg": "bin/ffmpeg",
+      "resources/bin/whisper-cli": "bin/whisper-cli",
+      "resources/bin/yt-dlp": "bin/yt-dlp",
+      "resources/models/ggml-large-v3-turbo-q5_0.bin": "models/ggml-large-v3-turbo-q5_0.bin",
+      "resources/models/embeddings/Xenova/multilingual-e5-small/config.json": "models/embeddings/Xenova/multilingual-e5-small/config.json",
+      "resources/models/embeddings/Xenova/multilingual-e5-small/tokenizer_config.json": "models/embeddings/Xenova/multilingual-e5-small/tokenizer_config.json",
+      "resources/models/embeddings/Xenova/multilingual-e5-small/tokenizer.json": "models/embeddings/Xenova/multilingual-e5-small/tokenizer.json",
+      "resources/models/embeddings/Xenova/multilingual-e5-small/onnx/model_quantized.onnx": "models/embeddings/Xenova/multilingual-e5-small/onnx/model_quantized.onnx"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist"
+    }
+  }
+}

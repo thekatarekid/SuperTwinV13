@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Ad-hoc / hardened-runtime entitlements for the bundled Node sidecar.
+
+    Tauri's macOS bundler signs the .app (and the embedded `node` externalBin)
+    with the hardened runtime flag. Node's V8 engine JIT-compiles into
+    MAP_JIT / RWX memory at startup (v8::internal::ThreadIsolation::Initialize
+    → pthread_jit_write_protect_np), which the hardened runtime blocks by
+    default — the sidecar crashes with SIGTRAP before it can run worker.cjs.
+
+    These three exceptions let V8 initialize. disable-library-validation also
+    permits loading the prebuilt native addon (better_sqlite3.node), which is
+    signed ad-hoc separately from the node binary.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

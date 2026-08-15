@@ -60,7 +60,7 @@ import {
 } from "../retrieval/benchmark.js";
 import { semanticStatus, type SemanticStatus } from "../retrieval/semantic.js";
 import { wakeSemanticIndexer } from "../retrieval/indexer.js";
-import { setSemanticRetrievalEnabled } from "../store/store.js";
+import { setSemanticRetrievalEnabled } from "../db/settings.js";
 
 export type { EmbeddingDownload };
 

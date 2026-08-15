@@ -30,7 +30,7 @@ import { join, resolve } from "node:path";
 import type { MediaDescStatus, MediaFrame, PendingMediaRow } from "../db/ingest.js";
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/index.js";
 import type { Provider, Usage } from "../providers/index.js";
-import { getSelectedModel } from "../store/store.js";
+import { getSelectedModel } from "../db/settings.js";
 
 /** Only Read. No Grep/Glob/Bash — the reader opens exactly the named files. */
 export const MEDIA_ALLOWED_TOOLS = ["Read"] as const;

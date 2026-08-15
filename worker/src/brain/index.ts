@@ -1,31 +1,13 @@
 // ===========================================================================
-// Brain wiki module (Phase 2): markdown knowledge base at ~/SuperTwinV11/brain.
-// Re-exports the public surface; see root.ts / writers.ts / markdown.ts.
+// Brain folder module. The markdown wiki that used to be written here is gone
+// (V2 §3.2): a file tree is a single hierarchy, a life is a graph, and one
+// entity legitimately belongs in six places — it was also a second source of
+// truth. What is left is the FOLDER: the cwd a grounded run is given, and the
+// debug-export path.
+//
+// `handleBrainRoute` is NOT part of the default router. server/index.ts mounts
+// it only when `settings.debug_export` is on (db/settings.ts).
 // ===========================================================================
 
 export { brainRoot, commitBrain, ensureBrain, resetBrainCacheForTests } from "./root.js";
-export {
-  appendCorrection,
-  appendJournal,
-  appendPreference,
-  appendSpaceLog,
-  readBrainFile,
-  upsertPatternFile,
-  upsertPersonFile,
-  upsertSpaceFile,
-  type GoalInput,
-  type PatternInput,
-  type PersonInput,
-  type SpaceInput,
-  type TaskInput,
-} from "./writers.js";
-export {
-  mergeManagedSections,
-  parseFrontmatter,
-  serializeFrontmatter,
-  slugify,
-  upsertMarkdown,
-  type Frontmatter,
-  type ManagedSection,
-} from "./markdown.js";
 export { handleBrainRoute } from "./routes.js";

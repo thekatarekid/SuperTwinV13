@@ -22,7 +22,7 @@ import {
   setMediaVideoFramesEnabled,
   setMediaVideoMaxHeight,
   setMediaVoiceNotesEnabled,
-} from "../store/store.js";
+} from "../db/settings.js";
 import { DEFAULT_IMAGE_BATCH, MAX_IMAGE_BATCH } from "./describe.js";
 import {
   anyTranscriptionEnabled,

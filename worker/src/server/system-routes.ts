@@ -17,7 +17,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { brainRoot } from "../brain/index.js";
 import { ensureLogsDir } from "../logs.js";
-import * as store from "../store/store.js";
+import * as runs from "../db/runs.js";
 
 /** Rows one /api/runs page may ask for, and how deep into history it may start. */
 const MAX_RUNS_PAGE = 1000;
@@ -109,9 +109,9 @@ export async function handleSystemRoute(
   if (method === "GET" && path === "/api/runs") {
     const limit = clamp(url.searchParams.get("limit"), 100, 1, MAX_RUNS_PAGE);
     const offset = clamp(url.searchParams.get("offset"), 0, 0, MAX_RUNS_OFFSET);
-    // The store reads with LIMIT alone, and its sort is over the whole table
+    // db/runs reads with LIMIT alone, and its sort is over the whole table
     // whatever that limit is, so the page is cut from the front of one read.
-    sendJson(res, 200, { runs: store.listRuns(offset + limit).slice(offset) });
+    sendJson(res, 200, { runs: runs.listRuns(offset + limit).slice(offset) });
     return true;
   }
 
@@ -187,7 +187,7 @@ export async function handleSystemRoute(
     const verdict = body?.verdict;
     if (
       !body ||
-      !store.isEvalOutputType(body.output_type) ||
+      !runs.isEvalOutputType(body.output_type) ||
       !outputId ||
       (verdict !== "up" && verdict !== "down")
     ) {
@@ -196,7 +196,7 @@ export async function handleSystemRoute(
       });
       return true;
     }
-    store.addEvaluation({
+    runs.addEvaluation({
       outputType: body.output_type,
       outputId,
       verdict,
@@ -208,7 +208,7 @@ export async function handleSystemRoute(
 
   // ---- GET /api/evaluations/summary
   if (method === "GET" && path === "/api/evaluations/summary") {
-    sendJson(res, 200, { by_type: store.evaluationSummary() });
+    sendJson(res, 200, { by_type: runs.evaluationSummary() });
     return true;
   }
 

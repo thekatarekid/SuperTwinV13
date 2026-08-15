@@ -29,7 +29,7 @@ import {
   setMediaRatePerMin,
   setMediaVoiceNotesEnabled,
   setMediaWhisperModel,
-} from "../store/store.js";
+} from "../db/settings.js";
 import type { DescribeBatchResult, DescribeResult } from "./describe.js";
 import { MediaQueue } from "./queue.js";
 import { whisperModelsDir } from "./tools.js";

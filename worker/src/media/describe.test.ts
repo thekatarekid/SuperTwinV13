@@ -16,7 +16,7 @@ import { closeDb } from "../db/connection.js";
 import { runMigrations } from "../db/index.js";
 import type { PendingMediaRow } from "../db/ingest.js";
 import type { Provider, ProviderResult, SendOptions } from "../providers/index.js";
-import { setSelectedModel } from "../store/store.js";
+import { setSelectedModel } from "../db/settings.js";
 import { emptyUsage } from "../providers/usage.js";
 import {
   BATCH_MARKER,

@@ -37,7 +37,7 @@ import {
   setMediaVideoFrameIntervalSec,
   setMediaVideoFramesEnabled,
   setMediaVoiceNotesEnabled,
-} from "../store/store.js";
+} from "../db/settings.js";
 import type { DescribeBatchResult, DescribeResult } from "./describe.js";
 import type { SampleResult } from "./frames.js";
 import type { LinkScrapeResult, ScrapeOptions } from "./link.js";

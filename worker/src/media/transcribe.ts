@@ -50,7 +50,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { PendingTranscriptRow, TranscriptStatus } from "../db/ingest.js";
-import { getMediaWhisperModel } from "../store/store.js";
+import { getMediaWhisperModel } from "../db/settings.js";
 import { probeDuration } from "./frames.js";
 import { resolveFfmpegBin, resolveWhisperBin, resolveWhisperModel, run } from "./tools.js";
 

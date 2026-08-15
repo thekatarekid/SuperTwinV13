@@ -31,7 +31,7 @@ import {
   whisperModelsDir,
   type WhisperModelState,
 } from "../media/tools.js";
-import { getMediaWhisperModel } from "../store/store.js";
+import { getMediaWhisperModel } from "../db/settings.js";
 
 /**
  * Where a model id's file is fetched from. Pinned to the same whisper.cpp repo

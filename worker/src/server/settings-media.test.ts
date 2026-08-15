@@ -21,7 +21,7 @@ const { getDb, runMigrations } = await import("../db/index.js");
 const { register } = await import("../providers/index.js");
 const { startServer } = await import("./index.js");
 const { setProcessEnabled, getMediaConcurrency, MAX_MEDIA_CONCURRENCY } =
-  await import("../store/store.js");
+  await import("../db/settings.js");
 const { getMediaImageBatch } = await import("../media/switches.js");
 const { MAX_IMAGE_BATCH } = await import("../media/describe.js");
 

@@ -26,7 +26,7 @@ process.env.SUPERTWIN_HOME = tmpDir; // brain + logs → tmpDir
 const { runMigrations } = await import("../db/index.js");
 const { register } = await import("../providers/index.js");
 const { startServer } = await import("./index.js");
-const store = await import("../store/store.js");
+const store = await import("../db/settings.js");
 const { ensureBrain, brainRoot, resetBrainCacheForTests } = await import("../brain/index.js");
 
 import type { Provider, ProviderResult, SendOptions } from "../providers/index.js";

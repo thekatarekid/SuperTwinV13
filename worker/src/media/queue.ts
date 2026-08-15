@@ -81,7 +81,7 @@ import {
   getMediaConcurrency,
   getMediaDescribeEnabled,
   getMediaRatePerMin,
-} from "../store/store.js";
+} from "../db/settings.js";
 import {
   describeMedia,
   describeMediaBatch,

@@ -282,152 +282,20 @@ CREATE INDEX IF NOT EXISTS idx_events_reply_to ON events(reply_to_external_id);
 `;
 
 // ---------------------------------------------------------------------------
-// 0004_phase2 — Brain: Spaces + extraction (Phase 2 API contract).
+// 0004_phase2, 0005_grounded_chat and 0006_phase34 are RETIRED (V2 §3.2).
 //
-//   - spaces.slug: stable brain-wiki path segment (spaces/<slug>/space.md).
-//   - spaces.user_pinned: set when the user merges/splits/renames a space so the
-//     extractor never re-merges or re-splits over an explicit human decision.
-//   - tasks.title / tasks.approved / tasks.source_event_ids: task display text,
-//     implicit-task approval flag (origin stays 'implicit', approved=1 once the
-//     user accepts), and provenance (JSON array of event ids).
-//   - space_people: which people participate in which space (contract
-//     SpaceCard.people / GET /api/people shared_spaces).
-//   - evaluations: human eval on every extraction output (spec: persists
-//     forever) — 👍/👎 + optional note per output.
-//   - patterns: index over candidate/confirmed habit+workflow markdown files
-//     (the markdown body stays the source of truth in the brain wiki; this
-//     table serves GET /api/patterns without parsing files).
+// Between them they carried the spaces/goals/milestones/tasks ontology — the
+// `space_people` and `patterns` and `task_runs` tables, and a dozen `tasks`
+// columns — which nothing reads and which encodes a model this build rejects.
+// The three live things they also carried (the `evaluations` table, grounded
+// chat's two columns, and `extraction_runs.model`/`role`) moved into
+// `0021_v2_prep` below, so a fresh DB still gets exactly them and nothing else.
 //
-// Same ALTER-ADD-COLUMN robustness notes as 0002/0003 apply (no IF NOT EXISTS
-// form; runner records applied ids and tolerates duplicate-column on dev DBs).
+// The ids are burned, per the note on MIGRATIONS: an install that recorded them
+// keeps its orphan tables untouched and simply takes 0021 on top, where the
+// duplicate ADD COLUMNs are absorbed by runMigrationsOn's duplicate-column
+// fallback.
 // ---------------------------------------------------------------------------
-const PHASE2 = /* sql */ `
--- Spaces: brain slug + user merge/split pin
-ALTER TABLE spaces ADD COLUMN slug TEXT;
-ALTER TABLE spaces ADD COLUMN user_pinned INTEGER NOT NULL DEFAULT 0;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_slug   ON spaces(slug);
-CREATE INDEX IF NOT EXISTS idx_spaces_status        ON spaces(status);
-
--- Tasks: title + implicit-task approval + source-event provenance (JSON array)
-ALTER TABLE tasks ADD COLUMN title TEXT;
-ALTER TABLE tasks ADD COLUMN approved INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE tasks ADD COLUMN source_event_ids TEXT;
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-
--- join: which people participate in which space
-CREATE TABLE IF NOT EXISTS space_people (
-  space_id    TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-  person_id   TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  PRIMARY KEY (space_id, person_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_space_people_person ON space_people(person_id);
-
--- Human eval on every extraction output (spec: task in Phase 2, persists forever)
-CREATE TABLE IF NOT EXISTS evaluations (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  output_type TEXT NOT NULL,
-  output_id   TEXT NOT NULL,
-  verdict     TEXT NOT NULL CHECK (verdict IN ('up','down')),
-  note        TEXT,
-  ts          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_evaluations_type ON evaluations(output_type);
-
--- Pattern index (candidate habits/workflows; markdown body lives in the brain)
-CREATE TABLE IF NOT EXISTS patterns (
-  slug               TEXT PRIMARY KEY,
-  kind               TEXT NOT NULL CHECK (kind IN ('habit','workflow')),
-  title              TEXT,
-  status             TEXT NOT NULL DEFAULT 'candidate'
-                       CHECK (status IN ('candidate','confirmed','dismissed')),
-  evidence_count     INTEGER NOT NULL DEFAULT 0,
-  evidence_event_ids TEXT,
-  updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_patterns_status ON patterns(status);
-`;
-
-// ---------------------------------------------------------------------------
-// 0005_grounded_chat — Phase 2 grounded chat (T4).
-//
-//   - chat_sessions.grounded: 1 when the session runs with brain access
-//     (cwd = brain root, read-only file tools, retrieval-augmented prompts).
-//     Old sessions default to 0 and keep their original ungrounded config.
-//   - chat_messages.citations_json: the machine-readable citations array parsed
-//     off the assistant's trailing `CITATIONS: [...]` line (stripped from the
-//     stored display content), persisted with the message.
-//
-// Same ALTER-ADD-COLUMN robustness notes as 0002/0003/0004 apply.
-// ---------------------------------------------------------------------------
-const GROUNDED_CHAT = /* sql */ `
-ALTER TABLE chat_sessions ADD COLUMN grounded INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE chat_messages ADD COLUMN citations_json TEXT;
-`;
-
-// ---------------------------------------------------------------------------
-// 0006_phase34 — Task engine (Phase 3) + execution history (Phase 4).
-//
-//   - tasks gains triage / scheduling / done-detection / execution fields
-//     (task_type/urgency/intent/triage/snoozed_until/done_evidence_event_id/
-//     done_confidence/plan/result/error/updated_at). execute_at, recurrence,
-//     approved, source_event_ids, title, origin, status, goal_id, created_at
-//     ALREADY exist (0001/0004) — they are NOT re-added here.
-//   - extraction_runs gains model + role so the runs viewer can attribute each
-//     LLM call to a process (chat|extraction|triage|done_detection|planning|
-//     execution) and the selected model id. Read as COALESCE(role,kind) /
-//     COALESCE(model,'').
-//   - task_runs: one row per execution attempt (Phase 4 pipeline + runs viewer),
-//     with a transcript path, token/duration accounting, and task linkage. No
-//     live SQL reads it; the extraction_runs columns are what keep 0006 here.
-//
-// All new tasks/extraction_runs columns are nullable/defaulted so existing rows
-// upgrade cleanly. Same ALTER-ADD-COLUMN robustness notes as 0002–0005 apply:
-// the adds are NOT guarded by IF NOT EXISTS (SQLite has no such clause), but the
-// runner records applied ids and skips this migration on a second run, and
-// runMigrationsOn() tolerates a hand-added "duplicate column name" on ADD COLUMN.
-// ---------------------------------------------------------------------------
-const PHASE34 = /* sql */ `
--- tasks: triage / scheduling / done-detection / execution fields
-ALTER TABLE tasks ADD COLUMN task_type              TEXT;
-ALTER TABLE tasks ADD COLUMN urgency                TEXT;
-ALTER TABLE tasks ADD COLUMN intent                 TEXT;
-ALTER TABLE tasks ADD COLUMN triage                 TEXT;
-ALTER TABLE tasks ADD COLUMN snoozed_until          TEXT;
-ALTER TABLE tasks ADD COLUMN done_evidence_event_id TEXT;
-ALTER TABLE tasks ADD COLUMN done_confidence        TEXT;
-ALTER TABLE tasks ADD COLUMN plan                   TEXT;
-ALTER TABLE tasks ADD COLUMN result                 TEXT;
-ALTER TABLE tasks ADD COLUMN error                  TEXT;
-ALTER TABLE tasks ADD COLUMN updated_at             TEXT;
-
--- extraction_runs: which model + which process produced the run
-ALTER TABLE extraction_runs ADD COLUMN model TEXT;
-ALTER TABLE extraction_runs ADD COLUMN role  TEXT;
-
--- task_runs: one row per execution attempt (Phase 4 + runs viewer)
-CREATE TABLE IF NOT EXISTS task_runs (
-  id              TEXT PRIMARY KEY,
-  task_id         TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-  space_id        TEXT,
-  status          TEXT,
-  plan            TEXT,
-  transcript_path TEXT,
-  model           TEXT,
-  input_tokens    INTEGER NOT NULL DEFAULT 0,
-  output_tokens   INTEGER NOT NULL DEFAULT 0,
-  duration_ms     INTEGER NOT NULL DEFAULT 0,
-  error           TEXT,
-  started_at      TEXT,
-  finished_at     TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_task_runs_task    ON task_runs(task_id);
-CREATE INDEX IF NOT EXISTS idx_task_runs_started ON task_runs(started_at);
-`;
 
 // ---------------------------------------------------------------------------
 // 0008_media — rich media ingestion (docs/rich-media-spec.md §4).
@@ -949,6 +817,45 @@ UPDATE events
    AND revoked_at IS NULL;
 `;
 
+// ---------------------------------------------------------------------------
+// 0021_v2_prep — what 0004/0005/0006 carried that something still reads (V2
+// §3.2). Those three were retired for the spaces/tasks ontology around it; the
+// three live pieces are re-declared here so a fresh DB grows exactly them:
+//
+//   - evaluations: the 👍/👎 rows POST /api/evaluations writes and
+//     GET /api/evaluations/summary reads (db/runs.ts).
+//   - chat_sessions.grounded / chat_messages.citations_json: grounded chat's
+//     session flag and the parsed CITATIONS array stored with a message
+//     (db/index.ts createSession / appendMessage).
+//   - extraction_runs.model / role: what the runs viewer attributes each call
+//     to, read as COALESCE(role, kind) / COALESCE(model, '').
+//
+// On an install that already recorded 0004–0006 the three ADD COLUMNs are
+// duplicates; runMigrationsOn() re-runs the body statement-by-statement and
+// swallows exactly "duplicate column name" on ADD COLUMN, so it converges.
+// ---------------------------------------------------------------------------
+const V2_PREP = /* sql */ `
+-- Human eval on any surfaced output (👍/👎 + optional note), kept forever.
+CREATE TABLE IF NOT EXISTS evaluations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  output_type TEXT NOT NULL,
+  output_id   TEXT NOT NULL,
+  verdict     TEXT NOT NULL CHECK (verdict IN ('up','down')),
+  note        TEXT,
+  ts          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_evaluations_type ON evaluations(output_type);
+
+-- Grounded chat: the session flag + the citations parsed off the reply.
+ALTER TABLE chat_sessions ADD COLUMN grounded INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chat_messages ADD COLUMN citations_json TEXT;
+
+-- extraction_runs: which model + which process produced the run.
+ALTER TABLE extraction_runs ADD COLUMN model TEXT;
+ALTER TABLE extraction_runs ADD COLUMN role  TEXT;
+`;
+
 /**
  * Ordered list of migrations. Append new migrations with the next id
  * (`0002_...`); never rename or reorder existing ones — the id is the recorded
@@ -964,9 +871,9 @@ export const MIGRATIONS: Migration[] = [
   { id: "0001_init", sql: INIT },
   { id: "0002_phase1", sql: PHASE1 },
   { id: "0003_phase1_threads", sql: PHASE1_THREADS },
-  { id: "0004_phase2", sql: PHASE2 },
-  { id: "0005_grounded_chat", sql: GROUNDED_CHAT },
-  { id: "0006_phase34", sql: PHASE34 },
+  // 0004_phase2, 0005_grounded_chat and 0006_phase34 are retired: the
+  // spaces/tasks ontology they carried has no readers left, and what did have
+  // readers moved to 0021_v2_prep.
   // 0007_phase5 is retired: nightly_runs, quality_snapshots and
   // task_runs.session_id have no readers left.
   { id: "0008_media", sql: MEDIA },
@@ -982,4 +889,5 @@ export const MIGRATIONS: Migration[] = [
   { id: "0018_semantic_index", sql: SEMANTIC_INDEX },
   { id: "0019_drop_albums", sql: DROP_ALBUMS },
   { id: "0020_video_posters", sql: VIDEO_POSTERS },
+  { id: "0021_v2_prep", sql: V2_PREP },
 ];

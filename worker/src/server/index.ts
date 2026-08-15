@@ -42,6 +42,7 @@ import {
   isValidRole,
 } from "../providers/claude-local/models.js";
 import {
+  getDebugExportEnabled,
   getSelectedModel,
   setSelectedModel,
   getAllSelectedModels,
@@ -81,9 +82,8 @@ import {
   MAX_VIDEO_FRAME_INTERVAL_SEC,
   MAX_VIDEO_FRAME_MAX,
   MAX_VIDEO_MAX_HEIGHT,
-  mediaQueueCounts,
-  mediaSpend,
-} from "../store/store.js";
+} from "../db/settings.js";
+import { mediaQueueCounts, mediaSpend } from "../db/runs.js";
 import type { Ingestion } from "../ingest/index.js";
 import { startMediaQueue, stopMediaQueue } from "../media/queue.js";
 // The reader's own getter, not a copy of it: it is what the claim query reads
@@ -655,8 +655,12 @@ async function handle(
     if (handled) return;
   }
 
-  // --- Brain wiki routes (Phase 2, additive).
-  if (path.startsWith("/api/brain/")) {
+  // --- Brain FILE reads are a debug export, not a product surface (V2 §3.2),
+  // so GET /api/brain/file is off the default router: it is mounted only while
+  // `settings.debug_export` is set. Reading the flag per request rather than at
+  // boot is deliberate — turning the export off has to take effect immediately,
+  // and this costs one indexed app_state lookup on a path nobody hot-loops.
+  if (path.startsWith("/api/brain/") && getDebugExportEnabled()) {
     const handled = await handleBrainRoute(req, res);
     if (handled) return;
   }

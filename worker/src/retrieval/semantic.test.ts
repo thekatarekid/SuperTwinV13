@@ -46,7 +46,7 @@ const {
   embeddingModelFilePath,
 } = await import("./embedder.js");
 const { setSemanticRetrievalEnabled, RETRIEVAL_SEMANTIC_ENABLED_KEY } = await import(
-  "../store/store.js"
+  "../db/settings.js"
 );
 const { retrieveContext } = await import("./retrieve.js");
 const { formatContextBlock } = await import("./format.js");

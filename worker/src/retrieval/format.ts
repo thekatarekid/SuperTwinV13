@@ -73,12 +73,6 @@ const WHOLE_SECTION_WEIGHT = 2;
 
 export interface FormatOptions {
   maxChars?: number;
-  /**
-   * Relative path of the materialised corpus (tier 2), when there is one. It is
-   * named in the block as well as in the system prompt because the block is the
-   * thing the model is looking at when it runs out of context.
-   */
-  corpusHint?: string | null;
 }
 
 /**
@@ -96,14 +90,7 @@ export function formatContextBlock(
 
   const lines = renderSections(sections);
   const header = renderHeader(result);
-  const footer = opts.corpusHint
-    ? [
-        `Not everything is here. The full message corpus is in ${opts.corpusHint} ` +
-          `(one file per chat, one message per line) — Grep it when this block is not enough.`,
-      ]
-    : [];
-
-  const fixed = ["<supertwin-context>", ...header, ...footer, "</supertwin-context>"].join(
+  const fixed = ["<supertwin-context>", ...header, "</supertwin-context>"].join(
     "\n",
   ).length;
   const kept = fit(lines, sections, Math.max(0, budget - fixed));
@@ -133,7 +120,6 @@ export function formatContextBlock(
     "<supertwin-context>",
     ...header,
     ...body,
-    ...(footer.length > 0 ? ["", ...footer] : []),
     "</supertwin-context>",
   ].join("\n");
 }
@@ -209,8 +195,8 @@ function renderSections(sections: readonly ContextSection[]): RenderedLine[] {
 /**
  * `kept` is how many of the section's lines survived the budget, and it is in
  * the header because "the whole chat" stops being true the moment one line is
- * dropped — and a model told it has the whole chat has no reason to go and Grep
- * the corpus for the rest.
+ * dropped — and a model told it has the whole chat has no reason to ask for
+ * the rest.
  */
 function renderSectionHeader(section: ContextSection, kept: number): string {
   const name = section.channelName ?? section.channelId ?? "unknown chat";
@@ -237,7 +223,7 @@ export interface RenderableEvent extends ContextEventRow {
   matchedColumn?: string | null;
 }
 
-/** One line, minus the hit marker — the corpus files use exactly this form. */
+/** One line, minus the hit marker. */
 export function renderEvent(event: ContextEvent): string {
   return `${event.role === "hit" ? "*" : " "} ${renderEventBody(event)}`;
 }
@@ -245,8 +231,7 @@ export function renderEvent(event: ContextEvent): string {
 /**
  * One event, one line. Everything the event carries is on it: what was typed,
  * what it quoted, what a model saw in the attachment, what whisper heard, where
- * the link went. Newlines are flattened because the corpus and this block are
- * both read line-wise — by Grep there, by the model here.
+ * the link went. Newlines are flattened because the block is read line-wise.
  */
 export function renderEventBody(event: RenderableEvent): string {
   const when = event.ts ? formatLocalTs(event.ts) : "?";

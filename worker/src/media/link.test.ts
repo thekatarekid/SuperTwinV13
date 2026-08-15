@@ -37,7 +37,7 @@ import { gzipSync } from "node:zlib";
 
 import { closeDb } from "../db/connection.js";
 import { runMigrations } from "../db/index.js";
-import { setMediaWhisperModel } from "../store/store.js";
+import { setMediaWhisperModel } from "../db/settings.js";
 import {
   assemble,
   extractTitle,

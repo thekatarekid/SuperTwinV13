@@ -18,13 +18,22 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "source|id=browser|keys=url\nitem|id=e1|source=whatsapp|ts=2026-08-13T18:40:00Z|text=villa page https://site8.com/deals/villa-amara?utm_source=whatsapp&utm_campaign=aug&igshid=99\nitem|id=v1|source=browser|ts=2026-08-13T18:55:00Z|urls=https://www.site8.com/deals/villa-amara/",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "url",
+        "value": "site8.com/deals/villa-amara",
+        "left": "e1",
+        "right": "v1"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "arcs_bridge_recall"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "tracking params / shortlink variant of the same url (1)",
     "expect": "normalised to the same value_norm; bridge fires",

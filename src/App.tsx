@@ -4,8 +4,17 @@ import { ChatTab } from "./tabs/ChatTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { EntitiesTab } from "./tabs/EntitiesTab";
 import { SessionsTab } from "./tabs/SessionsTab";
+import { EpisodesTab } from "./tabs/EpisodesTab";
+import { ThreadsTab } from "./tabs/ThreadsTab";
 
-type TabId = "inbox" | "chat" | "entities" | "sessions" | "settings";
+type TabId =
+  | "inbox"
+  | "chat"
+  | "entities"
+  | "sessions"
+  | "episodes"
+  | "threads"
+  | "settings";
 
 interface TabDef {
   id: TabId;
@@ -51,6 +60,23 @@ const ICONS: Record<TabId, JSX.Element> = {
       <path d="M12 7v5l3 2" />
     </svg>
   ),
+  episodes: (
+    <svg {...ICON_PROPS}>
+      {/* Stacked sessions: an episode is a run of them. */}
+      <rect x="3" y="4" width="18" height="5" rx="1.5" />
+      <rect x="3" y="12" width="13" height="5" rx="1.5" />
+      <path d="M6 20h9" />
+    </svg>
+  ),
+  threads: (
+    <svg {...ICON_PROPS}>
+      {/* Strands from several sources converging — an arc. */}
+      <path d="M3 6c5 0 5 6 9 6s4-6 9-6" />
+      <path d="M3 18c5 0 5-6 9-6" />
+      <circle cx="21" cy="6" r="1.4" />
+      <circle cx="3" cy="18" r="1.4" />
+    </svg>
+  ),
   settings: (
     <svg {...ICON_PROPS}>
       <circle cx="12" cy="12" r="3" />
@@ -64,6 +90,8 @@ const TABS: TabDef[] = [
   { id: "chat", label: "Chat", icon: ICONS.chat },
   { id: "entities", label: "Entities", icon: ICONS.entities },
   { id: "sessions", label: "Sessions", icon: ICONS.sessions },
+  { id: "episodes", label: "Episodes", icon: ICONS.episodes },
+  { id: "threads", label: "Threads", icon: ICONS.threads },
   { id: "settings", label: "Settings", icon: ICONS.settings },
 ];
 
@@ -117,6 +145,8 @@ export function App() {
         )}
         {active === "entities" && <EntitiesTab />}
         {active === "sessions" && <SessionsTab />}
+        {active === "episodes" && <EpisodesTab />}
+        {active === "threads" && <ThreadsTab />}
         {active === "settings" && <SettingsTab />}
       </main>
     </div>

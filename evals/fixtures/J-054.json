@@ -5,9 +5,54 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "bhangra batch moved to Thursday 7pm",
+        "c": "c1",
+        "topic": "bhangra"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "that clashes with my standup, can I join the later one",
+        "c": "c1",
+        "topic": "bhangra"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "later batch is 8.30, ask Simran",
+        "c": "c1",
+        "topic": "bhangra"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "ok I will message her about the switch",
+        "c": "c1",
+        "topic": "bhangra"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +63,31 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-054\nrun|session=s1",
+  "expect": {
+    "calls": [],
+    "verdicts": [
+      {
+        "session": "s1",
+        "decision": "one_to_one",
+        "model_calls": 0
+      }
+    ],
+    "segments": [
+      {
+        "session": "s1",
+        "events": "1,2,3,4",
+        "decision": "new",
+        "episode": "n1",
+        "label": null
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "episodes_split_attach_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "session with no intra-session drift",
     "expect": "skip call, 1:1 default",

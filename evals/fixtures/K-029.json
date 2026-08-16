@@ -18,13 +18,34 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "source|id=drive|keys=file_id,url\nitem|id=e1|source=whatsapp|ts=2026-08-12T10:00:00Z|text=the itinerary is here https://drive.google.com/file/d/1ZyXwVuTsRqPoNmLkJi/view?usp=sharing\nitem|id=d1|source=drive|ts=2026-08-12T11:05:00Z|files=gdrive:1ZyXwVuTsRqPoNmLkJi\nitem|id=d2|source=drive|ts=2026-08-12T12:05:00Z|files=gdrive:1ZyXwVuTsRqPoNmLkJi",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "file_id",
+        "value": "gdrive:1ZyXwVuTsRqPoNmLkJi",
+        "left": "d1",
+        "right": "d2"
+      },
+      {
+        "kind": "file_id",
+        "value": "gdrive:1ZyXwVuTsRqPoNmLkJi",
+        "left": "d1",
+        "right": "e1"
+      },
+      {
+        "kind": "file_id",
+        "value": "gdrive:1ZyXwVuTsRqPoNmLkJi",
+        "left": "d2",
+        "right": "e1"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "arcs_bridge_recall"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "Drive file shared in chat; file_change events on same id",
     "expect": "bridge(file_id)",

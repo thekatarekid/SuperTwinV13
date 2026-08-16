@@ -5,9 +5,54 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "Gargi turns 40 next month, we should do something",
+        "c": "c1",
+        "topic": "gargi"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "a surprise dinner, not a big party",
+        "c": "c1",
+        "topic": "gargi"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "her sister can get her there without suspicion",
+        "c": "c1",
+        "topic": "gargi"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "I will look at that rooftop place on Church street",
+        "c": "c1",
+        "topic": "gargi"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +63,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "episodes_split_attach_accuracy"
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-010\nrun|session=s1",
+  "expect": {
+    "state": {
+      "decision": "one_to_one",
+      "model_calls": 0,
+      "segments": 1,
+      "episodes": 1,
+      "preflag_drift": false,
+      "preflag_reason": "single_topic",
+      "partition_ok": true
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "episodes_one_to_one_rate"
+  },
+  "stub": false,
   "doc": {
     "given": "sealed session solely about Gargi's 40th, no drift, no open episodes",
     "expect": "episode := session, NO MODEL CALL",

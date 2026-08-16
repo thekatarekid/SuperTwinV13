@@ -112,6 +112,9 @@ import {
 } from "../retrieval/indexer.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
+// Item 2.6 — the reconcile job's manual entry point and its nightly timer.
+import { startNightlyTimer, type ReconcileTimer } from "../reconcile/index.js";
+import { handleReconcileRoute } from "../reconcile/routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -335,9 +338,13 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   // backlog on the throttle from Settings. The semantic indexer keeps the same
   // company — it too is a backlog nobody should have to wait on, and it costs
   // one null per minute while the tier is off.
+  // The nightly reconcile (item 2.6, §8.1) keeps the same company: it ticks,
+  // asks the DB whether a day has passed, and costs nothing when it has not.
+  let nightly: ReconcileTimer | null = null;
   if (opts?.media ?? process.env.NODE_ENV !== "test") {
     startMediaQueue();
     startSemanticIndexer();
+    nightly = startNightlyTimer();
   }
 
   const server = createServer((req, res) => {
@@ -372,6 +379,7 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
             // a half-fetched model leaves only its `.part`.
             stopMediaQueue();
             stopSemanticIndexer();
+            nightly?.stop();
             abortModelDownloads();
             abortEmbeddingDownload();
             for (const [, ac] of inflight) ac.abort();
@@ -675,6 +683,14 @@ async function handle(
   // and this costs one indexed app_state lookup on a path nobody hot-loops.
   if (path.startsWith("/api/brain/") && getDebugExportEnabled()) {
     const handled = await handleBrainRoute(req, res);
+    if (handled) return;
+  }
+
+  // --- Reconcile (item 2.6): the manual entry point beside the cohort-boundary
+  // and nightly ones. Same job, same one run id, so a hand-triggered pass is
+  // undoable exactly like a scheduled one.
+  if (path.startsWith("/api/reconcile/")) {
+    const handled = await handleReconcileRoute(req, res);
     if (handled) return;
   }
 

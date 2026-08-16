@@ -18,13 +18,22 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "source|id=uber|keys=geo_time\nsource|id=zomato|keys=geo_time\nitem|id=u1|source=uber|ts=2026-08-13T13:00:00Z|lat=19.0596|lon=72.8295\nitem|id=z1|source=zomato|ts=2026-08-13T13:30:00Z|lat=19.06095|lon=72.8295",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "geo_time",
+        "value": "te7u3m@661713",
+        "left": "u1",
+        "right": "z1"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "arcs_bridge_recall"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "Uber drop and restaurant order 150m/30min apart",
     "expect": "fires",

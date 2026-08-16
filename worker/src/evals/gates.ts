@@ -272,7 +272,7 @@ export function measureGates(inputs: readonly GateInput[]): GateReading[] {
       value = b.cases > 0 ? failed : null;
     } else if (b.values.length > 0) {
       // Worst case, not the average: one breach is a breach.
-      value = b.values.reduce((a, c) => (Math.abs(c) > Math.abs(a) ? c : a), b.values[0]!);
+      value = worstValue(gate, b.values);
     }
     let status: GateStatus;
     if (gate.reported) status = "reported";
@@ -280,6 +280,33 @@ export function measureGates(inputs: readonly GateInput[]): GateReading[] {
     else status = breaches(gate, value) ? "fail" : "pass";
     return { gate, value, cases: b.cases, passed: b.passed, failed, status };
   });
+}
+
+/**
+ * The worst of several measurements of one `value` gate.
+ *
+ * "Worst" is a direction, not a magnitude. A `lt` gate fails on the SMALLEST
+ * value, so folding by `Math.abs` would hand it the largest — the best case —
+ * and a run where one case measured 0.2 against a 0.6 bar would report 1.0 and
+ * pass. That is the failure mode this file's header warns about: a gate that
+ * quietly stops being able to fail.
+ */
+function worstValue(gate: Gate, values: readonly number[]): number {
+  const first = values[0]!;
+  switch (gate.cmp) {
+    case "gt":
+    case "gte":
+      return values.reduce((a, c) => (c > a ? c : a), first);
+    case "lt":
+    case "lte":
+      return values.reduce((a, c) => (c < a ? c : a), first);
+    case "ne":
+      // Any value other than the threshold breaches — surface one if it exists.
+      return values.find((v) => v !== gate.threshold) ?? first;
+    case "outside_pct":
+      // A symmetric band: the furthest from centre in either direction.
+      return values.reduce((a, c) => (Math.abs(c) > Math.abs(a) ? c : a), first);
+  }
 }
 
 /** The gates that failed — CI's exit condition. */

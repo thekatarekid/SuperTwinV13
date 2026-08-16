@@ -5,11 +5,72 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      },
+      {
+        "alias": "c2",
+        "name": "Family",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T19:10+05:30",
+        "who": "a1",
+        "text": "bhangra batch moved to Thursday 7pm",
+        "c": "c2",
+        "topic": "bhangra"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T19:12+05:30",
+        "who": "self",
+        "text": "that clashes with my standup, can I join the later one",
+        "c": "c2",
+        "topic": "bhangra"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T19:15+05:30",
+        "who": "a1",
+        "text": "later batch is 8.30, ask Simran",
+        "c": "c2",
+        "topic": "bhangra"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T19:18+05:30",
+        "who": "self",
+        "text": "ok I will message her about the switch",
+        "c": "c2",
+        "topic": "bhangra"
+      }
+    ],
     "open": {
-      "episodes": [],
+      "episodes": [
+        {
+          "alias": "e1",
+          "stream": "c1",
+          "label": "bhangra class",
+          "last_active_days": 1
+        }
+      ],
       "loops": []
     },
     "db": {
@@ -18,13 +79,47 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "session|id=s2|stream=c2|events=1-4|hash=h_J-041\nrun|session=s2",
+  "expect": {
+    "candidates": [],
+    "segments": [
+      {
+        "session": "s2",
+        "events": "1,2,3,4",
+        "decision": "new",
+        "episode": "n1",
+        "label": null
+      }
+    ],
+    "episodes": [
+      {
+        "episode": "e1",
+        "stream": "c1",
+        "label": "bhangra class",
+        "arc_state": "open",
+        "outcome": null
+      },
+      {
+        "episode": "n1",
+        "stream": "c2",
+        "label": null,
+        "arc_state": "open",
+        "outcome": null
+      }
+    ],
+    "verdicts": [
+      {
+        "session": "s2",
+        "decision": "one_to_one",
+        "model_calls": 0
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "episodes_split_attach_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'bhangra class' appears in two DIFFERENT streams",
     "expect": "TWO separate episodes; joining is arc work",

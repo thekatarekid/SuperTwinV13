@@ -274,9 +274,16 @@ export interface GestureActor {
   actor: string;
 }
 
-export interface SurfacesClient {
+/**
+ * The slice of a surface client the coverage meter needs — §14.0's "on every
+ * surface" is only enforceable if every surface's client can be handed to
+ * `<SurfaceCoverage>`, whatever else that client can do.
+ */
+export interface CoverageClient {
   getCoverage(signal?: AbortSignal): Promise<CoverageSnapshot>;
+}
 
+export interface SurfacesClient extends CoverageClient {
   listEntities(query: EntityQuery, signal?: AbortSignal): Promise<EntitiesPage>;
   mergeEntity(p: GestureActor & { id: string; into: string }): Promise<MutationReceipt>;
   splitEntity(p: GestureActor & { id: string; identityIds: string[] }): Promise<MutationReceipt>;

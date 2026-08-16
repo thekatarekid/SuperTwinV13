@@ -11,3 +11,5 @@
 @import "./styles/tabs/surfaces.css";
 @import "./styles/tabs/entities.css";
 @import "./styles/tabs/sessions.css";
+@import "./styles/tabs/episodes.css";
+@import "./styles/tabs/threads.css";

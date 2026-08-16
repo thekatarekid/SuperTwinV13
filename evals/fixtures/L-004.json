@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "set_equal",
-    "gate": "arcs_precision"
+  "frozen_response": "entity|id=a1|type=person\nepisode|id=ep_seed|entities=a1|label=Goa trip|source=whatsapp\narc|id=n4|label=Goa trip|anchors=a1|sources=whatsapp|episodes=ep_seed\nepisode|id=ep_new|entities=a9|label=villa page|source=browser\nbridge|from=ep_new|to=ep_seed|kind=url|value=site0.com/x|conf=1\nplace|episode=ep_new",
+  "expect": {
+    "state": {
+      "decision": "join",
+      "rung": "bridge",
+      "arc_id": "n4",
+      "model_calls": 0,
+      "overlap_top": null
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": false,
   "doc": {
     "given": "episode with a bridge to an episode already in arc n4",
     "expect": "JOIN via ladder step 1",

@@ -61,6 +61,8 @@ Registered today (`worker/src/evals/executors/index.ts`):
 | `edges` | I (40) | `worker/src/entities/edges` |
 | `party` | O (45) | `worker/src/entities/party` |
 | `sessions` | D (75), E (40), F (40) | `worker/src/sessions/{segment,policies,prefilter,seal,ops}` |
+| `bridges` | K (30) | `worker/src/bridges/{extract,normalise}` |
+| `arcs` | L (45) | `worker/src/arcs/{ladder,provisional,reconcile,key}`, `prompts/p-ag2` |
 | `scheduler` | T (30) | `worker/src/scheduler/{cohorts,horizons,queue,lanes,paint}` |
 | `wire` | S (50) | the real STW-2 codec, `worker/src/wire` |
 | `accounting` | U (15) | `db/run-accounting`, `providers/usage`, `providers/pool` |

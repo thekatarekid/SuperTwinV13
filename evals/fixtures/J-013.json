@@ -5,9 +5,54 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "so are we locking the Goa dates or not",
+        "c": "c1",
+        "topic": "goa"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "13th to 17th works for me, flights are still sane",
+        "c": "c1",
+        "topic": "goa"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "cool, I will ask Amara about the north Goa villa",
+        "c": "c1",
+        "topic": "goa"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "yes and we need the deposit sorted this week",
+        "c": "c1",
+        "topic": "goa"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +63,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "episodes_split_attach_accuracy"
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-013\nrun|session=s1",
+  "expect": {
+    "state": {
+      "decision": "one_to_one",
+      "model_calls": 0,
+      "segments": 1,
+      "episodes": 1,
+      "preflag_drift": false,
+      "preflag_reason": "single_topic",
+      "partition_ok": true
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "episodes_one_to_one_rate"
+  },
+  "stub": false,
   "doc": {
     "given": "sealed session solely about Goa trip, no drift, no open episodes",
     "expect": "episode := session, NO MODEL CALL",

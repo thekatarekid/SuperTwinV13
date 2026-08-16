@@ -5,9 +5,54 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "so are we locking the Goa dates or not",
+        "c": "c1",
+        "topic": "goa"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "13th to 17th works for me, flights are still sane",
+        "c": "c1",
+        "topic": "goa"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "the puppy needs the second rabies shot",
+        "c": "c1",
+        "topic": "rabies"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "vet said day 7, so this Saturday",
+        "c": "c1",
+        "topic": "rabies"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +63,59 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-049\nrun|session=s1\nrerun|session=s1|times=2\n#EP2 s1\nG|s1|1,2|new|-|0.9|Goa trip\nG|s1|3,4|new|-|0.88|rabies shots",
+  "expect": {
+    "calls": [
+      {
+        "session": "s1",
+        "frozen": true
+      }
+    ],
+    "segments": [
+      {
+        "session": "s1",
+        "events": "1,2",
+        "decision": "new",
+        "episode": "n1",
+        "label": "Goa trip"
+      },
+      {
+        "session": "s1",
+        "events": "3,4",
+        "decision": "new",
+        "episode": "n2",
+        "label": "rabies shots"
+      }
+    ],
+    "verdicts": [
+      {
+        "session": "s1",
+        "decision": "judged",
+        "model_calls": 1
+      }
+    ],
+    "episodes": [
+      {
+        "episode": "n1",
+        "stream": "c1",
+        "label": "Goa trip",
+        "arc_state": "open",
+        "outcome": null
+      },
+      {
+        "episode": "n2",
+        "stream": "c1",
+        "label": "rabies shots",
+        "arc_state": "open",
+        "outcome": null
+      }
+    ]
+  },
   "assert": {
     "mode": "exact",
-    "gate": "episodes_split_attach_accuracy"
+    "gate": "episodes_verdict_replay"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "re-run pipeline over same sealed sessions (run #3)",
     "expect": "identical episodes; verdicts reused; ZERO new calls",

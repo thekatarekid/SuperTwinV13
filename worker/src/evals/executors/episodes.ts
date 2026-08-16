@@ -44,7 +44,7 @@ import { preflagDrift, type DriftEvent, type PreflagResult } from "../../episode
 import { MIN_CALIB_PAIRS } from "../../retrieval/calibration-floor.js";
 import { createAliasTable } from "../../wire/aliases.js";
 import type { Fixture, FixtureEvent } from "../fixtures.js";
-import type { Executor, Produced } from "../runner.js";
+import type { Executor, GateObservation, Produced } from "../runner.js";
 
 const SOURCE = "whatsapp";
 const EMBEDDER = "eval-embedder";
@@ -250,6 +250,8 @@ interface Acc {
   output: Record<string, unknown[]>;
   state: Record<string, unknown>;
   metrics: Record<string, number>;
+  /** §14.2 rows this run measured beyond the case's own assertion. */
+  gates: GateObservation[];
 }
 
 function bucket(acc: Acc, name: string): unknown[] {
@@ -267,7 +269,7 @@ interface SessionSpec {
 
 export const episodesExecutor: Executor = (ctx): Produced => {
   const { scenario, answers } = parseResponse(ctx.response);
-  const acc: Acc = { output: {}, state: {}, metrics: {} };
+  const acc: Acc = { output: {}, state: {}, metrics: {}, gates: [] };
   const world = new World();
   const sessions = new Map<string, SessionSpec>();
 
@@ -322,7 +324,15 @@ export const episodesExecutor: Executor = (ctx): Produced => {
         decided += 1;
         if (result.decision === "one_to_one") oneToOne += 1;
       }
-      if (!partitions(session.eventIds, result.segments)) partitionOk = false;
+      // The partition invariant is measured on EVERY run, not only on the
+      // cases that spent their one `assert.gate` on it (§11.1 rule 1).
+      const partitioned = partitions(session.eventIds, result.segments);
+      if (!partitioned) partitionOk = false;
+      acc.gates.push({
+        gate: "episodes_split_attach_accuracy",
+        passed: partitioned,
+        note: partitioned ? undefined : `${spec.id}: segments do not partition the session`,
+      });
 
       const ordinalOf = new Map([...world.events].map(([n, id]) => [id, n] as const));
       if (!replay) {
@@ -388,7 +398,16 @@ export const episodesExecutor: Executor = (ctx): Produced => {
           const spec = sessions.get(line.fields.session ?? "");
           if (!spec) throw new Error(`episodes scenario: rerun names unknown session ${line.fields.session}`);
           const times = num(line.fields, "times", 1);
+          const before = calls;
+          const landedBefore = landings[landings.length - 1];
           for (let i = 0; i < times; i += 1) runOnce(spec, true);
+          // "identical episodes; verdicts reused; ZERO new calls" — all three.
+          const stable = landings.every((l) => l === landedBefore);
+          acc.gates.push({
+            gate: "episodes_verdict_replay",
+            passed: calls === before && stable,
+            note: calls === before && stable ? undefined : `${spec.id}: replay drifted or re-judged`,
+          });
           break;
         }
         case "age": {
@@ -408,18 +427,21 @@ export const episodesExecutor: Executor = (ctx): Produced => {
     }
 
     // The world as it ended up: one row per episode, in the fixture's own
-    // aliases. This is what "TWO separate episodes" is asserted on.
-    for (const row of getDb()
+    // aliases. This is what "TWO separate episodes" is asserted on. Ordered by
+    // ALIAS, not by row id: an id is a hash, and a hash is not an order a human
+    // can predict, which an `exact` expectation has to be able to do.
+    const rows = getDb()
       .prepare(`SELECT id, stream_id, topic_label, arc_state, outcome FROM episodes ORDER BY created_at, id`)
-      .all() as { id: string; stream_id: string; topic_label: string | null; arc_state: string; outcome: string | null }[]) {
-      bucket(acc, "episodes").push({
-        episode: world.aliasOf(row.id),
-        stream: world.streamAliasOf(row.stream_id),
-        label: row.topic_label,
-        arc_state: row.arc_state,
-        outcome: row.outcome,
-      });
-    }
+      .all() as { id: string; stream_id: string; topic_label: string | null; arc_state: string; outcome: string | null }[];
+    const listed = rows.map((row) => ({
+      episode: world.aliasOf(row.id),
+      stream: world.streamAliasOf(row.stream_id),
+      label: row.topic_label,
+      arc_state: row.arc_state,
+      outcome: row.outcome,
+    }));
+    listed.sort((a, b) => byAlias(a.episode, b.episode));
+    for (const entry of listed) bucket(acc, "episodes").push(entry);
 
     if (decisions.length > 0) {
       acc.state.decisions = decisions;
@@ -429,14 +451,26 @@ export const episodesExecutor: Executor = (ctx): Produced => {
       acc.state.stable_ids = landings.every((l) => l === landings[0]);
     }
     acc.metrics.model_calls = calls;
-    acc.metrics.one_to_one_rate = decided === 0 ? 1 : oneToOne / decided;
+    // A run that decided nothing measured nothing. Reporting 1 here would hand
+    // `episodes_one_to_one_rate` a perfect score it never earned; gates.ts's
+    // rule is that an unmeasured gate reads `no data`, never `pass`.
+    if (decided > 0) acc.metrics.one_to_one_rate = oneToOne / decided;
     acc.metrics.wrong_attach_rate = attaches === 0 ? 0 : wrongAttaches / attaches;
   } finally {
     world.close();
   }
 
-  return { output: acc.output, state: acc.state, metrics: acc.metrics };
+  return { output: acc.output, state: acc.state, metrics: acc.metrics, gates: acc.gates };
 };
+
+/** `e1` before `e2` before `n1`, and `n2` after `n1` — never lexicographic. */
+function byAlias(a: string, b: string): number {
+  const split = (t: string) => [t.replace(/[0-9]+$/, ""), Number(/[0-9]+$/.exec(t)?.[0] ?? 0)] as const;
+  const [pa, na] = split(a);
+  const [pb, nb] = split(b);
+  if (pa !== pb) return pa < pb ? -1 : 1;
+  return na - nb;
+}
 
 function insertSession(world: World, spec: SessionSpec): void {
   const streamId = world.streams.get(spec.streamAlias);

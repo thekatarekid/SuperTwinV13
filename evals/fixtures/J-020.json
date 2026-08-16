@@ -5,9 +5,54 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "the puppy needs the second rabies shot",
+        "c": "c1",
+        "topic": "rabies"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "vet said day 7, so this Saturday",
+        "c": "c1",
+        "topic": "rabies"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "the villa people want fifty percent to hold it",
+        "c": "c1",
+        "topic": "villa"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "how many rooms did they confirm",
+        "c": "c1",
+        "topic": "villa"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +63,38 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-020\nrun|session=s1\n#EP2 s1\nG|s1|1,2|new|-|0.9|rabies shots\nG|s1|3,4|new|-|0.88|villa booking",
+  "expect": {
+    "segments": [
+      {
+        "session": "s1",
+        "events": "1,2",
+        "decision": "new",
+        "episode": "n1",
+        "label": "rabies shots"
+      },
+      {
+        "session": "s1",
+        "events": "3,4",
+        "decision": "new",
+        "episode": "n2",
+        "label": "villa booking"
+      }
+    ],
+    "candidates": [],
+    "verdicts": [
+      {
+        "session": "s1",
+        "decision": "judged",
+        "model_calls": 1
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "episodes_split_attach_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "session pivots rabies shots -> villa booking, >=2 events each",
     "expect": "G lines split into 2 segments partitioning all event ids",

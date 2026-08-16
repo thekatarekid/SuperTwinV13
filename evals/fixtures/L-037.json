@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=a1|type=person\nentity|id=a2|type=person\nepisode|id=ep_wa|entities=a1,a2|label=Goa trip|source=whatsapp\nepisode|id=ep_cal|entities=a1,a2|label=Goa trip|source=calendar\nprov|batch=c1|episodes=ep_wa\nprov|batch=c2|episodes=ep_cal\nreconcile",
+  "expect": {
+    "state": {
+      "arcs": 1,
+      "groups": 1,
+      "merged": 1,
+      "minted": 1,
+      "provisionals": 0
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "arcs_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "two provisional arcs for the same trip created in parallel cohorts",
     "expect": "reconcile merges them before either surfaces",

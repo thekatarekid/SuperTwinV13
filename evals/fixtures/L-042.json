@@ -18,13 +18,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=a1|type=person\nentity|id=a2|type=person\nepisode|id=ep_wa|entities=a1,a2|label=Goa trip|source=whatsapp\narc|id=n1|label=Goa trip|anchors=a1,a2|sources=whatsapp|episodes=ep_wa\nepisode|id=ep_cal|entities=z1|label=Goa flights block|source=calendar\nbridge|from=ep_cal|to=ep_wa|kind=attendee_set|value=a1,a2|conf=1\nplace|episode=ep_cal",
+  "expect": {
+    "arcs": [
+      {
+        "id": "n1",
+        "episodes": [
+          "ep_cal",
+          "ep_wa"
+        ],
+        "sources": [
+          "calendar",
+          "whatsapp"
+        ]
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "arcs_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "cross-source: WhatsApp thread + Calendar block, same trip, attendee bridge (2)",
     "expect": "ONE arc spanning both sources",

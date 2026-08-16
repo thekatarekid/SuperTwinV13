@@ -7,7 +7,15 @@ afterEach(cleanup);
 describe("App shell", () => {
   it("renders every tab in the rail", () => {
     render(<App />);
-    for (const label of ["Inbox", "Chat", "Entities", "Sessions", "Settings"]) {
+    for (const label of [
+      "Inbox",
+      "Chat",
+      "Entities",
+      "Sessions",
+      "Episodes",
+      "Threads",
+      "Settings",
+    ]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
   });

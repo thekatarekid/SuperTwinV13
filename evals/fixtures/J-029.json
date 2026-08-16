@@ -5,11 +5,63 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "bhangra batch moved to Thursday 7pm",
+        "c": "c1",
+        "topic": "bhangra"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "that clashes with my standup, can I join the later one",
+        "c": "c1",
+        "topic": "bhangra"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "later batch is 8.30, ask Simran",
+        "c": "c1",
+        "topic": "bhangra"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "ok I will message her about the switch",
+        "c": "c1",
+        "topic": "bhangra"
+      }
+    ],
     "open": {
-      "episodes": [],
+      "episodes": [
+        {
+          "alias": "e1",
+          "stream": "c1",
+          "label": "bhangra class",
+          "last_active_days": 3
+        }
+      ],
       "loops": []
     },
     "db": {
@@ -18,13 +70,36 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-029\nrun|session=s1\n#EP2 s1\nG|s1|1-4|att|e1|0.93|bhangra class",
+  "expect": {
+    "segments": [
+      {
+        "session": "s1",
+        "events": "1,2,3,4",
+        "decision": "attach",
+        "episode": "e1",
+        "label": "bhangra class"
+      }
+    ],
+    "candidates": [
+      {
+        "session": "s1",
+        "episode": "e1"
+      }
+    ],
+    "verdicts": [
+      {
+        "session": "s1",
+        "decision": "judged",
+        "model_calls": 1
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": "episodes_split_attach_accuracy"
+    "gate": "episodes_wrong_attach_rate"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "session resumes bhangra class; open episode last active 3d ago, SAME stream",
     "expect": "G/.../att/e<k>/conf/label; verdict persisted",

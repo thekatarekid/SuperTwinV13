@@ -18,18 +18,22 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "budget",
-    "bound": {
-      "value": {
-        "min": 0.6
+  "frozen_response": "source|id=calendar|keys=attendee_set,url,email\nitem|id=c1|source=calendar|ts=2026-08-13T11:00:00Z|attendees=p1,p2,p3,p4,p5,p6,p7,p8\nitem|id=g1|source=whatsapp|ts=2026-08-13T11:30:00Z|attendees=p1,p2,p3,p4,p5,p6,p7,p9,p10",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "attendee_set",
+        "value": "p1+p2+p3+p4+p5+p6+p7",
+        "left": "c1",
+        "right": "g1"
       }
-    },
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
     "gate": "arcs_bridge_recall"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "calendar attendees vs group participants, Jaccard 0.7",
     "expect": "bridge fires only at >=0.6",

@@ -5,11 +5,30 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
     "events": [],
     "open": {
-      "episodes": [],
+      "episodes": [
+        {
+          "alias": "e1",
+          "stream": "c1",
+          "label": "Goa trip",
+          "last_active_days": 15
+        }
+      ],
       "loops": []
     },
     "db": {
@@ -18,13 +37,31 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "age",
+  "expect": {
+    "faded": [
+      {
+        "episode": "e1",
+        "arc_state": "closed",
+        "outcome": "faded",
+        "quiet_days": 15
+      }
+    ],
+    "episodes": [
+      {
+        "episode": "e1",
+        "stream": "c1",
+        "label": "Goa trip",
+        "arc_state": "closed",
+        "outcome": "faded"
+      }
+    ]
+  },
   "assert": {
     "mode": "exact",
     "gate": "episodes_split_attach_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "open episode quiet 15d",
     "expect": "arc_state=closed, outcome=faded [CODE]",

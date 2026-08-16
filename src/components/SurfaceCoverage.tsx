@@ -10,13 +10,14 @@
 import { useEffect, useState } from "react";
 
 import { CoverageMeter } from "./CoverageMeter";
-import type { CoverageSnapshot, SurfacesClient } from "../lib/surfaces-client";
+import type { CoverageClient, CoverageSnapshot } from "../lib/surfaces-client";
 
 /** Slow on purpose — the meter is monotonic, so a late poll costs nothing. */
 export const COVERAGE_POLL_MS = 5000;
 
 export interface SurfaceCoverageProps {
-  client: SurfacesClient;
+  /** Any surface's client: the meter only ever calls `getCoverage`. */
+  client: CoverageClient;
   /** 0 disables polling (tests, and any surface that mounts briefly). */
   pollMs?: number;
 }

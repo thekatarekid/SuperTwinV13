@@ -18,13 +18,19 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=a1|type=person\narc|id=n1|label=Goa trip|anchors=a1|sources=whatsapp|quiet_days=42\nreconcile",
+  "expect": {
+    "state": {
+      "aged_to": "dormant",
+      "arc_state": "dormant",
+      "arcs": 1
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "arcs_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "arc quiet 6w",
     "expect": "live->dormant at 3w; ->archived at 12w [CODE]",

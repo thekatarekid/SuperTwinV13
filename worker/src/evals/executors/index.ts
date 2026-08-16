@@ -14,6 +14,8 @@
 
 import { registerExecutor } from "../runner.js";
 import { accountingExecutor } from "./accounting.js";
+import { arcsExecutor } from "./arcs.js";
+import { bridgesExecutor } from "./bridges.js";
 import { calibExecutor } from "./calib.js";
 import { edgesExecutor } from "./edges.js";
 import { entitiesExecutor } from "./entities.js";
@@ -29,6 +31,8 @@ import { wireExecutor } from "./wire.js";
 
 export {
   accountingExecutor,
+  arcsExecutor,
+  bridgesExecutor,
   calibExecutor,
   edgesExecutor,
   entitiesExecutor,
@@ -54,6 +58,8 @@ export const PRODUCT_EXECUTORS = {
   mentions: mentionsExecutor,
   edges: edgesExecutor,
   episodes: episodesExecutor,
+  bridges: bridgesExecutor,
+  arcs: arcsExecutor,
   wire: wireExecutor,
   accounting: accountingExecutor,
   calib: calibExecutor,

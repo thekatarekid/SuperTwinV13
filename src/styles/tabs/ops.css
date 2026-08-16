@@ -1,0 +1,147 @@
+/* Ops surface (build item 4.4). Same quiet chrome as the other surfaces:
+   the meter is information, not decoration, and nothing animates. */
+
+.ops {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.ops__header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.ops__header h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.ops__offline {
+  color: var(--danger, #b3261e);
+  font-size: 12px;
+}
+
+.ops__notice {
+  color: var(--muted, #6b6b6b);
+  font-size: 12px;
+}
+
+.ops__panel {
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.ops__panel h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 10px;
+  color: var(--muted, #6b6b6b);
+}
+
+.ops__empty {
+  color: var(--muted, #6b6b6b);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Coverage meter */
+.ops__coverage {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ops__coverage-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 140px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.ops__meter {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--meter-track, #ececec);
+  overflow: hidden;
+}
+
+.ops__meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent, #4a7dff);
+}
+
+.ops__coverage-figures {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #6b6b6b);
+}
+
+.ops__depth {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted, #6b6b6b);
+}
+
+/* Tables */
+.ops__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ops__table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted, #6b6b6b);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border, #e2e2e2);
+}
+
+.ops__table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-faint, #f0f0f0);
+  font-variant-numeric: tabular-nums;
+}
+
+.ops__paused {
+  color: var(--warning, #9a6b00);
+}
+
+/* Questions */
+.ops__questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ops__question-text {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.ops__question-meta {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted, #6b6b6b);
+}
+
+.ops__question-actions {
+  display: flex;
+  gap: 8px;
+}

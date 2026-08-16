@@ -10,6 +10,7 @@ import { ClaimsTab } from "./tabs/ClaimsTab";
 import { SpacesTab } from "./tabs/SpacesTab";
 import { TasksTab } from "./tabs/TasksTab";
 import { PeopleTab } from "./tabs/PeopleTab";
+import { OpsTab } from "./tabs/OpsTab";
 
 type TabId =
   | "inbox"
@@ -22,6 +23,7 @@ type TabId =
   | "spaces"
   | "tasks"
   | "people"
+  | "ops"
   | "settings";
 
 interface TabDef {
@@ -114,6 +116,15 @@ const ICONS: Record<TabId, JSX.Element> = {
       <path d="M5 20a7 7 0 0 1 14 0" />
     </svg>
   ),
+  ops: (
+    <svg {...ICON_PROPS}>
+      {/* Gauge: an arc with a needle. */}
+      <path d="M4 15a8 8 0 0 1 16 0" />
+      <path d="M12 15 15.5 9.5" />
+      <circle cx="12" cy="15" r="1.2" />
+      <path d="M3 19h18" />
+    </svg>
+  ),
   settings: (
     <svg {...ICON_PROPS}>
       <circle cx="12" cy="12" r="3" />
@@ -133,6 +144,7 @@ const TABS: TabDef[] = [
   { id: "spaces", label: "Spaces", icon: ICONS.spaces },
   { id: "tasks", label: "Tasks", icon: ICONS.tasks },
   { id: "people", label: "People", icon: ICONS.people },
+  { id: "ops", label: "Ops", icon: ICONS.ops },
   { id: "settings", label: "Settings", icon: ICONS.settings },
 ];
 
@@ -192,6 +204,7 @@ export function App() {
         {active === "spaces" && <SpacesTab onOpenThreads={() => setActive("threads")} />}
         {active === "tasks" && <TasksTab onOpenSpace={() => setActive("spaces")} />}
         {active === "people" && <PeopleTab />}
+        {active === "ops" && <OpsTab />}
         {active === "settings" && <SettingsTab />}
       </main>
     </div>

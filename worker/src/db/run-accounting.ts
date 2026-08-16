@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 
 import { getDb } from "./connection.js";
+import { recordCallMark } from "./latency-marks.js";
 import {
   billableTokens,
   cacheBelowMinimum,
@@ -69,6 +70,12 @@ export interface RecordRunParams {
   usage: Usage;
   errorCode?: string | null;
   errorMsg?: string | null;
+  /**
+   * Time to first streamed token, ms (item 4.2, arch §9.5.3 rule 4). null or
+   * absent = the call never streamed one; a latency mark is still written so
+   * `ttftCoverage` can count the gap instead of hiding it.
+   */
+  ttftMs?: number | null;
 }
 
 /**
@@ -109,6 +116,24 @@ export function recordRun(p: RecordRunParams): string {
     costUsd: p.usage.costUsd ?? 0,
     errorCode: p.errorCode ?? null,
     errorMsg: p.errorMsg ?? null,
+  });
+  // Item 4.2: every run also writes its latency mark, in the same call so the
+  // two tables keep the same cardinality. The mark's name is the CALL TYPE
+  // (kind — P-CL1, P-EP1…) falling back to the role, per "per model per call
+  // type": a per-model-only key would hide a P-CL1 regression behind P-TR1.
+  const startedAtIso = p.startedAt ?? new Date().toISOString();
+  const startedMs = Date.parse(startedAtIso);
+  const endedMs = p.endedAt ? Date.parse(p.endedAt) : NaN;
+  const totalMs =
+    Number.isFinite(startedMs) && Number.isFinite(endedMs) && endedMs >= startedMs ? endedMs - startedMs : null;
+  recordCallMark({
+    name: p.kind ?? p.role,
+    model: p.model,
+    runId: id,
+    ttftMs: typeof p.ttftMs === "number" && Number.isFinite(p.ttftMs) && p.ttftMs >= 0 ? p.ttftMs : null,
+    totalMs,
+    outputTokens: p.usage.outputTokens,
+    createdAt: startedAtIso,
   });
   return id;
 }

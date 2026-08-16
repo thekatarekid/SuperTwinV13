@@ -61,7 +61,8 @@ import {
   type PaintCall,
 } from "../../scheduler/paint.js";
 import { readCoverage } from "../../scheduler/queue.js";
-import type { Executor, Produced } from "../runner.js";
+import type { Executor, GateObservation, Produced } from "../runner.js";
+import { schedImportObservations } from "./sched-import.js";
 
 const SOURCE = "whatsapp";
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -203,7 +204,14 @@ export const schedulerExecutor: Executor = (ctx): Produced => {
   } finally {
     world.close();
   }
-  return { output: acc.output, state: acc.state, metrics: acc.metrics };
+
+  // The four §14.2 rows only an INTEGRATION run can measure — recency order,
+  // bootstrap seal mode, live pre-emption delay and restart-without-re-judge —
+  // ride with the first T case that completes (once per suite, see
+  // sched-import.ts) over the real scheduler on a real temp DB.
+  const gates: GateObservation[] = schedImportObservations();
+
+  return { output: acc.output, state: acc.state, metrics: acc.metrics, gates };
 };
 
 function run(line: Line, acc: Acc, world: World): void {

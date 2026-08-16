@@ -392,3 +392,23 @@ describe("provider failures (§4.6)", () => {
     expect(h.runs.length).toBeGreaterThan(0);
   });
 });
+
+describe("latency instrumentation (item 4.2, §9.5.3 rule 4)", () => {
+  it("stamps TTFT on every runs write when a token streamed", async () => {
+    const h = harness([{ text: CLEAN }]);
+    await runPrompt(spec(), h.deps);
+    expect(h.runs).toHaveLength(1);
+    // The fake provider streams its delta on the same fake-clock instant the
+    // call started, so the honest TTFT is 0 ms — a number, never null.
+    expect(h.runs[0]!.ttftMs).toBe(0);
+  });
+
+  it("records null TTFT — not zero — for a call that never streamed a token", async () => {
+    const h = harness([{ code: "TIMEOUT", message: "timed out" }, { text: CLEAN }]);
+    await runPrompt(spec(), h.deps);
+    // Attempt 1 timed out before any delta: no first token exists, and 0 would
+    // claim it arrived instantly. Attempt 2 streamed and has one.
+    expect(h.runs[0]!.ttftMs).toBeNull();
+    expect(h.runs[1]!.ttftMs).toBe(0);
+  });
+});

@@ -1187,6 +1187,53 @@ export async function listRuns(
   return res.runs;
 }
 
+// ---- Latency (build item 4.2, arch §9.5.3 rule 4) --------------------------
+
+/** One (model, call type) line: worst-case figures, never means. */
+export interface LatencyCallRow {
+  model: string;
+  callType: string;
+  calls: number;
+  /** How many of those calls recorded a TTFT. */
+  callsWithTtft: number;
+  worstTtftMs: number | null;
+  worstTotalMs: number | null;
+  /** Slowest observed streaming rate, derived server-side, 1 decimal. */
+  minTokensPerSecond: number | null;
+  lastAt: string | null;
+}
+
+/** Latest persisted mark for one global-acceptance budget. */
+export interface LatencyMilestone {
+  name: "first_claim" | "spaces_tasks" | "silent_gap" | "steady_calls" | "live_visibility";
+  value: number;
+  /** The budget stored WITH the mark — history is never re-graded. */
+  budget: number;
+  unit: "ms" | "calls";
+  met: boolean;
+  at: string;
+}
+
+/** GET /api/latency — everything the ops latency panel renders. */
+export interface LatencyInfo {
+  calls: LatencyCallRow[];
+  milestones: LatencyMilestone[];
+  /** Share of calls that recorded a TTFT; null before any call ran. */
+  ttftCoverage: number | null;
+  budgets: {
+    firstClaimMs: number;
+    spacesTasksMs: number;
+    silentGapMs: number;
+    steadyCallsPerDay: number;
+    visibilitySlackMs: number;
+  };
+  steady: { callsLast24h: number; budget: number; met: boolean };
+}
+
+export async function getLatency(signal?: AbortSignal): Promise<LatencyInfo> {
+  return getJson<LatencyInfo>("/api/latency", signal);
+}
+
 // ---------------------------------------------------------------------------
 // Settings → Usage (arch §4.4.4). One request, one filter, one row set: the
 // token table and the cost line come back from the same aggregate so they can

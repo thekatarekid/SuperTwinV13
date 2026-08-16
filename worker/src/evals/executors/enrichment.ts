@@ -60,7 +60,15 @@ import type { DescribeResult } from "../../media/describe.js";
 import { laneCaps, RESOURCE_LIMITS } from "../../providers/pool.js";
 import type { Provider, ProviderResult, SendOptions } from "../../providers/index.js";
 import { emptyUsage } from "../../providers/usage.js";
-import type { Executor, Produced } from "../runner.js";
+import type { Executor, GateObservation, Produced } from "../runner.js";
+import {
+  auditCaptionAttachment,
+  measureInfoFreeRate,
+  runEpisodeFlow,
+  seedAndClaimImages,
+  slotCaption,
+  type AppliedCaption,
+} from "./enrichment-media.js";
 
 const SOURCE_ID = "whatsapp";
 const STREAM_EXT = "pranjali@s.whatsapp.net";
@@ -143,9 +151,13 @@ function imageRows(dir: string, n: number, kind = "image"): PendingMediaRow[] {
   }));
 }
 
-/** The answer a well-behaved model gives: every id, echoed once. */
+/**
+ * The answer a well-behaved model gives: every id, echoed once, with the
+ * caption naming the SLOT the image was shown under — which is what lets
+ * `auditCaptionAttachment` prove each caption landed on its own image.
+ */
 function fullAnswer(ids: string[]): string {
-  return ids.map((id) => `${BATCH_MARKER} ${id}\nA photo (${id}).`).join("\n\n");
+  return ids.map((id, i) => `${BATCH_MARKER} ${id}\n${slotCaption(i + 1)}`).join("\n\n");
 }
 
 interface Ctx {
@@ -155,6 +167,8 @@ interface Ctx {
   metrics: Record<string, number>;
   /** Every enrichment step the scenario caused, by executor. */
   calls: { unit: string; step: string; executor: ExecutorTag; engine: string }[];
+  /** §14.2 gate measurements this run made beyond the case's own assertion. */
+  gates: GateObservation[];
 }
 
 function note(ctx: Ctx, unit: string, route: ReturnType<typeof enrichmentRoute>): void {
@@ -196,13 +210,20 @@ function runRoute(ctx: Ctx, fields: Record<string, string>): void {
   ctx.state.steps = steps.map((s) => `${s.executor} ${s.step}`);
 }
 
-/** A real batch call over real files, with the model's answer frozen. */
+/**
+ * A real batch call over real files — REAL 2×2 PNGs inserted as events and
+ * claimed back off the product's own pending-media queue — with the model's
+ * answer frozen.
+ */
 async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void> {
   const count = num(fields, "images", 16);
-  const rows = imageRows(ctx.dir, count);
+  const streamId = seedStream();
+  const rows = seedAndClaimImages(ctx.dir, SOURCE_ID, streamId, count, NOW);
   const echo = fields.echo ?? "all";
   const sizes: number[] = [];
   const captions: { id: string; status: string }[] = [];
+  const applied: AppliedCaption[] = [];
+  let currentChunk: readonly PendingMediaRow[] = [];
 
   const provider = stubProvider((ids) => {
     // Only the FIRST, full-size call misbehaves: a case says "16 comes back one
@@ -227,6 +248,7 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
     call: async (chunk) => {
       sizes.push(chunk.length);
       perCall.push({ size: chunk.length, applied: 0 });
+      currentChunk = chunk;
       // One CALL, whatever it holds — this is what §10.1's "16 images per call"
       // means, and counting a call per image is how that claim gets faked.
       note(ctx, `batch:${chunk.length}`, enrichmentRoute({ kind: "image" }));
@@ -235,6 +257,11 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
     },
     apply: (row, result) => {
       captions.push({ id: row.id, status: result.status });
+      applied.push({
+        rowId: row.id,
+        sentPosition: currentChunk.indexOf(row) + 1,
+        caption: result.description,
+      });
       perCall[perCall.length - 1]!.applied += 1;
     },
     solo: async (row) => {
@@ -242,10 +269,12 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
       // nothing left to split it against.
       sizes.push(1);
       perCall.push({ size: 1, applied: 0 });
+      currentChunk = [row];
       note(ctx, row.id, enrichmentRoute({ kind: row.kind }));
       const answer = await describeMediaBatch([row], { provider });
       const result = answer.results.get(row.id);
       captions.push({ id: row.id, status: result?.status ?? "error" });
+      applied.push({ rowId: row.id, sentPosition: 1, caption: result?.description ?? null });
       perCall[perCall.length - 1]!.applied += 1;
     },
   });
@@ -266,6 +295,42 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
   ctx.state.first_call_applied = perCall[0]?.applied ?? 0;
   ctx.metrics.calls = sizes.length;
   ctx.metrics.image_batch_size = count;
+
+  // ---- §14.2 gate observations, all measured off what actually happened ----
+  const batchSize = getEnrichmentImageBatchSize();
+  const mismatched = outcome.mismatches > 0;
+  // One observation PER APPLIED CAPTION: sixteen images are sixteen chances to
+  // land on the wrong photo (bolded gate `enrich_caption_wrong_image`).
+  ctx.gates.push(...auditCaptionAttachment(applied));
+  ctx.gates.push({
+    gate: "enrich_all_media_captioned",
+    passed: captions.length === count,
+    note: `${captions.length}/${count} captioned`,
+  });
+  if (count >= batchSize && !mismatched) {
+    // The honoured batch size is only measurable when enough images are
+    // pending to fill a batch and no mismatch forced a split (§14.2 wording).
+    ctx.gates.push({
+      gate: "enrich_batch_size",
+      passed: (sizes[0] ?? 0) >= batchSize,
+      value: sizes[0] ?? 0,
+      note: `first call carried ${sizes[0] ?? 0} of a ${batchSize} batch`,
+    });
+  }
+  if (mismatched) {
+    // A mismatched batch must be void-and-split: nothing from the first call
+    // applied, everything eventually captioned by the halves.
+    ctx.gates.push({
+      gate: "enrich_mismatch_split_retry",
+      passed: (perCall[0]?.applied ?? 0) === 0 && captions.length === count,
+      note: `first call applied ${perCall[0]?.applied ?? 0}, ${captions.length}/${count} after split`,
+    });
+  }
+  // The same media episode, end to end: pass 1 on text with attachments still
+  // pending, captions resolve, exactly one completion pass, no duplicate claim.
+  const flow = runEpisodeFlow({ dir: ctx.dir, sourceId: SOURCE_ID, streamId, now: NOW, images: 2, voice: true });
+  ctx.gates.push(...flow.gates);
+  ctx.state.episode_passes_done = flow.passesDone;
 }
 
 /** One image, read for real, to show what the defaults do with it. */
@@ -284,6 +349,20 @@ async function runCaption(ctx: Ctx, fields: Record<string, string>): Promise<voi
   ctx.output.captions = [{ kind, status: result?.status ?? "error", executor: route.executor }];
   ctx.state.read_all_media = getEnrichmentReadAllMedia();
   ctx.state.batched = batchable(row!);
+
+  // At default settings every image and sticker gets its caption (§14.2).
+  ctx.gates.push({
+    gate: "enrich_all_media_captioned",
+    passed: result?.status === "done" && result.description !== null,
+    note: `${kind} → ${result?.status ?? "no result"}`,
+  });
+  ctx.gates.push(...auditCaptionAttachment([{ rowId: row!.id, sentPosition: 1, caption: result?.description ?? null }]));
+  // Late media on a completed episode re-reads the ORIGINAL session (§8.4
+  // rule 2) — the whole flow over the real queue rows, late arrival included.
+  const streamId = seedStream();
+  const flow = runEpisodeFlow({ dir: ctx.dir, sourceId: SOURCE_ID, streamId, now: NOW, images: 1, voice: true, late: true });
+  ctx.gates.push(...flow.gates);
+  ctx.state.late_targets_original = flow.lateTargetsOriginal;
 }
 
 /** The one number a vision call is allowed to send (§10.1 point 2). */
@@ -364,6 +443,13 @@ function runPriority(ctx: Ctx): void {
   ctx.state.insertion_order = [old, recent];
   ctx.state.read_first = ordered[0]?.id ?? null;
   ctx.state.fifo = ordered[0]?.id === old;
+  // §14.2 `enrich_media_queue_priority`: any inversion — a 2023 photo read
+  // before the hour-old one — is a violation, measured off the real key.
+  ctx.gates.push({
+    gate: "enrich_media_queue_priority",
+    passed: ordered[0]?.id === recent,
+    note: `read first: ${ordered[0]?.id ?? "nothing"}`,
+  });
 }
 
 /**
@@ -398,6 +484,24 @@ function runSetting(ctx: Ctx, fields: Record<string, string>): void {
         : getEnrichmentImageBatchSize();
   ctx.output.settings = [{ key, value }];
   ctx.state[key] = value;
+
+  if (key === "salience_gate") {
+    // With the gate ON, an information-free caption must not trigger the
+    // update pass (§8.4 table) — measured off real `resolveEnrichment`
+    // returns, with the info-free caption resolving LAST so it is the one
+    // that could have triggered.
+    const streamId = seedStream();
+    const report = measureInfoFreeRate({
+      dir: ctx.dir,
+      sourceId: SOURCE_ID,
+      streamId,
+      now: NOW,
+      captions: ["Flight AI-202 on 21 Aug for ₹4,300", "hmm", "nice one"],
+    });
+    ctx.gates.push(...report.gates);
+    ctx.metrics.info_free_update_rate = report.rate;
+    ctx.state.info_free_captions = report.infoFree;
+  }
 }
 
 function seedStream(): string {
@@ -412,7 +516,7 @@ function seedStream(): string {
 
 async function runScenario(response: string, dir: string): Promise<Produced> {
   runMigrations();
-  const ctx: Ctx = { dir, output: {}, state: {}, metrics: {}, calls: [] };
+  const ctx: Ctx = { dir, output: {}, state: {}, metrics: {}, calls: [], gates: [] };
 
   for (const { tag, fields } of parseScenario(response)) {
     switch (tag) {
@@ -446,7 +550,7 @@ async function runScenario(response: string, dir: string): Promise<Produced> {
   }
 
   publishCalls(ctx);
-  return { output: ctx.output, state: ctx.state, metrics: ctx.metrics };
+  return { output: ctx.output, state: ctx.state, metrics: ctx.metrics, gates: ctx.gates };
 }
 
 export const enrichmentExecutor: Executor = async ({ response }) => {

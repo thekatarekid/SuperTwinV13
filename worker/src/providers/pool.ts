@@ -470,6 +470,16 @@ export class ResourcePool {
     return this.pausedForMs(lane) > 0;
   }
 
+  /**
+   * Pause a lane by hand (the ops surface's per-lane pause, build item 4.4).
+   * Same mechanism as a refusal pause — `awaitResume` holds new work and the
+   * coverage meter renders the countdown — but it never touches the refusal
+   * streak, so a manual pause cannot degrade the LLM limit.
+   */
+  pauseLane(lane: LaneKey, ms: number): void {
+    this.pausedUntilMs.set(lane, this.now() + Math.max(0, ms));
+  }
+
   /** Clear a pause early (the limit lifted, or the user retried by hand). */
   resumeLane(lane: LaneKey): void {
     this.pausedUntilMs.delete(lane);

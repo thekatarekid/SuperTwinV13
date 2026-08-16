@@ -72,6 +72,7 @@ import { buildTr1Prompt, parseTr1Response, tr1Accounts, type Tr1Loop } from "../
 import { packPrompt, type PackEntity, type PackEvent } from "../../wire/pack.js";
 import type { Fixture, FixtureEvent } from "../fixtures.js";
 import type { Executor, GateObservation, Produced } from "../runner.js";
+import { doneCorpusObservations } from "./done-corpus.js";
 
 /** The instant every case is posed relative to. Frozen, so it is offline. */
 const NOW = "2026-08-15T12:00:00.000Z";
@@ -545,6 +546,11 @@ export const tasksExecutor: Executor = ({ fixture, response }) => {
     const blanket: never[] = []; // an applied grant with no loop cannot exist
 
     const gates: GateObservation[] = [];
+    // §14.2's done-detection precision is a rate over the closes a P-DD1 pass
+    // makes on a LABELLED population, which no single Q fixture is. The
+    // labelled corpus (done-corpus.ts) rides with the first Q case that
+    // completes — once per suite, so each close is counted exactly once.
+    gates.push(...doneCorpusObservations());
     if (wire.accounted !== null) {
       gates.push({
         gate: "all_model_output_discarded",

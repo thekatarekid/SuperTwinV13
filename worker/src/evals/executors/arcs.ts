@@ -64,6 +64,7 @@ import { logMutation } from "../../entities/merge.js";
 import { buildAg2Prompt } from "../../prompts/p-ag2.js";
 import { MIN_CALIB_PAIRS } from "../../retrieval/calibration-floor.js";
 import type { Executor, GateObservation, Produced } from "../runner.js";
+import { correctionsObservations } from "./corrections-corpus.js";
 
 const EMBEDDER = "eval-embedder";
 /** The instant every case is posed relative to. Frozen, so it is offline. */
@@ -144,6 +145,11 @@ export const arcsExecutor: Executor = ({ response }) => {
       },
     ];
   }
+
+  // §14.2's "user corrections surviving re-derivation" needs a correction, a
+  // full re-derive and a read-back — a scenario, not a fixture. It rides with
+  // the first L case that completes (once per suite, see corrections-corpus.ts).
+  first.gates = [...(first.gates ?? []), ...correctionsObservations()];
   return first;
 };
 

@@ -111,6 +111,7 @@ import {
   stopSemanticIndexer,
 } from "../retrieval/indexer.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
+import { handleOpsRoute } from "./ops-routes.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // Item 2.6 — the reconcile job's manual entry point and its nightly timer.
 import { startNightlyTimer, type ReconcileTimer } from "../reconcile/index.js";
@@ -702,10 +703,18 @@ async function handle(
     if (handled) return;
   }
 
+  // --- Ops surface (item 4.4): import progress, quarantine browser, question
+  // queue, per-lane pause/resume, undo-run. Owns everything under /api/ops/.
+  if (path.startsWith("/api/ops/")) {
+    const handled = await handleOpsRoute(req, res);
+    if (handled) return;
+  }
+
   // --- Runs / logs / brain folder / evaluations. Runs after the brain block,
   // which returns false for /api/brain/(info|reveal) so they land here.
   if (
     path === "/api/runs" ||
+    path === "/api/latency" ||
     path === "/api/usage" ||
     path === "/api/usage/estimate" ||
     path.startsWith("/api/logs/") ||

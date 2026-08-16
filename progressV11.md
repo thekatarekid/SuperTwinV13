@@ -12,11 +12,18 @@
 | 1 Ingest→Sessions | 1.1–1.11 | ✅ gate passed |
 | 2 Episodes/Arcs | 2.1–2.7 | ✅ gate passed |
 | 3 Claims/Loops/Spaces/Tasks | 3.1–3.10 | ✅ gate passed |
-| 4 Hardening | 4.1–4.4 | pending |
+| 4 Hardening | 4.1–4.4 | ✅ gate passed |
 | 5 Second source | 5.1–5.4 | pending |
 
 ## Log
 
+- **PHASE 4 GATE PASSED.** Eval **1000/1000 · 96 gates defined / 94 measured / 0 breached** (was 80 measured) · worker 3115/3115 · root 496/496 · scripts 67/67. All 8 critical gates PASS incl. `all_model_output_discarded` = 0.
+- **4.1** — 6 gates moved no-data→measured via real-scheduler harnesses: recency order 0 inversions, restart re-judges 0 (literal mid-import close+reopen), bootstrap-seal 100%, live-preempts-backfill 1 cohort, done-detection precision 100% (the 4 authored wrong-done temptations all declined), corrections-survive 7/7 incl. surviving `undoRun`. CI breach-enforcement proven by a deliberate local breach → exit 1, reverted.
+- **4.2 Latency** — TTFT captured at first streamed delta per run (NULL when no token, never 0), persisted milestones, `/api/latency`, quiet-day proof over the REAL scheduler at full 30 s cadence (2,880 ticks). **This proof caught a real budget breach:** an idle open session re-fired an empty quiet-delta every 30 s (~480 calls/day vs the 12 budget); fixed in `runLiveTick`.
+- **4.3 Confluence** — 3 ingest orders through the full pipeline on fresh DBs, content-keyed table-by-table comparison, no table compared empty, `stated_at` precedence verified per order, **negative control** proves the comparator detects a genuinely different graph. Graphs identical.
+- **4.4 Ops** — quarantine browser with replay-after-fix, run reversal that leaves other runs' writes standing, runs list with the 4-way token split, OpsTab + Settings surfaces.
+- **Remaining no-data: 1 gate**, correctly so — `enrich_ambient_prefilter` is defined over real ambient traffic and the only registered adapter is WhatsApp (ambient adapters forbidden before Phase 5); a synthetic corpus would let the fixture set pick its own denominator, the exact anti-pattern the 1:1-rate fix removed. (8 of the 9 enrichment gates became measurable with synthetic media.)
+- **Needs a live device run** (fixture timings are frozen, not real model latency): real cold-install wall-clock, real full-import gap, real WhatsApp-corpus space count, real quiet-day observation.
 - **PHASES 2 + 3 GATES PASSED.** Eval **1000/1000 cases · 0 gates breached · 0 pending** · 80/96 gates measured · worker 3052/3052 · root 485/485 · scripts 67/67. Cheat-scan clean (no skips; every gates.ts threshold verbatim vs arch §14.2).
 - **Audit round (Phase 2)** — the unreported Phase 2 run was audited item-by-item before gating. Caught and fixed: a tautological `episodes_one_to_one_rate` (denominator was 14 hand-picked positives reading 1.00 by construction → per-observation over all routed sessions), a latent `episode_verdicts` row-shape corruption that would have silently broken never-re-judge, an unfalsifiable wrong-attach gate (now measured off persisted rows, all three violation kinds fire in tests), and the unwired P-EP2 judge seam.
 - **1:1 rate** — first honest measurement read 41.2% vs the 60% floor because the J corpus was a coverage matrix, not a traffic sample. Fixed with a representative corpus; now **62.8%**, threshold untouched.

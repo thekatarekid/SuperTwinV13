@@ -304,6 +304,45 @@ export function resumeQueue(): ResumeReport {
   return report;
 }
 
+/** One quarantined row, as the ops surface's quarantine browser lists it. */
+export interface QuarantinedItem extends WorkItem {
+  createdAt: string | null;
+}
+
+/**
+ * Every quarantined row, newest first — the ops surface's quarantine browser
+ * (build item 4.4). Quarantine is per-unit so the rest of the import keeps
+ * moving; this is the ledger of what it left behind.
+ */
+export function listQuarantined(limit = 200): QuarantinedItem[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, unit_kind, unit_id, cohort_id, stage, priority, attempts, state, not_before_at, created_at
+         FROM work_queue WHERE state = 'quarantined'
+        ORDER BY created_at DESC, id LIMIT ?`,
+    )
+    .all(Math.max(1, Math.floor(limit))) as (WorkRow & { created_at: string | null })[];
+  return rows.map((row) => ({ ...toItem(row), createdAt: row.created_at ?? null }));
+}
+
+/**
+ * Replay one quarantined unit after a fix (build item 4.4 acceptance). The row
+ * returns to `ready` with its retry budget refunded — the fix is what earns the
+ * fresh ladder — and keeps its original priority, so a replay is scheduled like
+ * any other work rather than jumping the queue. Only a `quarantined` row moves:
+ * replaying a row some other state owns would fight the scheduler for it.
+ */
+export function replayQuarantined(id: string): boolean {
+  return (
+    getDb()
+      .prepare(
+        `UPDATE work_queue SET state = 'ready', attempts = 0, not_before_at = NULL
+          WHERE id = ? AND state = 'quarantined'`,
+      )
+      .run(id).changes > 0
+  );
+}
+
 /** How many rows sit in each state — what the no-stall check asks about. */
 export function queueDepth(): Record<WorkState, number> {
   const rows = getDb().prepare(`SELECT state, COUNT(*) AS n FROM work_queue GROUP BY state`).all() as {

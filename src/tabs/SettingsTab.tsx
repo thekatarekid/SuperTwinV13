@@ -55,6 +55,7 @@ import {
   type WhisperModelState,
   type WorkerClient,
 } from "../lib/worker-client";
+import { LatencyPanel } from "./LatencyPanel";
 import {
   activateEmbeddingModel,
   benchmarkEmbeddingModel,
@@ -2002,6 +2003,8 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
               )}
             </div>
           )}
+          {/* Item 4.2: persisted latency marks, until 4.4's ops surface. */}
+          <LatencyPanel />
         </section>
 
         <section id="settings-brain" className="settings__section">

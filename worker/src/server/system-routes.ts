@@ -17,7 +17,9 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { brainRoot } from "../brain/index.js";
 import { ensureLogsDir } from "../logs.js";
+import { latencySnapshot } from "../db/latency-marks.js";
 import * as runs from "../db/runs.js";
+import { liveCallsInWindow, LIVE_BUDGETS } from "../scheduler/live-budgets.js";
 
 /** Rows one /api/runs page may ask for, and how deep into history it may start. */
 const MAX_RUNS_PAGE = 1000;
@@ -112,6 +114,27 @@ export async function handleSystemRoute(
     // db/runs reads with LIMIT alone, and its sort is over the whole table
     // whatever that limit is, so the page is cut from the front of one read.
     sendJson(res, 200, { runs: runs.listRuns(offset + limit).slice(offset) });
+    return true;
+  }
+
+  // ---- GET /api/latency → the ops surface's latency panel (item 4.2, arch
+  // §9.5.3 rule 4). Per-(model, call type) worst TTFT / worst total / slowest
+  // tokens-per-second from the persisted marks, the latest global-acceptance
+  // milestones each graded against the budget stored WITH the mark, the live
+  // ledger's model-call count over the trailing day, and the shipped budgets
+  // themselves so the panel and the worker can never disagree on the bar.
+  if (method === "GET" && path === "/api/latency") {
+    const snapshot = latencySnapshot();
+    const callsLast24h = liveCallsInWindow(Date.now());
+    sendJson(res, 200, {
+      ...snapshot,
+      budgets: LIVE_BUDGETS,
+      steady: {
+        callsLast24h,
+        budget: LIVE_BUDGETS.steadyCallsPerDay,
+        met: callsLast24h <= LIVE_BUDGETS.steadyCallsPerDay,
+      },
+    });
     return true;
   }
 

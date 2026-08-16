@@ -361,6 +361,17 @@ export function runLiveTick(options: LiveTickOptions): LiveTickResult {
       held.push({ ...pass, work: null, passesThisHour: passesThisHour(pass.streamId, options.nowMs) });
       continue;
     }
+    // Item 4.2's quiet-day proof caught this: once a session's tail has been
+    // drained, `quietMs >= interval` stays true on EVERY subsequent tick, so an
+    // open-but-idle session would fire an empty delta every 30 s until the
+    // hourly cap — ~480 model calls on a day whose budget is 12. A fire whose
+    // delta window is EMPTY has nothing to extract: it is held, not committed.
+    // The decision object is untouched (lanes.ts still owns the rule); this is
+    // the commit step declining to spend a model call on zero events.
+    if (pass.eventIds.length === 0) {
+      held.push({ ...pass, work: null, passesThisHour: passesThisHour(pass.streamId, options.nowMs) });
+      continue;
+    }
     const priority = computePriority({
       tier: pass.tier,
       horizon: "live",

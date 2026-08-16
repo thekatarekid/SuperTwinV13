@@ -210,10 +210,18 @@ interface CallOutcome {
   errorMessage?: string;
   startedAt: string;
   endedAt: string;
+  /** Dispatch → first streamed token, ms. null = no token ever arrived (4.2). */
+  ttftMs: number | null;
 }
 
 /** Run status for the `runs` row this call produces. */
 type RunStatus = "ok" | "retried" | "quarantined" | "error";
+
+/** TTFT from a dispatch instant and the first-token instant; null = no token. */
+function ttftFrom(startedMs: number, firstTokenAtMs: number | null): number | null {
+  if (firstTokenAtMs === null || !Number.isFinite(startedMs)) return null;
+  return Math.max(0, firstTokenAtMs - startedMs);
+}
 
 export class PromptRunner {
   private readonly deps: RunnerDeps;
@@ -251,6 +259,7 @@ export class PromptRunner {
         errorMessage: `provider "${this.deps.providerId ?? DEFAULT_PROVIDER_ID}" is not registered`,
         startedAt,
         endedAt: this.now().toISOString(),
+        ttftMs: null,
       };
     }
 
@@ -259,6 +268,11 @@ export class PromptRunner {
     let usage: Usage = { ...ZERO_USAGE };
     let failure = "";
     let failureCode: ProviderErrorCode | undefined;
+    // TTFT (item 4.2, §9.5.3 rule 4): the instant the FIRST delta arrives,
+    // measured with the same injectable clock as startedAt/endedAt. null until
+    // a token streams — an errored call has no TTFT and must not fake one.
+    const startedMs = Date.parse(startedAt);
+    let firstTokenAtMs: number | null = null;
 
     const lane: LlmLane = spec.lane ?? "understanding";
     try {
@@ -281,7 +295,10 @@ export class PromptRunner {
             signal: this.deps.signal,
             onEvent: (ev) => {
               // Concatenated verbatim. No trimming, no filtering, no cleanup.
-              if (ev.type === "delta") text += ev.text;
+              if (ev.type === "delta") {
+                if (firstTokenAtMs === null) firstTokenAtMs = this.now().getTime();
+                text += ev.text;
+              }
               else if (ev.type === "usage") usage = ev.usage;
               else if (ev.type === "done") usage = ev.usage;
               else if (ev.type === "error") {
@@ -301,6 +318,7 @@ export class PromptRunner {
         errorMessage: failure,
         startedAt,
         endedAt: this.now().toISOString(),
+        ttftMs: ttftFrom(startedMs, firstTokenAtMs),
       };
     } catch (err) {
       return {
@@ -313,6 +331,8 @@ export class PromptRunner {
         errorMessage: err instanceof Error ? err.message : String(err),
         startedAt,
         endedAt: this.now().toISOString(),
+        // Whatever streamed before the throw still has an honest TTFT.
+        ttftMs: ttftFrom(startedMs, firstTokenAtMs),
       };
     }
   }
@@ -331,6 +351,9 @@ export class PromptRunner {
       usage: call.usage,
       errorCode: call.errorCode ? String(call.errorCode) : null,
       errorMsg: call.errorMessage && call.errorMessage !== "" ? call.errorMessage : null,
+      // Item 4.2: the runs write also persists this call's latency mark, so
+      // TTFT and tokens/sec are recorded per model per call type (§9.5.3 r4).
+      ttftMs: call.ttftMs,
     });
   }
 

@@ -1,0 +1,58 @@
+{
+  "id": "M-030",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rahul Arora"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-09T18:00:00Z",
+        "who": "self",
+        "text": "rahul finally moved to pune"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya mentioned news about Rahul. Nothing else was discussed.\nF|1|a1|ao|0.9|-|Rahul moved to Pune",
+  "expect": {
+    "claims": [
+      {
+        "tag": "F",
+        "subject": "a1",
+        "attribution": "about_other",
+        "text": "Rahul moved to Pune"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "subject",
+      "attribution",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says something about Rahul",
+    "expect": "attribution=ao",
+    "assert": "about_other"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "id": "G-035",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bind|as=l|src=whatsapp|kind=handle|v=neha|name=Neha\nbind|as=r|src=whatsapp|kind=handle|v=neha--keerti-s|name=Neha (Keerti's)\ndecide|l=l|r=r|v=different|by=user|reason=no shared phone, email or group\nmerge|loser=r|winner=l|by=ml:entity_name",
+  "expect": {
+    "state": {
+      "merged": false,
+      "refuse_reason": "negative_pair",
+      "verdict": "different",
+      "verdict_decided_by": "user",
+      "entity_count": 2,
+      "distinct_entities": 2,
+      "model_calls": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'Neha' vs 'Neha (Keerti's)': no shared phone/email/groups",
+    "expect": "DIFFERENT; store negative pair; never re-propose",
+    "assert": "name similarity must not merge"
+  }
+}

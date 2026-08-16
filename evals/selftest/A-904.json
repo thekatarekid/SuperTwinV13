@@ -1,0 +1,22 @@
+{
+  "id": "A-904",
+  "category": "A",
+  "layer": "harness",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": ["a1=Pranjali Sachdeva", "a2=Rahul"],
+    "streams": [],
+    "events": [],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "P|loops|owner=a2,intent=return the drill",
+  "expect": { "loops": [{ "owner": "a1" }] },
+  "assert": { "mode": "absent", "on": ["owner"], "gate": null },
+  "doc": {
+    "given": "harness self-test — absent mode",
+    "expect": "no loop owned by a1 is produced (one owned by a2 is fine)",
+    "assert": "absent"
+  }
+}

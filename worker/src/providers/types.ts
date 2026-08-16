@@ -48,6 +48,16 @@ export type ProviderErrorCode =
   | "QUOTA_EXCEEDED"
   | "BAD_REQUEST";
 
+/**
+ * Extended-thinking ladder (arch §4.3). The provider maps these to
+ * MAX_THINKING_TOKENS on the child env: off=0 low=2048 medium=8192 high=24576
+ * xhigh=49152 max=65536. **Every call in this build uses `off`** — extraction
+ * with a fixed output schema gains nothing from reasoning tokens and loses
+ * determinism and money. The ladder exists so escalation is config, not a
+ * rewrite.
+ */
+export type ThinkingBudget = "off" | "low" | "medium" | "high" | "xhigh" | "max";
+
 /** Options for a single `Provider.send` call. */
 export interface SendOptions {
   /** Caller-generated id used to correlate cancel/logging with this run. */
@@ -81,6 +91,18 @@ export interface SendOptions {
    * that cannot help it describe an image, but still needs Read and its turns.
    */
   skipUserSettings?: boolean;
+  /**
+   * Extended-thinking budget (§4.3). Omitted, plain completion still pins the
+   * budget to 0; set it explicitly to escalate a single call.
+   */
+  thinkingBudget?: ThinkingBudget;
+  /**
+   * Pass the instruction block TWICE — once via `--append-system-prompt` and
+   * once as the head of stdin (§4.1.1). Defaults to `plainCompletion`, and is
+   * skipped on a resume (where the CLI drops --append-system-prompt anyway, so
+   * the session already carries the instructions).
+   */
+  duplicateInstructions?: boolean;
   /** Per-run timeout in milliseconds. */
   timeoutMs?: number;
   /**

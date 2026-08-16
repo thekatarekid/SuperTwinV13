@@ -1,0 +1,60 @@
+{
+  "id": "N-007",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T10:00:00Z",
+        "who": "self",
+        "text": "my policy renews on 2026-09-30"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|-|ex|slf|m|q|2026-09-30|annual||Renew the policy",
+  "expect": {
+    "loops": [
+      {
+        "intent": "Renew the policy",
+        "due": "2026-09-30",
+        "recurrence": "annual",
+        "state": "open",
+        "is_task": true
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "intent",
+      "due",
+      "recurrence",
+      "state",
+      "is_task"
+    ],
+    "gate": "loops_explicit_recall"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'my policy renews/expires on <date>'",
+    "expect": "T with due + recurrence where applicable",
+    "assert": "TEMPORAL BOUNDARY loop — highest value in old data"
+  }
+}

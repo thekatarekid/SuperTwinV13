@@ -1,0 +1,39 @@
+{
+  "id": "T-011",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "paint|ingest_s=10|seal_s=4|ttft_s=2|out=600|tps=50|write_s=4|prewarm=1",
+  "expect": {
+    "state": {
+      "first_claim_streamed": true,
+      "buffered_lines": 0,
+      "ttft_recorded": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "latency_ttft_recorded"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claims rendered",
+    "expect": "streamed line by line as they arrive, not after call completion",
+    "assert": "STW-2 line streaming"
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "id": "I-030",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rashmi",
+      "a2=Bangalore [plc]",
+      "a3=America [plc]"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-01-04T09:10+05:30",
+        "who": "self",
+        "text": "Didi was in Bangalore till the visa came",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "Didi lives in America now",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nL|1|a1|loc|current|a2|0.7|Didi was in Bangalore till the visa came\nL|2|a1|loc|current|a3|0.7|Didi lives in America now",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "located_at",
+        "subtype": "current",
+        "dst": "a2",
+        "confidence": 0.7,
+        "decided_by": "llm:p-ep1",
+        "status": "superseded",
+        "valid_to": "2026-08-14",
+        "quotes": [
+          "Didi was in Bangalore till the visa came",
+          "Didi lives in America now"
+        ]
+      },
+      {
+        "src": "a1",
+        "kind": "located_at",
+        "subtype": "current",
+        "dst": "a3",
+        "confidence": 0.7,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "Didi lives in America now"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "evidence Didi lives at America",
+    "expect": "L ... loc/current ...; prior loc gets valid_to + superseded",
+    "assert": "moves supersede"
+  }
+}

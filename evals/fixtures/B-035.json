@@ -1,0 +1,87 @@
+{
+  "id": "B-035",
+  "category": "B",
+  "layer": "tiers",
+  "call": "P-TI1",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a20=Policybazaar"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Policybazaar",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "60% OFF on term plans this month only",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Compare 40 insurers in one place. Buy now",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Your policy PB99213847 renewal is due",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "assign\nrecheck\n#TI1\nJ|c1|pm|0.78|predominantly campaign copy aimed at many people",
+  "expect": {
+    "state": {
+      "tier": "T4",
+      "stored_tier": "T4",
+      "rule": "business_pm_model",
+      "tier_source": "p-ti1",
+      "verdict": "promotional",
+      "verdict_class": "pm",
+      "confidence": 0.78,
+      "meets_confidence_floor": true,
+      "reason": "predominantly campaign copy aimed at many people",
+      "ambiguous_channels": 1,
+      "model_channels": 1,
+      "model_calls": 1,
+      "recheck_model_calls": 0,
+      "recheck_cached": 1,
+      "recheck_tier": "T4",
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Policybazaar ambiguous sample -> P-TI1",
+    "expect": "J/c3/pm/>=0.7/reason",
+    "assert": "P-TI1 verdict, cached on stream"
+  }
+}

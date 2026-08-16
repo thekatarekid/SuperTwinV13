@@ -1,0 +1,60 @@
+{
+  "id": "M-025",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Hrishikesh Deshpande"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T11:20:00Z",
+        "who": "a1",
+        "text": "you should try Kalpaney"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Hrishikesh shared one personal statement about their own life. Nothing else was discussed.\nR|1|a1|1p|0.95|-|Recommends Kalpaney",
+  "expect": {
+    "claims": [
+      {
+        "tag": "R",
+        "kind": "recommendation",
+        "subject": "a1",
+        "attribution": "first_person",
+        "text": "Recommends Kalpaney"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Hrishikesh says: 'you should try Kalpaney'",
+    "expect": "R/<ev>/a<k>/1p/...",
+    "assert": "other speaking about self -> 1p"
+  }
+}

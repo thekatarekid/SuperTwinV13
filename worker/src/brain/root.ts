@@ -1,28 +1,25 @@
 // ===========================================================================
-// Brain root: locate ~/SuperTwinV11/brain, seed it from brain-template/ on first
-// use, git-init it, and best-effort commit changes.
+// Brain root: locate ~/SuperTwinV11/brain, lay it out, git-init it, and
+// best-effort commit changes.
+//
+// This is what survived the markdown brain (V2 §3.2). Nothing writes wiki pages
+// here any more; the folder is kept because it is the cwd a grounded run is
+// given and the destination of the DEBUG EXPORT — the only path allowed to put
+// message text on disk, and only when `settings.debug_export` is on.
 //
 //   - brainRoot(): SUPERTWIN_BRAIN_DIR override (tests), else
 //     SUPERTWIN_HOME/brain, else ~/SuperTwinV11/brain (mirrors mediaRoot()).
-//   - ensureBrain(): idempotent seed + `git init` + initial commit. Seeding
-//     copies brain-template/ when it can be located, and always guarantees the
-//     canonical layout (spaces/ people/ workflows/ habits/ me/ + me seed
-//     files) even when the template is not on disk (bundled worker).
+//   - ensureBrain(): idempotent layout + `git init` + initial commit. The layout
+//     is created programmatically; the repo's brain-template/ is gone, so there
+//     is nothing to copy and nothing to go missing in the bundled worker.
 //   - commitBrain(): `git add -A && git commit` — best-effort, NEVER throws
 //     (git missing / nothing to change / no repo are all fine).
 // ===========================================================================
 
 import { spawnSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 /** Roots already seeded+git-initialized this process (keyed by resolved path). */
 const readyRoots = new Set<string>();
@@ -38,7 +35,7 @@ export function brainRoot(): string {
   return resolve(join(home, "brain"));
 }
 
-/** The canonical layout every brain must have (template or not). */
+/** The canonical layout every brain has. */
 const LAYOUT_DIRS = [
   "spaces",
   "people",
@@ -58,49 +55,6 @@ const ME_SEEDS: Record<string, string> = {
     "---\ntype: goals\nstatus: active\n---\n\n# Goals\n\n" +
     "Top-level personal goals (spaces link back here with [[wikilinks]]).\n",
 };
-
-/**
- * Locate the repo's brain-template/ directory, if reachable from this build:
- * SUPERTWIN_BRAIN_TEMPLATE_DIR override, else walk up from this module (dev:
- * worker/src/brain -> repo root) and from cwd. Returns null when not found
- * (e.g. the bundled worker) — callers fall back to the programmatic layout.
- */
-function findTemplateDir(): string | null {
-  const candidates: string[] = [];
-  const override = process.env.SUPERTWIN_BRAIN_TEMPLATE_DIR;
-  if (override && override.trim().length > 0) candidates.push(resolve(override));
-
-  const starts: string[] = [process.cwd()];
-  try {
-    starts.push(dirname(fileURLToPath(import.meta.url)));
-  } catch {
-    // CJS bundle: import.meta.url unavailable — cwd walk still applies.
-  }
-  for (const start of starts) {
-    let dir = start;
-    for (let i = 0; i < 6; i++) {
-      candidates.push(join(dir, "brain-template"));
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-  }
-
-  for (const c of candidates) {
-    if (existsSync(join(c, "README.md"))) return c;
-  }
-  return null;
-}
-
-/** True when the directory is missing or has no entries besides `.git`. */
-function isEmptyBrain(root: string): boolean {
-  if (!existsSync(root)) return true;
-  try {
-    return readdirSync(root).filter((n) => n !== ".git").length === 0;
-  } catch {
-    return true;
-  }
-}
 
 /** Run git in `cwd`; returns true on exit 0. Never throws (git may be absent). */
 function git(cwd: string, ...args: string[]): boolean {
@@ -134,19 +88,7 @@ export function ensureBrain(): string {
 
   mkdirSync(root, { recursive: true });
 
-  // ---- Seed from brain-template/ when empty (first run).
-  if (isEmptyBrain(root)) {
-    const template = findTemplateDir();
-    if (template) {
-      try {
-        cpSync(template, root, { recursive: true });
-      } catch (err) {
-        console.error(`[brain] template copy failed: ${(err as Error).message}`);
-      }
-    }
-  }
-
-  // ---- Guarantee the canonical layout regardless of template availability.
+  // ---- The canonical layout, created outright. There is no template to copy.
   for (const dir of LAYOUT_DIRS) {
     mkdirSync(join(root, dir), { recursive: true });
   }

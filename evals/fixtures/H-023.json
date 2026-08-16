@@ -1,0 +1,68 @@
+{
+  "id": "H-023",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "watched a YouTube video on local LLMs",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nN|k1|a YouTube video on local LLMs|med|video\nM|1|a YouTube video on local LLMs|k1|0.9",
+  "expect": {
+    "entities": [
+      {
+        "as": "a1",
+        "type": "person",
+        "subtype": null,
+        "canonical": "Rahul"
+      },
+      {
+        "as": "k1",
+        "type": "media_work",
+        "subtype": "video",
+        "canonical": "a YouTube video on local LLMs"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg: 'watched a YouTube video on local LLMs'",
+    "expect": "M -> media_work",
+    "assert": "media_work typing"
+  }
+}

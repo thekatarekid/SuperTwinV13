@@ -1,0 +1,78 @@
+{
+  "id": "E-014",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "v1",
+        "name": "Browser",
+        "kind": "feed",
+        "participants": [
+          "self"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "",
+        "kind": "visit",
+        "url": "https://www.zomato.com/a"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:35:00.000Z",
+        "who": "self",
+        "text": "",
+        "kind": "visit",
+        "url": "https://www.zomato.com/b"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=activity|gap_ms=1800000|size_cap_events=100\nstream|key=v1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "cut": true,
+      "boundary": "gap",
+      "policy_gap_ms": 1800000,
+      "measured": {
+        "gap_ms": 2100000,
+        "threshold_ms": 1800000
+      }
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
+  "doc": {
+    "given": "activity/browser zomato.com: gap 35m, G=30m",
+    "expect": "CUT gap",
+    "assert": "activity burst"
+  }
+}

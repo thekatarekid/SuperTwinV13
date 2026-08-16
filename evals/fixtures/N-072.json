@@ -1,0 +1,55 @@
+{
+  "id": "N-072",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-06-01T10:00:00Z",
+        "who": "self",
+        "text": "the wifi in the study is still terrible"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|-|im|slf|l|n|-|-|0.55|Sort out the study wifi",
+  "expect": {
+    "state": {
+      "states": [
+        "latent"
+      ],
+      "state_reasons": [
+        "no_due_stale"
+      ],
+      "origins": [
+        "implicit"
+      ]
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "loops_implicit_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "implicit, no due, no recurrence, evidence >30d old, never reinforced",
+    "expect": "default state=latent not open",
+    "assert": "the one surviving age rule"
+  }
+}

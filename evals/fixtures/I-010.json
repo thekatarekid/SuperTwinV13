@@ -1,0 +1,70 @@
+{
+  "id": "I-010",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rajat",
+      "a2=Domlur office [org]"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rajat",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "Rajat sits in the Domlur office now",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nL|1|a1|aff|employee|a2|0.85|Rajat sits in the Domlur office now",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "affiliated_with",
+        "subtype": "employee",
+        "dst": "a2",
+        "confidence": 0.85,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "Rajat sits in the Domlur office now"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "evidence Rajat works at Domlur office",
+    "expect": "L ... aff/employee ...",
+    "assert": "affiliated_with"
+  }
+}

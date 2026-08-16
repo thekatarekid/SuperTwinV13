@@ -1,0 +1,60 @@
+{
+  "id": "M-027",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Keerti Nair"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T11:20:00Z",
+        "who": "a1",
+        "text": "my lease ends in Nov 2027"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Keerti shared one personal statement about their own life. Nothing else was discussed.\nF|1|a1|1p|0.95|-|Lease ends in November 2027",
+  "expect": {
+    "claims": [
+      {
+        "tag": "F",
+        "kind": "fact",
+        "subject": "a1",
+        "attribution": "first_person",
+        "text": "Lease ends in November 2027"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Keerti says: 'my lease ends in Nov 2027'",
+    "expect": "F/<ev>/a<k>/1p/...",
+    "assert": "other speaking about self -> 1p"
+  }
+}

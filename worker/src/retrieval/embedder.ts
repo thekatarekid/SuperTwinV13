@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { statSync } from "node:fs";
 
 import { resourceCandidates } from "../media/tools.js";
-import { getSemanticRetrievalPreference } from "../store/store.js";
+import { getSemanticRetrievalPreference } from "../db/settings.js";
 import {
   activeEmbeddingModel,
   EMBEDDING_MODEL,

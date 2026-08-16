@@ -1,0 +1,77 @@
+{
+  "id": "E-006",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "d1",
+        "name": "Goa itinerary",
+        "kind": "doc",
+        "participants": [
+          "self",
+          "a2"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "rev 1",
+        "author": "self"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:10:00.000Z",
+        "who": "a2",
+        "text": "rev 2",
+        "author": "a2"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=document|gap_ms=2700000|size_cap_events=200\nstream|key=d1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "cut": true,
+      "boundary": "author_shift",
+      "measured": {
+        "gap_ms": 600000,
+        "author": "a2",
+        "previous_author": "self"
+      }
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
+  "doc": {
+    "given": "document: Rahul edits 10m after my last revision",
+    "expect": "CUT author_shift",
+    "assert": "per-author sitting"
+  }
+}

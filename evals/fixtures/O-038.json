@@ -1,0 +1,69 @@
+{
+  "id": "O-038",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Ana Iyer",
+      "a2=Rahul Mehta",
+      "a3=Priya Nair",
+      "a4=Sam Kohli",
+      "a5=Dev Bhatt",
+      "a6=Kiran Rao"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Ana",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T21:10+05:30",
+        "who": "a1",
+        "text": "you always overpack"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "reject|c=c1|speaker=a1|subject=self\n#MODEL\nF|1|a1|1p|0.95|-|you always overpack|party_pair=os",
+  "expect": {
+    "state": {
+      "rejected": true,
+      "party_emissions": 1,
+      "emitted_fields": [
+        "party_pair"
+      ],
+      "quoted_verbatim": true,
+      "wire_party_fields": 0,
+      "party_pair": "os",
+      "derived_by": "code"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "party_derived_by_code"
+  },
+  "stub": false,
+  "doc": {
+    "given": "model emits a party_pair field on the wire",
+    "expect": "REJECT — party_pair is never model-emitted",
+    "assert": "zero model burden"
+  }
+}

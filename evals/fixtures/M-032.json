@@ -1,0 +1,58 @@
+{
+  "id": "M-032",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Sudhir Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-09T18:00:00Z",
+        "who": "self",
+        "text": "sudhir's gotten into pottery"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya mentioned news about Sudhir. Nothing else was discussed.\nI|1|a1|ao|0.9|-|Sudhir is into pottery",
+  "expect": {
+    "claims": [
+      {
+        "tag": "I",
+        "subject": "a1",
+        "attribution": "about_other",
+        "text": "Sudhir is into pottery"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "subject",
+      "attribution",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says something about Sudhir",
+    "expect": "attribution=ao",
+    "assert": "about_other"
+  }
+}

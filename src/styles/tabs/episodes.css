@@ -1,0 +1,247 @@
+/* ==========================================================================
+   Episodes surface — arch §14.3. The shared chrome (meter, head, filters,
+   receipts) is in surfaces.css; this file styles the episode card and, above
+   all, the SESSION ROW.
+
+   One rule drives the file: the provenance of a membership is never quieter
+   than the membership itself. `ATTACHED · agent:p-ep2 · conf 0.93` is the
+   content of this surface, not a footnote under it, so it sits on the row in
+   the reading colour and only the persisted verdict is tucked away behind
+   [ why? ].
+   ========================================================================== */
+
+.episode-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.episode {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---- Head --------------------------------------------------------------- */
+.episode__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.episode__label {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 19px;
+  color: var(--text-display);
+}
+
+.episode__state {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--well);
+  color: var(--text-muted);
+}
+
+.episode__where,
+.episode__count {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.episode__count {
+  margin-left: auto;
+}
+
+/* ---- Live and provisional (§14.0b) -------------------------------------- */
+.episode--open,
+.episode--provisional {
+  border-left: 3px solid var(--accent);
+}
+
+.episode__live,
+.episode__provisional,
+.episode-session__live {
+  margin: 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.episode__faded {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.episode--retracted {
+  opacity: 0.72;
+  border-style: dashed;
+  background: var(--well);
+}
+
+.episode--retracted .episode__label {
+  text-decoration: line-through;
+}
+
+.episode__retracted {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warn);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---- Session rows — the provenance ledger ------------------------------- */
+.episode-session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
+}
+
+.episode-session {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.episode-session__when {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  min-width: 84px;
+}
+
+.episode-session__stream {
+  color: var(--text-faint);
+}
+
+/* Signal and value: the acceptance criterion, at full reading weight. */
+.episode-session__provenance {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-display);
+}
+
+.episode-session--attached .episode-session__provenance {
+  color: var(--accent);
+}
+
+.episode-session--split .episode-session__provenance {
+  color: var(--warn);
+}
+
+.episode-session__reason {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.episode-session__why,
+.episode-session__detach {
+  margin-left: auto;
+}
+
+/* ---- The persisted verdict behind [ why? ] ------------------------------ */
+.episode__verdict {
+  flex-basis: 100%;
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--well);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.episode__verdict p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.episode__verdict-head,
+.episode__verdict-candidates {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.episode__verdict-reason {
+  color: var(--text-display);
+  font-style: italic;
+}
+
+.episode__verdict--none {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---- Entities, arc, gestures -------------------------------------------- */
+.episode__entities,
+.episode__arc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.episode__gestures {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.episode-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--well);
+  border-radius: var(--radius-card);
+  font-size: 12px;
+}
+
+.episode-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.episode-form__check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.episode-form input[type="text"],
+.episode-form input:not([type]) {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text);
+}

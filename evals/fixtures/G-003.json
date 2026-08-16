@@ -1,0 +1,43 @@
+{
+  "id": "G-003",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bind|as=p|src=whatsapp|kind=jid|v=919800000003@s.whatsapp.net|name=Rashmi\ngroup|as=g|src=whatsapp|v=120363003@g.us|name=Goa Crew|members=p=jid:919800000003@s.whatsapp.net\nbind|as=p2|src=whatsapp|kind=jid|v=919800000003@s.whatsapp.net",
+  "expect": {
+    "state": {
+      "last_rung": "exact",
+      "last_decided_by": "code:exact",
+      "last_confidence": 1,
+      "last_bound_to": "p",
+      "entity_count": 2,
+      "person_count": 1,
+      "model_calls": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "known jid of Rashmi appears in a new group",
+    "expect": "BIND to existing entity [CODE]",
+    "assert": "exact (source,kind,value) match"
+  }
+}

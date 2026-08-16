@@ -22,7 +22,8 @@ import {
   setMediaVideoFramesEnabled,
   setMediaVideoMaxHeight,
   setMediaVoiceNotesEnabled,
-} from "../store/store.js";
+} from "../db/settings.js";
+import { ENRICHMENT_IMAGE_BATCH_SIZE_KEY } from "./batch.js";
 import { DEFAULT_IMAGE_BATCH, MAX_IMAGE_BATCH } from "./describe.js";
 import {
   anyTranscriptionEnabled,
@@ -117,10 +118,17 @@ describe("image batch size", () => {
   });
 
   it("a nonsense value is the default, not a batch of zero", () => {
+    // The value lives under the V2 key now (arch §10.1); these getters are the
+    // media panel's spelling of it.
     for (const raw of ["", "lots", "0", "-4"]) {
-      appStateSet(MEDIA_IMAGE_BATCH_KEY, raw);
+      appStateSet(ENRICHMENT_IMAGE_BATCH_SIZE_KEY, raw);
       expect(getMediaImageBatch()).toBe(DEFAULT_IMAGE_BATCH);
     }
+  });
+
+  it("the legacy media.image_batch key no longer steers the reader", () => {
+    appStateSet(MEDIA_IMAGE_BATCH_KEY, "31");
+    expect(getMediaImageBatch()).toBe(DEFAULT_IMAGE_BATCH);
   });
 
   it("is capped, so one call is never asked to hold apart more than it can", () => {

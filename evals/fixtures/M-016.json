@@ -1,0 +1,63 @@
+{
+  "id": "M-016",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-07-03T19:05:00Z",
+        "who": "self",
+        "text": "i've been reading about local LLMs"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nI|1|self|1p|0.95|-|Interested in local LLM setups",
+  "expect": {
+    "claims": [
+      {
+        "tag": "I",
+        "kind": "interest",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Interested in local LLM setups"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says: 'i've been reading about local LLMs'",
+    "expect": "I/<ev>/self/1p/conf/-/Interested in local LLM setups",
+    "assert": "kind = tag; third person resolved"
+  }
+}

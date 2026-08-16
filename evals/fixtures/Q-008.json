@@ -1,0 +1,66 @@
+{
+  "id": "Q-008",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rahul Katare"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Rahul sends the wedding photos",
+          "origin": "explicit",
+          "owner": "a1",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-09T12:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "tasks": [],
+    "waiting": [
+      {
+        "t": "t1",
+        "intent": "Rahul sends the wedding photos",
+        "owner": "a1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "intent",
+      "owner"
+    ],
+    "gate": "loops_non_user_owner_tasks"
+  },
+  "stub": false,
+  "doc": {
+    "given": "loop owner=Rahul",
+    "expect": "does NOT appear in Tasks; shows under Waiting on others / People",
+    "assert": "others' loops are context"
+  }
+}

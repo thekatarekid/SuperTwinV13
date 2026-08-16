@@ -1,0 +1,63 @@
+{
+  "id": "M-012",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-07-03T19:05:00Z",
+        "who": "self",
+        "text": "it's better than the gym"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nP|1|self|1p|0.95|-|Prefers bhangra classes over the gym",
+  "expect": {
+    "claims": [
+      {
+        "tag": "P",
+        "kind": "preference",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Prefers bhangra classes over the gym"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says: 'it's better than the gym'",
+    "expect": "P/<ev>/self/1p/conf/-/Prefers bhangra classes over the gym",
+    "assert": "kind = tag; third person resolved"
+  }
+}

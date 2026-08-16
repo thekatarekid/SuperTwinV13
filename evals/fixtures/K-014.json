@@ -1,0 +1,42 @@
+{
+  "id": "K-014",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "source|id=gmail|keys=url,email,order_id\nsource|id=commerce|keys=order_id\nitem|id=c1|source=commerce|ts=2026-08-13T09:05:00Z|orders=amazon:407-1234567-1234567\nitem|id=g1|source=gmail|ts=2026-08-13T09:02:00Z|text=Your Amazon order 407-1234567-1234567 has shipped",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "order_id",
+        "value": "amazon:407-1234567-1234567",
+        "left": "c1",
+        "right": "g1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Amazon order id in a Gmail receipt == id in a commerce event",
+    "expect": "bridge(order_id)",
+    "assert": "order id bridge"
+  }
+}

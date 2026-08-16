@@ -1,0 +1,68 @@
+{
+  "id": "H-012",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "met at Indiranagar yesterday",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nN|k1|Indiranagar|plc|area\nM|1|Indiranagar|k1|0.9",
+  "expect": {
+    "entities": [
+      {
+        "as": "a1",
+        "type": "person",
+        "subtype": null,
+        "canonical": "Rahul"
+      },
+      {
+        "as": "k1",
+        "type": "place",
+        "subtype": "area",
+        "canonical": "Indiranagar"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg mentions 'Indiranagar'",
+    "expect": "M -> place entity; mint if novel with subtype",
+    "assert": "place typing"
+  }
+}

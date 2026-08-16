@@ -1,0 +1,58 @@
+{
+  "id": "P-006",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "arc|id=n1|label=Move to the new flat\nloop|arc=n1|id=l1|state=open|owner=self|counterparty=a1\nloop|arc=n1|id=l2|state=open|owner=self|counterparty=a1\nloop|arc=n1|id=l3|state=open|owner=self|counterparty=a1\nloop|arc=n1|id=l4|state=open|owner=self|counterparty=a1\nloop|arc=n1|id=l5|state=open|owner=self|counterparty=a1\nloop|arc=n1|id=l6|state=open|owner=self|counterparty=a1\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "promoted": true,
+    "promotion_reason": "cmt",
+    "status": "active",
+    "lives_on": "space",
+    "reason_recorded": true
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "arc with 6 open loop(s)",
+    "expect": "promoted, promotion_reason=cmt, status=active",
+    "assert": "commitment route"
+  }
+}

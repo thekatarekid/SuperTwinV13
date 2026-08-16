@@ -1,0 +1,57 @@
+{
+  "id": "P-046",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "arc|id=n1|label=The stock I watch|last=2026-08-15T12:00:00.000Z\nepisode|arc=n1|id=e1|at=2026-07-19T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e2|at=2026-07-26T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e3|at=2026-08-02T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e4|at=2026-08-09T12:00:00.000Z|entities=self,a1\nshape|arc=n1|obligation=none|own_ratio=0.05\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "promoted": true,
+    "archetype": "wch",
+    "archetype_name": "watch",
+    "archetype_source": "code"
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "archetype_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "thread shaped as: a topic you FOLLOW without doing (variant 2)",
+    "expect": "D/.../watch/...",
+    "assert": "archetype by shape not subject"
+  }
+}

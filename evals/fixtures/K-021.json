@@ -1,0 +1,42 @@
+{
+  "id": "K-021",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "source|id=youtube|keys=url,media_work_id\nitem|id=e1|source=whatsapp|ts=2026-08-11T21:10:00Z|text=we should finish it tonight|media=mw_inception\nitem|id=w1|source=youtube|ts=2026-08-11T22:40:00Z|media=mw_inception",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "media_work_id",
+        "value": "mw_inception",
+        "left": "e1",
+        "right": "w1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": false,
+  "doc": {
+    "given": "media_work entity referenced in chat and in watch history (1)",
+    "expect": "bridge(media_work_id)",
+    "assert": "media bridge"
+  }
+}

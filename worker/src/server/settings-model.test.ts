@@ -79,12 +79,17 @@ describe("GET /api/settings/models", () => {
     expect(status).toBe(200);
     expect(body.models).toEqual(MODEL_CATALOG);
     expect(body.roles).toEqual(MODEL_ROLES);
-    // V8 serves two roles — chat and media reading.
-    expect(Object.keys(body.selections).sort()).toEqual(["chat", "media"]);
-    // Chat is empty (subscription default) until something is picked; media
-    // reading pins Haiku.
+    // One picker per step (§4.2) — every role in the list has a selection.
+    expect(Object.keys(body.selections).sort()).toEqual(
+      MODEL_ROLES.map((r) => r.key).sort(),
+    );
+    // Chat is empty (subscription default) until something is picked; the
+    // mechanical steps pin Haiku and the judgment steps pin Sonnet.
     expect(body.selections.chat).toBe("");
     expect(body.selections.media).toBe("claude-haiku-4-5-20251001");
+    expect(body.selections.triage).toBe("claude-haiku-4-5-20251001");
+    expect(body.selections.extract).toBe("claude-sonnet-5");
+    expect(body.selections.adjudicate).toBe("claude-sonnet-5");
   });
 });
 

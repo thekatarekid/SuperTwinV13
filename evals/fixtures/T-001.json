@@ -1,0 +1,38 @@
+{
+  "id": "T-001",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "paint|ingest_s=10|seal_s=4|ttft_s=2|out=600|tps=50|write_s=4|prewarm=1",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "first_claim_s": {
+        "max": 30
+      }
+    },
+    "gate": "latency_first_claim_rendered"
+  },
+  "stub": false,
+  "doc": {
+    "given": "cold connect with existing history",
+    "expect": "first claim rendered <=30s",
+    "assert": "LATENCY GATE"
+  }
+}

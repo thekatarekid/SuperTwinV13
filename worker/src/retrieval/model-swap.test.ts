@@ -40,7 +40,7 @@ const {
 } = await import("./model-swap.js");
 const { runEmbeddingBenchmark } = await import("./benchmark.js");
 const { semanticSearch, resetSemanticCacheForTests } = await import("./semantic.js");
-const { setSemanticRetrievalEnabled } = await import("../store/store.js");
+const { setSemanticRetrievalEnabled } = await import("../db/settings.js");
 
 type Spec = typeof EMBEDDING_MODEL;
 type Embedder = {

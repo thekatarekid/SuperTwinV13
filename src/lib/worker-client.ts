@@ -213,6 +213,17 @@ export interface MediaSettings {
   video_audio_enabled: boolean;
   /** v5 §3: transcribe voice notes and audio attachments. */
   voice_notes_enabled: boolean;
+  /**
+   * arch §8.4 table: caption EVERY image and sticker and transcribe every voice
+   * note. Off skips stickers and sub-2s audio. On by default.
+   */
+  read_all_media: boolean;
+  /**
+   * arch §8.4 table: when on, an enrichment whose text carries no entity, date,
+   * number, price or commitment does not trigger the re-read of its
+   * conversation. Off by default — read everything.
+   */
+  salience_gate: boolean;
   rate_per_min: number;
   /** v6 §5: how many media reads run at once. A batch counts as one. */
   concurrency: number;
@@ -231,10 +242,11 @@ export interface MediaSettings {
 }
 
 /**
- * The worker's clamp ceiling for `image_batch` (MAX_IMAGE_BATCH). Mirrored so
- * the picker cannot offer a number the worker would silently reduce.
+ * The worker's clamp ceiling for `image_batch` (MAX_IMAGE_BATCH_SIZE, arch
+ * §10.1: 16 by default, range 1–32). Mirrored so the picker cannot offer a
+ * number the worker would silently reduce.
  */
-export const MEDIA_IMAGE_BATCH_MAX = 40;
+export const MEDIA_IMAGE_BATCH_MAX = 32;
 
 /** The worker's ceilings for the two frame-sampling numbers, mirrored likewise. */
 export const MEDIA_FRAME_INTERVAL_SEC_MAX = 3600;
@@ -1066,7 +1078,7 @@ export interface EvaluationSummary {
   by_type: Partial<Record<EvalOutputType, { up: number; down: number }>>;
 }
 
-/** GET /api/brain/file?path=… — one markdown file out of the brain wiki. */
+/** GET /api/brain/file?path=… — one file out of the brain folder. */
 export interface BrainFile {
   path: string;
   content: string;
@@ -1114,7 +1126,11 @@ export async function getEventDetail(
 
 // ---- Brain files -------------------------------------------------------------
 
-/** GET /api/brain/file?path=… — read a brain markdown file (brain root only). */
+/**
+ * GET /api/brain/file?path=… — read a file out of the brain folder (brain root
+ * only). DEBUG EXPORT: the worker mounts this route only while
+ * `settings.debug_export` is on, so a default install answers 404 here.
+ */
 export async function getBrainFile(
   path: string,
   signal?: AbortSignal,
@@ -1169,6 +1185,134 @@ export async function listRuns(
     signal,
   );
   return res.runs;
+}
+
+// ---- Latency (build item 4.2, arch §9.5.3 rule 4) --------------------------
+
+/** One (model, call type) line: worst-case figures, never means. */
+export interface LatencyCallRow {
+  model: string;
+  callType: string;
+  calls: number;
+  /** How many of those calls recorded a TTFT. */
+  callsWithTtft: number;
+  worstTtftMs: number | null;
+  worstTotalMs: number | null;
+  /** Slowest observed streaming rate, derived server-side, 1 decimal. */
+  minTokensPerSecond: number | null;
+  lastAt: string | null;
+}
+
+/** Latest persisted mark for one global-acceptance budget. */
+export interface LatencyMilestone {
+  name: "first_claim" | "spaces_tasks" | "silent_gap" | "steady_calls" | "live_visibility";
+  value: number;
+  /** The budget stored WITH the mark — history is never re-graded. */
+  budget: number;
+  unit: "ms" | "calls";
+  met: boolean;
+  at: string;
+}
+
+/** GET /api/latency — everything the ops latency panel renders. */
+export interface LatencyInfo {
+  calls: LatencyCallRow[];
+  milestones: LatencyMilestone[];
+  /** Share of calls that recorded a TTFT; null before any call ran. */
+  ttftCoverage: number | null;
+  budgets: {
+    firstClaimMs: number;
+    spacesTasksMs: number;
+    silentGapMs: number;
+    steadyCallsPerDay: number;
+    visibilitySlackMs: number;
+  };
+  steady: { callsLast24h: number; budget: number; met: boolean };
+}
+
+export async function getLatency(signal?: AbortSignal): Promise<LatencyInfo> {
+  return getJson<LatencyInfo>("/api/latency", signal);
+}
+
+// ---------------------------------------------------------------------------
+// Settings → Usage (arch §4.4.4). One request, one filter, one row set: the
+// token table and the cost line come back from the same aggregate so they can
+// never describe different rows.
+// ---------------------------------------------------------------------------
+
+export type UsageWindow = "today" | "7d" | "30d" | "import";
+
+export interface UsageTotals {
+  /** Post-breakpoint tokens ONLY. Never render this as "total input". */
+  inputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  /** cacheRead + cacheCreation + input — the honest total, rendered with them. */
+  totalInputTokens: number;
+  outputTokens: number;
+  billableTokens: number;
+  /** The Claude CLI's own figure, summed. Never recomputed here. */
+  costUsd: number;
+  runCount: number;
+}
+
+export interface UsageRoleRow extends UsageTotals {
+  role: string;
+  model: string;
+  cacheMinimumTokens: number | null;
+  /** 0 cache because the prompt is under the model's floor — expected. */
+  cacheExpectedZero: boolean;
+}
+
+export interface UsageCache {
+  /** Measured, never assumed. null when nothing ran in the window. */
+  hitRate: number | null;
+  belowMinimumModels: string[];
+  minimumTokens: number | null;
+}
+
+export interface UsageRunCounts {
+  ok: number;
+  retried: number;
+  quarantined: number;
+  error: number;
+  other: number;
+  total: number;
+}
+
+export interface UsageImportProgress {
+  mode: string;
+  cohorts: number;
+  cohortsDone: number;
+  events: number;
+  eventsDone: number;
+  runCount: number;
+  spend: {
+    spentUsd: number;
+    fractionComplete: number;
+    projectedTotalUsd: number | null;
+    remainingUsd: number | null;
+  };
+}
+
+export interface UsageSummary {
+  window: UsageWindow;
+  byRole: UsageRoleRow[];
+  totals: UsageTotals;
+  cache: UsageCache;
+  runs: UsageRunCounts;
+  thisImport: UsageImportProgress;
+}
+
+/** GET /api/usage?window= — the whole Usage surface in one aggregate. */
+export async function getUsage(
+  window: UsageWindow = "7d",
+  signal?: AbortSignal,
+): Promise<UsageSummary> {
+  return getJson<UsageSummary>(
+    `/api/usage?window=${encodeURIComponent(window)}`,
+    signal,
+  );
 }
 
 /** GET /api/logs/info — logs directory + a stat of the files inside it. */
@@ -1227,8 +1371,9 @@ export const workerClient = {
   postEvaluation,
   getEvaluationSummary,
   getBrainFile,
-  // Settings: runs viewer + logs
+  // Settings: runs viewer + logs + token accounting
   listRuns,
+  getUsage,
   getLogsInfo,
   revealLogs,
 };

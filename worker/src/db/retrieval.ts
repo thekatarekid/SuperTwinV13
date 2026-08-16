@@ -295,8 +295,12 @@ interface RawAnchorRow {
 // above — never from a caller — so the statements stay static and prepared once.
 // ---------------------------------------------------------------------------
 
-/** The user's own JID, so a row can say whether they sent it. */
-const SELF_JID = /* sql */ `(SELECT value FROM app_state WHERE key = 'whatsapp.self_jid')`;
+/**
+ * How "me" appears in the source that owns the joined row, so a row can say
+ * whether the user sent it. Correlated on `e.source_id` and keyed
+ * `source.<id>.self_identity` (arch §3.3 leak 3) — one query, every source.
+ */
+const SELF_JID = /* sql */ `(SELECT value FROM app_state WHERE key = 'source.' || e.source_id || '.self_identity')`;
 
 const CONTEXT_COLUMNS = /* sql */ `
   e.id                   AS id,

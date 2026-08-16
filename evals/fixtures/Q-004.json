@@ -1,0 +1,75 @@
+{
+  "id": "Q-004",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T09:00:00Z",
+        "who": "self",
+        "text": "i'll draft the Ratlam itinerary and share it"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Draft the Ratlam itinerary",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "tasks": [
+      {
+        "t": "t1",
+        "intent": "Draft the Ratlam itinerary",
+        "owner": "self",
+        "origin": "explicit",
+        "state": "open"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "intent",
+      "owner",
+      "origin",
+      "state"
+    ],
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "loop owner=me, state=open",
+    "expect": "appears in Tasks",
+    "assert": "task = view over loops"
+  }
+}

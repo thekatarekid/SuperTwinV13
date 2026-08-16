@@ -1,0 +1,55 @@
+{
+  "id": "M-072",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-03T17:25:00Z",
+        "who": "self",
+        "text": "ankit from finance is moving to the delhi office"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared news about someone outside the roster. Nothing else was discussed.\nF|1|+Ankit from finance|ao|0.8|-|Moving to the Delhi office",
+  "expect": {
+    "claims": [
+      {
+        "subject_id": null,
+        "subject_hint": "Ankit from finance",
+        "text": "Moving to the Delhi office"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject_id",
+      "subject_hint",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim about someone not on roster (3)",
+    "expect": "subject '-' + subject_hint",
+    "assert": "unknown beats wrong"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "id": "F-002",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "the flight lands at 6"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:01:00.000Z",
+        "who": "a1",
+        "text": "perfect, see you then"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata\nseal\nnow|at=2026-08-10T08:00:00.000Z\nreact|id=r1|on=e2",
+  "expect": {
+    "state": {
+      "parent_was_sealed": true,
+      "attached_to_parent_session": true,
+      "new_sessions": 0,
+      "debounce_reset": false,
+      "membership_changed": false,
+      "hash_changed": false,
+      "sessions": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": false,
+  "doc": {
+    "given": "reaction arrives 4h after parent, parent session sealed",
+    "expect": "attach to parent's sealed session; NO new session; NO debounce reset",
+    "assert": "reactions are not conversation"
+  }
+}

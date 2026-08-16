@@ -1,0 +1,40 @@
+{
+  "id": "G-062",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bind|as=a|src=whatsapp|kind=jid|v=919425000007@s.whatsapp.net|name=Papa\nbind|as=b|src=contacts|kind=phone|v=+919812000021|name=Papa (new number Jio)\nmerge|loser=b|winner=a|by=agent:p-ag1\ncompact\nsplit|e=b|by=user|reason=wrong merge",
+  "expect": {
+    "state": {
+      "split": true,
+      "entity_count": 2,
+      "distinct_entities": 2,
+      "mutations": 3
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "user splits a wrongly-merged entity",
+    "expect": "two entities restored; evidence re-points by source identity; mutation logged",
+    "assert": "reversible merge"
+  }
+}

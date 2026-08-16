@@ -1,0 +1,56 @@
+{
+  "id": "M-094",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rahul Arora"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2024-09-09T08:45:00Z",
+        "who": "a1",
+        "text": "renting a place in koramangala now"
+      },
+      {
+        "n": 2,
+        "ts": "2024-09-09T08:47:00Z",
+        "who": "a1",
+        "text": "rents here are crazy though"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Rahul is renting a flat in Koramangala and finds the rents high.\nF|1|a1|1p|0.9|-|Renting a flat in Koramangala\nO|2|a1|1p|0.9|-|Considers Koramangala rents high",
+  "expect": {
+    "state": {
+      "claims_extracted": 2,
+      "claims_written": 2,
+      "old_evidence_claims": 2,
+      "old_evidence_written": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "claims_not_age_filtered"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim from a 2024 backfill episode (3)",
+    "expect": "extracted in full; NO age filtering on claims",
+    "assert": "claims are never age-filtered"
+  }
+}

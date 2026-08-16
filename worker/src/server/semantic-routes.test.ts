@@ -30,7 +30,7 @@ const { EMBEDDING_MODEL, embeddingModelFilePath, forgetEmbedder } = await import
   "../retrieval/embedder.js"
 );
 type EmbeddingModelSpec = typeof EMBEDDING_MODEL;
-const { setSemanticRetrievalEnabled } = await import("../store/store.js");
+const { setSemanticRetrievalEnabled } = await import("../db/settings.js");
 
 type ServerHandle = { port: number; close(): Promise<void> };
 

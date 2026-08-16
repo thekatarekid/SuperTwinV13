@@ -16,10 +16,16 @@
 // search.
 //
 // Images ride together, many to a call, because nearly all of a call's cost is
-// the CLI's own fixed preamble. That only works if each description can be tied
-// back to the exact file it is about, so the answer is keyed by path — exactly,
-// or by a trailing segment when the model answers with a basename — and a block
-// that still cannot be matched is thrown away rather than lined up by position.
+// the CLI's own fixed preamble (arch §10.1). That only works if each description
+// can be tied back to the exact file it is about, so EVERY image carries an
+// explicit id in the prompt and the model must echo it back. The returned id set
+// must equal the sent id set exactly; anything else is discarded whole and split
+// in half by the caller (./batch.ts). A batch is never applied in part — a
+// caption filed against the wrong photo silently corrupts every claim drawn from
+// it, and nothing downstream can notice.
+//
+// Images are downscaled to ≤1092 px on the longest edge before they are sent
+// (§10.1 point 2): past that you pay more vision tokens for no better caption.
 // ===========================================================================
 
 import { randomUUID } from "node:crypto";
@@ -30,7 +36,14 @@ import { join, resolve } from "node:path";
 import type { MediaDescStatus, MediaFrame, PendingMediaRow } from "../db/ingest.js";
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/index.js";
 import type { Provider, Usage } from "../providers/index.js";
-import { getSelectedModel } from "../store/store.js";
+import { getSelectedModel } from "../db/settings.js";
+import {
+  DEFAULT_IMAGE_BATCH_SIZE,
+  MAX_IMAGE_BATCH_SIZE,
+  prepareVisionImage,
+  verifyEcho,
+  type EchoVerdict,
+} from "./batch.js";
 
 /** Only Read. No Grep/Glob/Bash — the reader opens exactly the named files. */
 export const MEDIA_ALLOWED_TOOLS = ["Read"] as const;
@@ -39,19 +52,13 @@ export const MEDIA_ALLOWED_TOOLS = ["Read"] as const;
 const MEDIA_MAX_TURNS = 4;
 
 /**
- * Images per CLI call when Settings says nothing. Most of a read is the CLI's
- * own system prompt and tool schemas — a floor paid once per invocation, not
- * per image: one image measured 36,394 tokens, eight 45,746, twenty 64,593, so
- * the marginal image is ~1,570 tokens and a fuller call is cheaper per image.
+ * Images per CLI call when Settings says nothing, and the ceiling on what may be
+ * configured. Both are arch §10.1's numbers, held in ./batch.ts with the rest of
+ * the `enrichment.*` settings and re-exported here for the older `media.*`
+ * spelling to keep reading one source of truth.
  */
-export const DEFAULT_IMAGE_BATCH = 20;
-
-/**
- * The most a configured batch may ask for. Twenty is where the measurement
- * stops; past it each extra image is a guess, and a guess that overruns the
- * answer costs the whole call rather than one image.
- */
-export const MAX_IMAGE_BATCH = 40;
+export const DEFAULT_IMAGE_BATCH = DEFAULT_IMAGE_BATCH_SIZE;
+export const MAX_IMAGE_BATCH = MAX_IMAGE_BATCH_SIZE;
 
 const DESCRIBE_TIMEOUT_MS = 120_000;
 
@@ -93,14 +100,17 @@ export interface DescribeResult {
 /** The outcome of one multi-image call. */
 export interface DescribeBatchResult {
   /**
-   * Verdict per row id. A row the answer never named is ABSENT rather than
-   * carrying a description: with one block missing, every later block belongs
-   * to a different image than the order suggests, and a caption filed against
-   * the wrong photo is worse than no caption at all.
+   * Verdict per row id — ALL of the rows sent, or NONE of them. An answer whose
+   * echoed id set is not exactly the sent set is discarded whole: with one id
+   * missing, every later block belongs to a different image than the order
+   * suggests, and a caption filed against the wrong photo is worse than no
+   * caption at all (arch §10.1 point 5).
    */
   results: Map<string, DescribeResult>;
   /** The one call the whole batch cost, so the run log has one row per call. */
   call: DescribeResult;
+  /** Set when the echo did not match, naming what was missing or invented. */
+  echo?: EchoVerdict;
 }
 
 export interface DescribeOptions {
@@ -277,42 +287,54 @@ export function buildFramesPrompt(
 }
 
 /**
- * Marks the start of one image's answer. The path is the ONLY key the parser
- * trusts — position in the answer is not a key, because a batch that skips or
- * merges a block silently shifts every description after it onto the wrong file.
+ * Marks the start of one image's answer. The ID — not the path, and never the
+ * position — is the only key the parser trusts: a batch that skips or merges a
+ * block would otherwise shift every description after it onto the wrong file.
  */
-export const BATCH_MARKER = "@@FILE:";
+export const BATCH_MARKER = "@@ID:";
+
+/** The word a block uses for a file the model could not read. */
+export const UNREADABLE = "UNREADABLE";
+
+/** The id one image carries through the prompt and back: #01 … #32. */
+export function batchImageId(index: number): string {
+  return `#${String(index + 1).padStart(2, "0")}`;
+}
 
 /**
- * The multi-image prompt. Same rules as a single read, plus the one thing that
- * makes a batch safe to map back: each block is stamped with the path it is
- * about, copied from the list above it.
+ * The multi-image prompt (arch §10.1 point 3). Same rules as a single read, plus
+ * the two things that make a batch safe to map back: every file carries an
+ * explicit id, and the answer must account for every one of them — including the
+ * ones it could not read, which say UNREADABLE rather than going missing.
  */
 export function buildBatchPrompt(
-  items: readonly { row: PendingMediaRow; path: string }[],
+  items: readonly { row: PendingMediaRow; path: string; id?: string }[],
 ): string {
+  const ids = items.map((item, i) => item.id ?? batchImageId(i));
   const lines = [
     `Read each of these ${items.length} files — every one is ${SUBJECT.image}.`,
     "",
   ];
-  for (const { row, path } of items) {
+  items.forEach(({ row, path }, i) => {
     const notes: string[] = [];
     if (row.filename) notes.push(`filename "${row.filename}"`);
     if (row.caption) notes.push(`the sender's caption was "${row.caption}"`);
-    lines.push(notes.length ? `${path} — ${notes.join("; ")}` : path);
-  }
+    lines.push(notes.length ? `${ids[i]} ${path} — ${notes.join("; ")}` : `${ids[i]} ${path}`);
+  });
   lines.push(
     "",
     "Reply with one block per file and nothing else. Begin every block with a",
     "line of exactly:",
     "",
-    `${BATCH_MARKER} <that file's path, copied character for character from the`,
+    `${BATCH_MARKER} <that file's id, copied character for character from the`,
     "list above>",
     "",
-    "and put the description on the lines after it. One block per file, no",
-    "preamble, no headings, no mention of having read anything. If you cannot",
-    "describe a file, leave its block out entirely rather than guessing — a",
-    "description filed under the wrong path is worse than a missing one.",
+    "and put the description on the lines after it. Every id above must appear",
+    `exactly once — all ${items.length} of them, in any order. If a file cannot`,
+    `be described, still give it its block and write the single word ${UNREADABLE}:`,
+    "an id that goes missing invalidates the whole answer, because every",
+    "description after it would belong to a different file than it appears to.",
+    "No preamble, no headings, no mention of having read anything.",
     "",
     ...describeRules("image"),
   );
@@ -320,24 +342,27 @@ export function buildBatchPrompt(
 }
 
 /**
- * Split a batch answer into path → description. Only paths that were asked for
- * and named exactly once come back; a repeated path is dropped along with both
- * of its blocks, because there is no way to tell which one was meant.
+ * Split a batch answer into id → description, and report every id it named.
+ *
+ * Nothing is dropped, repaired or lined up by position here: an id the prompt
+ * never issued and an id named twice both stay in `returned`, because it is the
+ * CALLER that compares the whole set against what it sent and throws the answer
+ * away unless the two match exactly (§10.1 point 5).
  */
 export function parseBatchAnswer(
   raw: string,
-  paths: readonly string[],
-): Map<string, string> {
-  const index = pathIndex(paths);
-  const seen = new Map<string, string[]>();
+  ids: readonly string[],
+): { blocks: Map<string, string | null>; returned: string[] } {
+  const known = new Set(ids.map(normalizeId));
+  const returned: string[] = [];
+  const blocks = new Map<string, string | null>();
   let current: string | null = null;
   let buffer: string[] = [];
 
   const flush = (): void => {
-    if (current !== null) {
-      const prev = seen.get(current);
-      if (prev) prev.push(buffer.join("\n"));
-      else seen.set(current, [buffer.join("\n")]);
+    if (current !== null && !blocks.has(current)) {
+      const text = cleanDescription(buffer.join("\n"));
+      blocks.set(current, text && text.toUpperCase() !== UNREADABLE ? text : null);
     }
     buffer = [];
   };
@@ -346,62 +371,27 @@ export function parseBatchAnswer(
     const marker = line.trimStart();
     if (marker.startsWith(BATCH_MARKER)) {
       flush();
-      current = resolveMarker(markerPath(marker.slice(BATCH_MARKER.length)), index);
+      current = normalizeId(markerToken(marker.slice(BATCH_MARKER.length)));
+      returned.push(current);
       continue;
     }
     if (current !== null) buffer.push(line);
   }
   flush();
 
-  const out = new Map<string, string>();
-  for (const [path, blocks] of seen) {
-    if (blocks.length !== 1) continue;
-    const description = cleanDescription(blocks[0]);
-    if (description) out.set(path, description);
-  }
-  return out;
+  for (const id of [...blocks.keys()]) if (!known.has(id)) blocks.delete(id);
+  return { blocks, returned };
 }
 
 /**
- * Every string that can only mean one of the files we asked about: each path,
- * and each of its trailing segments. The model does copy the path back, but
- * often as the basename or relative to its cwd, and re-reading a whole batch
- * over a near-miss costs more than every near-miss it could ever save.
- *
- * A tail two of the asked-for files share maps to null, not to either of them —
- * a description filed under the wrong photo is the one failure batching must
- * not have.
+ * `#1`, `01` and `#01` are the same id. The model does copy the id back, but
+ * often without the hash or the leading zero, and rejecting a whole batch over
+ * a zero would cost far more than the tolerance ever could: the ids are ours,
+ * they are all of this shape, and no two of them normalise to the same string.
  */
-function pathIndex(paths: readonly string[]): Map<string, string | null> {
-  const index = new Map<string, string | null>();
-  for (const path of paths) {
-    const segments = path.split("/");
-    for (let i = 1; i < segments.length; i++) {
-      const tail = segments.slice(i).join("/");
-      if (!tail) continue;
-      const known = index.get(tail);
-      index.set(tail, known === undefined || known === path ? path : null);
-    }
-  }
-  // A path named in full is never ambiguous, whatever it collides with.
-  for (const path of paths) index.set(path, path);
-  return index;
-}
-
-/** The asked-for path a stamped one names, dropping leading segments to find it. */
-function resolveMarker(
-  stamped: string,
-  index: Map<string, string | null>,
-): string | null {
-  let candidate = stamped;
-  while (candidate.length > 0) {
-    const hit = index.get(candidate);
-    if (hit !== undefined) return hit;
-    const cut = candidate.indexOf("/");
-    if (cut < 0) return null;
-    candidate = candidate.slice(cut + 1);
-  }
-  return null;
+export function normalizeId(raw: string): string {
+  const bare = raw.trim().replace(/^#/, "").trim();
+  return /^\d+$/.test(bare) ? `#${String(Number(bare)).padStart(2, "0")}` : raw.trim();
 }
 
 /**
@@ -441,7 +431,13 @@ export async function describeMedia(
         error: `file not found: ${strategy.path}`,
       };
     }
-    prompt = buildPrompt(row, strategy);
+    // Same 1092 px cap as a batch: a solo read of a 12 MP photo pays the same
+    // vision tokens for the same caption (§10.1 point 2).
+    const vision =
+      strategy.kind === "image"
+        ? await prepareVisionImage(strategy.path, { signal: opts.signal })
+        : { path: strategy.path };
+    prompt = buildPrompt(row, { ...strategy, path: vision.path });
     files = 1;
   }
 
@@ -502,8 +498,10 @@ export async function describeMedia(
 }
 
 /**
- * Read several images in ONE call. Every row the answer named is in `results`;
- * a row it did not name is absent, and the caller re-reads it alone. Never
+ * Read several images in ONE call, each carrying an explicit id the answer has
+ * to echo back. The echo is checked as a SET: all of the rows get their verdict
+ * or none of them do, and a mismatch comes back with `echo` set so the caller
+ * can split the batch in half and try again (arch §10.1 points 3–5). Never
  * throws — a failed call comes back as a retryable error against every row.
  */
 export async function describeMediaBatch(
@@ -512,7 +510,7 @@ export async function describeMediaBatch(
 ): Promise<DescribeBatchResult> {
   const model = getSelectedModel("media");
   const results = new Map<string, DescribeResult>();
-  const items: { row: PendingMediaRow; path: string }[] = [];
+  const items: { row: PendingMediaRow; path: string; id: string }[] = [];
 
   for (const row of rows) {
     const strategy = mediaStrategy(row);
@@ -531,7 +529,11 @@ export async function describeMediaBatch(
         error: `file not found: ${strategy.path}`,
       });
     } else {
-      items.push({ row, path: strategy.path });
+      // ≤1092 px on the longest edge before it is sent (§10.1 point 2). A file
+      // ffmpeg cannot measure or scale is sent as it is — an expensive read
+      // beats no read.
+      const vision = await prepareVisionImage(strategy.path, { signal: opts.signal });
+      items.push({ row, path: vision.path, id: batchImageId(items.length) });
     }
   }
 
@@ -594,37 +596,47 @@ export async function describeMediaBatch(
     return { results, call: { ...noCall, status: "error", error, ...spend } };
   }
 
-  const byPath = parseBatchAnswer(
-    text,
-    items.map((i) => i.path),
-  );
-  for (const { row, path } of items) {
-    const description = byPath.get(path);
-    if (description === undefined) continue;
+  const sent = items.map((i) => i.id);
+  const { blocks, returned } = parseBatchAnswer(text, sent);
+  const echo = verifyEcho(sent, returned);
+
+  // THE WHOLE-BATCH RULE. One id short, one id invented, one id twice — the
+  // answer is discarded entire and nothing is written against any row in it.
+  // The caller splits the batch in half and asks again; applying the blocks
+  // that did line up would be exactly the corruption batching exists to avoid.
+  if (!echo.matched) {
+    const why = [
+      echo.missing.length ? `${echo.missing.length} missing` : "",
+      echo.unexpected.length ? `${echo.unexpected.length} unexpected` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return {
+      results,
+      echo,
+      call: {
+        ...noCall,
+        status: "error",
+        error: `the answer echoed ${returned.length} of ${sent.length} ids (${why})`,
+        ...spend,
+      },
+    };
+  }
+
+  for (const { row, id } of items) {
+    const description = blocks.get(id) ?? null;
     results.set(row.id, {
       description,
-      status: "done",
+      // An echoed block that says UNREADABLE is a verdict, not a caption: the
+      // file was looked at and had nothing to give. Retrying cannot change that.
+      status: description === null ? "skipped" : "done",
       model,
-      error: null,
+      error: description === null ? "the model could not describe this file" : null,
       ...spend,
     });
   }
 
-  // A call that named nothing we asked about produced no usable work, so the
-  // run log records it as the failure it was rather than as a read.
-  const mapped = byPath.size;
-  return {
-    results,
-    call:
-      mapped > 0
-        ? { ...noCall, status: "done", ...spend }
-        : {
-            ...noCall,
-            status: "error",
-            error: `the answer named none of the ${items.length} files`,
-            ...spend,
-          },
-  };
+  return { results, echo, call: { ...noCall, status: "done", ...spend } };
 }
 
 /** A fence is not part of the text. */
@@ -641,8 +653,8 @@ function cleanDescription(raw: string): string {
   return `${t.slice(0, MAX_DESCRIPTION_CHARS - 1).trimEnd()}…`;
 }
 
-/** The model sometimes quotes, bolds or brackets the stamped path, or trails a colon. */
-function markerPath(raw: string): string {
+/** The model sometimes quotes, bolds or brackets the stamped id, or trails a colon. */
+function markerToken(raw: string): string {
   return raw
     .trim()
     .replace(/[:,]+$/, "")

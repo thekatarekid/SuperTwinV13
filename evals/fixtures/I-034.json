@@ -1,0 +1,78 @@
+{
+  "id": "I-034",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=me",
+      "a1=Vikas"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-02-04T09:10+05:30",
+        "who": "self",
+        "text": "Vikas is my trainer at the gym",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T09:10+05:30",
+        "who": "self",
+        "text": "i changed trainers this month",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nL|1|a1|rel|trainer|self|0.8|Vikas is my trainer at the gym\n#POST\nclose|src=a1|k=rel|dst=self|to=2026-08-10|ev=2|q=i changed trainers this month",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "related_to",
+        "subtype": "trainer",
+        "dst": "self",
+        "confidence": 0.8,
+        "decided_by": "llm:p-ep1",
+        "status": "superseded",
+        "valid_to": "2026-08-10",
+        "quotes": [
+          "Vikas is my trainer at the gym",
+          "i changed trainers this month"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "contradiction: trainer changed",
+    "expect": "old edge valid_to + status=superseded with evidence",
+    "assert": "contradictions close, never delete"
+  }
+}

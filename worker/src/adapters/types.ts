@@ -125,8 +125,13 @@ export interface ReplyTo {
 export interface SourceEvent {
   /** Stable dedupe key WITHIN the source, e.g. "<chatJID>/<messageID>". */
   external_id: string;
-  /** -> channels.source_ext_id */
-  channel_ext_id: string;
+  /** -> streams.external_key (arch §3.3 leak 6: a channel is a stream). */
+  stream_ext_id: string;
+  /**
+   * @deprecated The daemon's wire name for `stream_ext_id`. Adapters normalise
+   * it away at the boundary; nothing inside the worker reads it.
+   */
+  channel_ext_id?: string;
   /** -> actors.source_ext_id (self JID for from_me). */
   actor_ext_id: string;
   /** Message timestamp, ISO-8601 UTC ms. */
@@ -172,12 +177,19 @@ export interface SourceEvent {
   is_historical?: boolean;
   /** Canonical ext ids of the actors @-mentioned in the body. */
   mentioned_ext_ids?: string[];
+  /**
+   * Set by the adapter when the source's timestamp was more than five minutes
+   * in the future and had to be clamped to now (see ./normalize.ts). Holds what
+   * the source claimed, so a wrong phone clock is visible rather than silently
+   * absorbed. `ts` is already the clamped value.
+   */
+  skew_clamped_from?: string;
   /** Small subset of the source's native message info (id/chat/sender/…). */
   raw?: unknown;
 }
 
-/** Chat metadata upsert (contract §3). */
-export interface Channel {
+/** Stream (lane) metadata upsert (contract §3, arch §2). */
+export interface Stream {
   source_ext_id: string;
   name: string;
   kind: "dm" | "group" | (string & {});
@@ -188,6 +200,9 @@ export interface Channel {
    */
   is_business: boolean;
 }
+
+/** @deprecated One release only — the name `channel` is now `stream`. */
+export type Channel = Stream;
 
 /** Sender metadata upsert (contract §3). */
 export interface Actor {
@@ -243,7 +258,7 @@ export type StatusUpdate =
   | { type: "progress"; progress: Progress }
   | { type: "backfill_complete"; range: Range; chats: number; messages: number }
   | { type: "error"; code: string; message: string; fatal: boolean }
-  | { type: "ingest"; ts: string; channels: string[] };
+  | { type: "ingest"; ts: string; streams: string[]; channels: string[] };
 
 /**
  * Live-ingest nudge frame (Rev 2 §R2.2). Emitted (debounced) by the worker
@@ -254,6 +269,12 @@ export type StatusUpdate =
 export interface IngestNudge {
   type: "ingest";
   ts: string;
+  /** Distinct stream ids touched since the last nudge. */
+  streams: string[];
+  /**
+   * @deprecated The same ids under their old name, so the UI keeps working for
+   * one release (arch §3.3 leak 6).
+   */
   channels: string[];
 }
 
@@ -274,10 +295,13 @@ export interface AdapterStatus {
 
 // ---- HTTP API response shapes (§6) ----------------------------------------
 
-/** GET /api/whatsapp/status — same as AdapterStatus. */
+/** GET /api/sources/:source_id/status — same as AdapterStatus. */
+export type SourceStatusResponse = AdapterStatus;
+
+/** @deprecated Old name of `SourceStatusResponse`, one release. */
 export type WhatsAppStatusResponse = AdapterStatus;
 
-/** One row of GET /api/inbox/chats. */
+/** One row of GET /api/sources/:source_id/streams (a.k.a. /api/inbox/chats). */
 export interface InboxChat {
   id: string;
   name: string | null;
@@ -389,7 +413,11 @@ export interface InboxMessage {
 /** One row of GET /api/inbox/search. */
 export interface SearchHit {
   eventId: string;
+  streamId: string | null;
+  streamName: string | null;
+  /** @deprecated The same value under its old name, one release. */
   channelId: string | null;
+  /** @deprecated The same value under its old name, one release. */
   channelName: string | null;
   ts: string | null;
   snippet: string;

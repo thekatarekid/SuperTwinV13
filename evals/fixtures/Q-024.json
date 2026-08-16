@@ -1,0 +1,75 @@
+{
+  "id": "Q-024",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Follow up on the gym trial",
+          "origin": "implicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-11T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": true,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "claims": [
+      {
+        "kind": "preference",
+        "subject": "self",
+        "decided_by": "user"
+      }
+    ],
+    "loops": [
+      {
+        "t": "t1",
+        "state": "dropped",
+        "retained": true
+      }
+    ],
+    "tasks": []
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "kind",
+      "subject",
+      "decided_by",
+      "state",
+      "retained"
+    ],
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "user taps 'not useful' on an implicit loop (4)",
+    "expect": "writes a user-sourced preference claim that enters future rosters",
+    "assert": "rejection teaches, not deletes"
+  }
+}

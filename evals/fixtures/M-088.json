@@ -1,0 +1,48 @@
+{
+  "id": "M-088",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-01T12:00:00Z",
+        "who": "self",
+        "text": "morning"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|A greeting with no substantive content.\nF|-|self|1p|0.9|-|Owns a Kindle",
+  "expect": {
+    "state": {
+      "claims_extracted": 0,
+      "claims_written": 0,
+      "unsupported": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim emitted with no event citation",
+    "expect": "REJECT — no evidence, no write",
+    "assert": "evidence mandatory"
+  }
+}

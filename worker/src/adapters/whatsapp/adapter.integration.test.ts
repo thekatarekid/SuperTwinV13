@@ -27,9 +27,9 @@ import { closeDb, getDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/connection.js";
 import {
   appStateGet,
-  getChannelMessages,
-  IMPORT_DONE_KEY,
-  IMPORT_RANGE_KEY,
+  getStreamMessages,
+  importDoneKey,
+  importRangeKey,
   listInboxChats,
   searchEvents,
 } from "../../db/ingest.js";
@@ -217,7 +217,7 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     expect(chats[0].messageCount).toBe(2);
     expect(chats[0].lastText).toBe("sure, sounds good");
 
-    const msgs = getChannelMessages({ channelId: chats[0].id, limit: 10 });
+    const msgs = getStreamMessages({ streamId: chats[0].id, limit: 10 });
     expect(msgs.map((m) => m.text)).toEqual(["coffee tomorrow?", "sure, sounds good"]);
     // fromMe resolves via the persisted self JID.
     expect(msgs.map((m) => m.fromMe)).toEqual([false, true]);
@@ -386,8 +386,8 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     expect(st.importRange).toBe("30d");
 
     // Persisted to app_state (the durable record).
-    expect(appStateGet(IMPORT_DONE_KEY)).toBe("true");
-    expect(appStateGet(IMPORT_RANGE_KEY)).toBe("30d");
+    expect(appStateGet(importDoneKey("whatsapp"))).toBe("true");
+    expect(appStateGet(importRangeKey("whatsapp"))).toBe("30d");
 
     await adapter.disconnect();
 
@@ -425,7 +425,7 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     // No set_range is sent when there was no persisted range at start().
     expect(child.writes.some((w) => w.includes('"cmd":"set_range"'))).toBe(false);
     await adapter.disconnect();
-    expect(appStateGet(IMPORT_RANGE_KEY)).toBe("90d");
+    expect(appStateGet(importRangeKey("whatsapp"))).toBe("90d");
 
     // Restart: a fresh adapter + Ingestion over the SAME DB must install the
     // persisted range via set_range once the daemon is ready — BEFORE it connects
@@ -585,7 +585,7 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     expect(nudge.type === "ingest" && typeof nudge.ts).toBe("string");
     const touched = nudge.type === "ingest" ? nudge.channels : [];
     // Both events are the same chat -> exactly one distinct channel id.
-    expect(touched).toEqual(["whatsapp:ch:mom@x"]);
+    expect(touched).toEqual(["whatsapp:st:mom@x"]);
 
     await adapter.disconnect();
   });
@@ -742,7 +742,7 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     expect(chats[0].messageCount).toBe(2);
     expect(chats[0].lastText).toBe("yes!");
 
-    const msgs = getChannelMessages({ channelId: chats[0].id, limit: 10 });
+    const msgs = getStreamMessages({ streamId: chats[0].id, limit: 10 });
     // Only the two real messages surface — reactions are never standalone bubbles.
     expect(msgs.map((m) => m.text)).toEqual(["dinner at 8?", "yes!"]);
     expect(msgs.every((m) => m.kind !== "reaction")).toBe(true);
@@ -767,8 +767,8 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     // and the question it answers reaches it only through the quote (0017).
     const hits = searchEvents({ q: "dinner" }).map((h) => h.eventId);
     expect([...hits].sort()).toEqual([
-      "wa:alice@s.whatsapp.net/MSG1",
-      "wa:alice@s.whatsapp.net/MSG2",
+      "whatsapp:alice@s.whatsapp.net/MSG1",
+      "whatsapp:alice@s.whatsapp.net/MSG2",
     ]);
 
     await adapter.disconnect();

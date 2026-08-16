@@ -1,0 +1,48 @@
+{
+  "id": "U-008",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=100|mode=bootstrap|state=done\nrun|role=chat|model=claude-sonnet-4|cohort=c1|input=500|create=0|read=0|output=100|cost=0.05\nrun|role=extract|model=claude-sonnet-4|cohort=c1|input=4000|create=0|read=0|output=800|cost=0.4",
+  "expect": {
+    "roles": [
+      {
+        "role": "chat",
+        "cost_usd": 0.05
+      },
+      {
+        "role": "extract",
+        "cost_usd": 0.4
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "role",
+      "cost_usd"
+    ],
+    "gate": "acct_attribution_present"
+  },
+  "stub": false,
+  "doc": {
+    "given": "block labelled 'Chat' containing background extraction",
+    "expect": "FAIL",
+    "assert": "truthful labels"
+  }
+}

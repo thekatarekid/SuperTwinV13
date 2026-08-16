@@ -225,13 +225,13 @@ describe("whatsapp/inbox/media routes", () => {
   it("GET /api/media rejects path traversal (media_path outside root => 403)", async () => {
     // Insert an event whose media_path escapes the media root.
     ingestDb.upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const ch = ingestDb.upsertChannel({ sourceId: "whatsapp", sourceExtId: "evil@x", name: "Evil" });
+    const ch = ingestDb.upsertStream({ sourceId: "whatsapp", sourceExtId: "evil@x", name: "Evil" });
     const ac = ingestDb.upsertActor({ sourceId: "whatsapp", sourceExtId: "evil@x", displayName: "Evil" });
     const r = ingestDb.insertEvent({
       externalId: "evil/1",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: ch,
+      streamId: ch,
       actorId: ac,
       ts: "2026-07-02T00:00:00.000Z",
       kind: "document",
@@ -244,7 +244,7 @@ describe("whatsapp/inbox/media routes", () => {
   });
 
   it("GET /api/media 404s for an unknown event", async () => {
-    const res = await fetch(`${base}/api/media/wa:nope`);
+    const res = await fetch(`${base}/api/media/whatsapp:nope`);
     expect(res.status).toBe(404);
   });
 
@@ -254,7 +254,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/MSG3",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T10:10:00.000Z",
       kind: "video",
@@ -299,7 +299,7 @@ describe("whatsapp/inbox/media routes", () => {
     expect(row.mediaHeight).toBe(1920);
     // A row WhatsApp sent no dimensions for says so, rather than dropping the
     // key — the UI reserves a box of its own choosing for exactly that case.
-    const undimensioned = msgs.find((m) => m.id === "wa:mom@x/MSG2")!;
+    const undimensioned = msgs.find((m) => m.id === "whatsapp:mom@x/MSG2")!;
     expect(undimensioned.mediaWidth).toBeNull();
     expect(undimensioned.mediaHeight).toBeNull();
     expect(row.mediaDescription).toBe(
@@ -326,7 +326,7 @@ describe("whatsapp/inbox/media routes", () => {
         revokedAt: string | null;
       }>
     >(`/api/inbox/chats/${encodeURIComponent(chats[0].id)}/messages`);
-    const row = msgs.find((m) => m.id === "wa:mom@x/MSG3")!;
+    const row = msgs.find((m) => m.id === "whatsapp:mom@x/MSG3")!;
     expect(row.revokedAt).toBe("2026-07-02T10:20:00.000Z");
     expect(row.mediaUrl).toBeUndefined();
     expect(row.mediaFilename).toBeUndefined();
@@ -341,7 +341,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/LNK1",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T11:00:00.000Z",
       kind: "message",
@@ -381,7 +381,7 @@ describe("whatsapp/inbox/media routes", () => {
     const msgs = await getJson<Array<{ id: string; link: MessageLink | null }>>(
       `/api/inbox/chats/${encodeURIComponent(chats[0].id)}/messages`,
     );
-    const plain = msgs.find((m) => m.id === "wa:mom@x/MSG1")!;
+    const plain = msgs.find((m) => m.id === "whatsapp:mom@x/MSG1")!;
     expect(plain).toHaveProperty("link");
     expect(plain.link).toBeNull();
   });
@@ -396,7 +396,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/VID2",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T11:05:00.000Z",
       kind: "video",
@@ -429,7 +429,7 @@ describe("whatsapp/inbox/media routes", () => {
     const msgs = await getJson<Array<{ id: string; kind: string; mediaThumbUrl?: string }>>(
       `/api/inbox/chats/${encodeURIComponent(chats[0].id)}/messages`,
     );
-    const img = msgs.find((m) => m.id === "wa:mom@x/MSG2")!;
+    const img = msgs.find((m) => m.id === "whatsapp:mom@x/MSG2")!;
     expect(img.mediaThumbUrl).toBeUndefined();
     const res = await fetch(`${base}/api/media/${encodeURIComponent(img.id)}/thumb`);
     expect(res.status).toBe(404);
@@ -443,7 +443,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/VID3",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T11:10:00.000Z",
       kind: "video",
@@ -473,7 +473,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/EVIL",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T11:15:00.000Z",
       kind: "video",
@@ -489,7 +489,7 @@ describe("whatsapp/inbox/media routes", () => {
   // ---- v5 §2/§3: sampled video frames and transcripts ---------------------
 
   /** A video with two sampled frames on disk, plus a transcript of its audio. */
-  function seedSampledVideo(channelId: string, name: string) {
+  function seedSampledVideo(streamId: string, name: string) {
     const vidPath = join(mediaRoot, "mom@x", `${name}.mp4`);
     const frames = [0, 1].map((i) => join(mediaRoot, "mom@x", `${name}.frame${i}.jpg`));
     writeFileSync(vidPath, Buffer.from("not really an mp4"));
@@ -498,7 +498,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: `mom@x/${name}`,
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T12:00:00.000Z",
       kind: "video",
@@ -550,10 +550,10 @@ describe("whatsapp/inbox/media routes", () => {
     const msgs = await getJson<FrameRow[]>(
       `/api/inbox/chats/${encodeURIComponent(chats[0].id)}/messages`,
     );
-    const plain = msgs.find((m) => m.id === "wa:mom@x/VID2")!;
+    const plain = msgs.find((m) => m.id === "whatsapp:mom@x/VID2")!;
     expect(plain.mediaFrames).toBeUndefined();
     expect(
-      (await fetch(`${base}/api/media/wa%3Amom%40x%2FVID2/frame0`)).status,
+      (await fetch(`${base}/api/media/whatsapp%3Amom%40x%2FVID2/frame0`)).status,
     ).toBe(404);
   });
 
@@ -567,7 +567,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/LNKV",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T12:20:00.000Z",
       kind: "message",
@@ -615,7 +615,7 @@ describe("whatsapp/inbox/media routes", () => {
       externalId: "mom@x/PTT1",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: chats[0].id,
+      streamId: chats[0].id,
       actorId: ingestDb.actorId("whatsapp", "mom@x"),
       ts: "2026-07-02T12:05:00.000Z",
       kind: "audio",
@@ -712,18 +712,18 @@ describe("whatsapp/inbox/media routes", () => {
       Array<{ id: string; link: MessageLink | null; mediaThumbUrl?: string }>
     >(`/api/inbox/chats/${encodeURIComponent(chats[0].id)}/messages`);
 
-    const linkRow = msgs.find((m) => m.id === "wa:mom@x/E2E-LNK")!;
+    const linkRow = msgs.find((m) => m.id === "whatsapp:mom@x/E2E-LNK")!;
     expect(linkRow.link).toEqual({
       url: "https://example.com/e2e",
       title: "End to end",
       description: "The whole way through",
       previewType: "article",
       scrapedText: null,
-      thumbUrl: "/api/media/wa%3Amom%40x%2FE2E-LNK/link-thumb",
+      thumbUrl: "/api/media/whatsapp%3Amom%40x%2FE2E-LNK/link-thumb",
     });
 
-    const vidRow = msgs.find((m) => m.id === "wa:mom@x/E2E-VID")!;
-    expect(vidRow.mediaThumbUrl).toBe("/api/media/wa%3Amom%40x%2FE2E-VID/thumb");
+    const vidRow = msgs.find((m) => m.id === "whatsapp:mom@x/E2E-VID")!;
+    expect(vidRow.mediaThumbUrl).toBe("/api/media/whatsapp%3Amom%40x%2FE2E-VID/thumb");
 
     // A path is not fetchable by a browser, so neither may reach the UI as one.
     expect(JSON.stringify(msgs)).not.toContain(linkThumb);
@@ -747,7 +747,7 @@ describe("whatsapp/inbox/media routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; paused: boolean };
     expect(body).toEqual({ ok: true, paused: true });
-    expect(ingestDb.appStateGet("whatsapp.paused")).toBe("1");
+    expect(ingestDb.appStateGet("source.whatsapp.paused")).toBe("1");
     expect(child.writes.some((w) => w.includes('"cmd":"pause"'))).toBe(true);
 
     // Unpause resets it.
@@ -756,7 +756,7 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ paused: false }),
     });
-    expect(ingestDb.appStateGet("whatsapp.paused")).toBe("0");
+    expect(ingestDb.appStateGet("source.whatsapp.paused")).toBe("0");
   });
 
   it("POST /api/whatsapp/import validates the range", async () => {
@@ -859,7 +859,7 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ range: "7d" }),
     });
-    expect(ingestDb.appStateGet("whatsapp.import_done")).toBe("true");
+    expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBe("true");
     const before = await getJson<{ importDone: boolean }>("/api/whatsapp/status");
     expect(before.importDone).toBe(true);
 
@@ -888,8 +888,8 @@ describe("whatsapp/inbox/media routes", () => {
     expect(chatsAfter).toEqual([]);
 
     // Flags cleared + status reports importDone:false.
-    expect(ingestDb.appStateGet("whatsapp.import_done")).toBeNull();
-    expect(ingestDb.appStateGet("whatsapp.import_range")).toBeNull();
+    expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBeNull();
+    expect(ingestDb.appStateGet("source.whatsapp.import_range")).toBeNull();
     const after = await getJson<{ importDone: boolean }>("/api/whatsapp/status");
     expect(after.importDone).toBe(false);
 
@@ -904,7 +904,7 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ range: "7d" }),
     });
-    expect(ingestDb.appStateGet("whatsapp.import_done")).toBe("true");
+    expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBe("true");
 
     const before = child.writes.length;
     const res = await fetch(`${base}/api/whatsapp/logout`, { method: "POST" });
@@ -912,8 +912,8 @@ describe("whatsapp/inbox/media routes", () => {
     expect(await res.json()).toEqual({ ok: true });
 
     // Import flags cleared + /status reports importDone:false.
-    expect(ingestDb.appStateGet("whatsapp.import_done")).toBeNull();
-    expect(ingestDb.appStateGet("whatsapp.import_range")).toBeNull();
+    expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBeNull();
+    expect(ingestDb.appStateGet("source.whatsapp.import_range")).toBeNull();
     const st = await getJson<{ importDone: boolean }>("/api/whatsapp/status");
     expect(st.importDone).toBe(false);
 
@@ -943,7 +943,7 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ range: "30d" }),
     });
-    expect(ingestDb.appStateGet("whatsapp.import_done")).toBe("true");
+    expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBe("true");
     const chatsBefore = await getJson<Array<{ id: string }>>("/api/inbox/chats");
     expect(chatsBefore.length).toBeGreaterThan(0);
 
@@ -956,12 +956,57 @@ describe("whatsapp/inbox/media routes", () => {
     const chatsAfter = await getJson<Array<{ id: string }>>("/api/inbox/chats");
     expect(chatsAfter).toEqual([]);
     // (2) import flags cleared (+ /status importDone:false).
-    expect(ingestDb.appStateGet("whatsapp.import_done")).toBeNull();
-    expect(ingestDb.appStateGet("whatsapp.import_range")).toBeNull();
+    expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBeNull();
+    expect(ingestDb.appStateGet("source.whatsapp.import_range")).toBeNull();
     const st = await getJson<{ importDone: boolean }>("/api/whatsapp/status");
     expect(st.importDone).toBe(false);
     // (3) logout sent to the daemon.
     expect(child.writes.slice(before).some((w) => w.includes('"cmd":"logout"'))).toBe(true);
+  });
+
+  // ---- Source-scoped routes (build item 1.1, arch §3.3 leak 4) -----------
+
+  it("serves the canonical /api/sources/:source_id/status", async () => {
+    const canonical = await getJson<{ paired: boolean }>("/api/sources/whatsapp/status");
+    const alias = await getJson<{ paired: boolean }>("/api/whatsapp/status");
+    expect(canonical).toEqual(alias);
+  });
+
+  it("keeps the old /api/whatsapp/* path working for one release", async () => {
+    const res = await fetch(`${base}/api/whatsapp/pause`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: false }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, paused: false });
+  });
+
+  it("pauses through the canonical path too, and persists under source.<id>.*", async () => {
+    const res = await fetch(`${base}/api/sources/whatsapp/pause`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(ingestDb.appStateGet("source.whatsapp.paused")).toBe("1");
+    // Undo, so later cases still ingest.
+    await fetch(`${base}/api/sources/whatsapp/pause`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: false }),
+    });
+    expect(ingestDb.appStateGet("source.whatsapp.paused")).toBe("0");
+  });
+
+  it("404s a control route naming a source this worker does not run", async () => {
+    const res = await fetch(`${base}/api/sources/gmail/pause`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: true }),
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'unknown source "gmail"' });
   });
 
   it("does not shadow Phase-0 routes (health still ok, unknown => 404)", async () => {

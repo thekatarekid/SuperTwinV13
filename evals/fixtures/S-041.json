@@ -1,0 +1,39 @@
+{
+  "id": "S-041",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "X|7,8,12-15|batch note",
+  "expect": {
+    "state": {
+      "round_trip": "X|7,8,12-15|batch note",
+      "round_trip_stable": true,
+      "accepted": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "event list 7,8,12-15",
+    "expect": "base-36 INCLUSIVE decode; runs>=3 compress",
+    "assert": "range encoding"
+  }
+}

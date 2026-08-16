@@ -1,0 +1,55 @@
+{
+  "id": "N-048",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-06-30T19:00:00Z",
+        "who": "self",
+        "text": "i'll do it — send the flat deposit — tonight for sure"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|a1|ex|i2t|m|d|2026-07-01|-|0.9|Send the flat deposit",
+  "expect": {
+    "state": {
+      "states": [
+        "lapsed"
+      ],
+      "state_reasons": [
+        "past_due_no_recurrence"
+      ],
+      "past_due_open_violations": 0,
+      "tasks": 0,
+      "rows": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "loops_born_past_due_open"
+  },
+  "stub": false,
+  "doc": {
+    "given": "loop created with due already in the past (2)",
+    "expect": "state=lapsed, never born 'open'",
+    "assert": "code fact"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "id": "M-093",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2024-06-18T19:30:00Z",
+        "who": "self",
+        "text": "started learning the guitar"
+      },
+      {
+        "n": 2,
+        "ts": "2024-06-18T19:31:00Z",
+        "who": "self",
+        "text": "bought an acoustic one last week"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya started learning the guitar and bought an acoustic one.\nH|1|self|1p|0.9|-|Practises the guitar\nF|2|self|1p|0.9|-|Bought an acoustic guitar",
+  "expect": {
+    "state": {
+      "claims_extracted": 2,
+      "claims_written": 2,
+      "old_evidence_claims": 2,
+      "old_evidence_written": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "claims_not_age_filtered"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim from a 2024 backfill episode (2)",
+    "expect": "extracted in full; NO age filtering on claims",
+    "assert": "claims are never age-filtered"
+  }
+}

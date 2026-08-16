@@ -1,0 +1,39 @@
+{
+  "id": "C-020",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "batch|images=16|echo=short:1",
+  "expect": {
+    "state": {
+      "calls": 3,
+      "applied": 16,
+      "every_image_captioned": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": false,
+  "doc": {
+    "given": "split retry: 8+8 both pass",
+    "expect": "captions applied; 3 calls total, not 16",
+    "assert": "binary degradation not solo-drop"
+  }
+}

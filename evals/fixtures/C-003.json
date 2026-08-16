@@ -1,0 +1,36 @@
+{
+  "id": "C-003",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "route|kind=image",
+  "expect": {
+    "ml_calls": [],
+    "code_steps": []
+  },
+  "assert": {
+    "mode": "absent",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": false,
+  "doc": {
+    "given": "image #3 in a WhatsApp session",
+    "expect": "caption via [LLM-S] haiku through CLI, batched",
+    "assert": "executor routing: vision is LLM not ML"
+  }
+}

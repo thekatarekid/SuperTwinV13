@@ -1,0 +1,40 @@
+{
+  "id": "S-004",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "L|1|a1|aff|colleague|a2|0.9|works with Priya at Acme\nV|a1|a2|same|0.88|same person, same number\nG|s-7|1-3|att|e1|0.9|Berlin move logistics\nY|e1|Planning the Berlin move",
+  "expect": {
+    "state": {
+      "round_trip": "L|1|a1|aff|colleague|a2|0.9|works with Priya at Acme\nV|a1|a2|same|0.88|same person, same number\nG|s-7|1-3|att|e1|0.9|Berlin move logistics\nY|e1|Planning the Berlin move",
+      "round_trip_stable": true,
+      "line_violations": 0,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "round trip on generated line set #4",
+    "expect": "serialize(parse(serialize(x))) byte-identical",
+    "assert": "round-trip gate"
+  }
+}

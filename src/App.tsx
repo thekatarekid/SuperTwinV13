@@ -2,8 +2,29 @@ import { useState } from "react";
 import { InboxTab } from "./tabs/InboxTab";
 import { ChatTab } from "./tabs/ChatTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { EntitiesTab } from "./tabs/EntitiesTab";
+import { SessionsTab } from "./tabs/SessionsTab";
+import { EpisodesTab } from "./tabs/EpisodesTab";
+import { ThreadsTab } from "./tabs/ThreadsTab";
+import { ClaimsTab } from "./tabs/ClaimsTab";
+import { SpacesTab } from "./tabs/SpacesTab";
+import { TasksTab } from "./tabs/TasksTab";
+import { PeopleTab } from "./tabs/PeopleTab";
+import { OpsTab } from "./tabs/OpsTab";
 
-type TabId = "inbox" | "chat" | "settings";
+type TabId =
+  | "inbox"
+  | "chat"
+  | "entities"
+  | "sessions"
+  | "episodes"
+  | "threads"
+  | "claims"
+  | "spaces"
+  | "tasks"
+  | "people"
+  | "ops"
+  | "settings";
 
 interface TabDef {
   id: TabId;
@@ -35,6 +56,75 @@ const ICONS: Record<TabId, JSX.Element> = {
       <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
     </svg>
   ),
+  entities: (
+    <svg {...ICON_PROPS}>
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  sessions: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
+  episodes: (
+    <svg {...ICON_PROPS}>
+      {/* Stacked sessions: an episode is a run of them. */}
+      <rect x="3" y="4" width="18" height="5" rx="1.5" />
+      <rect x="3" y="12" width="13" height="5" rx="1.5" />
+      <path d="M6 20h9" />
+    </svg>
+  ),
+  threads: (
+    <svg {...ICON_PROPS}>
+      {/* Strands from several sources converging — an arc. */}
+      <path d="M3 6c5 0 5 6 9 6s4-6 9-6" />
+      <path d="M3 18c5 0 5-6 9-6" />
+      <circle cx="21" cy="6" r="1.4" />
+      <circle cx="3" cy="18" r="1.4" />
+    </svg>
+  ),
+  claims: (
+    <svg {...ICON_PROPS}>
+      {/* A statement with a mark against it — a claim carries its evidence. */}
+      <path d="M4 5h16v11H8l-4 4z" />
+      <path d="M8 10h8" />
+    </svg>
+  ),
+  spaces: (
+    <svg {...ICON_PROPS}>
+      {/* A promoted arc: a container the threads were lifted into. */}
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M3 11h18" />
+      <path d="M8 7V4h8v3" />
+    </svg>
+  ),
+  tasks: (
+    <svg {...ICON_PROPS}>
+      <path d="M4 6.5 6 8.5 10 4.5" />
+      <path d="M4 16.5 6 18.5 10 14.5" />
+      <path d="M13 6.5h7" />
+      <path d="M13 16.5h7" />
+    </svg>
+  ),
+  people: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="8" r="3.4" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </svg>
+  ),
+  ops: (
+    <svg {...ICON_PROPS}>
+      {/* Gauge: an arc with a needle. */}
+      <path d="M4 15a8 8 0 0 1 16 0" />
+      <path d="M12 15 15.5 9.5" />
+      <circle cx="12" cy="15" r="1.2" />
+      <path d="M3 19h18" />
+    </svg>
+  ),
   settings: (
     <svg {...ICON_PROPS}>
       <circle cx="12" cy="12" r="3" />
@@ -46,6 +136,15 @@ const ICONS: Record<TabId, JSX.Element> = {
 const TABS: TabDef[] = [
   { id: "inbox", label: "Inbox", icon: ICONS.inbox },
   { id: "chat", label: "Chat", icon: ICONS.chat },
+  { id: "entities", label: "Entities", icon: ICONS.entities },
+  { id: "sessions", label: "Sessions", icon: ICONS.sessions },
+  { id: "episodes", label: "Episodes", icon: ICONS.episodes },
+  { id: "threads", label: "Threads", icon: ICONS.threads },
+  { id: "claims", label: "Claims", icon: ICONS.claims },
+  { id: "spaces", label: "Spaces", icon: ICONS.spaces },
+  { id: "tasks", label: "Tasks", icon: ICONS.tasks },
+  { id: "people", label: "People", icon: ICONS.people },
+  { id: "ops", label: "Ops", icon: ICONS.ops },
   { id: "settings", label: "Settings", icon: ICONS.settings },
 ];
 
@@ -97,6 +196,15 @@ export function App() {
         {active === "chat" && (
           <ChatTab onOpenSettings={() => setActive("settings")} />
         )}
+        {active === "entities" && <EntitiesTab />}
+        {active === "sessions" && <SessionsTab />}
+        {active === "episodes" && <EpisodesTab />}
+        {active === "threads" && <ThreadsTab />}
+        {active === "claims" && <ClaimsTab />}
+        {active === "spaces" && <SpacesTab onOpenThreads={() => setActive("threads")} />}
+        {active === "tasks" && <TasksTab onOpenSpace={() => setActive("spaces")} />}
+        {active === "people" && <PeopleTab />}
+        {active === "ops" && <OpsTab />}
         {active === "settings" && <SettingsTab />}
       </main>
     </div>

@@ -1,0 +1,70 @@
+{
+  "id": "I-018",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=me",
+      "a1=Prabhat"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Prabhat",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "Prabhat cooks for us on weekdays",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nL|1|a1|rel|cook|self|0.85|Prabhat cooks for us on weekdays",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "related_to",
+        "subtype": "cook",
+        "dst": "self",
+        "confidence": 0.85,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "Prabhat cooks for us on weekdays"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "recurring evidence establishes Prabhat as cook",
+    "expect": "L ... rel/cook ... (NOT a separate provides_care edge)",
+    "assert": "7-edge discipline"
+  }
+}

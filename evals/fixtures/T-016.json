@@ -1,0 +1,42 @@
+{
+  "id": "T-016",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "budget|seq=1",
+  "expect": {
+    "budget": [
+      {
+        "seq": 1,
+        "sessions": 8,
+        "tokens": 12000,
+        "output_tokens": 1200
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "cohort seq 1",
+    "expect": "budget = min(MAX, BASE x 2^1)",
+    "assert": "adaptive ramp"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "id": "B-030",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a20=Policybazaar"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Policybazaar",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "60% OFF on term plans this month only! Limited time",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Exclusive deal on health cover. Buy now before it ends today",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "New launch: zero-cost term insurance. Unsubscribe to stop these",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T4",
+      "stored_tier": "T4",
+      "rule": "business_pm_code",
+      "tier_source": "code",
+      "is_business": true,
+      "is_group": false,
+      "model_calls": 0,
+      "ambiguous_channels": 0,
+      "confidence": 0.95,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Policybazaar sample: '60% OFF', 'limited time', unsubscribe, no user id",
+    "expect": "tier=T4",
+    "assert": "promotional heuristic [CODE]"
+  }
+}

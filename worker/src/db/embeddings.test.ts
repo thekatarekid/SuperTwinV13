@@ -29,8 +29,8 @@ import {
   insertEvent,
   recordMediaDescription,
   recordTranscript,
-  resetWhatsappData,
-  upsertChannel,
+  resetSourceData,
+  upsertStream,
   upsertSource,
 } from "./ingest.js";
 
@@ -68,7 +68,7 @@ interface SeedEvent {
 
 function seed(events: SeedEvent[]): string {
   upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-  const channelId = upsertChannel({
+  const streamId = upsertStream({
     sourceId: "whatsapp",
     sourceExtId: "lunches@g.us",
     name: "Weekend lunches",
@@ -79,7 +79,7 @@ function seed(events: SeedEvent[]): string {
       externalId: e.externalId,
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: `2026-08-01T12:${String(e.minute ?? i + 1).padStart(2, "0")}:00.000Z`,
       kind: e.kind ?? "message",
@@ -91,7 +91,7 @@ function seed(events: SeedEvent[]): string {
       linkUrl: e.linkUrl ?? null,
     });
   }
-  return channelId;
+  return streamId;
 }
 
 describe("claimUnembeddedEvents", () => {
@@ -111,7 +111,7 @@ describe("claimUnembeddedEvents", () => {
     ]);
 
     const rows = claimUnembeddedEvents(10, MINILM);
-    expect(rows.map((r) => r.id)).toEqual(["wa:quote", "wa:m2", "wa:m1"]);
+    expect(rows.map((r) => r.id)).toEqual(["whatsapp:quote", "whatsapp:m2", "whatsapp:m1"]);
     // The quote rides along, so a reply carries the topic it has none of.
     expect(rows[0].replyToText).toBe("sunday lunch chalna hai kahin?");
     expect(countEmbeddableEvents()).toBe(3);
@@ -132,7 +132,7 @@ describe("claimUnembeddedEvents", () => {
       },
     ]);
 
-    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["wa:long"]);
+    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["whatsapp:long"]);
     expect(countEmbeddableEvents()).toBe(1);
   });
 
@@ -142,11 +142,11 @@ describe("claimUnembeddedEvents", () => {
       { externalId: "m2", text: "booked oye kake", minute: 2 },
     ]);
 
-    expect(claimUnembeddedEvents(1, MINILM).map((r) => r.id)).toEqual(["wa:m2"]);
-    putEventEmbedding({ eventId: "wa:m2", ...MINILM, vector: vec(1, 0, 0, 0) });
+    expect(claimUnembeddedEvents(1, MINILM).map((r) => r.id)).toEqual(["whatsapp:m2"]);
+    putEventEmbedding({ eventId: "whatsapp:m2", ...MINILM, vector: vec(1, 0, 0, 0) });
 
-    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["wa:m1"]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(0, 1, 0, 0) });
+    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["whatsapp:m1"]);
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(0, 1, 0, 0) });
     // Incremental: a turn that adds nothing embeds nothing.
     expect(claimUnembeddedEvents(10, MINILM)).toEqual([]);
     expect(countEventEmbeddings(MINILM)).toBe(2);
@@ -154,23 +154,23 @@ describe("claimUnembeddedEvents", () => {
 
   it("hands back everything again under a different model, one claim at a time", () => {
     seed([{ externalId: "m1", text: "booked oye kake" }]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
 
     expect(claimUnembeddedEvents(10, MINILM)).toEqual([]);
-    expect(claimUnembeddedEvents(10, OTHER).map((r) => r.id)).toEqual(["wa:m1"]);
+    expect(claimUnembeddedEvents(10, OTHER).map((r) => r.id)).toEqual(["whatsapp:m1"]);
     // Same model, different dimension is a different space too.
     expect(
       claimUnembeddedEvents(10, { model: MINILM.model, dim: 8 }).map((r) => r.id),
-    ).toEqual(["wa:m1"]);
+    ).toEqual(["whatsapp:m1"]);
   });
 
   it("only surfaces a media row once it has words on it", () => {
     seed([{ externalId: "ptt", kind: "audio", mediaPath: "/media/wa/a.ogg" }]);
     expect(claimUnembeddedEvents(10, MINILM)).toEqual([]);
 
-    recordTranscript("wa:ptt", { transcript: "table booked", status: "done" });
+    recordTranscript("whatsapp:ptt", { transcript: "table booked", status: "done" });
     const rows = claimUnembeddedEvents(10, MINILM);
-    expect(rows.map((r) => r.id)).toEqual(["wa:ptt"]);
+    expect(rows.map((r) => r.id)).toEqual(["whatsapp:ptt"]);
     expect(rows[0].transcript).toBe("table booked");
   });
 });
@@ -179,11 +179,11 @@ describe("stored vectors", () => {
   it("round-trips a vector unchanged", () => {
     seed([{ externalId: "m1", text: "booked oye kake" }]);
     const vector = vec(0.5, -0.25, 0, 1.5);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector });
 
     const stored = readEventEmbeddings(MINILM);
     expect(stored).toHaveLength(1);
-    expect(stored[0].eventId).toBe("wa:m1");
+    expect(stored[0].eventId).toBe("whatsapp:m1");
     expect([...stored[0].vector]).toEqual([...vector]);
   });
 
@@ -200,17 +200,17 @@ describe("stored vectors", () => {
       { externalId: "m1", text: "booked oye kake" },
       { externalId: "m2", text: "sunday lunch", minute: 2 },
     ]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
-    putEventEmbedding({ eventId: "wa:m2", ...OTHER, vector: vec(0, 1, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m2", ...OTHER, vector: vec(0, 1, 0, 0) });
 
-    expect(readEventEmbeddings(MINILM).map((e) => e.eventId)).toEqual(["wa:m1"]);
-    expect(readEventEmbeddings(OTHER).map((e) => e.eventId)).toEqual(["wa:m2"]);
+    expect(readEventEmbeddings(MINILM).map((e) => e.eventId)).toEqual(["whatsapp:m1"]);
+    expect(readEventEmbeddings(OTHER).map((e) => e.eventId)).toEqual(["whatsapp:m2"]);
   });
 
   it("replaces rather than accumulates when an event is re-embedded", () => {
     seed([{ externalId: "m1", text: "booked oye kake" }]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
-    putEventEmbedding({ eventId: "wa:m1", ...OTHER, vector: vec(0, 0, 0, 1) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...OTHER, vector: vec(0, 0, 0, 1) });
 
     expect(readEventEmbeddings(MINILM)).toEqual([]);
     expect([...readEventEmbeddings(OTHER)[0].vector]).toEqual([0, 0, 0, 1]);
@@ -223,23 +223,23 @@ describe("stored vectors", () => {
     ]);
     expect(
       putEventEmbeddings([
-        { eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) },
-        { eventId: "wa:m2", ...MINILM, vector: [0, 1, 0, 0] },
+        { eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) },
+        { eventId: "whatsapp:m2", ...MINILM, vector: [0, 1, 0, 0] },
       ]),
     ).toBe(2);
     expect(countEventEmbeddings(MINILM)).toBe(2);
 
     // A truncated or padded vector is a permanently wrong answer that looks fine.
     expect(() =>
-      putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0) }),
+      putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0) }),
     ).toThrow(/2 dimensions, expected 4/);
   });
 
   it("goes when its event goes", () => {
     seed([{ externalId: "m1", text: "booked oye kake" }]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
 
-    resetWhatsappData();
+    resetSourceData("whatsapp");
     expect(
       (getDb().prepare(`SELECT COUNT(*) AS n FROM event_embeddings`).get() as {
         n: number;
@@ -252,8 +252,8 @@ describe("stored vectors", () => {
       { externalId: "m1", text: "booked oye kake" },
       { externalId: "m2", text: "sunday lunch", minute: 2 },
     ]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
-    putEventEmbedding({ eventId: "wa:m2", ...OTHER, vector: vec(0, 1, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m2", ...OTHER, vector: vec(0, 1, 0, 0) });
 
     expect(clearEventEmbeddings({ model: OTHER.model })).toBe(1);
     expect(countEventEmbeddings(MINILM)).toBe(1);
@@ -265,22 +265,22 @@ describe("stored vectors", () => {
 describe("invalidation on content change", () => {
   it("re-queues an event whose transcript arrives after it was embedded", () => {
     seed([{ externalId: "ptt", kind: "audio", mediaPath: "/media/wa/a.ogg", text: "voice note" }]);
-    putEventEmbedding({ eventId: "wa:ptt", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:ptt", ...MINILM, vector: vec(1, 0, 0, 0) });
     expect(claimUnembeddedEvents(10, MINILM)).toEqual([]);
 
-    recordTranscript("wa:ptt", { transcript: "table booked", status: "done" });
-    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["wa:ptt"]);
+    recordTranscript("whatsapp:ptt", { transcript: "table booked", status: "done" });
+    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["whatsapp:ptt"]);
   });
 
   it("re-queues an event whose attachment description arrives late", () => {
     seed([{ externalId: "img", kind: "image", mediaPath: "/media/wa/a.jpg", text: "photo" }]);
-    putEventEmbedding({ eventId: "wa:img", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:img", ...MINILM, vector: vec(1, 0, 0, 0) });
 
-    recordMediaDescription("wa:img", {
+    recordMediaDescription("whatsapp:img", {
       description: "a restaurant bill",
       status: "done",
     });
-    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["wa:img"]);
+    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["whatsapp:img"]);
   });
 
   it("re-queues an edited message and drops a revoked one for good", () => {
@@ -288,8 +288,8 @@ describe("invalidation on content change", () => {
       { externalId: "m1", text: "sunday lunch chalna hai kahin?" },
       { externalId: "m2", text: "booked oye kake", minute: 2 },
     ]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
-    putEventEmbedding({ eventId: "wa:m2", ...MINILM, vector: vec(0, 1, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m2", ...MINILM, vector: vec(0, 1, 0, 0) });
 
     applyEdit({
       sourceId: "whatsapp",
@@ -304,15 +304,15 @@ describe("invalidation on content change", () => {
     });
 
     // The edit comes back to be re-embedded; the tombstone never does.
-    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["wa:m1"]);
+    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["whatsapp:m1"]);
     expect(countEventEmbeddings(MINILM)).toBe(0);
   });
 
   it("re-queues on request", () => {
     seed([{ externalId: "m1", text: "booked oye kake" }]);
-    putEventEmbedding({ eventId: "wa:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
+    putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
 
-    invalidateEventEmbedding("wa:m1");
-    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["wa:m1"]);
+    invalidateEventEmbedding("whatsapp:m1");
+    expect(claimUnembeddedEvents(10, MINILM).map((r) => r.id)).toEqual(["whatsapp:m1"]);
   });
 });

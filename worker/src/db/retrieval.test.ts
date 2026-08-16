@@ -13,12 +13,13 @@ import { join } from "node:path";
 import { closeDb, getDb } from "./connection.js";
 import {
   appStateSet,
+  selfIdentityKey,
   insertEvent,
   recordLinkScrape,
   recordMediaDescription,
   recordTranscript,
   upsertActor,
-  upsertChannel,
+  upsertStream,
   upsertSource,
 } from "./ingest.js";
 import {
@@ -79,9 +80,9 @@ const WEEKEND_LUNCHES: SeedEvent[] = [
   { externalId: "m10", text: "🎉", minute: 10, kind: "reaction", replyToExternalId: "m09" },
 ];
 
-function seedWeekendLunches(): { channelId: string } {
+function seedWeekendLunches(): { streamId: string } {
   upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-  const channelId = upsertChannel({
+  const streamId = upsertStream({
     sourceId: "whatsapp",
     sourceExtId: "lunches@g.us",
     name: "Weekend lunches",
@@ -98,14 +99,14 @@ function seedWeekendLunches(): { channelId: string } {
     displayName: "Me",
     isSelf: true,
   });
-  appStateSet("whatsapp.self_jid", SELF_JID);
+  appStateSet(selfIdentityKey("whatsapp"), SELF_JID);
 
   for (const e of WEEKEND_LUNCHES) {
     insertEvent({
       externalId: e.externalId,
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: e.self ? me : them,
       ts: `2026-08-01T12:${String(e.minute).padStart(2, "0")}:00.000Z`,
       kind: e.kind ?? "message",
@@ -116,7 +117,7 @@ function seedWeekendLunches(): { channelId: string } {
       replyToText: e.replyToText ?? null,
     });
   }
-  return { channelId };
+  return { streamId };
 }
 
 /** The window as it was before the time span: counts alone. */
@@ -124,7 +125,7 @@ const COUNT_ONLY = { beforeMinutes: 0, afterMinutes: 0 } as const;
 
 /** `count` messages `everyMs` apart, so a chat can be made dense or sparse. */
 function seedBurst(
-  channelId: string,
+  streamId: string,
   prefix: string,
   count: number,
   startTs: string,
@@ -138,7 +139,7 @@ function seedBurst(
       externalId: `${prefix}${n}`,
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: new Date(start + i * everyMs).toISOString(),
       kind: "message",
@@ -161,12 +162,12 @@ describe("searchEventsRanked", () => {
   });
 
   it("returns hits best-first with the message text ranked over a scraped page", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "page",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T11:00:00.000Z",
       kind: "message",
@@ -175,28 +176,28 @@ describe("searchEventsRanked", () => {
       rawJson: null,
       linkUrl: "https://example.com/guide",
     });
-    recordLinkScrape("wa:page", {
+    recordLinkScrape("whatsapp:page", {
       // The failure mode from §1: a long page carries every query word.
       scrapedText: `${"a lunch guide for sunday afternoons. ".repeat(60)}`,
       status: "done",
     });
 
     const hits = searchEventsRanked({ match: `"sunday" OR "lunch"` });
-    expect(hits[0].id).toBe("wa:m01");
+    expect(hits[0].id).toBe("whatsapp:m01");
     expect(hits[0].matchedColumn).toBe("text");
-    expect(hits.map((h) => h.id)).toContain("wa:page");
+    expect(hits.map((h) => h.id)).toContain("whatsapp:page");
     // Best-first, and SQLite's bm25 counts down: the page must not lead.
     expect(hits[0].score).toBeLessThan(hits[hits.length - 1].score);
-    expect(hits.findIndex((h) => h.id === "wa:page")).toBeGreaterThan(0);
+    expect(hits.findIndex((h) => h.id === "whatsapp:page")).toBeGreaterThan(0);
   });
 
   it("lets the caller re-weight the columns", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "voice",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T11:30:00.000Z",
       kind: "audio",
@@ -204,25 +205,25 @@ describe("searchEventsRanked", () => {
       mediaPath: "/media/wa/v.ogg",
       rawJson: null,
     });
-    recordTranscript("wa:voice", { transcript: "sunday lunch", status: "done" });
+    recordTranscript("whatsapp:voice", { transcript: "sunday lunch", status: "done" });
 
     const byText = searchEventsRanked({ match: `"sunday" OR "lunch"` });
-    expect(byText[0].id).toBe("wa:m01");
+    expect(byText[0].id).toBe("whatsapp:m01");
 
     const byVoice = searchEventsRanked({
       match: `"sunday" OR "lunch"`,
       weights: { text: 0.1, transcript: 10 },
     });
-    expect(byVoice[0].id).toBe("wa:voice");
+    expect(byVoice[0].id).toBe("whatsapp:voice");
   });
 
   it("snippets the column that matched, not column 0", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "voice",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T11:30:00.000Z",
       kind: "audio",
@@ -232,13 +233,13 @@ describe("searchEventsRanked", () => {
       mediaPath: "/media/wa/v.ogg",
       rawJson: null,
     });
-    recordTranscript("wa:voice", {
+    recordTranscript("whatsapp:voice", {
       transcript: "table booked for sunday, one o'clock",
       status: "done",
     });
 
     const hit = searchEventsRanked({ match: `"booked"` }).find(
-      (h) => h.id === "wa:voice",
+      (h) => h.id === "whatsapp:voice",
     )!;
     expect(hit.matchedColumn).toBe("transcript");
     expect(hit.matchedColumnIndex).toBe(EVENTS_FTS_COLUMNS.indexOf("transcript"));
@@ -247,12 +248,12 @@ describe("searchEventsRanked", () => {
   });
 
   it("names the description column for a hit that lives in an attachment", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "photo",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T11:45:00.000Z",
       kind: "image",
@@ -260,13 +261,13 @@ describe("searchEventsRanked", () => {
       mediaPath: "/media/wa/p.jpg",
       rawJson: null,
     });
-    recordMediaDescription("wa:photo", {
+    recordMediaDescription("whatsapp:photo", {
       description: "a restaurant bill from kalpaney",
       status: "done",
     });
 
     const hit = searchEventsRanked({ match: `"restaurant"` })[0];
-    expect(hit.id).toBe("wa:photo");
+    expect(hit.id).toBe("whatsapp:photo");
     expect(hit.matchedColumn).toBe("media_description");
     expect(hit.snippet).toContain("restaurant");
   });
@@ -274,17 +275,17 @@ describe("searchEventsRanked", () => {
   it("reaches a reply through the text it quotes", () => {
     seedWeekendLunches();
     const hits = searchEventsRanked({ match: `"chalna"` });
-    const reply = hits.find((h) => h.id === "wa:m02")!;
+    const reply = hits.find((h) => h.id === "whatsapp:m02")!;
     expect(reply.matchedColumn).toBe("reply_to_text");
     expect(reply.snippet).toContain("chalna");
     // The original still outranks the copy of it.
-    expect(hits[0].id).toBe("wa:m01");
+    expect(hits[0].id).toBe("whatsapp:m01");
   });
 
   it("never returns a reaction, and returns nothing for an empty match", () => {
     seedWeekendLunches();
     expect(searchEventsRanked({ match: `"🎉"` }).map((h) => h.id)).not.toContain(
-      "wa:m10",
+      "whatsapp:m10",
     );
     expect(searchEventsRanked({ match: "   " })).toEqual([]);
   });
@@ -304,7 +305,7 @@ describe("searchEventsRanked", () => {
     expect(hit.fromMe).toBe(false);
 
     const mine = searchEventsRanked({ match: `"Place"` }).find(
-      (h) => h.id === "wa:m02",
+      (h) => h.id === "whatsapp:m02",
     )!;
     expect(mine.fromMe).toBe(true);
   });
@@ -314,8 +315,8 @@ describe("readEventsByIds", () => {
   it("returns rows in the order asked for, skipping ids it does not have", () => {
     seedWeekendLunches();
     // The order a vector search hands back — the one thing the row cannot say.
-    const rows = readEventsByIds(["wa:m09", "wa:nope", "wa:m01", "wa:m09"]);
-    expect(rows.map((r) => r.id)).toEqual(["wa:m09", "wa:m01"]);
+    const rows = readEventsByIds(["whatsapp:m09", "whatsapp:nope", "whatsapp:m01", "whatsapp:m09"]);
+    expect(rows.map((r) => r.id)).toEqual(["whatsapp:m09", "whatsapp:m01"]);
     expect(rows[0].text).toBe("booked oye kake");
     expect(rows[0].channelName).toBe("Weekend lunches");
     expect(readEventsByIds([])).toEqual([]);
@@ -326,54 +327,54 @@ describe("readChannelWindow", () => {
   it("recovers the answer eight messages after the hit", () => {
     seedWeekendLunches();
     const hit = searchEventsRanked({ match: `"sunday" OR "planned"` })[0];
-    expect(hit.id).toBe("wa:m01");
+    expect(hit.id).toBe("whatsapp:m01");
 
     const ids = readChannelWindow({ eventId: hit.id }).map((r) => r.id);
     // ±8 was measured to recover 100% of what ranking left out (§1). All three
     // of these match zero query tokens.
-    expect(ids).toContain("wa:m09");
-    expect(ids).toContain("wa:m03");
-    expect(ids).toContain("wa:m06");
-    expect(ids).toContain("wa:m01");
+    expect(ids).toContain("whatsapp:m09");
+    expect(ids).toContain("whatsapp:m03");
+    expect(ids).toContain("whatsapp:m06");
+    expect(ids).toContain("whatsapp:m01");
   });
 
   it("returns the window oldest-first, anchor included, reactions left out", () => {
     seedWeekendLunches();
     const rows = readChannelWindow({
-      eventId: "wa:m05",
+      eventId: "whatsapp:m05",
       before: 2,
       after: 2,
       ...COUNT_ONLY,
     });
     expect(rows.map((r) => r.id)).toEqual([
-      "wa:m03",
-      "wa:m04",
-      "wa:m05",
-      "wa:m06",
-      "wa:m07",
+      "whatsapp:m03",
+      "whatsapp:m04",
+      "whatsapp:m05",
+      "whatsapp:m06",
+      "whatsapp:m07",
     ]);
-    expect(rows.map((r) => r.id)).not.toContain("wa:m10");
+    expect(rows.map((r) => r.id)).not.toContain("whatsapp:m10");
   });
 
   it("takes the NEAREST neighbours when the chat is longer than the window", () => {
     seedWeekendLunches();
     const rows = readChannelWindow({
-      eventId: "wa:m05",
+      eventId: "whatsapp:m05",
       before: 1,
       after: 1,
       ...COUNT_ONLY,
     });
-    expect(rows.map((r) => r.id)).toEqual(["wa:m04", "wa:m05", "wa:m06"]);
+    expect(rows.map((r) => r.id)).toEqual(["whatsapp:m04", "whatsapp:m05", "whatsapp:m06"]);
   });
 
   it("supports a one-sided window and an unknown event", () => {
     seedWeekendLunches();
     expect(
-      readChannelWindow({ eventId: "wa:m05", before: 0, after: 2, ...COUNT_ONLY }).map(
+      readChannelWindow({ eventId: "whatsapp:m05", before: 0, after: 2, ...COUNT_ONLY }).map(
         (r) => r.id,
       ),
-    ).toEqual(["wa:m05", "wa:m06", "wa:m07"]);
-    expect(readChannelWindow({ eventId: "wa:nope" })).toEqual([]);
+    ).toEqual(["whatsapp:m05", "whatsapp:m06", "whatsapp:m07"]);
+    expect(readChannelWindow({ eventId: "whatsapp:nope" })).toEqual([]);
   });
 
   // -------------------------------------------------------------------------
@@ -383,79 +384,79 @@ describe("readChannelWindow", () => {
   // -------------------------------------------------------------------------
 
   it("sweeps a dense cluster the message count stops short of", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     // 46 messages after the hit, all inside half an hour — the measured shape.
-    seedBurst(channelId, "d", 46, "2026-08-01T12:09:30.000Z", 35_000);
+    seedBurst(streamId, "d", 46, "2026-08-01T12:09:30.000Z", 35_000);
 
-    const counted = readChannelWindow({ eventId: "wa:m09", ...COUNT_ONLY }).map(
+    const counted = readChannelWindow({ eventId: "whatsapp:m09", ...COUNT_ONLY }).map(
       (r) => r.id,
     );
-    expect(counted).not.toContain("wa:d46");
+    expect(counted).not.toContain("whatsapp:d46");
 
-    const ids = readChannelWindow({ eventId: "wa:m09" }).map((r) => r.id);
-    expect(ids).toContain("wa:d46");
-    expect(ids).toContain("wa:d01");
+    const ids = readChannelWindow({ eventId: "whatsapp:m09" }).map((r) => r.id);
+    expect(ids).toContain("whatsapp:d46");
+    expect(ids).toContain("whatsapp:d01");
     // Still one contiguous run around the anchor, oldest first.
-    expect(ids.filter((id) => id === "wa:m09")).toHaveLength(1);
-    expect(ids.indexOf("wa:m09")).toBeLessThan(ids.indexOf("wa:d01"));
+    expect(ids.filter((id) => id === "whatsapp:m09")).toHaveLength(1);
+    expect(ids.indexOf("whatsapp:m09")).toBeLessThan(ids.indexOf("whatsapp:d01"));
   });
 
   it("is the UNION of the two: the count reaches past a quiet span", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     // Two days later — outside any span, well inside ±8 messages.
-    seedBurst(channelId, "far", 2, "2026-08-03T12:00:00.000Z", 60_000);
+    seedBurst(streamId, "far", 2, "2026-08-03T12:00:00.000Z", 60_000);
 
-    const ids = readChannelWindow({ eventId: "wa:m09" }).map((r) => r.id);
-    expect(ids).toContain("wa:far01");
-    expect(ids).toContain("wa:m01");
+    const ids = readChannelWindow({ eventId: "whatsapp:m09" }).map((r) => r.id);
+    expect(ids).toContain("whatsapp:far01");
+    expect(ids).toContain("whatsapp:m01");
   });
 
   it("holds the span to its cap, nearest first", () => {
-    const { channelId } = seedWeekendLunches();
-    seedBurst(channelId, "d", 200, "2026-08-01T12:09:30.000Z", 1_000);
+    const { streamId } = seedWeekendLunches();
+    seedBurst(streamId, "d", 200, "2026-08-01T12:09:30.000Z", 1_000);
 
-    const after = readChannelWindow({ eventId: "wa:m09" }).filter((r) =>
-      r.id.startsWith("wa:d"),
+    const after = readChannelWindow({ eventId: "whatsapp:m09" }).filter((r) =>
+      r.id.startsWith("whatsapp:d"),
     );
     expect(after).toHaveLength(DEFAULT_WINDOW_MAX_ROWS);
-    expect(after[0].id).toBe("wa:d001");
+    expect(after[0].id).toBe("whatsapp:d001");
   });
 
   it("keeps a side asked for nothing empty, whatever the span says", () => {
     seedWeekendLunches();
     // What pages a chat one direction at a time: a span must not reach back.
-    const rows = readChannelWindow({ eventId: "wa:m05", before: 0, after: 2 });
-    expect(rows.map((r) => r.id)).toEqual(["wa:m05", "wa:m06", "wa:m07", "wa:m08", "wa:m09"]);
-    expect(rows.map((r) => r.id)).not.toContain("wa:m04");
+    const rows = readChannelWindow({ eventId: "whatsapp:m05", before: 0, after: 2 });
+    expect(rows.map((r) => r.id)).toEqual(["whatsapp:m05", "whatsapp:m06", "whatsapp:m07", "whatsapp:m08", "whatsapp:m09"]);
+    expect(rows.map((r) => r.id)).not.toContain("whatsapp:m04");
   });
 });
 
 describe("readReplyChain", () => {
   it("walks both directions and orders the thread by time", () => {
     seedWeekendLunches();
-    const chain = readReplyChain({ eventId: "wa:m02" });
+    const chain = readReplyChain({ eventId: "whatsapp:m02" });
     // Up to what m02 quotes, down to the other reply to that same message.
-    expect(chain.map((r) => r.id)).toEqual(["wa:m01", "wa:m02"]);
+    expect(chain.map((r) => r.id)).toEqual(["whatsapp:m01", "whatsapp:m02"]);
 
-    const fromRoot = readReplyChain({ eventId: "wa:m01" });
-    expect(fromRoot.map((r) => r.id)).toEqual(["wa:m01", "wa:m02", "wa:m09"]);
+    const fromRoot = readReplyChain({ eventId: "whatsapp:m01" });
+    expect(fromRoot.map((r) => r.id)).toEqual(["whatsapp:m01", "whatsapp:m02", "whatsapp:m09"]);
     expect(fromRoot.map((r) => r.depth)).toEqual([0, 1, 1]);
   });
 
   it("marks quoted ancestors with a negative depth", () => {
     seedWeekendLunches();
-    const chain = readReplyChain({ eventId: "wa:m09" });
-    expect(chain.find((r) => r.id === "wa:m01")!.depth).toBe(-1);
-    expect(chain.find((r) => r.id === "wa:m09")!.depth).toBe(0);
+    const chain = readReplyChain({ eventId: "whatsapp:m09" });
+    expect(chain.find((r) => r.id === "whatsapp:m01")!.depth).toBe(-1);
+    expect(chain.find((r) => r.id === "whatsapp:m09")!.depth).toBe(0);
   });
 
   it("follows more than one hop and stops at maxDepth", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "m12",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T12:12:00.000Z",
       kind: "message",
@@ -466,28 +467,28 @@ describe("readReplyChain", () => {
       replyToText: "booked oye kake",
     });
 
-    expect(readReplyChain({ eventId: "wa:m12" }).map((r) => r.id)).toEqual([
-      "wa:m01",
-      "wa:m09",
-      "wa:m12",
+    expect(readReplyChain({ eventId: "whatsapp:m12" }).map((r) => r.id)).toEqual([
+      "whatsapp:m01",
+      "whatsapp:m09",
+      "whatsapp:m12",
     ]);
     expect(
-      readReplyChain({ eventId: "wa:m12", maxDepth: 1 }).map((r) => r.id),
-    ).toEqual(["wa:m09", "wa:m12"]);
+      readReplyChain({ eventId: "whatsapp:m12", maxDepth: 1 }).map((r) => r.id),
+    ).toEqual(["whatsapp:m09", "whatsapp:m12"]);
   });
 
   it("skips reactions on the way down and survives a self-referencing edge", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     // A reaction quotes its target too; a thread of emoji is not a thread.
-    expect(readReplyChain({ eventId: "wa:m09" }).map((r) => r.id)).not.toContain(
-      "wa:m10",
+    expect(readReplyChain({ eventId: "whatsapp:m09" }).map((r) => r.id)).not.toContain(
+      "whatsapp:m10",
     );
 
     insertEvent({
       externalId: "loop",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T12:20:00.000Z",
       kind: "message",
@@ -497,40 +498,40 @@ describe("readReplyChain", () => {
       replyToExternalId: "loop",
       replyToText: "quoting myself",
     });
-    expect(readReplyChain({ eventId: "wa:loop" }).map((r) => r.id)).toEqual([
-      "wa:loop",
+    expect(readReplyChain({ eventId: "whatsapp:loop" }).map((r) => r.id)).toEqual([
+      "whatsapp:loop",
     ]);
   });
 
   it("returns nothing for an unknown event", () => {
     seedWeekendLunches();
-    expect(readReplyChain({ eventId: "wa:nope" })).toEqual([]);
+    expect(readReplyChain({ eventId: "whatsapp:nope" })).toEqual([]);
   });
 });
 
 describe("readWholeChannel", () => {
   it("includes a small chat whole, oldest-first, reactions excluded", () => {
-    const { channelId } = seedWeekendLunches();
-    const read = readWholeChannel({ channelId });
+    const { streamId } = seedWeekendLunches();
+    const read = readWholeChannel({ channelId: streamId });
 
     expect(read.withinBudget).toBe(true);
     expect(read.channelName).toBe("Weekend lunches");
     expect(read.eventCount).toBe(WEEKEND_LUNCHES.length - 1);
     expect(read.events).toHaveLength(read.eventCount);
-    expect(read.events[0].id).toBe("wa:m01");
-    expect(read.events.at(-1)!.id).toBe("wa:m09");
+    expect(read.events[0].id).toBe("whatsapp:m01");
+    expect(read.events.at(-1)!.id).toBe("whatsapp:m09");
     // The whole repro chat is far under the budget the failing retrieval was
     // already spending (§1).
     expect(read.charCount).toBeLessThan(DEFAULT_WHOLE_CHANNEL_MAX_CHARS / 4);
   });
 
   it("counts the text a caller would actually inject", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "voice",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T12:30:00.000Z",
       kind: "audio",
@@ -538,28 +539,28 @@ describe("readWholeChannel", () => {
       mediaPath: "/media/wa/v.ogg",
       rawJson: null,
     });
-    const before = readWholeChannel({ channelId }).charCount;
-    recordTranscript("wa:voice", { transcript: "table booked", status: "done" });
-    expect(readWholeChannel({ channelId }).charCount).toBe(
+    const before = readWholeChannel({ channelId: streamId }).charCount;
+    recordTranscript("whatsapp:voice", { transcript: "table booked", status: "done" });
+    expect(readWholeChannel({ channelId: streamId }).charCount).toBe(
       before + "table booked".length,
     );
   });
 
   it("reports the size but reads nothing when the chat is over budget", () => {
-    const { channelId } = seedWeekendLunches();
-    const read = readWholeChannel({ channelId, maxChars: 10 });
+    const { streamId } = seedWeekendLunches();
+    const read = readWholeChannel({ channelId: streamId, maxChars: 10 });
 
     expect(read.withinBudget).toBe(false);
     expect(read.events).toEqual([]);
     expect(read.eventCount).toBe(WEEKEND_LUNCHES.length - 1);
     expect(read.charCount).toBeGreaterThan(10);
 
-    expect(readWholeChannel({ channelId, maxEvents: 3 }).withinBudget).toBe(false);
+    expect(readWholeChannel({ channelId: streamId, maxEvents: 3 }).withinBudget).toBe(false);
   });
 
   it("treats an unknown or empty channel as nothing to include", () => {
     seedWeekendLunches();
-    const read = readWholeChannel({ channelId: "whatsapp:ch:nope" });
+    const read = readWholeChannel({ channelId: "whatsapp:st:nope" });
     expect(read).toMatchObject({
       channelName: null,
       eventCount: 0,
@@ -577,20 +578,20 @@ describe("readWholeChannel", () => {
   // -------------------------------------------------------------------------
 
   it("costs the chat in the chars the block will carry, not the chars stored", () => {
-    const { channelId } = seedWeekendLunches();
-    const read = readWholeChannel({ channelId });
+    const { streamId } = seedWeekendLunches();
+    const read = readWholeChannel({ channelId: streamId });
 
     // The id, the time, the sender and the brackets are on every line.
     expect(read.renderedCharCount).toBeGreaterThan(read.charCount * 2);
   });
 
   it("agrees with the renderer itself, line for line", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
     insertEvent({
       externalId: "rich",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-08-01T12:30:00.000Z",
       kind: "image",
@@ -603,17 +604,17 @@ describe("readWholeChannel", () => {
       linkTitle: "The menu",
       linkDescription: "everything they serve",
     });
-    recordMediaDescription("wa:rich", {
+    recordMediaDescription("whatsapp:rich", {
       description: "a whiteboard covered in arrows",
       status: "done",
     });
-    recordTranscript("wa:rich", { transcript: "ferry pakadni hai", status: "done" });
+    recordTranscript("whatsapp:rich", { transcript: "ferry pakadni hai", status: "done" });
 
     // The estimate lives here and the rendering lives in retrieval/format.ts;
     // this is what stops the two drifting. It may only ever guess HIGH — a
     // budget that guesses low blows the block it exists to protect — and it is
     // within 2% over a chat carrying every part a line can have.
-    const read = readWholeChannel({ channelId });
+    const read = readWholeChannel({ channelId: streamId });
     const actual = read.events.reduce(
       (n, row) => n + renderEventBody(row).length + 2 + 1,
       0,
@@ -623,28 +624,28 @@ describe("readWholeChannel", () => {
   });
 
   it("caps a runaway field the way the renderer does", () => {
-    const { channelId } = seedWeekendLunches();
-    const long = readWholeChannel({ channelId }).renderedCharCount;
-    recordLinkScrape("wa:m09", { scrapedText: "x".repeat(40_000), status: "done" });
+    const { streamId } = seedWeekendLunches();
+    const long = readWholeChannel({ channelId: streamId }).renderedCharCount;
+    recordLinkScrape("whatsapp:m09", { scrapedText: "x".repeat(40_000), status: "done" });
     // A scraped page is never rendered at all, so it costs the budget nothing.
-    expect(readWholeChannel({ channelId }).renderedCharCount).toBe(long);
+    expect(readWholeChannel({ channelId: streamId }).renderedCharCount).toBe(long);
 
-    recordTranscript("wa:m09", { transcript: "y".repeat(40_000), status: "done" });
-    const withTranscript = readWholeChannel({ channelId }).renderedCharCount;
+    recordTranscript("whatsapp:m09", { transcript: "y".repeat(40_000), status: "done" });
+    const withTranscript = readWholeChannel({ channelId: streamId }).renderedCharCount;
     expect(withTranscript - long).toBeLessThan(500);
     // The retrievable count still reports the whole 40 KB, which is the gap.
-    expect(readWholeChannel({ channelId }).charCount).toBeGreaterThan(40_000);
+    expect(readWholeChannel({ channelId: streamId }).charCount).toBeGreaterThan(40_000);
   });
 
   it("spends the budget on the rendered number", () => {
-    const { channelId } = seedWeekendLunches();
-    const read = readWholeChannel({ channelId });
+    const { streamId } = seedWeekendLunches();
+    const read = readWholeChannel({ channelId: streamId });
 
-    expect(readWholeChannel({ channelId, maxChars: read.charCount }).withinBudget).toBe(
+    expect(readWholeChannel({ channelId: streamId, maxChars: read.charCount }).withinBudget).toBe(
       false,
     );
     expect(
-      readWholeChannel({ channelId, maxChars: read.renderedCharCount }).withinBudget,
+      readWholeChannel({ channelId: streamId, maxChars: read.renderedCharCount }).withinBudget,
     ).toBe(true);
   });
 });
@@ -657,8 +658,8 @@ describe("readWholeChannel", () => {
 
 describe("resolveChannelsByName", () => {
   /** A second chat, so a name has something to pick BETWEEN. */
-  function seedSecondChat(): { channelId: string; actorId: string } {
-    const channelId = upsertChannel({
+  function seedSecondChat(): { streamId: string; actorId: string } {
+    const streamId = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "pranjali@s.whatsapp.net",
       name: "Pranjali",
@@ -673,7 +674,7 @@ describe("resolveChannelsByName", () => {
       externalId: "p01",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId,
       ts: "2026-08-01T09:00:00.000Z",
       kind: "message",
@@ -681,16 +682,16 @@ describe("resolveChannelsByName", () => {
       mediaPath: null,
       rawJson: null,
     });
-    return { channelId, actorId };
+    return { streamId, actorId };
   }
 
   it("selects the chat a name belongs to", () => {
     seedWeekendLunches();
-    const { channelId } = seedSecondChat();
+    const { streamId } = seedSecondChat();
 
     const matches = resolveChannelsByName(["pranjali", "health"]);
     expect(matches[0]).toMatchObject({
-      channelId,
+      channelId: streamId,
       channelName: "Pranjali",
       token: "pranjali",
       exact: true,
@@ -700,12 +701,12 @@ describe("resolveChannelsByName", () => {
   });
 
   it("finds the chat through the person who speaks in it", () => {
-    const { channelId } = seedWeekendLunches();
+    const { streamId } = seedWeekendLunches();
 
     const matches = resolveChannelsByName(["rahul"]);
     expect(matches).toHaveLength(1);
     expect(matches[0]).toMatchObject({
-      channelId,
+      channelId: streamId,
       via: "actor",
       actorName: "Rahul",
       exact: true,
@@ -717,7 +718,7 @@ describe("resolveChannelsByName", () => {
 
   it("matches a whole word, never a fragment", () => {
     seedWeekendLunches();
-    upsertChannel({
+    upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "fam@g.us",
       name: "Bharadwaj family ❤️",
@@ -744,7 +745,7 @@ describe("resolveChannelsByName", () => {
   it("ranks an exact name over a chat that merely contains it", () => {
     seedWeekendLunches();
     seedSecondChat();
-    upsertChannel({
+    upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "trip@g.us",
       name: "Pranjali and the goa crew",
@@ -761,8 +762,8 @@ describe("resolveChannelsByName", () => {
 
 describe("searchEventsRanked channel boost", () => {
   it("puts a named chat's rows ahead of an equal hit somewhere else", () => {
-    const { channelId } = seedWeekendLunches();
-    const other = upsertChannel({
+    const { streamId } = seedWeekendLunches();
+    const other = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shorts@g.us",
       name: "Shorts",
@@ -772,7 +773,7 @@ describe("searchEventsRanked channel boost", () => {
       externalId: "s01",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: other,
+      streamId: other,
       actorId: null,
       ts: "2026-08-01T12:20:00.000Z",
       kind: "message",
@@ -787,14 +788,14 @@ describe("searchEventsRanked channel boost", () => {
 
     const boosted = searchEventsRanked({
       match: `"booked"`,
-      boostChannelIds: [channelId],
+      boostChannelIds: [streamId],
     });
-    expect(boosted[0].id).toBe("wa:m09");
+    expect(boosted[0].id).toBe("whatsapp:m09");
     expect(boosted[0].channelBoosted).toBe(true);
-    expect(boosted.find((h) => h.id === "wa:s01")!.channelBoosted).toBe(false);
+    expect(boosted.find((h) => h.id === "whatsapp:s01")!.channelBoosted).toBe(false);
     // The boost is a multiplier on a negative score, so it can only improve it.
     expect(boosted[0].score).toBeCloseTo(
-      plain.find((h) => h.id === "wa:m09")!.score * DEFAULT_CHANNEL_BOOST,
+      plain.find((h) => h.id === "whatsapp:m09")!.score * DEFAULT_CHANNEL_BOOST,
       6,
     );
   });
@@ -812,7 +813,7 @@ describe("searchEventsRanked channel boost", () => {
     expect(
       searchEventsRanked({
         match: `"sunday" OR "lunch"`,
-        boostChannelIds: ["whatsapp:ch:nope"],
+        boostChannelIds: ["whatsapp:st:nope"],
       }).map((h) => h.id),
     ).toEqual(plain.map((h) => h.id));
   });
@@ -820,8 +821,8 @@ describe("searchEventsRanked channel boost", () => {
 
 describe("searchChannelRanked", () => {
   it("ranks one chat's whole history and never leaves it", () => {
-    const { channelId } = seedWeekendLunches();
-    const other = upsertChannel({
+    const { streamId } = seedWeekendLunches();
+    const other = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shorts@g.us",
       name: "Shorts",
@@ -831,7 +832,7 @@ describe("searchChannelRanked", () => {
       externalId: "s01",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId: other,
+      streamId: other,
       actorId: null,
       ts: "2026-08-01T12:20:00.000Z",
       kind: "message",
@@ -840,21 +841,21 @@ describe("searchChannelRanked", () => {
       rawJson: null,
     });
 
-    const hits = searchChannelRanked({ channelId, match: `"booked"` });
-    expect(hits.map((h) => h.id)).toEqual(["wa:m09"]);
+    const hits = searchChannelRanked({ channelId: streamId, match: `"booked"` });
+    expect(hits.map((h) => h.id)).toEqual(["whatsapp:m09"]);
     // The corpus-wide search finds both; the pool is the point of this one.
-    expect(searchEventsRanked({ match: `"booked"` }).map((h) => h.id)).toContain("wa:s01");
+    expect(searchEventsRanked({ match: `"booked"` }).map((h) => h.id)).toContain("whatsapp:s01");
 
     // No time or distance bound: the first and the last message of the chat are
     // equally reachable, which is what a window cannot do.
-    const all = searchChannelRanked({ channelId, match: `"sunday" OR "booked"` });
-    expect(all.map((h) => h.id)).toEqual(expect.arrayContaining(["wa:m01", "wa:m09"]));
+    const all = searchChannelRanked({ channelId: streamId, match: `"sunday" OR "booked"` });
+    expect(all.map((h) => h.id)).toEqual(expect.arrayContaining(["whatsapp:m01", "whatsapp:m09"]));
   });
 
   it("skips reactions, and an unknown chat or an empty match is no rows", () => {
-    const { channelId } = seedWeekendLunches();
-    expect(searchChannelRanked({ channelId, match: `"🎉"` })).toEqual([]);
-    expect(searchChannelRanked({ channelId, match: "  " })).toEqual([]);
+    const { streamId } = seedWeekendLunches();
+    expect(searchChannelRanked({ channelId: streamId, match: `"🎉"` })).toEqual([]);
+    expect(searchChannelRanked({ channelId: streamId, match: "  " })).toEqual([]);
     expect(searchChannelRanked({ channelId: "", match: `"booked"` })).toEqual([]);
     expect(searchChannelRanked({ channelId: "nope", match: `"booked"` })).toEqual([]);
   });
@@ -862,13 +863,13 @@ describe("searchChannelRanked", () => {
 
 describe("readChannelEventIds", () => {
   it("is every non-reaction event in the given chats, and nothing for none", () => {
-    const { channelId } = seedWeekendLunches();
-    const ids = readChannelEventIds([channelId]);
+    const { streamId } = seedWeekendLunches();
+    const ids = readChannelEventIds([streamId]);
     expect(ids).toHaveLength(WEEKEND_LUNCHES.length - 1);
-    expect(ids).not.toContain("wa:m10");
+    expect(ids).not.toContain("whatsapp:m10");
     expect(readChannelEventIds([])).toEqual([]);
     expect(readChannelEventIds(["nope"])).toEqual([]);
     // Duplicates are one chat, not two.
-    expect(readChannelEventIds([channelId, channelId])).toHaveLength(ids.length);
+    expect(readChannelEventIds([streamId, streamId])).toHaveLength(ids.length);
   });
 });

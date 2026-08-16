@@ -8,12 +8,11 @@
 //      v6: the block is no longer eight flat FTS rows. It is the conversation
 //      AROUND the hits — today's date, the dates the question resolves to, the
 //      whole chat when the chat is small, the window when it is not, the reply
-//      thread either way — and the messages are on disk too, so the model can
-//      Grep for what the block left out.
+//      thread either way.
 //   2. System prompt: written once to a stable temp file (the provider reads
 //      systemPromptFile and passes contents via --append-system-prompt on
-//      FRESH sessions only). Explains the block, the corpus, and REQUIRES the
-//      trailing machine-readable `CITATIONS: [...]` line.
+//      FRESH sessions only). Explains the block and REQUIRES the trailing
+//      machine-readable `CITATIONS: [...]` line.
 //   3. Citation parsing: strip the trailing CITATIONS line off the assistant
 //      text and return the validated citations array; the server emits it as
 //      a final `{ type: "citations" }` SSE frame and persists it.
@@ -75,9 +74,10 @@ export function groundedAllowedTools(): string[] {
 // ---------------------------------------------------------------------------
 // System prompt (fresh sessions only, per the token-economy pattern).
 //
-// The corpus paragraph is not optional garnish: Read/Grep/Glob have been
-// whitelisted since Phase 2 and the model never used them, because nothing ever
-// told it there was anything to read.
+// The prompt no longer points at an on-disk message dump: that plaintext copy
+// of the full history was deleted with the rest of the markdown brain (V2
+// §3.2), so the block is the evidence, and the prompt says so rather than
+// inviting a Grep of files that are not there.
 // ---------------------------------------------------------------------------
 
 export const GROUNDED_SYSTEM_PROMPT = `You are SuperTwinV11, a local personal AI grounded in the user's imported
@@ -96,8 +96,8 @@ app (not written by the user). Never echo the block itself back. It contains:
   it, and are usually where the answer actually is. Times are the user's local
   time. "(the user)" marks messages the user sent themselves.
   The heading says what you were given: "the whole chat" means there is no more
-  of it, and "N messages around the hits" means the rest of that conversation is
-  in corpus/ and you can go and read it.
+  of it, and "N messages around the hits" means the rest of that conversation
+  was not retrieved for this turn.
 - Inline square brackets carry what a message carried:
   [attachment description: ...] is what a model saw when it read an image or a
   document — a summary of the attachment, NOT words the sender wrote; say so
@@ -105,13 +105,11 @@ app (not written by the user). Never echo the block itself back. It contains:
   a video. [link ...] is a link's title and blurb. (replying to "...") is the
   message being quoted. [deleted for everyone] means the body is gone.
 
-THE BLOCK IS NOT ALL THERE IS. Your working directory holds corpus/ — every
-imported message, one file per chat, one message per line, in the same
-"[evt <id>] <time> · <sender>: <message>" format. corpus/README.md lists the
-chats. When the block does not settle the question — an unanswered question, a
-name you have not seen, "did they ever reply" — Grep the corpus and Read the
-file. An id found there can be cited exactly like one from the block. Prefer
-searching over guessing, and say when you looked and found nothing.
+THE BLOCK IS ALL YOU HAVE BEEN GIVEN. It is one turn's retrieval over a much
+larger history, not the history itself. When it does not settle the question —
+an unanswered question, a name you have not seen, "did they ever reply" — say
+what is missing and ask for it. Never guess at what the unretrieved messages
+would have said.
 
 Answer from what the user's messages actually say. If the evidence is
 ambiguous or absent, say so rather than filling the gap.
@@ -126,8 +124,7 @@ Rules for that line:
 - It must be the very last line, a valid JSON array, no markdown fences.
 - kind is always "event"; anything else is dropped.
 - id must be a REAL event id, copied character for character out of an
-  "[evt ...]" in the context block or in corpus/. Never invent or abbreviate
-  one.
+  "[evt ...]" in the context block. Never invent or abbreviate one.
 - label is a short human-readable pointer (sender · chat · gist).
 - Every [n] marker used in the answer must have a matching entry.
 - If you cited nothing, end with: CITATIONS: []
@@ -262,9 +259,9 @@ export interface EventDetail {
 /**
  * Event detail for GET /api/events/:id (citation popovers).
  *
- * Takes either a whole event id or the short form the context block and the
- * corpus print — `wa:<chat jid>/<stanza>` costs 51 chars on every line and the
- * stanza is the half that identifies anything (v7 §6, lever 5). A tail that
+ * Takes either a whole event id or the short form the context block prints —
+ * `wa:<chat jid>/<stanza>` costs 51 chars on every line and the stanza is the
+ * half that identifies anything (v7 §6, lever 5). A tail that
  * belongs to two events resolves to NEITHER: a chip pointing at the wrong
  * message is worse than a chip that says it cannot find one.
  */
@@ -277,13 +274,10 @@ export function getEventDetail(id: string): EventDetail | null {
 }
 
 /**
- * Build the <supertwin-context> block for one turn. Synchronous: tiers 1 and 2
- * are SQLite and the filesystem, and the tier that is not (embeddings) is only
- * consulted by augmentMessage(). Returns "" when there is nothing to inject so
- * callers can skip the wrapper entirely.
- *
- * The corpus is NOT materialised here — that writes to the user's brain folder,
- * which a caller asking for a string should not do behind their back.
+ * Build the <supertwin-context> block for one turn. Synchronous: tier 1 is
+ * SQLite, and the tier that is not (embeddings) is only consulted by
+ * augmentMessage(). Returns "" when there is nothing to inject so callers can
+ * skip the wrapper entirely.
  */
 export function buildContextBlock(
   query: string,
@@ -296,15 +290,13 @@ export function buildContextBlock(
  * Retrieval-augment a user message for a grounded turn. The raw message is
  * what gets persisted/displayed; the augmented text is what gets dispatched.
  *
- * Async because this is the one caller that consults the embedding index — and
- * the one that refreshes the on-disk corpus, since a grounded run is exactly
- * when the model might Grep it.
+ * Async because this is the one caller that consults the embedding index.
  */
 export async function augmentMessage(
   message: string,
   opts: GroundedContextOptions = {},
 ): Promise<string> {
-  const { block } = await buildGroundedContext(message, { corpus: true, ...opts });
+  const { block } = await buildGroundedContext(message, opts);
   return block ? `${block}\n\n${message}` : message;
 }
 

@@ -1,0 +1,71 @@
+{
+  "id": "Q-028",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Send Pranjali the Goa villa link",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "a1",
+          "due": "2026-08-16T18:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-12T19:40:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": "possibly_done"
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "refusals": [
+      {
+        "t": "t1",
+        "state": "possibly_done",
+        "rule": "possibly_done_does_not_exist"
+      }
+    ],
+    "tasks": [
+      {
+        "t": "t1",
+        "state": "open"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "state",
+      "rule"
+    ],
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "any loop in state possibly_done",
+    "expect": "FAIL — the state does not exist",
+    "assert": "evidence or a question, never a parking lot"
+  }
+}

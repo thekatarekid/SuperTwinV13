@@ -1,0 +1,39 @@
+{
+  "id": "U-004",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=100|mode=bootstrap|state=done\nrun|role=extract|model=claude-haiku-4|cohort=c1|input=1000|create=0|read=0|output=200|cost=0.5\nrun|role=chat|model=claude-sonnet-4|cohort=c1|input=500|create=0|read=0|output=100|cost=0.25",
+  "expect": {
+    "state": {
+      "same_filter": true,
+      "cost_usd": 0.75,
+      "run_count": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "acct_same_filter"
+  },
+  "stub": false,
+  "doc": {
+    "given": "cost and tokens aggregated",
+    "expect": "same filter, same row set",
+    "assert": "the '—' cost bug"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "id": "L-026",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "calib|floor=0\nentity|id=a1|type=person\nepisode|id=ep_seed|entities=a1|label=Goa trip|source=whatsapp\narc|id=n1|label=Goa trip|anchors=a1|sources=whatsapp|episodes=ep_seed|cosine=0.9\nepisode|id=ep_amb|entities=z9|label=screen frames|source=screen|ambient=1\nplace|episode=ep_amb\n#AG2 ep_amb\nV|e1|jn|n1|0.99|the frames look like that thread",
+  "expect": {
+    "joins": []
+  },
+  "assert": {
+    "mode": "absent",
+    "gate": "arcs_no_similarity_only_ambient"
+  },
+  "stub": false,
+  "doc": {
+    "given": "ambient episode, similarity 0.9, NO bridge, NO overlap",
+    "expect": "DO NOT join",
+    "assert": "ambient joins via bridge/overlap only"
+  }
+}

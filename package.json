@@ -1,7 +1,7 @@
 {
   "name": "supertwinv11",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.9.0",
   "type": "module",
   "workspaces": [
     "worker"
@@ -17,6 +17,8 @@
     "stage:media": "node scripts/stage-media-tools.mjs",
     "build:app": "npm run build && npm run bundle:worker && npm run stage:node && npm run stage:media && npm run tauri build",
     "build:appbundle": "npm run build && npm run bundle:worker && npm run stage:node && npm run stage:media && npm run tauri build -- --bundles app",
+    "eval": "tsx worker/src/evals/cli.ts",
+    "eval:fixtures": "node evals/generate-fixtures.mjs",
     "test": "vitest run && npm run test:scripts",
     "test:scripts": "vitest run --config scripts/vitest.config.mjs",
     "release": "node scripts/release.mjs"

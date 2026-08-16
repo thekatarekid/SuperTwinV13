@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { closeDb } from "../db/connection.js";
 import { runMigrations } from "../db/index.js";
 import type { PendingTranscriptRow } from "../db/ingest.js";
-import { setMediaWhisperModel } from "../store/store.js";
+import { setMediaWhisperModel } from "../db/settings.js";
 import { whisperModelsDir } from "./tools.js";
 import {
   degenerateReason,

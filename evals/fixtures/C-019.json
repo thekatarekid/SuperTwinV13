@@ -1,0 +1,39 @@
+{
+  "id": "C-019",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "batch|images=16|echo=wrong:2",
+  "expect": {
+    "state": {
+      "mismatches": 1,
+      "first_call_applied": 0,
+      "calls": 3
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": false,
+  "doc": {
+    "given": "model returns 16 captions but 2 ids differ",
+    "expect": "REJECT whole batch; never apply partially",
+    "assert": "no partial application"
+  }
+}

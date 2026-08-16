@@ -20,6 +20,7 @@ import {
   getMediaTools,
   getModels,
   getQuota,
+  getUsage,
   listRuns,
   MEDIA_CONCURRENCY_MAX,
   MEDIA_FRAME_INTERVAL_SEC_MAX,
@@ -48,9 +49,13 @@ import {
   type RoleInfo,
   type RunListItem,
   type SemanticState,
+  type UsageRoleRow,
+  type UsageSummary,
+  type UsageWindow,
   type WhisperModelState,
   type WorkerClient,
 } from "../lib/worker-client";
+import { LatencyPanel } from "./LatencyPanel";
 import {
   activateEmbeddingModel,
   benchmarkEmbeddingModel,
@@ -85,6 +90,17 @@ const RUNS_PAGE_SIZE = 50;
 /** The role whose kill-switch turns off the app's only feature. */
 const CHAT_ROLE = "chat";
 
+/** Usage board refresh — the same cadence as the runs viewer. */
+const USAGE_POLL_MS = 8000;
+
+/** The window selector of arch §4.4.4's Usage panel. */
+const USAGE_WINDOWS: { id: UsageWindow; label: string }[] = [
+  { id: "today", label: "today" },
+  { id: "7d", label: "7d" },
+  { id: "30d", label: "30d" },
+  { id: "import", label: "this import" },
+];
+
 interface SettingsTabProps {
   /**
    * Injected client (tests). Defaults to the real localhost calls. Everything
@@ -113,6 +129,7 @@ interface SettingsTabProps {
         | "cancelEmbeddingModel"
         | "deleteEmbeddingModel"
         | "listRuns"
+        | "getUsage"
         | "getLogsInfo"
         | "revealLogs"
         | "getBrainInfo"
@@ -203,6 +220,7 @@ const SECTIONS = [
   { id: "worker", label: "Worker" },
   { id: "usage", label: "Usage" },
   { id: "models", label: "Models" },
+  { id: "processing", label: "Processing" },
   { id: "media", label: "Media" },
   { id: "transcription", label: "Transcription" },
   { id: "search", label: "Search" },
@@ -210,6 +228,46 @@ const SECTIONS = [
   { id: "brain", label: "Brain wiki" },
   { id: "logs", label: "Logs" },
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Processing → parallel calls (arch §4.4.1, `concurrency.llm`).
+//
+// One number, and it governs LLM calls only: every prompt, enrichment AND
+// understanding. Whisper, embeddings and ffmpeg are hardware-bound and keep
+// their own limits — sixteen concurrent whispers run SLOWER than three, so a
+// single global "parallel" number would be actively wrong.
+// ---------------------------------------------------------------------------
+export const LLM_PARALLEL_MIN = 1;
+export const LLM_PARALLEL_MAX = 16;
+export const LLM_PARALLEL_DEFAULT = 8;
+/** Where the setting lives until the worker exposes `concurrency.llm`. */
+const LLM_PARALLEL_STORAGE_KEY = "supertwin.concurrency.llm";
+
+/**
+ * The settings copy for `concurrency.llm`, verbatim from arch §4.4.1. The
+ * emphasis in the doc is rendered as <strong>/<em>; the words are unchanged,
+ * and this constant is exactly what the rendered note reads as.
+ */
+export const LLM_PARALLEL_NOTE =
+  "Each parallel call runs a separate Claude CLI process using roughly 250–350 MB. " +
+  "8 parallel ≈ 2–3 GB · 16 parallel ≈ 4–6 GB. " +
+  "On an 8 GB Mac, values above 8 may cause swapping and run slower than a lower " +
+  "setting. Higher values also reach your subscription's rate limit sooner — " +
+  "processing pauses and resumes automatically when that happens. Local " +
+  "transcription and embeddings have their own limits and are not affected by " +
+  "this setting.";
+
+/** Read the stored parallel-calls setting, clamped. Never throws. */
+function readParallelCalls(): number {
+  try {
+    const raw = window.localStorage?.getItem(LLM_PARALLEL_STORAGE_KEY);
+    const n = raw === null || raw === undefined ? Number.NaN : Number(raw);
+    if (!Number.isFinite(n)) return LLM_PARALLEL_DEFAULT;
+    return Math.min(LLM_PARALLEL_MAX, Math.max(LLM_PARALLEL_MIN, Math.round(n)));
+  } catch {
+    return LLM_PARALLEL_DEFAULT;
+  }
+}
 
 /**
  * The media settings keys that are numbers, the one that is a choice, and
@@ -289,6 +347,20 @@ const MEDIA_SWITCH_GROUPS: { title?: string; switches: MediaSwitchDef[] }[] = [
           key: "video_enabled",
           note: "Videos are switched off, so none is read and nothing is sampled. This does nothing until Videos above is on.",
         },
+      },
+      {
+        key: "read_all_media",
+        testId: "media-read-all",
+        label: "Read all images and stickers",
+        caption:
+          "Caption every image and sticker, and transcribe every voice note. Turn it off to skip stickers and very short audio — cheaper, at the cost of the occasional sticker that carried the whole message.",
+      },
+      {
+        key: "salience_gate",
+        testId: "media-salience-gate",
+        label: "Skip low-information media",
+        caption:
+          "When on, a caption with no person, place, date, number or commitment in it will not trigger a re-read of its conversation. Saves cost; risks missing a caption that mattered. Off by default.",
       },
       {
         key: "business_enabled",
@@ -466,6 +538,24 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const modelGroups = useMemo(() => groupByFamily(models ?? []), [models]);
 
+  // Processing: how many Claude CLI children may run at once (§4.4.1).
+  const [parallelCalls, setParallelCalls] = useState<number>(readParallelCalls);
+  const onParallelCallsChange = useCallback((next: number) => {
+    const clamped = Math.min(
+      LLM_PARALLEL_MAX,
+      Math.max(LLM_PARALLEL_MIN, Math.round(next)),
+    );
+    setParallelCalls(clamped);
+    try {
+      window.localStorage?.setItem(
+        LLM_PARALLEL_STORAGE_KEY,
+        String(clamped),
+      );
+    } catch {
+      /* private mode / no storage: the value still applies for this session */
+    }
+  }, []);
+
   // Media reader settings (loaded once) + the describe backlog (polled). Each
   // number keeps its own draft so a half-typed value isn't persisted per
   // keystroke; they commit on blur.
@@ -512,6 +602,32 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
 
   // Logs card.
   const [logs, setLogs] = useState<LogsInfo | null>(null);
+
+  // ---- Usage board (arch §4.4.4). One request per window, so the token table
+  // and the cost line are always two views of the same aggregate.
+  const getUsageFn = client?.getUsage ?? getUsage;
+  const [usageWindow, setUsageWindow] = useState<UsageWindow>("7d");
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    async function pull() {
+      try {
+        const u = await getUsageFn(usageWindow, controller.signal);
+        if (live) setUsage(u);
+      } catch {
+        /* worker offline — keep the last honest numbers, never invent any */
+      }
+    }
+    void pull();
+    const timer = setInterval(() => void pull(), USAGE_POLL_MS);
+    return () => {
+      live = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [getUsageFn, usageWindow]);
 
   useEffect(() => {
     mounted.current = true;
@@ -1182,6 +1298,12 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
               backlog of photos must not be able to lock you out of chat.
             </p>
           </div>
+
+          <UsageBoard
+            summary={online ? usage : null}
+            window={usageWindow}
+            onWindowChange={setUsageWindow}
+          />
         </section>
 
         <section id="settings-models" className="settings__section">
@@ -1289,6 +1411,58 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
           </div>
         </section>
 
+        <section id="settings-processing" className="settings__section">
+          <div className="settings__section-head">
+            <h2 className="settings__section-title">Processing</h2>
+          </div>
+          <p className="settings__section-desc">
+            How much of your history SuperTwinV11 reads at once. This is the
+            ceiling on Claude calls — reading media and understanding
+            conversations share it.
+          </p>
+          <div className="settings__media-numbers">
+            <label className="settings__media-number">
+              <span className="settings__logs-label">Parallel calls</span>
+              <input
+                type="range"
+                min={LLM_PARALLEL_MIN}
+                max={LLM_PARALLEL_MAX}
+                step={1}
+                className="settings__slider"
+                data-testid="llm-parallel"
+                aria-label="Parallel calls"
+                aria-valuemin={LLM_PARALLEL_MIN}
+                aria-valuemax={LLM_PARALLEL_MAX}
+                aria-valuenow={parallelCalls}
+                value={parallelCalls}
+                onChange={(e) =>
+                  onParallelCallsChange(Number(e.target.value))
+                }
+              />
+              <span
+                className="settings__slider-value"
+                data-testid="llm-parallel-value"
+              >
+                {parallelCalls}
+              </span>
+              <span
+                className="settings__note settings__note--field"
+                data-testid="llm-parallel-note"
+              >
+                Each parallel call runs a separate Claude CLI process using
+                roughly 250–350 MB.{" "}
+                <strong>8 parallel ≈ 2–3 GB · 16 parallel ≈ 4–6 GB.</strong> On
+                an 8 GB Mac, values above 8 may cause swapping and run{" "}
+                <em>slower</em> than a lower setting. Higher values also reach
+                your subscription's rate limit sooner — processing pauses and
+                resumes automatically when that happens. Local transcription and
+                embeddings have their own limits and are not affected by this
+                setting.
+              </span>
+            </label>
+          </div>
+        </section>
+
         <section id="settings-media" className="settings__section">
           <div className="settings__section-head">
             <h2 className="settings__section-title">Media</h2>
@@ -1377,10 +1551,10 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
                 />
                 <span className="settings__note settings__note--field">
                   How many photos share one call. Bigger is cheaper per photo —
-                  most of what a call costs is the call itself. A batch that
-                  comes back unreadable is read again one photo at a time, so
-                  the largest sizes cost the most when they go wrong. Up to{" "}
-                  {MEDIA_IMAGE_BATCH_MAX}.
+                  most of what a call costs is the call itself. A batch whose
+                  answer does not account for every photo is split in half and
+                  read again, so a bad answer costs a few extra calls rather
+                  than one per photo. Up to {MEDIA_IMAGE_BATCH_MAX}.
                 </span>
               </label>
               <label className="settings__media-number">
@@ -1740,8 +1914,12 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
                   <tr>
                     <th>Process</th>
                     <th>Model</th>
-                    <th className="settings__runs-num">Input</th>
+                    {/* Three parts and their sum (arch §4.4.4): "Input" beside
+                        "Cache" is the same tokens counted twice unless the
+                        total they add up to is on the row as well. */}
+                    <th className="settings__runs-num">Fresh in</th>
                     <th className="settings__runs-num">Cache</th>
+                    <th className="settings__runs-num">Total in</th>
                     <th className="settings__runs-num">Output</th>
                     <th className="settings__runs-num">Cost</th>
                     <th className="settings__runs-num">Duration</th>
@@ -1768,6 +1946,16 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
                       >
                         {fmt(
                           r.cache_creation_input_tokens + r.cache_read_input_tokens,
+                        )}
+                      </td>
+                      <td
+                        className="settings__runs-num"
+                        data-testid={`run-total-input-${r.id}`}
+                      >
+                        {fmt(
+                          r.input_tokens +
+                            r.cache_creation_input_tokens +
+                            r.cache_read_input_tokens,
                         )}
                       </td>
                       <td className="settings__runs-num">
@@ -1815,6 +2003,8 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
               )}
             </div>
           )}
+          {/* Item 4.2: persisted latency marks, until 4.4's ops surface. */}
+          <LatencyPanel />
         </section>
 
         <section id="settings-brain" className="settings__section">
@@ -1912,11 +2102,23 @@ function SpendGrid({
   counts: SpendCounts | null | undefined;
   billableNote: string;
 }) {
+  // total_input = cache_read + cache_creation + input (arch §4.4.4). The three
+  // parts are components of ONE number, not three separate spends, so the sum
+  // is rendered underneath them and never left for the reader to do.
+  const totalInput = counts
+    ? counts.inputTokens +
+      counts.cacheCreationInputTokens +
+      counts.cacheReadInputTokens
+    : undefined;
   const cells: { testId: string; label: string; value: string }[] = [
-    { testId: `${prefix}-input`, label: "Input", value: fmt(counts?.inputTokens) },
+    {
+      testId: `${prefix}-input`,
+      label: "Fresh input",
+      value: fmt(counts?.inputTokens),
+    },
     {
       testId: `${prefix}-cache-write`,
-      label: "Cached input",
+      label: "Cache write",
       value: fmt(counts?.cacheCreationInputTokens),
     },
     {
@@ -1949,6 +2151,14 @@ function SpendGrid({
           </div>
         ))}
       </dl>
+      <p className="settings__spend-total">
+        Total input{" "}
+        <span data-testid={`${prefix}-total-input`}>{fmt(totalInput)}</span> ={" "}
+        fresh {fmt(counts?.inputTokens)} + cache write{" "}
+        {fmt(counts?.cacheCreationInputTokens)} + cache read{" "}
+        {fmt(counts?.cacheReadInputTokens)} — the three above are parts of this
+        one number, not separate spend.
+      </p>
       <p className="settings__spend-billable">
         <span data-testid={`${prefix}-billable`}>
           {fmt(counts?.billableTokens)}
@@ -1956,6 +2166,163 @@ function SpendGrid({
         billable — {billableNote}.
       </p>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Settings → Usage, the panel of arch §4.4.4: a token table by role, the
+// measured cache hit rate, cost by role and run counts — all four built from
+// ONE aggregate over ONE filter, plus this import's spend and projection.
+// ---------------------------------------------------------------------------
+
+/** Percent for a measured rate. An unmeasured rate dashes; it is never 0%. */
+function fmtRate(r: number | null | undefined): string {
+  if (r === null || r === undefined || Number.isNaN(r)) return "—";
+  return `${Math.round(r * 100)}%`;
+}
+
+/** "extract (claude-sonnet-5)" — the label the row's numbers belong to. */
+function roleLabel(row: UsageRoleRow): string {
+  return row.model ? `${row.role} (${row.model})` : row.role;
+}
+
+function UsageBoard({
+  summary,
+  window: win,
+  onWindowChange,
+}: {
+  summary: UsageSummary | null;
+  window: UsageWindow;
+  onWindowChange: (w: UsageWindow) => void;
+}) {
+  const rows = summary?.byRole ?? [];
+  const totals = summary?.totals;
+  const imp = summary?.thisImport;
+  // Cost lives on the same rows as the tokens, so "spend exists" and "cost is
+  // known" can never disagree: there is nothing to reconcile.
+  const costRows = rows.filter((r) => r.costUsd > 0);
+
+  return (
+    <div className="settings__usage" data-testid="usage-board">
+      <div className="settings__usage-head">
+        <h3 className="settings__spend-title">Usage</h3>
+        <div className="settings__usage-windows" role="group" aria-label="Usage window">
+          {USAGE_WINDOWS.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              className="settings__chip"
+              aria-pressed={w.id === win}
+              data-testid={`usage-window-${w.id}`}
+              onClick={() => onWindowChange(w.id)}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ---- Tokens by role. Four columns, and the sum below them. ---- */}
+      <table className="settings__usage-table" data-testid="usage-tokens">
+        <thead>
+          <tr>
+            <th scope="col">Role</th>
+            <th scope="col">fresh</th>
+            <th scope="col">cache write</th>
+            <th scope="col">cache read</th>
+            <th scope="col">total input</th>
+            <th scope="col">output</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={6} data-testid="usage-tokens-empty">
+                No runs in this window.
+              </td>
+            </tr>
+          )}
+          {rows.map((r) => (
+            <tr key={`${r.role}:${r.model}`} data-testid={`usage-row-${r.role}`}>
+              <th scope="row">{roleLabel(r)}</th>
+              <td>{fmt(r.inputTokens)}</td>
+              <td>{fmt(r.cacheCreationTokens)}</td>
+              <td>{fmt(r.cacheReadTokens)}</td>
+              <td data-testid={`usage-row-${r.role}-total-input`}>
+                {fmt(r.totalInputTokens)}
+              </td>
+              <td>{fmt(r.outputTokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <p className="settings__spend-total">
+        total input{" "}
+        <span data-testid="usage-total-input">{fmt(totals?.totalInputTokens)}</span>{" "}
+        = fresh {fmt(totals?.inputTokens)} + write{" "}
+        {fmt(totals?.cacheCreationTokens)} + read {fmt(totals?.cacheReadTokens)}
+        {" · "}total output{" "}
+        <span data-testid="usage-total-output">{fmt(totals?.outputTokens)}</span>
+      </p>
+
+      {/* ---- Cache: measured, never assumed (§4.4.3). ---- */}
+      <p className="settings__usage-cache">
+        <strong>Cache</strong> hit rate{" "}
+        <span data-testid="usage-cache-hit-rate">
+          {fmtRate(summary?.cache.hitRate)}
+        </span>
+        {summary && summary.cache.belowMinimumModels.length > 0 && (
+          <span className="settings__note" data-testid="usage-cache-note">
+            {" "}
+            ⚠ {summary.cache.belowMinimumModels.join(", ")} prompts are below the{" "}
+            {fmt(summary.cache.minimumTokens ?? 4096)}-token minimum and cannot
+            cache — this is expected
+          </span>
+        )}
+      </p>
+
+      {/* ---- Cost: the CLI's own dollars, over the same rows. ---- */}
+      <p className="settings__usage-cost">
+        <strong>Cost</strong>{" "}
+        <span data-testid="usage-cost-total">{fmtCost(totals?.costUsd)}</span>{" "}
+        total
+        {costRows.length > 0 && (
+          <span data-testid="usage-cost-by-role">
+            {" — "}
+            {costRows
+              .map((r) => `${r.role} ${fmtCost(r.costUsd)}`)
+              .join(" · ")}
+          </span>
+        )}
+        <span className="settings__note">
+          {" "}
+          (reported by the Claude CLI, not estimated)
+        </span>
+      </p>
+
+      {/* ---- Runs and this import. ---- */}
+      <p className="settings__usage-runs" data-testid="usage-run-counts">
+        <strong>Runs</strong> {fmt(summary?.runs.ok)} ok ·{" "}
+        {fmt(summary?.runs.retried)} retried · {fmt(summary?.runs.quarantined)}{" "}
+        quarantined
+      </p>
+
+      <p className="settings__usage-import" data-testid="usage-this-import">
+        <strong>This import</strong> {fmt(imp?.events)} events ·{" "}
+        <span data-testid="usage-import-complete">
+          {fmtRate(imp?.spend.fractionComplete)}
+        </span>{" "}
+        complete ·{" "}
+        <span data-testid="usage-import-spent">{fmtCost(imp?.spend.spentUsd)}</span>{" "}
+        spent ·{" "}
+        <span data-testid="usage-import-remaining">
+          {imp?.spend.remainingUsd == null
+            ? "projection pending"
+            : `~${fmtCost(imp.spend.remainingUsd)} to go`}
+        </span>
+      </p>
+    </div>
   );
 }
 

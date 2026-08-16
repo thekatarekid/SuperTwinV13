@@ -1,0 +1,59 @@
+{
+  "id": "M-042",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Gargi Kulkarni",
+      "a2=Keerti Nair"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-08T20:30:00Z",
+        "who": "a1",
+        "text": "keerti says the landlord is raising rent"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Gargi relayed something Keerti had said. Nothing else was discussed.\nF|1|a2|rs|0.6|-|Facing a rent increase from the landlord",
+  "expect": {
+    "claims": [
+      {
+        "subject": "a2",
+        "attribution": "reported_speech",
+        "confidence": 0.6,
+        "text": "Facing a rent increase from the landlord"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject",
+      "attribution",
+      "confidence",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Gargi relays what Keerti said",
+    "expect": "attribution=rs",
+    "assert": "reported_speech discounts confidence"
+  }
+}

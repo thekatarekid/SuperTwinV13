@@ -1,0 +1,68 @@
+{
+  "id": "H-014",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "the flat in Koramangala fell through",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nN|k1|Koramangala|plc|area\nM|1|Koramangala|k1|0.9",
+  "expect": {
+    "entities": [
+      {
+        "as": "a1",
+        "type": "person",
+        "subtype": null,
+        "canonical": "Rahul"
+      },
+      {
+        "as": "k1",
+        "type": "place",
+        "subtype": "area",
+        "canonical": "Koramangala"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg mentions 'Koramangala'",
+    "expect": "M -> place entity; mint if novel with subtype",
+    "assert": "place typing"
+  }
+}

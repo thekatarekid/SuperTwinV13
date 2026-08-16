@@ -1,0 +1,103 @@
+{
+  "id": "J-022",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "did the local model finally run on your machine",
+        "c": "c1",
+        "topic": "llm"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "yes, quantised, it fits in the GPU now",
+        "c": "c1",
+        "topic": "llm"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "so are we locking the Goa dates or not",
+        "c": "c1",
+        "topic": "goa"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "13th to 17th works for me, flights are still sane",
+        "c": "c1",
+        "topic": "goa"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-022\nrun|session=s1\n#EP2 s1\nG|s1|1,2|new|-|0.9|local LLM setup\nG|s1|3,4|new|-|0.88|Goa trip",
+  "expect": {
+    "segments": [
+      {
+        "session": "s1",
+        "events": "1,2",
+        "decision": "new",
+        "episode": "n1",
+        "label": "local LLM setup"
+      },
+      {
+        "session": "s1",
+        "events": "3,4",
+        "decision": "new",
+        "episode": "n2",
+        "label": "Goa trip"
+      }
+    ],
+    "candidates": [],
+    "verdicts": [
+      {
+        "session": "s1",
+        "decision": "judged",
+        "model_calls": 1
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "session pivots local LLM setup -> Goa trip, >=2 events each",
+    "expect": "G lines split into 2 segments partitioning all event ids",
+    "assert": "split + partition invariant"
+  }
+}

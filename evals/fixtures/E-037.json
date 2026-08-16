@@ -1,0 +1,784 @@
+{
+  "id": "E-037",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "k1",
+        "name": "Meeting recorder",
+        "kind": "meeting",
+        "participants": [
+          "self",
+          "a1",
+          "a2"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:00:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T04:00:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-10T04:01:07.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 5,
+        "ts": "2026-08-10T04:01:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 6,
+        "ts": "2026-08-10T04:01:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 7,
+        "ts": "2026-08-10T04:02:15.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 8,
+        "ts": "2026-08-10T04:02:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 9,
+        "ts": "2026-08-10T04:03:00.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 10,
+        "ts": "2026-08-10T04:03:22.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 11,
+        "ts": "2026-08-10T04:03:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 12,
+        "ts": "2026-08-10T04:04:07.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 13,
+        "ts": "2026-08-10T04:04:30.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 14,
+        "ts": "2026-08-10T04:04:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 15,
+        "ts": "2026-08-10T04:05:15.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 16,
+        "ts": "2026-08-10T04:05:37.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 17,
+        "ts": "2026-08-10T04:06:00.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 18,
+        "ts": "2026-08-10T04:06:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 19,
+        "ts": "2026-08-10T04:06:45.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 20,
+        "ts": "2026-08-10T04:07:07.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 21,
+        "ts": "2026-08-10T04:07:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 22,
+        "ts": "2026-08-10T04:07:52.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 23,
+        "ts": "2026-08-10T04:08:15.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 24,
+        "ts": "2026-08-10T04:08:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 25,
+        "ts": "2026-08-10T04:09:00.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 26,
+        "ts": "2026-08-10T04:09:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 27,
+        "ts": "2026-08-10T04:09:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 28,
+        "ts": "2026-08-10T04:10:07.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 29,
+        "ts": "2026-08-10T04:10:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 30,
+        "ts": "2026-08-10T04:10:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 31,
+        "ts": "2026-08-10T04:11:15.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 32,
+        "ts": "2026-08-10T04:11:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 33,
+        "ts": "2026-08-10T04:12:00.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 34,
+        "ts": "2026-08-10T04:12:22.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 35,
+        "ts": "2026-08-10T04:12:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 36,
+        "ts": "2026-08-10T04:13:07.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 37,
+        "ts": "2026-08-10T04:13:30.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 38,
+        "ts": "2026-08-10T04:13:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 39,
+        "ts": "2026-08-10T04:14:15.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 40,
+        "ts": "2026-08-10T04:14:37.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 41,
+        "ts": "2026-08-10T04:15:00.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 42,
+        "ts": "2026-08-10T04:15:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 43,
+        "ts": "2026-08-10T04:15:45.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 44,
+        "ts": "2026-08-10T04:16:07.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 45,
+        "ts": "2026-08-10T04:16:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 46,
+        "ts": "2026-08-10T04:16:52.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 47,
+        "ts": "2026-08-10T04:17:15.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 48,
+        "ts": "2026-08-10T04:17:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 49,
+        "ts": "2026-08-10T04:18:00.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 50,
+        "ts": "2026-08-10T04:18:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 51,
+        "ts": "2026-08-10T04:18:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 52,
+        "ts": "2026-08-10T04:19:07.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 53,
+        "ts": "2026-08-10T04:19:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 54,
+        "ts": "2026-08-10T04:19:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 55,
+        "ts": "2026-08-10T04:20:15.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 56,
+        "ts": "2026-08-10T04:20:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 57,
+        "ts": "2026-08-10T04:21:00.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 58,
+        "ts": "2026-08-10T04:21:22.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 59,
+        "ts": "2026-08-10T04:21:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 60,
+        "ts": "2026-08-10T04:22:07.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 61,
+        "ts": "2026-08-10T04:22:30.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 62,
+        "ts": "2026-08-10T04:22:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 63,
+        "ts": "2026-08-10T04:23:15.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 64,
+        "ts": "2026-08-10T04:23:37.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 65,
+        "ts": "2026-08-10T04:24:00.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 66,
+        "ts": "2026-08-10T04:24:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 67,
+        "ts": "2026-08-10T04:24:45.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 68,
+        "ts": "2026-08-10T04:25:07.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 69,
+        "ts": "2026-08-10T04:25:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 70,
+        "ts": "2026-08-10T04:25:52.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 71,
+        "ts": "2026-08-10T04:26:15.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 72,
+        "ts": "2026-08-10T04:26:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 73,
+        "ts": "2026-08-10T04:27:00.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 74,
+        "ts": "2026-08-10T04:27:22.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 75,
+        "ts": "2026-08-10T04:27:45.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 76,
+        "ts": "2026-08-10T04:28:07.500Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 77,
+        "ts": "2026-08-10T04:28:30.000Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 78,
+        "ts": "2026-08-10T04:28:52.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 79,
+        "ts": "2026-08-10T04:29:15.000Z",
+        "who": "self",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      },
+      {
+        "n": 80,
+        "ts": "2026-08-10T04:29:37.500Z",
+        "who": "a1",
+        "text": "a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count a whole line of talk from the meeting recording that is long enough to count ",
+        "kind": "utterance",
+        "record_id": "meeting-1",
+        "ts_end": "2026-08-10T04:30:00.000Z"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=bounded\nstream|key=k1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 1,
+      "event_counts": [
+        80
+      ],
+      "ended_at": [
+        "2026-08-10T04:30:00.000Z"
+      ],
+      "policy_caps_apply": false
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": false,
+  "doc": {
+    "given": "30-min meeting transcript, 80 utterances",
+    "expect": "ONE session; caps do NOT apply",
+    "assert": "bounded exempt from caps"
+  }
+}

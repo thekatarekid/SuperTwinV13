@@ -1,0 +1,54 @@
+{
+  "id": "N-042",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-01-30T09:00:00Z",
+        "who": "self",
+        "text": "my broadband renews on the 28th"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|-|ex|slf|m|mo|2026-02-28|monthly||Renew the broadband plan",
+  "expect": {
+    "loops": [
+      {
+        "intent": "Renew the broadband plan",
+        "due": "2026-02-28"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "intent",
+      "due"
+    ],
+    "gate": "loops_explicit_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'the 28th' in an episode dated 2026-01-30",
+    "expect": "resolved against the EPISODE date, not today",
+    "assert": "relative date anchoring"
+  }
+}

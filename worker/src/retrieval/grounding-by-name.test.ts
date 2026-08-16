@@ -62,10 +62,10 @@ const { forgetEmbedder, setEmbedder } = await import("./embedder.js");
 // Fixture
 // ---------------------------------------------------------------------------
 
-const CH_PRANJALI = "whatsapp:ch:919000000021@s.whatsapp.net";
-const CH_RASHMI = "whatsapp:ch:919000000022@s.whatsapp.net";
-const CH_GHAR = "whatsapp:ch:120363111111111111@g.us";
-const CH_ORANGE = "whatsapp:ch:919000000099@s.whatsapp.net";
+const CH_PRANJALI = "whatsapp:st:919000000021@s.whatsapp.net";
+const CH_RASHMI = "whatsapp:st:919000000022@s.whatsapp.net";
+const CH_GHAR = "whatsapp:st:120363111111111111@g.us";
+const CH_ORANGE = "whatsapp:st:919000000099@s.whatsapp.net";
 
 const SELF = "whatsapp:ac:919000000001@s.whatsapp.net";
 const PRANJALI = "whatsapp:ac:919000000021@s.whatsapp.net";
@@ -268,7 +268,7 @@ function seed(): void {
   const db = getDb();
   db.prepare(`INSERT INTO sources (id, type) VALUES ('whatsapp', 'whatsapp')`).run();
   db.prepare(
-    `INSERT INTO app_state (key, value) VALUES ('whatsapp.self_jid', '919000000001@s.whatsapp.net')`,
+    `INSERT INTO app_state (key, value) VALUES ('source.whatsapp.self_identity', '919000000001@s.whatsapp.net')`,
   ).run();
 
   const channel = db.prepare(
@@ -631,7 +631,7 @@ describe("lever 3 — a section spends its own share", () => {
     // Rashmi's chat is small enough to arrive whole, and says so.
     expect(formatContextBlock(result)).toContain("— the whole chat");
     // Starved, it is no longer whole — and a model told it has the whole chat
-    // has no reason to go and Grep the corpus for the rest.
+    // has no reason to ask for the rest.
     expect(formatContextBlock(result, { maxChars: 900 })).not.toContain(
       "— the whole chat",
     );

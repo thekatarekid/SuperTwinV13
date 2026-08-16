@@ -1,0 +1,76 @@
+{
+  "id": "G-057",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Papa"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Papa",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "Papa called about the 1 thing",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "Papa called about the 2 thing",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "Papa called about the 3 thing",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bind|as=a|src=whatsapp|kind=jid|v=919425000007@s.whatsapp.net|name=Papa\nbind|as=b|src=contacts|kind=phone|v=+919812000021|name=Papa (new number Jio)\nref|e=b|ev=1|s=Papa\nref|e=b|ev=2|s=Papa\nref|e=b|ev=3|s=Papa\nmerge|loser=b|winner=a|by=agent:p-ag1|reason=same person, new number",
+  "expect": {
+    "state": {
+      "merged": true,
+      "reads_redirect": true,
+      "tombstones": 1,
+      "refs_resolved": 3,
+      "entity_count": 2,
+      "person_count": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "read entity B after merge B->A with 3 refs",
+    "expect": "redirect via merged_into O(1); nightly compaction",
+    "assert": "tombstone merges"
+  }
+}

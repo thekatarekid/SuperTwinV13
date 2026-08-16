@@ -1,0 +1,71 @@
+{
+  "id": "H-039",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Amit (gym)",
+      "a2=Amit (office)"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Ghar+",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "tell Amit i'll call after eight",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nM|1|Amit|-|0.5|two roster Amits, both plausible\nQ|-|Which Amit did you mean — the gym one or the office one?",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "Amit",
+        "entity": null,
+        "confidence": 0.5,
+        "hint": "two roster Amits, both plausible",
+        "decided_by": "llm:p-ep1:unresolved"
+      }
+    ],
+    "questions": [
+      {
+        "question": "Which Amit did you mean — the gym one or the office one?"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'tell Amit' with TWO roster Amits, both plausible",
+    "expect": "entity '-' + hint + Q line",
+    "assert": "two live candidates -> question"
+  }
+}

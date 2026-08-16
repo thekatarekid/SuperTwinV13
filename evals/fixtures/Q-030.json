@@ -1,0 +1,82 @@
+{
+  "id": "Q-030",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Email the landlord about the lease",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": "2026-08-20T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        },
+        {
+          "t": "t2",
+          "intent": "Compare broadband plans in Bangalore",
+          "origin": "implicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "J|t1|ap|h|outward-facing email to the landlord\nJ|t2|ap|l|implicit inference, never auto\nJ|all|ap|h|blanket approval for the whole queue",
+  "expect": {
+    "approvals": [
+      {
+        "t": "t1",
+        "triage": "approval"
+      },
+      {
+        "t": "t2",
+        "triage": "approval"
+      }
+    ],
+    "blanket": []
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "triage"
+    ],
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "approval attaches to a blanket queue",
+    "expect": "FAIL",
+    "assert": "approval attaches to action class"
+  }
+}

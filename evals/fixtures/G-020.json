@@ -1,0 +1,43 @@
+{
+  "id": "G-020",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bind|as=g|src=gmail|kind=email|v=gargi@x.com|name=Gargi\nbind|as=k|src=calendar|kind=email|v=Gargi@x.com|name=Gargi",
+  "expect": {
+    "state": {
+      "last_rung": "cross_source",
+      "last_decided_by": "code:cross_source",
+      "last_confidence": 1,
+      "last_bound_to": "g",
+      "entity_count": 1,
+      "person_count": 1,
+      "model_calls": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "gmail From gargi@x == calendar attendee email",
+    "expect": "BIND same entity [CODE]",
+    "assert": "cross-source email join"
+  }
+}

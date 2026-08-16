@@ -1,0 +1,40 @@
+{
+  "id": "S-002",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "N|a2|Priya Nair|per\nM|1|Pri|a2|0.8\nF|2|a2|ao|0.75|2026-08-09|Priya prefers morning calls",
+  "expect": {
+    "state": {
+      "round_trip": "N|a2|Priya Nair|per\nM|1|Pri|a2|0.8\nF|2|a2|ao|0.75|2026-08-09|Priya prefers morning calls",
+      "round_trip_stable": true,
+      "line_violations": 0,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "round trip on generated line set #2",
+    "expect": "serialize(parse(serialize(x))) byte-identical",
+    "assert": "round-trip gate"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "id": "C-040",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "setting|key=salience_gate",
+  "expect": {
+    "settings": [
+      {
+        "key": "salience_gate",
+        "value": false
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": false,
+  "doc": {
+    "given": "salience_gate default state",
+    "expect": "off — all enrichments trigger the completion pass",
+    "assert": "enrichment.salience_gate=off"
+  }
+}

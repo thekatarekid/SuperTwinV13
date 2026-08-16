@@ -1,0 +1,64 @@
+{
+  "id": "H-031",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "the broker found a 2BHK near the metro",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nM|1|the broker|-|0.9|Rahul's broker, unnamed",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "the broker",
+        "entity": null,
+        "confidence": 0.9,
+        "hint": "Rahul's broker, unnamed",
+        "decided_by": "llm:p-ep1:unresolved"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg mentions 'the broker', no roster candidate",
+    "expect": "M/<ev>/the broker/-/conf/hint",
+    "assert": "UNKNOWN BEATS WRONG"
+  }
+}

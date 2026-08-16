@@ -1,0 +1,47 @@
+{
+  "id": "E-040",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "manifest|kind=ambient|prefilter=none",
+  "expect": {
+    "state": {
+      "registered": false,
+      "rejected_at_registration": true,
+      "problem_mentions_prefilter": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": false,
+  "doc": {
+    "given": "ambient manifest registered with prefilter=none",
+    "expect": "REJECT at registration",
+    "assert": "ambient requires a prefilter"
+  }
+}

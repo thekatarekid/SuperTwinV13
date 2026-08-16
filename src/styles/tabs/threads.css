@@ -1,0 +1,393 @@
+/* ==========================================================================
+   Threads surface — arch §14.4 (arcs). Shared chrome lives in surfaces.css.
+
+   Two things this file is responsible for:
+
+     1. THE SOURCE-CONTRIBUTION TIMELINE IS THE CORE VISUAL. It gets real
+        vertical space and sits directly under the title, above the signals,
+        because the shape of an arc across sources and months is the fastest
+        answer to "is this one thing?".
+     2. A BINDING SIGNAL READS AS EVIDENCE. Rung glyph, name, MEASURED VALUE
+        and the pair it bound are one monospaced row; the value is never
+        smaller or greyer than the name of the signal it belongs to.
+   ========================================================================== */
+
+.arc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.arc {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.arc--live {
+  border-left: 3px solid var(--success);
+}
+
+.arc--dormant {
+  border-left: 3px solid var(--border-strong);
+}
+
+.arc--archived {
+  border-left: 3px solid var(--border);
+  opacity: 0.85;
+}
+
+.arc--provisional {
+  border-left: 3px solid var(--accent);
+}
+
+.arc--retracted {
+  opacity: 0.72;
+  border-style: dashed;
+  background: var(--well);
+}
+
+.arc--retracted .arc__label {
+  text-decoration: line-through;
+}
+
+.arc__retracted {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warn);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---- Head --------------------------------------------------------------- */
+.arc__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.arc__label {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 20px;
+  color: var(--text-display);
+}
+
+.arc__state {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--well);
+  color: var(--text-muted);
+}
+
+.arc__facts {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.arc__pin,
+.arc__provisional {
+  font-size: 12px;
+  color: var(--accent);
+  margin-left: auto;
+}
+
+/* ---- The timeline ------------------------------------------------------- */
+.arc-timeline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2) var(--space-5);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.arc-timeline--empty {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--text-faint);
+}
+
+.arc-timeline__track {
+  position: relative;
+  flex: 1;
+  height: 18px;
+  min-width: 160px;
+}
+
+.arc-timeline__rule {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.arc-timeline__mark {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.arc-timeline__dot {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.arc-timeline__source {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.arc-timeline__end {
+  color: var(--text-display);
+}
+
+.arc-timeline__summary {
+  flex-basis: 100%;
+  color: var(--text-faint);
+}
+
+/* ---- Blocks ------------------------------------------------------------- */
+.arc__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.arc__block-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-warm-label);
+}
+
+/* ---- Binding signals, in precedence order ------------------------------- */
+.arc-signal-list,
+.arc-episode-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.arc-signal,
+.arc-episode {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.arc-signal__rung {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.arc-signal__name {
+  min-width: 88px;
+  color: var(--text-display);
+}
+
+/* The measured value carries the same weight as the signal's name. */
+.arc-signal__value {
+  color: var(--text-display);
+  font-weight: 600;
+}
+
+.arc-signal__between {
+  color: var(--text-faint);
+}
+
+.arc-signal__reason {
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-style: italic;
+}
+
+/* Rung ④ is a model's opinion, and is marked as one. */
+.arc-signal--rung4 .arc-signal__rung {
+  color: var(--warn);
+}
+
+.arc-signal--none {
+  color: var(--text-faint);
+}
+
+.arc-episode__label {
+  font-family: var(--font-sans);
+  color: var(--text-display);
+}
+
+.arc-episode__source {
+  color: var(--text-faint);
+}
+
+.arc-episode__binding {
+  color: var(--text-muted);
+}
+
+.arc-episode__remove {
+  margin-left: auto;
+}
+
+/* ---- Anchors, growth, gestures ------------------------------------------ */
+.arc__anchors {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.arc__growing {
+  margin: 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.arc__gestures {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.arc-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--well);
+  border-radius: var(--radius-card);
+  font-size: 12px;
+}
+
+.arc-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.arc-form__check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arc-form input {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ---- The unsure queue (§11.2 rule 5) ------------------------------------ */
+.unsureq {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-peach);
+  border: 1px solid var(--border-peach);
+  border-radius: var(--radius-card);
+}
+
+.unsureq__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.unsureq__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-display);
+}
+
+.unsureq__count {
+  font-size: 11px;
+  color: var(--text-warm-label);
+  margin-left: auto;
+}
+
+.unsureq__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.unsureq__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.unsureq__item p {
+  margin: 0;
+}
+
+.unsureq__question {
+  font-size: 13px;
+  color: var(--text-display);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.unsureq__conf {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.unsureq__reason {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.unsureq__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: 2px;
+}

@@ -1,0 +1,58 @@
+{
+  "id": "M-031",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rashmi Iyer"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-09T18:00:00Z",
+        "who": "self",
+        "text": "rashmi runs marathons these days"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya mentioned news about Rashmi. Nothing else was discussed.\nH|1|a1|ao|0.9|-|Rashmi runs marathons",
+  "expect": {
+    "claims": [
+      {
+        "tag": "H",
+        "subject": "a1",
+        "attribution": "about_other",
+        "text": "Rashmi runs marathons"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "subject",
+      "attribution",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says something about Rashmi",
+    "expect": "attribution=ao",
+    "assert": "about_other"
+  }
+}

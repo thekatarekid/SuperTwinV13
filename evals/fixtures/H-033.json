@@ -1,0 +1,64 @@
+{
+  "id": "H-033",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "Rahul's cousin is crashing here this week",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nM|1|Rahul's cousin|-|0.9|Rahul's cousin, unnamed",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "Rahul's cousin",
+        "entity": null,
+        "confidence": 0.9,
+        "hint": "Rahul's cousin, unnamed",
+        "decided_by": "llm:p-ep1:unresolved"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg mentions 'Rahul's cousin', no roster candidate",
+    "expect": "M/<ev>/Rahul's cousin/-/conf/hint",
+    "assert": "UNKNOWN BEATS WRONG"
+  }
+}

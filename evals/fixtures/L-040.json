@@ -1,0 +1,41 @@
+{
+  "id": "L-040",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "entity|id=a1|type=person\nepisode|id=ep_keep|entities=a1|label=Goa trip|source=whatsapp\nepisode|id=ep_split|entities=a1|label=Goa trip|source=whatsapp\narc|id=n1|label=Goa trip|anchors=a1|sources=whatsapp|episodes=ep_keep,ep_split\nsplit|arc=n1|episodes=ep_split\nprov|episodes=ep_keep,ep_split\nreconcile",
+  "expect": {
+    "state": {
+      "arcs": 1,
+      "rebound": 1,
+      "minted": 0,
+      "split_walls": 1,
+      "provisionals": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "arcs_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "user split an arc; reconcile re-runs",
+    "expect": "split PERSISTS; reconcile plans around it",
+    "assert": "user rows are hard walls"
+  }
+}

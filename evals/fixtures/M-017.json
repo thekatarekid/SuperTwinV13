@@ -1,0 +1,63 @@
+{
+  "id": "M-017",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-07-03T19:05:00Z",
+        "who": "self",
+        "text": "my lease ends in Nov 2027"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nF|1|self|1p|0.95|-|Lease ends in November 2027",
+  "expect": {
+    "claims": [
+      {
+        "tag": "F",
+        "kind": "fact",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Lease ends in November 2027"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says: 'my lease ends in Nov 2027'",
+    "expect": "F/<ev>/self/1p/conf/-/Lease ends in November 2027",
+    "assert": "kind = tag; third person resolved"
+  }
+}

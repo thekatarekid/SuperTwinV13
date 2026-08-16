@@ -1,0 +1,28 @@
+{
+  "id": "S-901",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": ["a1=Pranjali Sachdeva"],
+    "streams": [{ "alias": "c1", "name": "Pranjali", "kind": "dm", "participants": ["self", "a1"] }],
+    "events": [{ "n": 1, "ts": "2026-08-12T21:10+05:30", "who": "a1", "text": "i've started bhangra classes on saturdays" }],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "H|1|a1|1p|0.95|-|Attends bhangra classes on Saturdays\nM|1|bhangra|a1|0.9",
+  "expect": {
+    "state": {
+      "round_trip": "H|1|a1|1p|0.95|-|Attends bhangra classes on Saturdays\nM|1|bhangra|a1|0.9",
+      "round_trip_stable": true,
+      "accounting_holds": true
+    }
+  },
+  "assert": { "mode": "state", "gate": "wire_round_trip" },
+  "doc": {
+    "given": "harness self-test against the real STW-2 codec — one claim, one mention",
+    "expect": "serialize(parse(serialize(x))) is byte-identical and the line accounting holds",
+    "assert": "state"
+  }
+}

@@ -5,16 +5,30 @@ import { App } from "./App";
 afterEach(cleanup);
 
 describe("App shell", () => {
-  it("renders all three tabs", () => {
+  it("renders every tab in the rail", () => {
     render(<App />);
-    for (const label of ["Inbox", "Chat", "Settings"]) {
+    for (const label of [
+      "Inbox",
+      "Chat",
+      "Entities",
+      "Sessions",
+      "Episodes",
+      "Threads",
+      "Claims",
+      "Spaces",
+      "Tasks",
+      "People",
+      "Settings",
+    ]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
   });
 
-  it("does not render the removed Spaces / Agent / Digest tabs", () => {
+  // "Spaces" is back as of item 3.10 — as a filtered view over arcs, not as
+  // the V1 tab this assertion originally retired. Agent and Digest stay gone.
+  it("does not render the removed Agent / Digest tabs", () => {
     render(<App />);
-    for (const label of ["Spaces", "Agent", "Digest"]) {
+    for (const label of ["Agent", "Digest"]) {
       expect(screen.queryByRole("button", { name: label })).toBeNull();
     }
   });

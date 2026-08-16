@@ -1,0 +1,55 @@
+{
+  "id": "M-073",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-03T17:25:00Z",
+        "who": "self",
+        "text": "divya from yoga just ran a half marathon"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared news about someone outside the roster. Nothing else was discussed.\nF|1|+Divya from yoga|ao|0.8|-|Ran a half marathon",
+  "expect": {
+    "claims": [
+      {
+        "subject_id": null,
+        "subject_hint": "Divya from yoga",
+        "text": "Ran a half marathon"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject_id",
+      "subject_hint",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim about someone not on roster (4)",
+    "expect": "subject '-' + subject_hint",
+    "assert": "unknown beats wrong"
+  }
+}

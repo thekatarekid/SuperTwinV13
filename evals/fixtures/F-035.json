@@ -1,0 +1,53 @@
+{
+  "id": "F-035",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|stage=episode",
+  "expect": {
+    "state": {
+      "resume_at": "episode",
+      "last_completed": "segment",
+      "reused": [
+        "enrich",
+        "entity",
+        "segment"
+      ],
+      "rejudged": [],
+      "verdicts_reused": 3
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": false,
+  "doc": {
+    "given": "in-flight cohort at stage episode when app quits",
+    "expect": "resumes at last completed stage; verdicts reused, not re-judged",
+    "assert": "cohort resume"
+  }
+}

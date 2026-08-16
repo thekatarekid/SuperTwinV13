@@ -1,0 +1,69 @@
+{
+  "id": "I-024",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=me"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "i pay for Superhuman every month",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nN|k1|Superhuman|thg|subscription\nL|1|self|has|subscribes|k1|0.8|i pay for Superhuman every month",
+  "expect": {
+    "edges": [
+      {
+        "src": "self",
+        "kind": "has",
+        "subtype": "subscribes",
+        "dst": "k1",
+        "confidence": 0.8,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "i pay for Superhuman every month"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "subscription evidence for Superhuman",
+    "expect": "L ... has/subscribes ...",
+    "assert": "has/subscribes not a separate edge"
+  }
+}

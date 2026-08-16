@@ -2,11 +2,14 @@
 // Retrieval, assembled (docs/v6-spec.md §1). Three tiers, one entry point:
 //
 //   tier 1  deterministic  query.ts + dates.ts + retrieve.ts + format.ts
-//   tier 2  searchable     corpus.ts — the messages on disk, for Grep/Read
-//   tier 3  semantic       embedder.ts + semantic.ts + indexer.ts — off until
+//   tier 2  semantic       embedder.ts + semantic.ts + indexer.ts — off until
 //                          the user switches it on and fetches the encoder
 //
-// Tier 1 is synchronous and fixes the repro on its own. Tier 3 is the only
+// The on-disk message dump that used to sit between them is gone (V2 §3.2): a
+// plaintext copy of the full history in the user's brain folder is a second
+// source of truth, and it was never a product path.
+//
+// Tier 1 is synchronous and fixes the repro on its own. Tier 2 is the only
 // asynchronous part, so there are two entry points rather than one async
 // function that is really synchronous: buildContextBlockSync() for callers that
 // cannot await (and for the DB-layer tests that call it), and
@@ -67,15 +70,6 @@ export {
   type FormatOptions,
 } from "./format.js";
 export {
-  corpusRelativePath,
-  corpusRoot,
-  refreshCorpus,
-  resetCorpusCacheForTests,
-  CORPUS_DIR_NAME,
-  MIN_REFRESH_INTERVAL_MS,
-  type CorpusRefresh,
-} from "./corpus.js";
-export {
   embedderStatus,
   embeddingModelDir,
   embeddingModelFilePath,
@@ -117,7 +111,6 @@ export {
 
 import { readChannelEventIds } from "../db/retrieval.js";
 import { formatContextBlock, DEFAULT_CONTEXT_CHARS } from "./format.js";
-import { refreshCorpus } from "./corpus.js";
 import {
   namedChannelIds,
   retrieveContext,
@@ -144,12 +137,6 @@ export interface GroundedContextOptions {
   focusLimit?: number;
   /** Seeds it may contribute. 0 turns the pass off — for measuring it. */
   focusSeedLimit?: number;
-  /**
-   * Materialise the corpus on disk and point the model at it. Off by default:
-   * this WRITES to the brain folder, and a caller that only wants a context
-   * block (a test, a diagnostic) must not leave files behind.
-   */
-  corpus?: boolean;
   /** Consult the embedding index. Ignored — silently — when there is none. */
   semantic?: boolean;
 }
@@ -157,12 +144,10 @@ export interface GroundedContextOptions {
 export interface GroundedContext {
   block: string;
   result: RetrievalResult;
-  /** Where the corpus was written, when it was. */
-  corpusPath: string | null;
 }
 
 /**
- * Tiers 1 and 2, synchronously. This is what every non-chat caller wants: no
+ * Tier 1, synchronously. This is what every non-chat caller wants: no
  * awaits, no model, no network, and identical behaviour whether or not the
  * embedding index exists.
  */
@@ -174,7 +159,7 @@ export function buildGroundedContextSync(
 }
 
 /**
- * All three tiers. Semantic seeds are gathered first (they change WHICH
+ * Both tiers. Semantic seeds are gathered first (they change WHICH
  * messages get expanded, so they cannot be bolted on afterwards), then the
  * background index is nudged and NOT awaited — a chat turn must never wait on
  * embedding, and with no embedder present it is a no-op anyway.
@@ -197,34 +182,20 @@ function assemble(
   opts: GroundedContextOptions,
   result: RetrievalResult,
 ): GroundedContext {
-  let corpusPath: string | null = null;
-  if (opts.corpus) {
-    try {
-      // No chats, no hint: pointing the model at an empty folder buys nothing
-      // and costs it a tool call to find that out.
-      const refresh = refreshCorpus();
-      corpusPath = refresh.channels > 0 ? refresh.relativePath : null;
-    } catch (err) {
-      // An unwritable brain folder costs the model its Grep, not its answer.
-      console.error(`[retrieval] corpus refresh failed: ${(err as Error).message}`);
-    }
-  }
   return {
     block: formatContextBlock(result, {
       maxChars: opts.maxChars ?? DEFAULT_CONTEXT_CHARS,
-      corpusHint: corpusPath,
     }),
     result,
-    corpusPath,
   };
 }
 
 /**
- * Corpus-wide neighbours, plus the ones a NAMED chat is willing to call
+ * Index-wide neighbours, plus the ones a NAMED chat is willing to call
  * neighbours. The two are gated against different distributions on purpose
  * (semantic.ts): the second is measured against the chat the question selected,
  * where the population — and therefore what counts as unusually close — is not
- * the corpus's.
+ * the index-wide one.
  *
  * A failure anywhere in here is no seeds, never a failed turn.
  */

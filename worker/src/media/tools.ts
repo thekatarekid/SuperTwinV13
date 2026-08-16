@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_WHISPER_MODEL,
   getMediaWhisperModel,
-} from "../store/store.js";
+} from "../db/settings.js";
 
 /** One selectable whisper model. `bytes` is what the download costs. */
 export interface WhisperModel {

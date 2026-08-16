@@ -1,0 +1,69 @@
+{
+  "id": "O-044",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Ana Iyer",
+      "a2=Rahul Mehta",
+      "a3=Priya Nair",
+      "a4=Sam Kohli",
+      "a5=Dev Bhatt",
+      "a6=Kiran Rao"
+    ],
+    "streams": [
+      {
+        "alias": "c2",
+        "name": "Weekend plans",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2",
+          "a3",
+          "a4"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T21:10+05:30",
+        "who": "a3",
+        "text": "i'll pay sam back on friday"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "tasks|c=c2|loops=a3>a4,a2>a1,self>a5",
+  "expect": {
+    "tasks": [
+      {
+        "party_pair": "oo"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "absent",
+    "on": [
+      "party_pair"
+    ],
+    "gate": "party_oo_in_tasks"
+  },
+  "stub": false,
+  "doc": {
+    "given": "oo loop reaches the task list (4)",
+    "expect": "FAIL",
+    "assert": "oo must never be a task"
+  }
+}

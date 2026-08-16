@@ -1,0 +1,67 @@
+{
+  "id": "O-012",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Ana Iyer",
+      "a2=Rahul Mehta",
+      "a3=Priya Nair",
+      "a4=Sam Kohli",
+      "a5=Dev Bhatt",
+      "a6=Kiran Rao"
+    ],
+    "streams": [
+      {
+        "alias": "c2",
+        "name": "Weekend plans",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2",
+          "a3",
+          "a4"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T21:10+05:30",
+        "who": "a3",
+        "text": "you still owe us a playlist"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "claim|c=c2|speaker=a3|subject=self",
+  "expect": {
+    "state": {
+      "party_pair": "os",
+      "speaker_role": "o",
+      "subject_role": "s",
+      "derived_by": "code"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "party_pairs_correct"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim: other about me (variant 3)",
+    "expect": "party_pair=os",
+    "assert": "derived by CODE from roles"
+  }
+}

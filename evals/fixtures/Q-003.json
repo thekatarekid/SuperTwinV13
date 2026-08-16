@@ -1,0 +1,68 @@
+{
+  "id": "Q-003",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Look into NPS voluntary contribution",
+          "origin": "implicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": null,
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "tasks": [
+      {
+        "t": "t1",
+        "intent": "Look into NPS voluntary contribution",
+        "owner": "self",
+        "origin": "implicit",
+        "state": "latent"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "intent",
+      "owner",
+      "origin",
+      "state"
+    ],
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "loop owner=me, state=latent",
+    "expect": "appears in Tasks",
+    "assert": "task = view over loops"
+  }
+}

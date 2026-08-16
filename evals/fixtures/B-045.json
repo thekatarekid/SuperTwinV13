@@ -1,0 +1,47 @@
+{
+  "id": "B-045",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "live",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=k1|tier=T1|horizon=holder|age_min=576000\ncohort|id=k2|tier=T1|horizon=holder|age_min=720000\nrun\narrive|id=bank|tier=T2|horizon=live|age_min=0\ndrain",
+  "expect": {
+    "state": {
+      "order": [
+        "k1",
+        "bank",
+        "k2"
+      ],
+      "preempted": [
+        "bank"
+      ],
+      "cohort_delay": 1,
+      "interrupted_mid_cohort": false,
+      "tier_order_violations": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_live_preemption"
+  },
+  "stub": false,
+  "doc": {
+    "given": "live msg from bank (T2) during T1 backfill",
+    "expect": "pre-empts at next cohort boundary",
+    "assert": "T2 live pre-emption"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "id": "P-023",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "arc|id=n1|label=A thread I care about|last=2026-08-13T12:00:00.000Z\npin|arc=n1\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "promoted": true,
+    "promotion_reason": "usr",
+    "status": "active",
+    "lives_on": "space",
+    "arc_rows": 1
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "user pins an unpromoted thread",
+    "expect": "promoted, promotion_reason=usr, permanent",
+    "assert": "user route"
+  }
+}

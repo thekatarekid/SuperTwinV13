@@ -1,0 +1,41 @@
+{
+  "id": "U-003",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=100|mode=bootstrap|state=done\nrun|role=extract|model=claude-haiku-4|cohort=c1|input=3|create=0|read=21846|output=200|cost=0.01",
+  "expect": {
+    "state": {
+      "total_input_tokens": 21849,
+      "input_tokens": 3,
+      "cache_read_tokens": 21846,
+      "parts_are_disjoint": true,
+      "input_is_not_total": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "acct_no_separate_spend"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Usage UI shows Input 21,849 next to Cache 21,846",
+    "expect": "FAIL — same tokens twice",
+    "assert": "no double presentation"
+  }
+}

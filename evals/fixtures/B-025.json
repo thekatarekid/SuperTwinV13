@@ -1,0 +1,81 @@
+{
+  "id": "B-025",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a20=Policybazaar"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Policybazaar",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "Your policy PB99213847 renewal is due. Amount Rs.14,220 by 02-Sep",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Payment received for policy PB99213847",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Your appointment with the advisor on 21-Aug is confirmed",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T2",
+      "stored_tier": "T2",
+      "rule": "business_tx_code",
+      "tier_source": "code",
+      "is_business": true,
+      "is_group": false,
+      "model_calls": 0,
+      "ambiguous_channels": 0,
+      "confidence": 0.95,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Policybazaar sample: order id + amount + due date, user-specific",
+    "expect": "tier=T2",
+    "assert": "transactional heuristic [CODE]"
+  }
+}

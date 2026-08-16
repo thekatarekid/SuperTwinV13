@@ -1,0 +1,87 @@
+{
+  "id": "B-036",
+  "category": "B",
+  "layer": "tiers",
+  "call": "P-TI1",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a20=Amazon"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Amazon",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "Your order 402-8817263-1194728 is out for delivery",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Deal of the day: 45% off on headphones",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Your return for order 402-8817263-1194728 has been picked up",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "assign\nrecheck\n#TI1\nJ|c1|tx|0.93|two of three messages reference this person's own order id",
+  "expect": {
+    "state": {
+      "tier": "T2",
+      "stored_tier": "T2",
+      "rule": "business_tx_model",
+      "tier_source": "p-ti1",
+      "verdict": "transactional",
+      "verdict_class": "tx",
+      "confidence": 0.93,
+      "meets_confidence_floor": true,
+      "reason": "two of three messages reference this person's own order id",
+      "ambiguous_channels": 1,
+      "model_channels": 1,
+      "model_calls": 1,
+      "recheck_model_calls": 0,
+      "recheck_cached": 1,
+      "recheck_tier": "T2",
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Amazon ambiguous sample -> P-TI1",
+    "expect": "J/c4/tx/>=0.7/reason",
+    "assert": "P-TI1 verdict, cached on stream"
+  }
+}

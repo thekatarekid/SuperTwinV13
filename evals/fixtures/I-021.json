@@ -1,0 +1,69 @@
+{
+  "id": "I-021",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=me"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "the car is due for its service",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nN|k1|the car|thg|vehicle\nL|1|self|has|owns|k1|0.8|the car is due for its service",
+  "expect": {
+    "edges": [
+      {
+        "src": "self",
+        "kind": "has",
+        "subtype": "owns",
+        "dst": "k1",
+        "confidence": 0.8,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "the car is due for its service"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "ownership evidence about the car",
+    "expect": "L ... has/owns ...",
+    "assert": "has absorbs owns AND pet_of"
+  }
+}

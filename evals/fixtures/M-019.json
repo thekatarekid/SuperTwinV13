@@ -1,0 +1,63 @@
+{
+  "id": "M-019",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-07-03T19:05:00Z",
+        "who": "self",
+        "text": "i always draft first then send"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nW|1|self|1p|0.95|-|Drafts before sending",
+  "expect": {
+    "claims": [
+      {
+        "tag": "W",
+        "kind": "workflow",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Drafts before sending"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says: 'i always draft first then send'",
+    "expect": "W/<ev>/self/1p/conf/-/Drafts before sending",
+    "assert": "kind = tag; third person resolved"
+  }
+}

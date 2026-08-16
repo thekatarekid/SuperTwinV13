@@ -1,0 +1,52 @@
+{
+  "id": "N-027",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T11:00:00Z",
+        "who": "self",
+        "text": "i always file my own taxes in July"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "H|1|self|1p||-|Files his own taxes every July",
+  "expect": {
+    "state": {
+      "loops": 0,
+      "claims": 1,
+      "claim_kinds": [
+        "habit"
+      ],
+      "tasks": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "habit statement about tax filing",
+    "expect": "H claim, NO loop",
+    "assert": "state evidence -> claim not loop"
+  }
+}

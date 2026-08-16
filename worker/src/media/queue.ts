@@ -7,12 +7,21 @@
 // every pass, so flipping them in Settings takes effect at the next item rather
 // than at the next restart.
 //
-// Images ride together — media.image_batch per CLI call, because the cost of a
-// call is almost entirely its fixed preamble. An answer that cannot be tied back
-// to specific images is asked once more and then read one image at a time, for
-// that cycle only: the rows stay batchable, so an ambiguous answer costs one
-// cycle instead of permanently splitting a batch into solo reads, and no image
-// is ever given a caption that might belong to another.
+// Images ride together — enrichment.image_batch_size per CLI call, default 16
+// (arch §10.1), because the cost of a call is almost entirely its fixed
+// preamble. Each image carries an explicit id the answer must echo back; an
+// answer whose id set is not exactly the sent set is discarded WHOLE and the
+// batch is split in half and retried — 16 → 8 + 8 → 4 + 4 — down to a single
+// read. Three calls to recover a bad answer, not sixteen, and no image can ever
+// be given a caption the model wrote about another one.
+//
+// What the queue takes next is the cohort priority of §9.2/§9.3 — tier first,
+// then horizon, then recency — NEVER insertion order. Backfilled history has the
+// highest rowids and the oldest timestamps, so FIFO is exactly backwards.
+//
+// None of it blocks the text path (§8.4). Pass 1 read the text the moment it
+// landed; when the last attachment on a session resolves — read, failed or
+// skipped alike — ./enrich-pass.ts enqueues the one completion pass.
 //
 // Video posters (v7 §3) share the loop too, but sit AHEAD of everything except
 // live media and outside the throttle entirely. One ffmpeg seek over a file
@@ -81,7 +90,14 @@ import {
   getMediaConcurrency,
   getMediaDescribeEnabled,
   getMediaRatePerMin,
-} from "../store/store.js";
+} from "../db/settings.js";
+import {
+  batchable,
+  enrichmentRoute,
+  getEnrichmentImageBatchSize,
+  orderByEnrichmentPriority,
+  runBatchWithSplit,
+} from "./batch.js";
 import {
   describeMedia,
   describeMediaBatch,
@@ -89,6 +105,7 @@ import {
   type DescribeOptions,
   type DescribeResult,
 } from "./describe.js";
+import { resolveEnrichment } from "./enrich-pass.js";
 import {
   sampleVideoFrames,
   sweepOrphanFrames,
@@ -196,11 +213,6 @@ export interface MediaQueueOptions {
 /** True when a failure is the API refusing to serve, not the file being bad. */
 export function isRefusal(error: string | null | undefined): boolean {
   return error ? REFUSAL.test(error) : false;
-}
-
-/** Images and stickers share a prompt, so they are the only kind that batches. */
-function batchable(row: PendingMediaRow): boolean {
-  return row.kind === "image" || row.kind === "sticker";
 }
 
 function claimLimit(): number {
@@ -448,7 +460,27 @@ export class MediaQueue {
     // A short batch IS the whole pending queue, so anything remembered but
     // absent from it has left the queue and must not pin memory.
     if (batch.length < limit) this.forgetSettled(batch);
-    return batch.filter((r) => !this.readingMedia.has(r.id));
+
+    const out: PendingMediaRow[] = [];
+    for (const row of batch) {
+      if (this.readingMedia.has(row.id)) continue;
+      // enrichment.read_all_media = off skips stickers (§8.4 table). A skip is a
+      // VERDICT, not a silence: the row leaves the queue and its session's
+      // countdown moves, or pass 2 would wait on it forever.
+      const route = enrichmentRoute({ kind: row.kind, seconds: row.seconds });
+      if (route.step === "skip") {
+        recordMediaDescription(row.id, {
+          status: "skipped",
+          model: "",
+          error: route.reason ?? "not read at the current settings",
+        });
+        this.live.delete(row.id);
+        this.resolvePass(row.id, null);
+        continue;
+      }
+      out.push(row);
+    }
+    return out;
   }
 
   /** Start the read of an attachment that just landed. */
@@ -514,6 +546,19 @@ export class MediaQueue {
     if (!anyTranscriptionEnabled()) return false;
     const [row] = claimPendingTranscription(1, transcriptClaimFilter());
     if (!row) return false;
+    // enrichment.read_all_media = off skips sub-2 s audio (§8.4 table). Same
+    // rule as a skipped sticker: a verdict, not a silence, so pass 2 is not
+    // left waiting on a clip nobody will ever transcribe.
+    const route = enrichmentRoute({ kind: row.voice ? "voice" : "audio", seconds: row.seconds });
+    if (route.step === "skip") {
+      recordTranscript(row.id, {
+        status: "skipped",
+        model: "",
+        error: route.reason ?? "not transcribed at the current settings",
+      });
+      this.resolvePass(row.id, null);
+      return true;
+    }
     this.startUnit(this.transcribing, [row.id], () => this.listen(row));
     return true;
   }
@@ -570,16 +615,21 @@ export class MediaQueue {
   }
 
   /**
-   * The rows one call may cover. The head is taken from what can share a call
-   * rather than from the top of the pool: a document is read one per call, and a
-   * tick that spends itself on one while a full batch of images waits behind is
-   * the whole reason the claim orders batchable first. Which order the claim
-   * came back in is not this module's to assume.
+   * The rows one call may cover, in PRIORITY order (§9.2/§9.3) — tier first,
+   * then horizon, then recency. Never the order the claim came back in, and
+   * never insertion order: a photo from an hour ago is read before a photo from
+   * 2023 however they reached the table.
+   *
+   * The head is taken from what can share a call rather than from the top of the
+   * pool: a document is read one per call, and a tick that spends itself on one
+   * while a full batch of images waits behind is the whole reason the claim
+   * orders batchable first.
    */
   private group(pool: PendingMediaRow[]): PendingMediaRow[] {
-    const images = pool.filter(batchable);
-    if (images.length > 1) return images.slice(0, getMediaImageBatch());
-    return [pool[0]];
+    const ordered = orderByEnrichmentPriority(pool);
+    const images = ordered.filter(batchable);
+    if (images.length > 1) return images.slice(0, getEnrichmentImageBatchSize());
+    return [ordered[0]!];
   }
 
   private async read(row: PendingMediaRow): Promise<void> {
@@ -651,67 +701,72 @@ export class MediaQueue {
   }
 
   /**
-   * Read a group in one call and deal with whatever the answer did not name. An
-   * unmappable answer is a property of that answer, not of the rows in it, so it
-   * is asked once more and only then read image by image — this cycle only. No
-   * row is remembered as unbatchable, so one bad answer cannot turn a batch into
-   * N solo reads for the rest of the run.
+   * Read a group, splitting it in half every time the answer's id set does not
+   * match the one that was sent (§10.1 point 4). Sixteen images that come back
+   * one caption short cost three calls — 16, then 8 and 8 — rather than the
+   * sixteen V11's drop-to-solo spent, and nothing from a rejected answer is
+   * applied to anything.
+   *
+   * A row is never remembered as unbatchable: a bad answer is a property of that
+   * answer, not of the images in it, so the next cycle batches them again.
    */
   private async readBatch(rows: PendingMediaRow[]): Promise<void> {
-    let unnamed = await this.callBatch(rows, 0);
-    // A lone leftover has nothing to share a call with, so the retry that would
-    // cost one call is the single read that also settles it.
-    if (unnamed.length > 1) unnamed = await this.callBatch(unnamed, 1);
-    for (const row of unnamed) {
-      if (!this.running) return;
-      await this.read(row);
+    const outcome = await runBatchWithSplit<PendingMediaRow, DescribeResult>(rows, {
+      call: (chunk) => this.callBatch(chunk),
+      apply: (row, result) => this.settle(row.id, result),
+      solo: (row) => this.read(row),
+      running: () => this.running,
+      onMismatch: (verdict, chunk) => {
+        this.log(
+          `[media] batch of ${chunk.length} rejected: ${verdict.missing.length} id(s) missing, ` +
+            `${verdict.unexpected.length} unexpected — splitting`,
+        );
+      },
+    });
+    if (outcome.mismatches > 0) {
+      this.log(`[media] ${rows.length} images took ${outcome.calls} call(s) after a mismatch`);
     }
   }
 
-  /** One batch call. Returns the rows its answer never named. */
+  /**
+   * One batch call. The verdicts come back for ALL of the rows or for none of
+   * them — the id echo is checked inside describeMediaBatch — so there is
+   * nothing here to line up by position.
+   */
   private async callBatch(
-    rows: PendingMediaRow[],
-    attempt: number,
-  ): Promise<PendingMediaRow[]> {
+    rows: readonly PendingMediaRow[],
+  ): Promise<{ results: Map<string, DescribeResult>; refused?: boolean }> {
     const startedAt = Date.now();
-    const runId =
-      attempt === 0
-        ? `media-batch-${rows[0].id}`
-        : `media-batch-${rows[0].id}-retry${attempt}`;
+    const runId = `media-batch-${rows[0]!.id}-${rows.length}`;
     let batch: DescribeBatchResult;
     try {
-      batch = await this.describeBatch(rows, {
+      batch = await this.describeBatch([...rows], {
         runId,
         signal: this.abort?.signal,
       });
     } catch (err) {
-      batch = failedBatch(rows, (err as Error).message);
+      batch = failedBatch([...rows], (err as Error).message);
     }
-    if (!this.running) return [];
+    if (!this.running) return { results: new Map() };
 
     // One call, one logged run — the batch's spend belongs to the invocation,
     // not to a fraction of each image.
     this.logRead(runId, batch.call, Date.now() - startedAt);
 
     // A refusal belongs to the CALL, not to any file in it: it is counted once
-    // however many rows carry the message.
+    // however many rows carry the message, and re-asking one file at a time is
+    // sixteen more knocks on the same closed door.
     const refused = batch.call.status === "error" && isRefusal(batch.call.error);
-    if (refused) this.holdOff(batch.call.error);
-    else if (batch.call.status === "done") this.resume();
-
-    const unnamed: PendingMediaRow[] = [];
-    for (const row of rows) {
-      const result = batch.results.get(row.id);
-      // A row the answer never named gets no verdict at all and stays pending:
-      // guessing which block was meant for it is the one failure mode batching
-      // must not have.
-      if (!result) unnamed.push(row);
-      else if (refused && result.status === "error") this.requeue(row.id, result);
-      else this.settle(row.id, result);
+    if (refused) {
+      this.holdOff(batch.call.error);
+      for (const row of rows) {
+        const result = batch.results.get(row.id);
+        if (result && result.status === "error") this.requeue(row.id, result);
+      }
+      return { results: new Map(), refused: true };
     }
-    // Re-reading a refused batch one file at a time is twenty more calls into
-    // the same closed door.
-    return refused ? [] : unnamed;
+    if (batch.call.status === "done") this.resume();
+    return { results: batch.results };
   }
 
   /**
@@ -766,6 +821,28 @@ export class MediaQueue {
       status: result.status,
       error: result.error,
     });
+    this.resolvePass(id, result.description);
+  }
+
+  /**
+   * The verdict is on the row, whatever it says — so this attachment is no
+   * longer pending as far as §8.4 is concerned. Ready, failed and skipped all
+   * count as resolved (§8.4 rule 3); the session's countdown drops by one and,
+   * at zero, pass 2 is enqueued exactly once.
+   *
+   * Never fatal. Enrichment must not be able to break the text path, and a
+   * session table that segmentation has not written yet simply has nothing to
+   * count down.
+   */
+  private resolvePass(id: string, text: string | null): void {
+    try {
+      const resolution = resolveEnrichment(id, { text });
+      if (resolution.completionEnqueued) {
+        this.log(`[media] session ${resolution.sessionId} fully read — completion pass queued`);
+      }
+    } catch (err) {
+      this.log(`[media] completion pass check failed for ${id}: ${(err as Error).message}`);
+    }
   }
 
   /**
@@ -816,6 +893,9 @@ export class MediaQueue {
       status: result.status,
       error: result.error,
     });
+    // A transcription is an enrichment like any other: pass 2 waits for it, and
+    // an unreadable voice note resolves rather than stalling the episode.
+    this.resolvePass(row.id, result.transcript);
   }
 
   /**
@@ -885,6 +965,7 @@ export class MediaQueue {
       status: result.status,
       error: result.error,
     });
+    this.resolvePass(row.id, result.scrapedText ?? result.title);
   }
 
   /** Descriptions per minute → the gap between two backlog reads. */

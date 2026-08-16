@@ -1,0 +1,51 @@
+{
+  "id": "N-057",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2024-11-01T09:00:00Z",
+        "who": "self",
+        "text": "book the ratlam tickets by tomorrow, promise"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|a1|ex|i2t|m|d|2024-11-02|-|0.85|Book the Ratlam tickets",
+  "expect": {
+    "state": {
+      "states": [
+        "lapsed"
+      ],
+      "tasks": 0,
+      "rows": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "loops_past_due_not_task"
+  },
+  "stub": false,
+  "doc": {
+    "given": "past due, no recurrence, no resolving evidence",
+    "expect": "state=lapsed; not a task",
+    "assert": "dead loop stays history"
+  }
+}

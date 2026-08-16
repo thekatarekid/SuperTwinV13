@@ -2,6 +2,7 @@
 // HTTP tests for the Settings "extras" wired in this stage:
 //   - GET  /api/brain/info           → { dir, fileCount }
 //   - POST /api/brain/reveal         → { ok }  (best-effort `open <brainRoot>`)
+//   - GET  /api/brain/file           → 404 unless settings.debug_export is on
 //   - GET  /api/settings/models      → now carries enabledByRole (per-process)
 //   - POST /api/settings/models/enabled { role, enabled } → per-process on/off
 //   - the chat kill-switch: chat disabled → notice, provider NEVER called.
@@ -14,7 +15,7 @@
 // ===========================================================================
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,7 +27,7 @@ process.env.SUPERTWIN_HOME = tmpDir; // brain + logs → tmpDir
 const { runMigrations } = await import("../db/index.js");
 const { register } = await import("../providers/index.js");
 const { startServer } = await import("./index.js");
-const store = await import("../store/store.js");
+const store = await import("../db/settings.js");
 const { ensureBrain, brainRoot, resetBrainCacheForTests } = await import("../brain/index.js");
 
 import type { Provider, ProviderResult, SendOptions } from "../providers/index.js";
@@ -116,6 +117,40 @@ describe("POST /api/brain/reveal", () => {
   });
 });
 
+describe("GET /api/brain/file (debug export, V2 §3.2)", () => {
+  it("is not on the default router — reading the brain has to be asked for", async () => {
+    // The markdown brain is not a product surface any more, so a default
+    // install must not serve message text out of the folder over HTTP at all.
+    store.setDebugExportEnabled(false);
+    writeFileSync(join(brainRoot(), "me", "notes.md"), "# Notes\n", "utf8");
+    const { status } = await getJson<{ error?: string }>(
+      "/api/brain/file?path=me/notes.md",
+    );
+    expect(status).toBe(404);
+  });
+
+  it("serves the file once settings.debug_export is on, and stops again when it is off", async () => {
+    store.setDebugExportEnabled(true);
+    const on = await getJson<{ path: string; content: string }>(
+      "/api/brain/file?path=me/notes.md",
+    );
+    expect(on.status).toBe(200);
+    expect(on.body.content).toContain("# Notes");
+
+    // The flag is read per request, so turning it off takes effect at once
+    // rather than at the next boot.
+    store.setDebugExportEnabled(false);
+    const off = await getJson<{ error?: string }>("/api/brain/file?path=me/notes.md");
+    expect(off.status).toBe(404);
+  });
+
+  it("leaves the brain FOLDER routes alone — those are not the export", async () => {
+    store.setDebugExportEnabled(false);
+    const { status } = await getJson<{ dir: string }>("/api/brain/info");
+    expect(status).toBe(200);
+  });
+});
+
 describe("GET /api/settings/models (enabledByRole)", () => {
   it("carries an enabled flag per role, all true by default", async () => {
     const { status, body } = await getJson<{
@@ -123,8 +158,12 @@ describe("GET /api/settings/models (enabledByRole)", () => {
       enabledByRole: Record<string, boolean>;
     }>("/api/settings/models");
     expect(status).toBe(200);
-    // V8 serves two roles — chat and media reading.
-    expect(Object.keys(body.enabledByRole).sort()).toEqual(["chat", "media"]);
+    // One picker per step (§4.2): every served role carries its own flag.
+    expect(Object.keys(body.enabledByRole).sort()).toEqual(
+      body.roles.map((r) => r.key).sort(),
+    );
+    expect(Object.keys(body.enabledByRole)).toContain("chat");
+    expect(Object.keys(body.enabledByRole)).toContain("extract");
     for (const r of body.roles) expect(body.enabledByRole[r.key]).toBe(true);
   });
 });

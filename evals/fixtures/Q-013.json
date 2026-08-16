@@ -1,0 +1,74 @@
+{
+  "id": "Q-013",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T21:04:00Z",
+        "who": "self",
+        "text": "here — https://booking.com/villa-amara"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Send Pranjali the Goa villa link",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "a1",
+          "due": "2026-08-12T18:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": 1,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "tasks": [],
+    "waiting": [],
+    "loops": [
+      {
+        "t": "t1",
+        "state": "done",
+        "retained": true
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "state",
+      "retained"
+    ],
+    "gate": "loops_done_retained"
+  },
+  "stub": false,
+  "doc": {
+    "given": "loop reaches state=done",
+    "expect": "leaves every surface immediately",
+    "assert": "never nag about finished things"
+  }
+}

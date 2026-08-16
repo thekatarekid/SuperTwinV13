@@ -6,10 +6,9 @@
 //   - retrieval injection: the conversation around the hits (including the
 //     description of an attached image or document) lands in the dispatched
 //     prompt, and the raw user message is what's persisted,
-//   - the corpus: materialised under the brain root before the run, and named
-//     in the prompt the run is given — Read/Grep/Glob have been whitelisted
-//     since Phase 2 and nothing had ever told the model there was anything to
-//     read,
+//   - that NOTHING is materialised under the brain root: the plaintext dump of
+//     the full history that used to be written there is gone (V2 §3.2), so a
+//     grounded turn must leave no second copy of the messages on disk,
 //   - run config: cwd = brain root, read-only allowedTools, grounded system
 //     prompt file on fresh sessions,
 //   - citations: trailing `CITATIONS: [...]` line parsed, stripped from the
@@ -49,7 +48,7 @@ const {
   parseCitationsFromText,
 } = await import("./chat-grounding.js");
 
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type {
   Provider,
   ProviderStreamEvent,
@@ -218,16 +217,13 @@ describe("grounded chat (server, mock provider)", () => {
     // The raw user message is still the trailing part.
     expect(opts.message.endsWith("what's pending for the goa trip flights?")).toBe(true);
 
-    // ---- The corpus is on disk, under the cwd the run was given, and the
-    // prompt says where.
-    const corpus = join(process.env.SUPERTWIN_BRAIN_DIR as string, "corpus");
-    expect(existsSync(join(corpus, "README.md"))).toBe(true);
-    const chatFile = readdirSync(corpus).find((f) => f.startsWith("goa-trip-2026--"));
-    expect(chatFile).toBeTruthy();
-    expect(readFileSync(join(corpus, chatFile as string), "utf8")).toContain(
-      "[evt evt_flights]",
+    // ---- Nothing was written to the brain folder. The plaintext message dump
+    // that used to be materialised there is gone (V2 §3.2): a grounded turn
+    // reads SQLite and leaves no second copy of the history on disk.
+    expect(existsSync(join(process.env.SUPERTWIN_BRAIN_DIR as string, "corpus"))).toBe(
+      false,
     );
-    expect(opts.message).toContain("corpus/");
+    expect(opts.message).not.toContain("corpus/");
 
     // ---- Citations frame emitted, after done.
     const types = frames.map((f) => f.type);
@@ -426,13 +422,13 @@ describe("chat-grounding unit helpers", () => {
     );
   });
 
-  it("buildContextBlock writes nothing to disk — that is augmentMessage's job", () => {
-    const corpus = join(tmpRoot, "brain-unwritten");
+  it("buildContextBlock writes nothing to disk", () => {
+    const unwritten = join(tmpRoot, "brain-unwritten");
     const previous = process.env.SUPERTWIN_BRAIN_DIR;
-    process.env.SUPERTWIN_BRAIN_DIR = corpus;
+    process.env.SUPERTWIN_BRAIN_DIR = unwritten;
     try {
       buildContextBlock("goa flights pending");
-      expect(existsSync(corpus)).toBe(false);
+      expect(existsSync(unwritten)).toBe(false);
     } finally {
       process.env.SUPERTWIN_BRAIN_DIR = previous;
     }

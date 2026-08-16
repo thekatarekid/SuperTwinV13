@@ -29,7 +29,7 @@ import {
   setMediaRatePerMin,
   setMediaVoiceNotesEnabled,
   setMediaWhisperModel,
-} from "../store/store.js";
+} from "../db/settings.js";
 import type { DescribeBatchResult, DescribeResult } from "./describe.js";
 import { MediaQueue } from "./queue.js";
 import { whisperModelsDir } from "./tools.js";
@@ -117,7 +117,7 @@ function seedVoiceNote(): string {
     externalId: "voice",
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId: null,
+    streamId: null,
     actorId: null,
     ts: "2026-07-02T10:00:00.000Z",
     kind: "audio",

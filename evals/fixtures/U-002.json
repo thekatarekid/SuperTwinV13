@@ -1,0 +1,40 @@
+{
+  "id": "U-002",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=100|mode=bootstrap|state=done\nrun|role=entity|model=claude-haiku-4|cohort=c1|input=17|create=0|read=59700|output=120|cost=0.02",
+  "expect": {
+    "state": {
+      "input_is_not_total": true,
+      "input_tokens": 17,
+      "total_input_tokens": 59717,
+      "identity_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "acct_total_input_identity"
+  },
+  "stub": false,
+  "doc": {
+    "given": "input_tokens rendered as total input",
+    "expect": "FAIL",
+    "assert": "input_tokens is post-breakpoint only"
+  }
+}

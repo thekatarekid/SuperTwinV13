@@ -1,0 +1,63 @@
+{
+  "id": "M-003",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T15:40:00Z",
+        "who": "self",
+        "text": "ACT is way overpriced"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nO|1|self|1p|0.95|-|Considers ACT broadband overpriced",
+  "expect": {
+    "claims": [
+      {
+        "tag": "O",
+        "kind": "opinion",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Considers ACT broadband overpriced"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "self says: 'ACT is way overpriced'",
+    "expect": "O/<ev>/self/1p/conf/-/Considers ACT broadband overpriced",
+    "assert": "kind = tag; third person resolved"
+  }
+}

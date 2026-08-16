@@ -1,0 +1,53 @@
+{
+  "id": "N-067",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T21:00:00Z",
+        "who": "self",
+        "text": "ACT broadband has been down all week again, i'm so done with them"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|-|im|slf|m|n|-|-|0.6|Move off ACT broadband",
+  "expect": {
+    "state": {
+      "origins": [
+        "implicit"
+      ],
+      "triages": [
+        "approval"
+      ],
+      "auto_count": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "loops_triage_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "implicit loop inferred from a complaint (1)",
+    "expect": "origin=im; triage never 'auto'",
+    "assert": "implicit never auto"
+  }
+}

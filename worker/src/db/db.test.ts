@@ -82,16 +82,14 @@ describe("migrations", () => {
       "people",
       "actors",
       "events",
-      "spaces",
+      // 0022_v2_core dropped spaces/space_events/tasks/milestones outright (a
+      // "space" is now an arc with promoted = 1) and re-created goals with its
+      // §6 shape. The V2 tables have their own suite in db/migrations/.
       "goals",
-      "milestones",
-      "tasks",
-      "space_events",
+      "arcs",
       "extraction_runs",
-      // phase-2
-      "space_people",
+      // 0021_v2_prep (what the retired 0004 carried that is still read)
       "evaluations",
-      "patterns",
       // phase-0
       "chat_sessions",
       "chat_messages",
@@ -106,28 +104,29 @@ describe("migrations", () => {
     }
   });
 
-  it("0004_phase2 adds spaces.slug/user_pinned + tasks.title/approved/source_event_ids", () => {
+  it("0021_v2_prep carries what the retired 0004–0006 left behind", () => {
+    // 0004/0005/0006 were retired with the spaces/tasks ontology (V2 §3.2).
+    // Three things in them had readers and moved to 0021; nothing else in those
+    // bodies may come back, which is what the negative half below pins down.
     runMigrations();
     const db = getDb();
     const cols = (table: string): string[] =>
       (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
 
-    expect(cols("spaces")).toContain("slug");
-    expect(cols("spaces")).toContain("user_pinned");
-    expect(cols("tasks")).toContain("title");
-    expect(cols("tasks")).toContain("approved");
-    expect(cols("tasks")).toContain("source_event_ids");
     expect(cols("evaluations")).toEqual(
       expect.arrayContaining(["output_type", "output_id", "verdict", "note", "ts"]),
     );
-    expect(cols("patterns")).toEqual(
-      expect.arrayContaining(["slug", "kind", "title", "status", "evidence_count", "evidence_event_ids", "updated_at"]),
-    );
+    expect(cols("chat_sessions")).toContain("grounded");
+    expect(cols("chat_messages")).toContain("citations_json");
+    expect(cols("extraction_runs")).toEqual(expect.arrayContaining(["model", "role"]));
 
-    const idx = db
-      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_spaces_slug'`)
-      .get() as { name: string } | undefined;
-    expect(idx?.name).toBe("idx_spaces_slug");
+    // The ontology columns and tables are NOT recreated — and since
+    // 0022_v2_core the tables themselves are gone, not merely un-columned.
+    expect(tableNames().has("spaces")).toBe(false);
+    expect(tableNames().has("tasks")).toBe(false);
+    expect(tableNames().has("patterns")).toBe(false);
+    expect(tableNames().has("space_people")).toBe(false);
+    expect(tableNames().has("task_runs")).toBe(false);
   });
 
   it("FTS5 virtual table stays synced with events.text via triggers", () => {

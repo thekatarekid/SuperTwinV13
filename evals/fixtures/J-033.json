@@ -1,0 +1,108 @@
+{
+  "id": "J-033",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "that roasted jaggery muesli idea is actually good",
+        "c": "c1",
+        "topic": "muesli"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "small batches first, mail the packaging person",
+        "c": "c1",
+        "topic": "muesli"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "we need a name before the labels get printed",
+        "c": "c1",
+        "topic": "muesli"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "let us test the recipe on ten people first",
+        "c": "c1",
+        "topic": "muesli"
+      }
+    ],
+    "open": {
+      "episodes": [
+        {
+          "alias": "e1",
+          "stream": "c1",
+          "label": "muesli idea",
+          "last_active_days": 1
+        }
+      ],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-033\nrun|session=s1\n#EP2 s1\nG|s1|1-4|att|e1|0.93|muesli idea",
+  "expect": {
+    "segments": [
+      {
+        "session": "s1",
+        "events": "1,2,3,4",
+        "decision": "attach",
+        "episode": "e1",
+        "label": "muesli idea"
+      }
+    ],
+    "candidates": [
+      {
+        "session": "s1",
+        "episode": "e1"
+      }
+    ],
+    "verdicts": [
+      {
+        "session": "s1",
+        "decision": "judged",
+        "model_calls": 1
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "episodes_wrong_attach_rate"
+  },
+  "stub": false,
+  "doc": {
+    "given": "session resumes muesli idea; open episode last active 1d ago, SAME stream",
+    "expect": "G/.../att/e<k>/conf/label; verdict persisted",
+    "assert": "attach"
+  }
+}

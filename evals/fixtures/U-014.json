@@ -1,0 +1,39 @@
+{
+  "id": "U-014",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "fanout|tasks=8|warm_first=off",
+  "expect": {
+    "state": {
+      "fanout_warm_first": false,
+      "fanout_started": 8,
+      "fanout_fanned_out_before_warm": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "caching_warm_first"
+  },
+  "stub": false,
+  "doc": {
+    "given": "8 parallel calls issued simultaneously with warm_first=on",
+    "expect": "FAIL",
+    "assert": "all-miss + write premium"
+  }
+}

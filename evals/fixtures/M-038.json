@@ -1,0 +1,59 @@
+{
+  "id": "M-038",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rahul Arora",
+      "a2=Rashmi Iyer"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-08T20:30:00Z",
+        "who": "a1",
+        "text": "rashmi says she's quitting her job next month"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Rahul relayed something Rashmi had said. Nothing else was discussed.\nF|1|a2|rs|0.6|-|Plans to quit the job",
+  "expect": {
+    "claims": [
+      {
+        "subject": "a2",
+        "attribution": "reported_speech",
+        "confidence": 0.6,
+        "text": "Plans to quit the job"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject",
+      "attribution",
+      "confidence",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Rahul relays what Rashmi said",
+    "expect": "attribution=rs",
+    "assert": "reported_speech discounts confidence"
+  }
+}

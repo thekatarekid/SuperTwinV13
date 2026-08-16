@@ -17,15 +17,16 @@ import {
   applyRevoke,
   appStateGet,
   appStateSet,
+  selfIdentityKey,
   claimPendingLinks,
   claimPendingMedia,
   claimPendingPosters,
   claimPendingTranscription,
   deleteReaction,
-  getChannelMessages,
+  getStreamMessages,
   getEventById,
-  IMPORT_DONE_KEY,
-  IMPORT_RANGE_KEY,
+  importDoneKey,
+  importRangeKey,
   insertEvent,
   listInboxChats,
   listMediaFramePaths,
@@ -35,11 +36,11 @@ import {
   recordTranscript,
   recordVideoPoster,
   rescanMedia,
-  resetWhatsappData,
+  resetSourceData,
   searchEvents,
   toFtsMatchQuery,
   upsertActor,
-  upsertChannel,
+  upsertStream,
   upsertSource,
 } from "./ingest.js";
 import { MIGRATIONS } from "./schema.js";
@@ -69,9 +70,9 @@ const CLAIM_ALL: MediaClaimFilter = {
 };
 
 /** Register the whatsapp source + a channel + actor; return their ids. */
-function seedSourceChannelActor(): { channelId: string; actorId: string } {
+function seedSourceChannelActor(): { streamId: string; actorId: string } {
   upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-  const channelId = upsertChannel({
+  const streamId = upsertStream({
     sourceId: "whatsapp",
     sourceExtId: "chat-1@s.whatsapp.net",
     name: "Mom",
@@ -84,15 +85,15 @@ function seedSourceChannelActor(): { channelId: string; actorId: string } {
     handle: "+199",
     isSelf: false,
   });
-  return { channelId, actorId };
+  return { streamId, actorId };
 }
 
-function makeEvent(externalId: string, channelId: string, actorId: string, text: string) {
+function makeEvent(externalId: string, streamId: string, actorId: string, text: string) {
   return {
     externalId,
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId,
+    streamId,
     actorId,
     ts: "2026-07-02T12:00:00.000Z",
     kind: "message",
@@ -197,6 +198,14 @@ describe("migration 0003_phase1_threads", () => {
       );
       -- 0001 tables that later migrations (0004_phase2) ALTER / reference.
       CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT, handle TEXT, created_at TEXT);
+      -- 0001 tables that 0022_v2_core ALTERs (sources) / references (actors).
+      CREATE TABLE sources (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, config_json TEXT, created_at TEXT
+      );
+      CREATE TABLE actors (
+        id TEXT PRIMARY KEY, source_id TEXT, person_id TEXT, display_name TEXT,
+        handle TEXT, created_at TEXT
+      );
       CREATE TABLE spaces (
         id TEXT PRIMARY KEY, name TEXT, type TEXT, permanence TEXT, status TEXT,
         latest_update TEXT, latest_update_ts TEXT, ends_at TEXT, created_at TEXT
@@ -261,6 +270,14 @@ describe("migration 0003_phase1_threads", () => {
       );
       -- 0001 tables that later migrations (0004_phase2) ALTER / reference.
       CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT, handle TEXT, created_at TEXT);
+      -- 0001 tables that 0022_v2_core ALTERs (sources) / references (actors).
+      CREATE TABLE sources (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, config_json TEXT, created_at TEXT
+      );
+      CREATE TABLE actors (
+        id TEXT PRIMARY KEY, source_id TEXT, person_id TEXT, display_name TEXT,
+        handle TEXT, created_at TEXT
+      );
       CREATE TABLE spaces (
         id TEXT PRIMARY KEY, name TEXT, type TEXT, permanence TEXT, status TEXT,
         latest_update TEXT, latest_update_ts TEXT, ends_at TEXT, created_at TEXT
@@ -432,16 +449,50 @@ describe("migration 0003_phase1_threads", () => {
 });
 
 describe("insertEvent dedupe", () => {
+  // The dedupe key is the PAIR (build item 1.1). Two sources may legitimately
+  // mint the same external_id — a message id is only unique inside the source
+  // that issued it — so a key of external_id alone would silently swallow one
+  // of them, and the row that survived would depend on arrival order.
+  it("dedupes on (source_id, external_id), not on external_id alone", () => {
+    const { streamId, actorId } = seedSourceChannelActor();
+    upsertSource({ id: "other", type: "other", name: "Other" });
+    const otherStream = upsertStream({ sourceId: "other", sourceExtId: "chat-1", name: "Chat" });
+
+    const shared = "chat-1@s.whatsapp.net/MSG1";
+    const mine = insertEvent(makeEvent(shared, streamId, actorId, "hello"));
+    const theirs = insertEvent({
+      ...makeEvent(shared, otherStream, actorId, "same id, different source"),
+      actorId: null,
+      sourceId: "other",
+      sourceType: "other",
+    });
+
+    expect(mine.inserted).toBe(true);
+    expect(theirs.inserted).toBe(true);
+    // Same external_id, different rows, and the source id is what keeps the
+    // two id spaces apart.
+    expect(mine.id).toBe(`whatsapp:${shared}`);
+    expect(theirs.id).toBe(`other:${shared}`);
+
+    const rows = getDb()
+      .prepare(`SELECT source_id FROM events WHERE external_id = ? ORDER BY source_id`)
+      .all(shared) as { source_id: string }[];
+    expect(rows.map((r) => r.source_id)).toEqual(["other", "whatsapp"]);
+
+    // ...and re-delivering EITHER of them is still a no-op.
+    expect(insertEvent(makeEvent(shared, streamId, actorId, "hello")).inserted).toBe(false);
+  });
+
   it("same event twice => 1 row (second is a dedupe no-op)", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const ev = makeEvent("chat-1@s.whatsapp.net/MSG1", channelId, actorId, "hello");
+    const { streamId, actorId } = seedSourceChannelActor();
+    const ev = makeEvent("chat-1@s.whatsapp.net/MSG1", streamId, actorId, "hello");
 
     const r1 = insertEvent(ev);
     const r2 = insertEvent(ev);
     expect(r1.inserted).toBe(true);
     expect(r2.inserted).toBe(false);
     expect(r1.id).toBe(r2.id);
-    expect(r1.id).toBe("wa:chat-1@s.whatsapp.net/MSG1");
+    expect(r1.id).toBe("whatsapp:chat-1@s.whatsapp.net/MSG1");
 
     const count = getDb()
       .prepare(`SELECT COUNT(*) AS n FROM events WHERE external_id = ?`)
@@ -450,13 +501,13 @@ describe("insertEvent dedupe", () => {
   });
 
   it("restart re-emit => 0 new rows", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     const ids = ["A", "B", "C"];
-    for (const i of ids) insertEvent(makeEvent(`c/${i}`, channelId, actorId, `m${i}`));
+    for (const i of ids) insertEvent(makeEvent(`c/${i}`, streamId, actorId, `m${i}`));
     // Simulate a restart: the daemon re-emits the exact same events.
     let newRows = 0;
     for (const i of ids) {
-      if (insertEvent(makeEvent(`c/${i}`, channelId, actorId, `m${i}`)).inserted) newRows++;
+      if (insertEvent(makeEvent(`c/${i}`, streamId, actorId, `m${i}`)).inserted) newRows++;
     }
     expect(newRows).toBe(0);
     const total = getDb().prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number };
@@ -464,13 +515,13 @@ describe("insertEvent dedupe", () => {
   });
 
   it("extend overlap => 0 dupes (older + overlapping ids collapse)", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     // Initial import: msgs 3,4,5.
-    for (const i of [3, 4, 5]) insertEvent(makeEvent(`c/${i}`, channelId, actorId, `m${i}`));
+    for (const i of [3, 4, 5]) insertEvent(makeEvent(`c/${i}`, streamId, actorId, `m${i}`));
     // Extend widens backwards: emits 1,2,3,4,5 (1,2 new; 3,4,5 overlap).
     let newRows = 0;
     for (const i of [1, 2, 3, 4, 5]) {
-      if (insertEvent(makeEvent(`c/${i}`, channelId, actorId, `m${i}`)).inserted) newRows++;
+      if (insertEvent(makeEvent(`c/${i}`, streamId, actorId, `m${i}`)).inserted) newRows++;
     }
     expect(newRows).toBe(2);
     const total = getDb().prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number };
@@ -480,14 +531,14 @@ describe("insertEvent dedupe", () => {
 
 describe("FTS search", () => {
   it("searchEvents returns matching events with a snippet", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeEvent("c/1", channelId, actorId, "let us meet for coffee tomorrow"));
-    insertEvent(makeEvent("c/2", channelId, actorId, "unrelated grocery list"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeEvent("c/1", streamId, actorId, "let us meet for coffee tomorrow"));
+    insertEvent(makeEvent("c/2", streamId, actorId, "unrelated grocery list"));
 
     const hits = searchEvents({ q: "coffee" });
     expect(hits.length).toBe(1);
-    expect(hits[0].eventId).toBe("wa:c/1");
-    expect(hits[0].channelName).toBe("Mom");
+    expect(hits[0].eventId).toBe("whatsapp:c/1");
+    expect(hits[0].streamName).toBe("Mom");
     expect(hits[0].snippet.toLowerCase()).toContain("coffee");
   });
 
@@ -507,8 +558,8 @@ describe("FTS search", () => {
 describe("inbox reads + media resolution + app_state", () => {
   it("listInboxChats derives lastText/lastTs/messageCount, sorted by lastTs desc", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const chA = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
-    const chB = upsertChannel({ sourceId: "whatsapp", sourceExtId: "B@x", name: "Bob", kind: "dm" });
+    const chA = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const chB = upsertStream({ sourceId: "whatsapp", sourceExtId: "B@x", name: "Bob", kind: "dm" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "s@x", displayName: "S", isSelf: false });
 
     insertEvent({ ...makeEvent("A/1", chA, actor, "first"), ts: "2026-07-01T10:00:00.000Z" });
@@ -529,8 +580,8 @@ describe("inbox reads + media resolution + app_state", () => {
   it("listInboxChats excludes zero-event channels but includes channels with >=1 event (Rev 4 §R4.3, bug 17)", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
     // Two channels with rows in the DB; only one has any event.
-    const withMsg = upsertChannel({ sourceId: "whatsapp", sourceExtId: "has@x", name: "HasMsg", kind: "dm" });
-    const empty = upsertChannel({ sourceId: "whatsapp", sourceExtId: "empty@x", name: "Empty", kind: "dm" });
+    const withMsg = upsertStream({ sourceId: "whatsapp", sourceExtId: "has@x", name: "HasMsg", kind: "dm" });
+    const empty = upsertStream({ sourceId: "whatsapp", sourceExtId: "empty@x", name: "Empty", kind: "dm" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "s@x", displayName: "S", isSelf: false });
 
     insertEvent({ ...makeEvent("has/1", withMsg, actor, "hello"), ts: "2026-07-01T10:00:00.000Z" });
@@ -547,31 +598,31 @@ describe("inbox reads + media resolution + app_state", () => {
     expect(chats[0].lastText).toBe("hello");
   });
 
-  it("getChannelMessages returns ascending, before-cursor pages, and fromMe", () => {
+  it("getStreamMessages returns ascending, before-cursor pages, and fromMe", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const other = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     insertEvent({ ...makeEvent("A/1", ch, other, "hi"), ts: "2026-07-01T10:00:00.000Z" });
     insertEvent({ ...makeEvent("A/2", ch, self, "hey back"), ts: "2026-07-01T10:05:00.000Z" });
     insertEvent({ ...makeEvent("A/3", ch, other, "bye"), ts: "2026-07-01T10:10:00.000Z" });
 
     // Whole chat fits in the window: ascending oldest→newest.
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     expect(msgs.map((m) => m.text)).toEqual(["hi", "hey back", "bye"]);
     expect(msgs.map((m) => m.fromMe)).toEqual([false, true, false]);
     expect(msgs[0].actorName).toBe("Alice");
 
     // Legacy bare-ts cursor still works: strictly older than 10:05.
-    const older = getChannelMessages({ channelId: ch, before: "2026-07-01T10:05:00.000Z", limit: 10 });
+    const older = getStreamMessages({ streamId: ch, before: "2026-07-01T10:05:00.000Z", limit: 10 });
     expect(older.map((m) => m.text)).toEqual(["hi"]);
 
     // Compound cursor "<ts>|<id>" from the oldest loaded message pages older.
-    const olderCompound = getChannelMessages({
-      channelId: ch,
-      before: "2026-07-01T10:05:00.000Z|wa:A/2",
+    const olderCompound = getStreamMessages({
+      streamId: ch,
+      before: "2026-07-01T10:05:00.000Z|whatsapp:A/2",
       limit: 10,
     });
     expect(olderCompound.map((m) => m.text)).toEqual(["hi"]);
@@ -579,9 +630,9 @@ describe("inbox reads + media resolution + app_state", () => {
 
   // Rev 7 §R7.1: the default (no cursor) must window on the NEWEST `limit`
   // messages, ascending — NOT the oldest `limit` from the start of the chat.
-  it("getChannelMessages default returns the NEWEST limit messages in ascending order", () => {
+  it("getStreamMessages default returns the NEWEST limit messages in ascending order", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "B@x", name: "Bob", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "B@x", name: "Bob", kind: "dm" });
     const bob = upsertActor({ sourceId: "whatsapp", sourceExtId: "bob@x", displayName: "Bob", isSelf: false });
 
     // 5 messages 10:00..10:04; a window of 3 must be the LAST 3 (m2,m3,m4)
@@ -593,7 +644,7 @@ describe("inbox reads + media resolution + app_state", () => {
       });
     }
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 3 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 3 });
     expect(msgs.map((m) => m.text)).toEqual(["m2", "m3", "m4"]);
     // Ascending: newest ("m4") is last so the UI renders it at the bottom.
     expect(msgs[msgs.length - 1].text).toBe("m4");
@@ -603,9 +654,9 @@ describe("inbox reads + media resolution + app_state", () => {
 
   // Rev 7 §R7.1: the `before` cursor returns the immediately-older page, with no
   // gap and no overlap against the newest window.
-  it("getChannelMessages before-cursor returns the older page with no gap/overlap", () => {
+  it("getStreamMessages before-cursor returns the older page with no gap/overlap", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "C@x", name: "Cara", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "C@x", name: "Cara", kind: "dm" });
     const cara = upsertActor({ sourceId: "whatsapp", sourceExtId: "cara@x", displayName: "Cara", isSelf: false });
 
     for (let i = 0; i < 6; i++) {
@@ -616,13 +667,13 @@ describe("inbox reads + media resolution + app_state", () => {
     }
 
     // Newest window of 3 = m3,m4,m5. Oldest loaded = m3.
-    const page1 = getChannelMessages({ channelId: ch, limit: 3 });
+    const page1 = getStreamMessages({ streamId: ch, limit: 3 });
     expect(page1.map((m) => m.text)).toEqual(["m3", "m4", "m5"]);
 
     const oldest = page1[0];
     const cursor = `${oldest.ts}|${oldest.id}`;
     // Next older page = the 3 messages strictly older than m3: m0,m1,m2.
-    const page2 = getChannelMessages({ channelId: ch, before: cursor, limit: 3 });
+    const page2 = getStreamMessages({ streamId: ch, before: cursor, limit: 3 });
     expect(page2.map((m) => m.text)).toEqual(["m0", "m1", "m2"]);
 
     // No gap, no overlap: concatenation reconstructs the full ascending stream.
@@ -632,8 +683,8 @@ describe("inbox reads + media resolution + app_state", () => {
 
     // Paging past the start returns empty (exhausted).
     const p2oldest = page2[0];
-    const page3 = getChannelMessages({
-      channelId: ch,
+    const page3 = getStreamMessages({
+      streamId: ch,
       before: `${p2oldest.ts}|${p2oldest.id}`,
       limit: 3,
     });
@@ -642,9 +693,9 @@ describe("inbox reads + media resolution + app_state", () => {
 
   // Rev 7 §R7.1: same-timestamp boundary must page via the id tiebreak — no
   // dropped or duplicated messages when several share an identical ts.
-  it("getChannelMessages pages a same-timestamp boundary via the id tiebreak", () => {
+  it("getStreamMessages pages a same-timestamp boundary via the id tiebreak", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "D@x", name: "Dana", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "D@x", name: "Dana", kind: "dm" });
     const dana = upsertActor({ sourceId: "whatsapp", sourceExtId: "dana@x", displayName: "Dana", isSelf: false });
 
     // Four messages, all at the SAME ts. ids sort D/1 < D/2 < D/3 < D/4, so the
@@ -656,14 +707,14 @@ describe("inbox reads + media resolution + app_state", () => {
     insertEvent({ ...makeEvent("D/4", ch, dana, "m4"), ts: SAME });
 
     // Newest window of 2 = the two highest ids at that ts: m3,m4.
-    const page1 = getChannelMessages({ channelId: ch, limit: 2 });
+    const page1 = getStreamMessages({ streamId: ch, limit: 2 });
     expect(page1.map((m) => m.text)).toEqual(["m3", "m4"]);
 
     // Cursor is the oldest loaded (m3). Same ts, so ONLY the id tiebreak selects
     // strictly-older rows: m1,m2 — m3 itself is excluded (no overlap).
     const oldest = page1[0];
-    const page2 = getChannelMessages({
-      channelId: ch,
+    const page2 = getStreamMessages({
+      streamId: ch,
       before: `${oldest.ts}|${oldest.id}`,
       limit: 2,
     });
@@ -672,12 +723,12 @@ describe("inbox reads + media resolution + app_state", () => {
   });
 
   // Rev 7 §R7.1: reactions and replyTo must still attach on a PAGED window.
-  it("getChannelMessages attaches reactions + replyTo on a before-cursor page", () => {
+  it("getStreamMessages attaches reactions + replyTo on a before-cursor page", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "E@x", name: "Eve", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "E@x", name: "Eve", kind: "dm" });
     const eve = upsertActor({ sourceId: "whatsapp", sourceExtId: "eve@x", displayName: "Eve", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     // Older segment (paged to via cursor): a message, a reply quoting it, and a
     // reaction on the first message.
@@ -694,12 +745,12 @@ describe("inbox reads + media resolution + app_state", () => {
     insertEvent({ ...makeEvent("E/4", ch, eve, "latest"), ts: "2026-07-01T10:11:00.000Z" });
 
     // Newest window of 2 = E/3,E/4. Page older with the oldest (E/3) cursor.
-    const page1 = getChannelMessages({ channelId: ch, limit: 2 });
+    const page1 = getStreamMessages({ streamId: ch, limit: 2 });
     expect(page1.map((m) => m.text)).toEqual(["later", "latest"]);
 
     const oldest = page1[0];
-    const older = getChannelMessages({
-      channelId: ch,
+    const older = getStreamMessages({
+      streamId: ch,
       before: `${oldest.ts}|${oldest.id}`,
       limit: 2,
     });
@@ -707,11 +758,11 @@ describe("inbox reads + media resolution + app_state", () => {
     expect(older.map((m) => m.text)).toEqual(["dinner at 8?", "yes!"]);
 
     // Reaction attached to its target on the paged window.
-    const target = older.find((m) => m.id === "wa:E/1")!;
+    const target = older.find((m) => m.id === "whatsapp:E/1")!;
     expect(target.reactions).toEqual([{ emoji: "👍", fromMe: true, actorName: "Me" }]);
 
     // Quoted reply resolves against the quoted message present in the same page.
-    const reply = older.find((m) => m.id === "wa:E/2")!;
+    const reply = older.find((m) => m.id === "whatsapp:E/2")!;
     expect(reply.replyTo).toEqual({
       externalId: "E/1",
       text: "dinner at 8?",
@@ -720,14 +771,14 @@ describe("inbox reads + media resolution + app_state", () => {
   });
 
   it("getEventById resolves media_path; app_state get/set round-trips", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     const r = insertEvent({
-      ...makeEvent("A/img", channelId, actorId, ""),
+      ...makeEvent("A/img", streamId, actorId, ""),
       mediaPath: "/tmp/SuperTwinV11/media/whatsapp/A/img.jpg",
     });
     const ev = getEventById(r.id);
     expect(ev?.mediaPath).toBe("/tmp/SuperTwinV11/media/whatsapp/A/img.jpg");
-    expect(getEventById("wa:does-not-exist")).toBeNull();
+    expect(getEventById("whatsapp:does-not-exist")).toBeNull();
 
     expect(appStateGet("k")).toBeNull();
     appStateSet("k", "v1");
@@ -751,7 +802,7 @@ describe("inbox reads + media resolution + app_state", () => {
 /** Build a media/non-text event of a given kind with empty text. */
 function makeMediaEvent(
   externalId: string,
-  channelId: string,
+  streamId: string,
   actorId: string,
   kind: string,
   ts: string,
@@ -761,7 +812,7 @@ function makeMediaEvent(
     externalId,
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId,
+    streamId,
     actorId,
     ts,
     kind,
@@ -775,7 +826,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("labels a media-only chat whose latest message is a video (not empty)", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "V@x", name: "Ghar+", kind: "group" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "V@x", name: "Ghar+", kind: "group" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "s@x", displayName: "S", isSelf: false });
 
     // Many text messages, then a text-less video as the newest.
@@ -802,7 +853,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
       ["revoked", "🚫 Deleted", "R@x"],
     ];
     for (const [kind, label, ext] of cases) {
-      const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: ext, name: kind, kind: "dm" });
+      const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: ext, name: kind, kind: "dm" });
       const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: `a-${ext}`, displayName: "A", isSelf: false });
       insertEvent(makeMediaEvent(`${ext}/1`, ch, actor, kind, "2026-07-01T10:00:00.000Z"));
       const chats = listInboxChats({ limit: 100 });
@@ -812,7 +863,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
   });
 
   it("keeps the text when the latest message HAS text", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "T@x", name: "TextChat", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "T@x", name: "TextChat", kind: "dm" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "t@x", displayName: "T", isSelf: false });
 
     // Media first, then a real text message as the newest.
@@ -824,7 +875,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
   });
 
   it("labels a bare-URL text message as a link", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "U@x", name: "Links", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "U@x", name: "Links", kind: "dm" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "u@x", displayName: "U", isSelf: false });
 
     insertEvent({ ...makeEvent("U/1", ch, actor, "https://example.com/page"), ts: "2026-07-01T10:00:00.000Z" });
@@ -834,7 +885,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
   });
 
   it("text that merely CONTAINS a url (with other words) stays as-is, not a link label", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "UM@x", name: "Mixed", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "UM@x", name: "Mixed", kind: "dm" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "um@x", displayName: "U", isSelf: false });
 
     insertEvent({ ...makeEvent("UM/1", ch, actor, "check https://example.com out"), ts: "2026-07-01T10:00:00.000Z" });
@@ -844,7 +895,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
   });
 
   it("a reaction newer than a media message does not become the preview (still labelled media)", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "MR@x", name: "MediaReact", kind: "group" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "MR@x", name: "MediaReact", kind: "group" });
     const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "mr@x", displayName: "MR", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
 
@@ -860,7 +911,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
   });
 
   it("a channel whose ONLY row is a text-less reaction stays hidden (messageCount===0 case)", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "RO@x", name: "ReactOnly", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "RO@x", name: "ReactOnly", kind: "dm" });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
     insertEvent(makeReaction("RO/R1", ch, self, "other@x/MSG", "👍", "2026-07-01T10:00:00.000Z"));
 
@@ -883,7 +934,7 @@ describe("listInboxChats lastText labelling for text-less messages (Rev 6 §R6.5
 /** Build a reaction event row targeting `targetExternalId` with `emoji` ("" = removal). */
 function makeReaction(
   externalId: string,
-  channelId: string,
+  streamId: string,
   actorId: string,
   targetExternalId: string,
   emoji: string,
@@ -893,7 +944,7 @@ function makeReaction(
     externalId,
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId,
+    streamId,
     actorId,
     ts,
     kind: "reaction",
@@ -905,20 +956,20 @@ function makeReaction(
   };
 }
 
-describe("getChannelMessages reactions (Rev 5 §R5.3)", () => {
+describe("getStreamMessages reactions (Rev 5 §R5.3)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("attaches a reaction to its target message and does NOT surface it as a standalone message", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const other = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     // Target message from Alice, then a 👍 reaction from self.
     insertEvent({ ...makeEvent("A/1", ch, other, "dinner at 8?"), ts: "2026-07-01T10:00:00.000Z" });
     insertEvent(makeReaction("A/R1", ch, self, "A/1", "👍", "2026-07-01T10:01:00.000Z"));
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     // Only the real message is in the stream — the reaction is NOT a bubble.
     expect(msgs.map((m) => m.text)).toEqual(["dinner at 8?"]);
     expect(msgs.every((m) => m.kind !== "reaction")).toBe(true);
@@ -929,17 +980,17 @@ describe("getChannelMessages reactions (Rev 5 §R5.3)", () => {
   });
 
   it("aggregates multiple distinct actors' reactions on one message", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "G@x", name: "Group", kind: "group" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "G@x", name: "Group", kind: "group" });
     const alice = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const bob = upsertActor({ sourceId: "whatsapp", sourceExtId: "bob@x", displayName: "Bob", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     insertEvent({ ...makeEvent("G/1", ch, alice, "ship it 🚀"), ts: "2026-07-01T10:00:00.000Z" });
     insertEvent(makeReaction("G/R1", ch, bob, "G/1", "❤️", "2026-07-01T10:01:00.000Z"));
     insertEvent(makeReaction("G/R2", ch, self, "G/1", "🎉", "2026-07-01T10:02:00.000Z"));
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].reactions).toEqual([
       { emoji: "❤️", fromMe: false, actorName: "Bob" },
@@ -948,39 +999,39 @@ describe("getChannelMessages reactions (Rev 5 §R5.3)", () => {
   });
 
   it("a later empty-text reaction from the same actor REMOVES their reaction (net-current state)", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const other = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     insertEvent({ ...makeEvent("A/1", ch, other, "coffee?"), ts: "2026-07-01T10:00:00.000Z" });
     // self reacts 👍, then removes it (empty-text reaction).
     insertEvent(makeReaction("A/R1", ch, self, "A/1", "👍", "2026-07-01T10:01:00.000Z"));
     insertEvent(makeReaction("A/R2", ch, self, "A/1", "", "2026-07-01T10:02:00.000Z"));
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     expect(msgs).toHaveLength(1);
     // Net-current: self removed theirs, so no reactions remain.
     expect(msgs[0].reactions).toEqual([]);
   });
 
   it("an actor changing their emoji keeps only the latest (one reaction per actor)", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const other = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     insertEvent({ ...makeEvent("A/1", ch, other, "news!"), ts: "2026-07-01T10:00:00.000Z" });
     insertEvent(makeReaction("A/R1", ch, other, "A/1", "👍", "2026-07-01T10:01:00.000Z"));
     insertEvent(makeReaction("A/R2", ch, other, "A/1", "😮", "2026-07-01T10:03:00.000Z"));
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     expect(msgs[0].reactions).toEqual([
       { emoji: "😮", fromMe: false, actorName: "Alice" },
     ]);
   });
 
   it("removal then re-add: the actor's reaction comes back", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const other = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
 
     insertEvent({ ...makeEvent("A/1", ch, other, "hi"), ts: "2026-07-01T10:00:00.000Z" });
@@ -988,21 +1039,21 @@ describe("getChannelMessages reactions (Rev 5 §R5.3)", () => {
     insertEvent(makeReaction("A/R2", ch, other, "A/1", "", "2026-07-01T10:02:00.000Z"));
     insertEvent(makeReaction("A/R3", ch, other, "A/1", "🔥", "2026-07-01T10:03:00.000Z"));
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     expect(msgs[0].reactions).toEqual([
       { emoji: "🔥", fromMe: false, actorName: "Alice" },
     ]);
   });
 });
 
-describe("getChannelMessages quoted replies (Rev 5 §R5.4)", () => {
+describe("getStreamMessages quoted replies (Rev 5 §R5.4)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("persists reply_to_external_id + reply_to_text and returns replyTo with resolved actorName", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const alice = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     // Original from Alice, then a self reply quoting it.
     insertEvent({ ...makeEvent("A/1", ch, alice, "dinner at 8?"), ts: "2026-07-01T10:00:00.000Z" });
@@ -1013,28 +1064,28 @@ describe("getChannelMessages quoted replies (Rev 5 §R5.4)", () => {
       replyToText: "dinner at 8?",
     });
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
-    const reply = msgs.find((m) => m.id === "wa:A/2")!;
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
+    const reply = msgs.find((m) => m.id === "whatsapp:A/2")!;
     expect(reply.replyTo).toEqual({
       externalId: "A/1",
       text: "dinner at 8?",
       actorName: "Alice", // resolved from the quoted message in the page
     });
     // A non-reply message has replyTo === null.
-    expect(msgs.find((m) => m.id === "wa:A/1")!.replyTo).toBeNull();
+    expect(msgs.find((m) => m.id === "whatsapp:A/1")!.replyTo).toBeNull();
 
     // The columns are actually stored on the row.
     const stored = getDb()
-      .prepare(`SELECT reply_to_external_id, reply_to_text FROM events WHERE id = 'wa:A/2'`)
+      .prepare(`SELECT reply_to_external_id, reply_to_text FROM events WHERE id = 'whatsapp:A/2'`)
       .get() as { reply_to_external_id: string | null; reply_to_text: string | null };
     expect(stored.reply_to_external_id).toBe("A/1");
     expect(stored.reply_to_text).toBe("dinner at 8?");
   });
 
   it("returns the stored snippet with actorName=null when the quoted target is not in the imported set", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
-    appStateSet("whatsapp.self_jid", "me@x");
+    appStateSet(selfIdentityKey("whatsapp"), "me@x");
 
     // Reply whose quoted target (A/OLD) was never imported.
     insertEvent({
@@ -1044,7 +1095,7 @@ describe("getChannelMessages quoted replies (Rev 5 §R5.4)", () => {
       replyToText: "the older message",
     });
 
-    const msgs = getChannelMessages({ channelId: ch, limit: 10 });
+    const msgs = getStreamMessages({ streamId: ch, limit: 10 });
     expect(msgs[0].replyTo).toEqual({
       externalId: "A/OLD",
       text: "the older message",
@@ -1057,7 +1108,7 @@ describe("reactions excluded from inbox preview/count + search (Rev 5 §R5.3)", 
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("listInboxChats: a reaction is not the chat's last message and is not counted", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const alice = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
 
@@ -1075,7 +1126,7 @@ describe("reactions excluded from inbox preview/count + search (Rev 5 §R5.3)", 
   });
 
   it("listInboxChats: a channel whose ONLY rows are reactions/system stays hidden (empty per R4.3)", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "R@x", name: "Reactful", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "R@x", name: "Reactful", kind: "dm" });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
     // Only a reaction row (its target lives elsewhere / not imported) — no real message.
     insertEvent(makeReaction("R/R1", ch, self, "other@x/MSG", "👍", "2026-07-01T10:00:00.000Z"));
@@ -1086,7 +1137,7 @@ describe("reactions excluded from inbox preview/count + search (Rev 5 §R5.3)", 
   });
 
   it("searchEvents: reaction rows are excluded from FTS results", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const alice = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice", isSelf: false });
     const self = upsertActor({ sourceId: "whatsapp", sourceExtId: "me@x", displayName: "Me", isSelf: true });
 
@@ -1097,7 +1148,7 @@ describe("reactions excluded from inbox preview/count + search (Rev 5 §R5.3)", 
 
     const hits = searchEvents({ q: "party" });
     // Only the real message matches; the reaction row is filtered out.
-    expect(hits.map((h) => h.eventId)).toEqual(["wa:A/1"]);
+    expect(hits.map((h) => h.eventId)).toEqual(["whatsapp:A/1"]);
   });
 });
 
@@ -1127,12 +1178,12 @@ function actorHandleOf(id: string): string | null {
   return row?.handle ?? null;
 }
 
-describe("upsertChannel name-update semantics (Rev 2 §R2.4)", () => {
+describe("upsertStream name-update semantics (Rev 2 §R2.4)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("upgrades a JID-placeholder name to a real name when it later arrives", () => {
     // First seen only as a JID placeholder (name looks like a JID).
-    const id = upsertChannel({
+    const id = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "grp-123@g.us",
       name: "grp-123@g.us",
@@ -1141,33 +1192,33 @@ describe("upsertChannel name-update semantics (Rev 2 §R2.4)", () => {
     expect(channelNameOf(id)).toBe("grp-123@g.us");
 
     // Daemon learns the real group subject later.
-    upsertChannel({ sourceId: "whatsapp", sourceExtId: "grp-123@g.us", name: "Family" });
+    upsertStream({ sourceId: "whatsapp", sourceExtId: "grp-123@g.us", name: "Family" });
     expect(channelNameOf(id)).toBe("Family");
   });
 
   it("upgrades from a null/lazy placeholder to a real name", () => {
     // Lazy upsert (event before channel line): no name.
-    const id = upsertChannel({ sourceId: "whatsapp", sourceExtId: "a@x" });
+    const id = upsertStream({ sourceId: "whatsapp", sourceExtId: "a@x" });
     expect(channelNameOf(id)).toBeNull();
-    upsertChannel({ sourceId: "whatsapp", sourceExtId: "a@x", name: "Alice" });
+    upsertStream({ sourceId: "whatsapp", sourceExtId: "a@x", name: "Alice" });
     expect(channelNameOf(id)).toBe("Alice");
   });
 
   it("does NOT downgrade a real name to empty/null/JID-looking", () => {
-    const id = upsertChannel({
+    const id = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "b@x",
       name: "Bob",
       kind: "dm",
     });
     // A later lazy upsert (null name) must not wipe the good name.
-    upsertChannel({ sourceId: "whatsapp", sourceExtId: "b@x" });
+    upsertStream({ sourceId: "whatsapp", sourceExtId: "b@x" });
     expect(channelNameOf(id)).toBe("Bob");
     // An empty-string name must not wipe it either.
-    upsertChannel({ sourceId: "whatsapp", sourceExtId: "b@x", name: "" });
+    upsertStream({ sourceId: "whatsapp", sourceExtId: "b@x", name: "" });
     expect(channelNameOf(id)).toBe("Bob");
     // A JID-looking value must not clobber the good name.
-    upsertChannel({ sourceId: "whatsapp", sourceExtId: "b@x", name: "b@x" });
+    upsertStream({ sourceId: "whatsapp", sourceExtId: "b@x", name: "b@x" });
     expect(channelNameOf(id)).toBe("Bob");
   });
 });
@@ -1211,14 +1262,14 @@ describe("upsertActor name-update semantics (Rev 2 §R2.4)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Rev 2 §R2.3 — resetWhatsappData().
+// Rev 2 §R2.3 — resetSourceData().
 // ---------------------------------------------------------------------------
 
-describe("resetWhatsappData (Rev 2 §R2.3)", () => {
+describe("resetSourceData (Rev 2 §R2.3)", () => {
   it("clears events/channels/actors + orphan people + import flags, returns counts", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    const chA = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
-    const chB = upsertChannel({ sourceId: "whatsapp", sourceExtId: "B@x", name: "Bob", kind: "dm" });
+    const chA = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const chB = upsertStream({ sourceId: "whatsapp", sourceExtId: "B@x", name: "Bob", kind: "dm" });
     const acA = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice" });
     const acB = upsertActor({ sourceId: "whatsapp", sourceExtId: "bob@x", displayName: "Bob" });
 
@@ -1227,11 +1278,11 @@ describe("resetWhatsappData (Rev 2 §R2.3)", () => {
     insertEvent(makeEvent("B/1", chB, acB, "hi from B"));
 
     // Simulate the persisted import flags.
-    appStateSet(IMPORT_DONE_KEY, "true");
-    appStateSet(IMPORT_RANGE_KEY, "7d");
+    appStateSet(importDoneKey("whatsapp"), "true");
+    appStateSet(importRangeKey("whatsapp"), "7d");
 
-    const cleared = resetWhatsappData("whatsapp");
-    expect(cleared).toEqual({ events: 3, channels: 2, actors: 2 });
+    const cleared = resetSourceData("whatsapp");
+    expect(cleared).toEqual({ events: 3, streams: 2, actors: 2 });
 
     const db = getDb();
     expect((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n).toBe(0);
@@ -1243,24 +1294,24 @@ describe("resetWhatsappData (Rev 2 §R2.3)", () => {
     expect(searchEvents({ q: "hi" })).toEqual([]);
 
     // Import flags cleared.
-    expect(appStateGet(IMPORT_DONE_KEY)).toBeNull();
-    expect(appStateGet(IMPORT_RANGE_KEY)).toBeNull();
+    expect(appStateGet(importDoneKey("whatsapp"))).toBeNull();
+    expect(appStateGet(importRangeKey("whatsapp"))).toBeNull();
   });
 
   it("only touches the target source (other sources are left intact)", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
     upsertSource({ id: "other", type: "other", name: "Other" });
-    const waCh = upsertChannel({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
+    const waCh = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
     const waAc = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice" });
     insertEvent(makeEvent("A/1", waCh, waAc, "wa msg"));
 
-    const otherCh = upsertChannel({ sourceId: "other", sourceExtId: "O@x", name: "Ozzy", kind: "dm" });
+    const otherCh = upsertStream({ sourceId: "other", sourceExtId: "O@x", name: "Ozzy", kind: "dm" });
     const otherAc = upsertActor({ sourceId: "other", sourceExtId: "ozzy@x", displayName: "Ozzy" });
     insertEvent({
       externalId: "O/1",
       sourceId: "other",
       sourceType: "other",
-      channelId: otherCh,
+      streamId: otherCh,
       actorId: otherAc,
       ts: "2026-07-02T12:00:00.000Z",
       kind: "message",
@@ -1269,8 +1320,8 @@ describe("resetWhatsappData (Rev 2 §R2.3)", () => {
       rawJson: null,
     });
 
-    const cleared = resetWhatsappData("whatsapp");
-    expect(cleared).toEqual({ events: 1, channels: 1, actors: 1 });
+    const cleared = resetSourceData("whatsapp");
+    expect(cleared).toEqual({ events: 1, streams: 1, actors: 1 });
 
     const db = getDb();
     // The other source's rows survive.
@@ -1283,7 +1334,7 @@ describe("resetWhatsappData (Rev 2 §R2.3)", () => {
 
   it("is a no-op-safe on an empty DB (returns zero counts)", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    expect(resetWhatsappData("whatsapp")).toEqual({ events: 0, channels: 0, actors: 0 });
+    expect(resetSourceData("whatsapp")).toEqual({ events: 0, streams: 0, actors: 0 });
   });
 });
 
@@ -1364,7 +1415,14 @@ describe("migration 0008_media", () => {
         .prepare(`SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name`)
         .all() as { name: string }[]
     ).map((t) => t.name);
-    expect(triggers).toEqual(["events_ad", "events_ai", "events_au"]);
+    // events_stream_compat_ai is 0022_v2_core's channel_id -> stream_id bridge,
+    // which lives on events beside the three FTS triggers until item 1.1.
+    expect(triggers).toEqual([
+      "events_ad",
+      "events_ai",
+      "events_au",
+      "events_stream_compat_ai",
+    ]);
   });
 
   it("upgrades a pre-media DB: only the media migrations apply and FTS still returns pre-existing hits", () => {
@@ -1426,7 +1484,7 @@ describe("migration 0008_media", () => {
 /** A media event row with the full §1 metadata set. */
 function makeRichMediaEvent(
   externalId: string,
-  channelId: string,
+  streamId: string,
   actorId: string,
   kind: string,
   overrides: Partial<Parameters<typeof insertEvent>[0]> = {},
@@ -1435,7 +1493,7 @@ function makeRichMediaEvent(
     externalId,
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId,
+    streamId,
     actorId,
     ts: "2026-07-02T12:00:00.000Z",
     kind,
@@ -1457,10 +1515,10 @@ describe("media metadata persistence (media spec §3, §4)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("insertEvent writes every media column and both read paths hand it back", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const res = insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const res = insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
 
-    const msgs = getChannelMessages({ channelId, limit: 10 });
+    const msgs = getStreamMessages({ streamId, limit: 10 });
     expect(msgs).toHaveLength(1);
     expect(msgs[0]).toMatchObject({
       kind: "image",
@@ -1487,21 +1545,21 @@ describe("media metadata persistence (media spec §3, §4)", () => {
   });
 
   it("persists is_forwarded", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent({ ...makeEvent("A/FWD", channelId, actorId, "fyi"), isForwarded: true });
-    expect(getChannelMessages({ channelId, limit: 10 })[0].isForwarded).toBe(true);
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent({ ...makeEvent("A/FWD", streamId, actorId, "fyi"), isForwarded: true });
+    expect(getStreamMessages({ streamId, limit: 10 })[0].isForwarded).toBe(true);
   });
 
   it("a corrupt media_meta_json reads back as null instead of throwing", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeRichMediaEvent("A/BAD", channelId, actorId, "image", { mediaMetaJson: "{not json" }),
+      makeRichMediaEvent("A/BAD", streamId, actorId, "image", { mediaMetaJson: "{not json" }),
     );
-    expect(getChannelMessages({ channelId, limit: 10 })[0].mediaMeta).toBeNull();
+    expect(getStreamMessages({ streamId, limit: 10 })[0].mediaMeta).toBeNull();
   });
 
   it("seeds media_desc_status per the §8 readability table", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     const statusOf = (id: string): string | null =>
       (
         getDb()
@@ -1509,44 +1567,44 @@ describe("media metadata persistence (media spec §3, §4)", () => {
           .get(id) as { s: string | null }
       ).s;
 
-    insertEvent(makeRichMediaEvent("m/img", channelId, actorId, "image"));
-    insertEvent(makeRichMediaEvent("m/sticker", channelId, actorId, "sticker"));
+    insertEvent(makeRichMediaEvent("m/img", streamId, actorId, "image"));
+    insertEvent(makeRichMediaEvent("m/sticker", streamId, actorId, "sticker"));
     insertEvent(
-      makeRichMediaEvent("m/video", channelId, actorId, "video", { mediaMime: "video/mp4" }),
+      makeRichMediaEvent("m/video", streamId, actorId, "video", { mediaMime: "video/mp4" }),
     );
     // A video with no JPEG thumbnail still has its mp4 (v7 §3).
     insertEvent(
-      makeRichMediaEvent("m/video-nothumb", channelId, actorId, "video", {
+      makeRichMediaEvent("m/video-nothumb", streamId, actorId, "video", {
         mediaMime: "video/mp4",
         mediaThumbPath: null,
       }),
     );
     insertEvent(
-      makeRichMediaEvent("m/pdf", channelId, actorId, "document", {
+      makeRichMediaEvent("m/pdf", streamId, actorId, "document", {
         mediaMime: "application/pdf",
         mediaFilename: "contract.pdf",
       }),
     );
     insertEvent(
-      makeRichMediaEvent("m/csv", channelId, actorId, "document", {
+      makeRichMediaEvent("m/csv", streamId, actorId, "document", {
         mediaMime: null,
         mediaFilename: "rows.CSV",
       }),
     );
     insertEvent(
-      makeRichMediaEvent("m/docx", channelId, actorId, "document", {
+      makeRichMediaEvent("m/docx", streamId, actorId, "document", {
         mediaMime:
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         mediaFilename: "notes.docx",
       }),
     );
     insertEvent(
-      makeRichMediaEvent("m/audio", channelId, actorId, "audio", {
+      makeRichMediaEvent("m/audio", streamId, actorId, "audio", {
         mediaMime: "audio/ogg; codecs=opus",
         mediaMetaJson: JSON.stringify({ voice: true }),
       }),
     );
-    insertEvent(makeEvent("m/text", channelId, actorId, "just words"));
+    insertEvent(makeEvent("m/text", streamId, actorId, "just words"));
 
     expect(statusOf("m/img")).toBe("pending");
     expect(statusOf("m/sticker")).toBe("pending");
@@ -1568,8 +1626,8 @@ describe("applyEdit / applyRevoke (media spec §5)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("applyEdit rewrites the target in place, stamps edited_at, and re-indexes FTS", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeEvent("A/1", channelId, actorId, "meet at seven"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeEvent("A/1", streamId, actorId, "meet at seven"));
 
     expect(
       applyEdit({
@@ -1580,12 +1638,12 @@ describe("applyEdit / applyRevoke (media spec §5)", () => {
       }),
     ).toBe(true);
 
-    const msgs = getChannelMessages({ channelId, limit: 10 });
+    const msgs = getStreamMessages({ streamId, limit: 10 });
     // One row, not two: the edit never becomes its own message.
     expect(msgs).toHaveLength(1);
     expect(msgs[0].text).toBe("meet at eight");
     expect(msgs[0].editedAt).toBe("2026-07-02T13:00:00.000Z");
-    expect(searchEvents({ q: "eight" }).map((h) => h.eventId)).toEqual(["wa:A/1"]);
+    expect(searchEvents({ q: "eight" }).map((h) => h.eventId)).toEqual(["whatsapp:A/1"]);
     expect(searchEvents({ q: "seven" })).toEqual([]);
   });
 
@@ -1602,8 +1660,8 @@ describe("applyEdit / applyRevoke (media spec §5)", () => {
   });
 
   it("applyRevoke tombstones the target: text cleared, media dropped, revoked_at set", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
 
     expect(
       applyRevoke({
@@ -1613,7 +1671,7 @@ describe("applyEdit / applyRevoke (media spec §5)", () => {
       }),
     ).toBe(true);
 
-    const msgs = getChannelMessages({ channelId, limit: 10 });
+    const msgs = getStreamMessages({ streamId, limit: 10 });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].text).toBe("");
     expect(msgs[0].mediaPath).toBeNull();
@@ -1621,9 +1679,9 @@ describe("applyEdit / applyRevoke (media spec §5)", () => {
   });
 
   it("revoking a message still queued for description clears it out of the queue", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
-    expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toContain("wa:A/IMG");
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
+    expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toContain("whatsapp:A/IMG");
 
     applyRevoke({
       sourceId: "whatsapp",
@@ -1636,20 +1694,20 @@ describe("applyEdit / applyRevoke (media spec §5)", () => {
     // show a backlog nothing can ever drain.
     const row = getDb()
       .prepare("SELECT media_desc_status AS s FROM events WHERE id = ?")
-      .get("wa:A/IMG") as { s: string | null };
+      .get("whatsapp:A/IMG") as { s: string | null };
     expect(row.s).toBeNull();
   });
 
   it("a revoked message previews as deleted, not as its original media kind", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
     applyRevoke({
       sourceId: "whatsapp",
       targetExternalId: "A/IMG",
       revokedAt: "2026-07-02T13:00:00.000Z",
     });
 
-    const chat = listInboxChats({ limit: 10 }).find((c) => c.id === channelId)!;
+    const chat = listInboxChats({ limit: 10 }).find((c) => c.id === streamId)!;
     expect(chat.lastText).toBe("🚫 Deleted");
   });
 
@@ -1673,7 +1731,7 @@ describe("deleteReaction (media spec §6)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("deletes only the removing actor's reaction on that target", () => {
-    const ch = upsertChannel({ sourceId: "whatsapp", sourceExtId: "G@x", name: "Group", kind: "group" });
+    const ch = upsertStream({ sourceId: "whatsapp", sourceExtId: "G@x", name: "Group", kind: "group" });
     const alice = upsertActor({ sourceId: "whatsapp", sourceExtId: "alice@x", displayName: "Alice" });
     const bob = upsertActor({ sourceId: "whatsapp", sourceExtId: "bob@x", displayName: "Bob" });
 
@@ -1686,7 +1744,7 @@ describe("deleteReaction (media spec §6)", () => {
     ).toBe(1);
 
     // Bob's survives, and the collapse sees exactly one stored row.
-    expect(getChannelMessages({ channelId: ch, limit: 10 })[0].reactions).toEqual([
+    expect(getStreamMessages({ streamId: ch, limit: 10 })[0].reactions).toEqual([
       { emoji: "🎉", fromMe: false, actorName: "Bob" },
     ]);
     expect(
@@ -1697,8 +1755,8 @@ describe("deleteReaction (media spec §6)", () => {
   });
 
   it("returns 0 when the actor has no stored reaction on the target", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeEvent("A/1", channelId, actorId, "hi"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeEvent("A/1", streamId, actorId, "hi"));
     expect(
       deleteReaction({ sourceId: "whatsapp", targetExternalId: "A/1", actorId }),
     ).toBe(0);
@@ -1713,12 +1771,12 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("returns pending rows batchable-first with the fields the reader needs", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeRichMediaEvent("A/IMG", channelId, actorId, "image", { ts: "2026-07-02T10:00:00.000Z" }),
+      makeRichMediaEvent("A/IMG", streamId, actorId, "image", { ts: "2026-07-02T10:00:00.000Z" }),
     );
     insertEvent(
-      makeRichMediaEvent("A/VID", channelId, actorId, "video", {
+      makeRichMediaEvent("A/VID", streamId, actorId, "video", {
         ts: "2026-07-02T11:00:00.000Z",
         mediaMime: "video/mp4",
         mediaFilename: "clip.mp4",
@@ -1728,7 +1786,7 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
     );
     // Never readable: it must not show up in the queue.
     insertEvent(
-      makeRichMediaEvent("A/AUD", channelId, actorId, "audio", {
+      makeRichMediaEvent("A/AUD", streamId, actorId, "audio", {
         ts: "2026-07-02T12:00:00.000Z",
         mediaMime: "audio/ogg",
       }),
@@ -1737,9 +1795,9 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
     // The video is newer, but it cannot ride a batch — so it does not get to
     // sit at the head of the claim (v4 §4c).
     const pending = claimPendingMedia(10, CLAIM_ALL);
-    expect(pending.map((p) => p.id)).toEqual(["wa:A/IMG", "wa:A/VID"]);
+    expect(pending.map((p) => p.id)).toEqual(["whatsapp:A/IMG", "whatsapp:A/VID"]);
     expect(pending[1]).toEqual({
-      id: "wa:A/VID",
+      id: "whatsapp:A/VID",
       kind: "video",
       mediaPath: "/media/whatsapp/A/VID.bin",
       thumbPath: "/media/whatsapp/A/VID.thumb.jpg",
@@ -1748,18 +1806,23 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
       seconds: 42,
       caption: "the dog again",
       isHistorical: false,
+      // The two terms of the enrichment queue key travel with the row (§9.3):
+      // ordering it without them is the FIFO defect.
+      ts: "2026-07-02T11:00:00.000Z",
+      streamId,
+      tier: null,
     });
     expect(pending[0].caption).toBe("the whiteboard");
   });
 
   it("still claims a row whose meta JSON is unreadable (caption just goes null)", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeRichMediaEvent("A/IMG", channelId, actorId, "image", { mediaMetaJson: "{not json" }),
+      makeRichMediaEvent("A/IMG", streamId, actorId, "image", { mediaMetaJson: "{not json" }),
     );
     expect(claimPendingMedia(10, CLAIM_ALL)).toEqual([
       {
-        id: "wa:A/IMG",
+        id: "whatsapp:A/IMG",
         kind: "image",
         mediaPath: "/media/whatsapp/A/IMG.bin",
         thumbPath: "/media/whatsapp/A/IMG.thumb.jpg",
@@ -1768,31 +1831,34 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
         seconds: null,
         caption: null,
         isHistorical: false,
+        ts: "2026-07-02T12:00:00.000Z",
+        streamId,
+        tier: null,
       },
     ]);
   });
 
   it("honours the limit and never hands out a revoked row", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeRichMediaEvent("A/1", channelId, actorId, "image", { ts: "2026-07-02T10:00:00.000Z" }),
+      makeRichMediaEvent("A/1", streamId, actorId, "image", { ts: "2026-07-02T10:00:00.000Z" }),
     );
     insertEvent(
-      makeRichMediaEvent("A/2", channelId, actorId, "image", { ts: "2026-07-02T11:00:00.000Z" }),
+      makeRichMediaEvent("A/2", streamId, actorId, "image", { ts: "2026-07-02T11:00:00.000Z" }),
     );
-    expect(claimPendingMedia(1, CLAIM_ALL).map((p) => p.id)).toEqual(["wa:A/2"]);
+    expect(claimPendingMedia(1, CLAIM_ALL).map((p) => p.id)).toEqual(["whatsapp:A/2"]);
 
     applyRevoke({
       sourceId: "whatsapp",
       targetExternalId: "A/2",
       revokedAt: "2026-07-02T12:00:00.000Z",
     });
-    expect(claimPendingMedia(10, CLAIM_ALL).map((p) => p.id)).toEqual(["wa:A/1"]);
+    expect(claimPendingMedia(10, CLAIM_ALL).map((p) => p.id)).toEqual(["whatsapp:A/1"]);
   });
 
   it("recordMediaDescription clears the row from the queue and makes it searchable", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
 
     recordMediaDescription(id, {
       description: "a whiteboard covered in migration diagrams",
@@ -1804,7 +1870,7 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
     expect(getEventById(id)!.mediaDescription).toBe(
       "a whiteboard covered in migration diagrams",
     );
-    expect(getChannelMessages({ channelId, limit: 10 })[0].mediaDescription).toBe(
+    expect(getStreamMessages({ streamId, limit: 10 })[0].mediaDescription).toBe(
       "a whiteboard covered in migration diagrams",
     );
 
@@ -1821,8 +1887,8 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
   });
 
   it("records a failed read as 'error' with the message and leaves the queue empty", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
 
     recordMediaDescription(id, { status: "error", error: "file missing on disk" });
 
@@ -1851,15 +1917,15 @@ describe("claimPendingMedia per-kind + business gating (v3 §2)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   /** One readable row of each kind in the same chat, newest first: doc, vid, img. */
-  function seedOneOfEachKind(channelId: string, actorId: string): void {
+  function seedOneOfEachKind(streamId: string, actorId: string): void {
     insertEvent(
-      makeRichMediaEvent("A/IMG", channelId, actorId, "image", { ts: "2026-07-02T10:00:00.000Z" }),
+      makeRichMediaEvent("A/IMG", streamId, actorId, "image", { ts: "2026-07-02T10:00:00.000Z" }),
     );
     insertEvent(
-      makeRichMediaEvent("A/VID", channelId, actorId, "video", { ts: "2026-07-02T11:00:00.000Z" }),
+      makeRichMediaEvent("A/VID", streamId, actorId, "video", { ts: "2026-07-02T11:00:00.000Z" }),
     );
     insertEvent(
-      makeRichMediaEvent("A/DOC", channelId, actorId, "document", {
+      makeRichMediaEvent("A/DOC", streamId, actorId, "document", {
         ts: "2026-07-02T12:00:00.000Z",
         mediaMime: "application/pdf",
         mediaFilename: "invoice.pdf",
@@ -1868,73 +1934,73 @@ describe("claimPendingMedia per-kind + business gating (v3 §2)", () => {
   }
 
   it("hands out only the kinds the filter switches on", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    seedOneOfEachKind(channelId, actorId);
+    const { streamId, actorId } = seedSourceChannelActor();
+    seedOneOfEachKind(streamId, actorId);
 
-    expect(claimPendingMedia(10, CLAIM_IMAGES_ONLY).map((r) => r.id)).toEqual(["wa:A/IMG"]);
+    expect(claimPendingMedia(10, CLAIM_IMAGES_ONLY).map((r) => r.id)).toEqual(["whatsapp:A/IMG"]);
     expect(
       claimPendingMedia(10, { ...CLAIM_ALL, video: false }).map((r) => r.id),
-    ).toEqual(["wa:A/IMG", "wa:A/DOC"]);
+    ).toEqual(["whatsapp:A/IMG", "whatsapp:A/DOC"]);
     expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual([
-      "wa:A/IMG",
-      "wa:A/DOC",
-      "wa:A/VID",
+      "whatsapp:A/IMG",
+      "whatsapp:A/DOC",
+      "whatsapp:A/VID",
     ]);
   });
 
   it("stickers ride the image switch", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/STK", channelId, actorId, "sticker"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/STK", streamId, actorId, "sticker"));
 
-    expect(claimPendingMedia(10, CLAIM_IMAGES_ONLY).map((r) => r.id)).toEqual(["wa:A/STK"]);
+    expect(claimPendingMedia(10, CLAIM_IMAGES_ONLY).map((r) => r.id)).toEqual(["whatsapp:A/STK"]);
     expect(claimPendingMedia(10, { ...CLAIM_ALL, images: false })).toEqual([]);
   });
 
   it("a switch flipped on later still reaches rows written while it was off", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     // Video off at ingest time: the row is invisible but NOT written off.
     expect(claimPendingMedia(10, CLAIM_IMAGES_ONLY)).toEqual([]);
-    expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual(["wa:A/VID"]);
+    expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual(["whatsapp:A/VID"]);
   });
 
   it("excludes business chats unless the filter includes them", () => {
-    const shop = upsertChannel({
+    const shop = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shop@s.whatsapp.net",
       name: "Corner Store",
       kind: "dm",
       isBusiness: true,
     });
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
     insertEvent(makeRichMediaEvent("B/IMG", shop, actorId, "image"));
 
-    expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual(["wa:A/IMG"]);
+    expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual(["whatsapp:A/IMG"]);
     expect(
       claimPendingMedia(10, { ...CLAIM_ALL, business: true }).map((r) => r.id).sort(),
-    ).toEqual(["wa:A/IMG", "wa:B/IMG"]);
+    ).toEqual(["whatsapp:A/IMG", "whatsapp:B/IMG"]);
   });
 
   it("returns a same-kind batch the reader can send in one call (v3 §2 batching)", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     for (let i = 0; i < 10; i++) {
       insertEvent(
-        makeRichMediaEvent(`A/IMG${i}`, channelId, actorId, "image", {
+        makeRichMediaEvent(`A/IMG${i}`, streamId, actorId, "image", {
           ts: `2026-07-02T1${i}:00:00.000Z`,
         }),
       );
     }
-    insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     const batch = claimPendingMedia(8, CLAIM_IMAGES_ONLY);
     expect(batch).toHaveLength(8);
     expect(new Set(batch.map((r) => r.kind))).toEqual(new Set(["image"]));
   });
 
-  it("upsertChannel never un-flags a business chat on a later re-emit", () => {
-    const id = upsertChannel({
+  it("upsertStream never un-flags a business chat on a later re-emit", () => {
+    const id = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shop@s.whatsapp.net",
       name: "Corner Store",
@@ -1943,7 +2009,7 @@ describe("claimPendingMedia per-kind + business gating (v3 §2)", () => {
     });
     // The daemon only learns "business" from a verified name, which is not on
     // every line — a plain re-emit must not re-enable reading.
-    upsertChannel({
+    upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shop@s.whatsapp.net",
       name: "Corner Store",
@@ -1966,19 +2032,19 @@ describe("claimPendingMedia ordering + kind class (v4 §4c)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("keeps a non-batchable row off the head however new it is", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeRichMediaEvent("A/IMG1", channelId, actorId, "image", {
+      makeRichMediaEvent("A/IMG1", streamId, actorId, "image", {
         ts: "2026-07-02T10:00:00.000Z",
       }),
     );
     insertEvent(
-      makeRichMediaEvent("A/IMG2", channelId, actorId, "image", {
+      makeRichMediaEvent("A/IMG2", streamId, actorId, "image", {
         ts: "2026-07-02T11:00:00.000Z",
       }),
     );
     insertEvent(
-      makeRichMediaEvent("A/DOC", channelId, actorId, "document", {
+      makeRichMediaEvent("A/DOC", streamId, actorId, "document", {
         ts: "2026-07-02T23:00:00.000Z",
         mediaMime: "application/pdf",
         mediaFilename: "invoice.pdf",
@@ -1986,19 +2052,19 @@ describe("claimPendingMedia ordering + kind class (v4 §4c)", () => {
     );
 
     expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual([
-      "wa:A/IMG2",
-      "wa:A/IMG1",
-      "wa:A/DOC",
+      "whatsapp:A/IMG2",
+      "whatsapp:A/IMG1",
+      "whatsapp:A/DOC",
     ]);
   });
 
   it("narrows to one kind class so a batch call carries nothing else", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
-    insertEvent(makeRichMediaEvent("A/STK", channelId, actorId, "sticker"));
-    insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
+    insertEvent(makeRichMediaEvent("A/STK", streamId, actorId, "sticker"));
+    insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
     insertEvent(
-      makeRichMediaEvent("A/DOC", channelId, actorId, "document", {
+      makeRichMediaEvent("A/DOC", streamId, actorId, "document", {
         mediaMime: "application/pdf",
         mediaFilename: "invoice.pdf",
       }),
@@ -2014,28 +2080,61 @@ describe("claimPendingMedia ordering + kind class (v4 §4c)", () => {
     expect(claimPendingMedia(10, CLAIM_IMAGES_ONLY, "single")).toEqual([]);
   });
 
-  it("lets a live arrival past a backlog of images", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+  it("orders by the queue key, not by arrival: a 2020 live row waits behind 2026 backlog", () => {
+    const { streamId, actorId } = seedSourceChannelActor();
     for (let i = 0; i < 5; i++) {
       insertEvent(
-        makeRichMediaEvent(`A/OLD${i}`, channelId, actorId, "image", {
+        makeRichMediaEvent(`A/OLD${i}`, streamId, actorId, "image", {
           ts: `2026-07-02T1${i}:00:00.000Z`,
           isHistorical: true,
         }),
       );
     }
-    // Older than everything in the backlog, and a kind that cannot batch — it is
-    // still the one thing that just arrived.
+    // Just arrived, but from 2020. Arch §9.2 rule 5: arrival order is not the
+    // queue key — recency is. A live row pre-empts through the reader's live
+    // set (and only for T1/T2, §9.3), never by outranking newer work here.
     insertEvent(
-      makeRichMediaEvent("A/LIVE", channelId, actorId, "video", {
+      makeRichMediaEvent("A/LIVE", streamId, actorId, "image", {
         ts: "2020-01-01T00:00:00.000Z",
       }),
     );
 
-    const claim = claimPendingMedia(3, CLAIM_ALL);
-    expect(claim[0].id).toBe("wa:A/LIVE");
-    expect(claim[0].isHistorical).toBe(false);
-    expect(claim.slice(1).every((r) => r.isHistorical)).toBe(true);
+    const claim = claimPendingMedia(6, CLAIM_ALL);
+    expect(claim.map((r) => r.id)).toEqual([
+      "whatsapp:A/OLD4",
+      "whatsapp:A/OLD3",
+      "whatsapp:A/OLD2",
+      "whatsapp:A/OLD1",
+      "whatsapp:A/OLD0",
+      "whatsapp:A/LIVE",
+    ]);
+  });
+
+  it("puts a T1 stream's photo ahead of a newer T4 blast — tier is the primary key", () => {
+    const { streamId, actorId } = seedSourceChannelActor();
+    const promo = upsertStream({
+      sourceId: "whatsapp",
+      sourceExtId: "promo@s.whatsapp.net",
+      name: "Deals",
+      kind: "dm",
+    });
+    getDb().prepare(`UPDATE streams SET tier = 'T1' WHERE id = ?`).run(streamId);
+    getDb().prepare(`UPDATE streams SET tier = 'T4' WHERE id = ?`).run(promo);
+    insertEvent(
+      makeRichMediaEvent("A/FRIEND", streamId, actorId, "image", {
+        ts: "2026-07-01T09:00:00.000Z",
+      }),
+    );
+    insertEvent(
+      makeRichMediaEvent("P/BLAST", promo, actorId, "image", {
+        streamId: promo,
+        ts: "2026-07-02T09:00:00.000Z",
+      }),
+    );
+
+    const claim = claimPendingMedia(6, CLAIM_ALL);
+    expect(claim.map((r) => r.id)).toEqual(["whatsapp:A/FRIEND", "whatsapp:P/BLAST"]);
+    expect(claim[0].tier).toBe("T1");
   });
 });
 
@@ -2048,9 +2147,9 @@ describe("rescanMedia (v3 §2)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("re-queues only the named types and drops their previous verdict", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const img = insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image")).id;
-    const vid = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video")).id;
+    const { streamId, actorId } = seedSourceChannelActor();
+    const img = insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image")).id;
+    const vid = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video")).id;
     recordMediaDescription(img, {
       description: "a whiteboard covered in arrows",
       model: "claude-haiku-4-5-20251001",
@@ -2080,9 +2179,9 @@ describe("rescanMedia (v3 §2)", () => {
   });
 
   it("re-queues an unsupported document once the reader can handle it", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     const { id } = insertEvent(
-      makeRichMediaEvent("A/DOC", channelId, actorId, "document", {
+      makeRichMediaEvent("A/DOC", streamId, actorId, "document", {
         mediaMime: "application/vnd.ms-excel",
         mediaFilename: "sheet.xls",
       }),
@@ -2094,15 +2193,15 @@ describe("rescanMedia (v3 §2)", () => {
   });
 
   it("'business' matches by chat rather than by kind", () => {
-    const shop = upsertChannel({
+    const shop = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shop@s.whatsapp.net",
       name: "Corner Store",
       kind: "dm",
       isBusiness: true,
     });
-    const { channelId, actorId } = seedSourceChannelActor();
-    const mine = insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image")).id;
+    const { streamId, actorId } = seedSourceChannelActor();
+    const mine = insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image")).id;
     const theirs = insertEvent(makeRichMediaEvent("B/IMG", shop, actorId, "image")).id;
     recordMediaDescription(mine, { status: "done", description: "mine" });
     recordMediaDescription(theirs, { status: "unsupported" });
@@ -2117,8 +2216,8 @@ describe("rescanMedia (v3 §2)", () => {
   });
 
   it("never resurrects a revoked row, and reports nothing for an empty list", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
     applyRevoke({
       sourceId: "whatsapp",
       targetExternalId: "A/IMG",
@@ -2139,12 +2238,12 @@ describe("rescanMedia (v3 §2)", () => {
 /** A message carrying a full link preview. */
 function makeLinkEvent(
   externalId: string,
-  channelId: string,
+  streamId: string,
   actorId: string,
   overrides: Partial<Parameters<typeof insertEvent>[0]> = {},
 ) {
   return {
-    ...makeEvent(externalId, channelId, actorId, "look at this https://example.com/ferry"),
+    ...makeEvent(externalId, streamId, actorId, "look at this https://example.com/ferry"),
     linkUrl: "https://example.com/ferry",
     linkTitle: "Panjim ferry timetable",
     linkDescription: "Sailings every half hour",
@@ -2158,10 +2257,10 @@ describe("link previews + scraping (v3 §3)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("persists the preview and hands it back on the message read path", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeLinkEvent("A/1", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeLinkEvent("A/1", streamId, actorId));
 
-    expect(getChannelMessages({ channelId, limit: 10 })[0].link).toEqual({
+    expect(getStreamMessages({ streamId, limit: 10 })[0].link).toEqual({
       url: "https://example.com/ferry",
       title: "Panjim ferry timetable",
       description: "Sailings every half hour",
@@ -2171,52 +2270,52 @@ describe("link previews + scraping (v3 §3)", () => {
     });
     // The preview thumbnail is the only file a link event has, so the media
     // route needs it off the by-id read too.
-    expect(getEventById("wa:A/1")!.linkThumbPath).toBe("/media/whatsapp/link.thumb.jpg");
+    expect(getEventById("whatsapp:A/1")!.linkThumbPath).toBe("/media/whatsapp/link.thumb.jpg");
   });
 
   it("a message with no URL has no link block", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeEvent("A/1", channelId, actorId, "no links here"));
-    expect(getChannelMessages({ channelId, limit: 10 })[0].link).toBeNull();
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeEvent("A/1", streamId, actorId, "no links here"));
+    expect(getStreamMessages({ streamId, limit: 10 })[0].link).toBeNull();
   });
 
   it("queues http(s) and writes off a scheme that can never be fetched", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeLinkEvent("A/1", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeLinkEvent("A/1", streamId, actorId));
     insertEvent(
-      makeLinkEvent("A/2", channelId, actorId, { linkUrl: "mailto:hello@example.com" }),
+      makeLinkEvent("A/2", streamId, actorId, { linkUrl: "mailto:hello@example.com" }),
     );
 
     expect(claimPendingLinks(10, { business: false })).toEqual([
-      { id: "wa:A/1", url: "https://example.com/ferry", title: "Panjim ferry timetable" },
+      { id: "whatsapp:A/1", url: "https://example.com/ferry", title: "Panjim ferry timetable" },
     ]);
     expect(
-      getDb().prepare(`SELECT link_scrape_status AS s FROM events WHERE id = 'wa:A/2'`).get(),
+      getDb().prepare(`SELECT link_scrape_status AS s FROM events WHERE id = 'whatsapp:A/2'`).get(),
     ).toEqual({ s: "unsupported" });
   });
 
   it("keeps links in business chats back unless the filter includes them", () => {
-    const shop = upsertChannel({
+    const shop = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shop@s.whatsapp.net",
       name: "Corner Store",
       kind: "dm",
       isBusiness: true,
     });
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeLinkEvent("A/1", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeLinkEvent("A/1", streamId, actorId));
     insertEvent(makeLinkEvent("B/1", shop, actorId));
 
-    expect(claimPendingLinks(10, { business: false }).map((r) => r.id)).toEqual(["wa:A/1"]);
+    expect(claimPendingLinks(10, { business: false }).map((r) => r.id)).toEqual(["whatsapp:A/1"]);
     expect(claimPendingLinks(10, { business: true }).map((r) => r.id).sort()).toEqual([
-      "wa:A/1",
-      "wa:B/1",
+      "whatsapp:A/1",
+      "whatsapp:B/1",
     ]);
   });
 
   it("recordLinkScrape clears the queue and makes the page text searchable", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeLinkEvent("A/1", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeLinkEvent("A/1", streamId, actorId));
 
     recordLinkScrape(id, {
       scrapedText: "the last sailing leaves from the northern gangplank",
@@ -2228,15 +2327,15 @@ describe("link previews + scraping (v3 §3)", () => {
     expect(searchEvents({ q: "gangplank" }).map((h) => h.eventId)).toEqual([id]);
     expect(searchEvents({ q: "timetable" }).map((h) => h.eventId)).toEqual([id]);
     // WhatsApp's own title is what the sender saw; the page's never overwrites it.
-    expect(getChannelMessages({ channelId, limit: 10 })[0].link!.title).toBe(
+    expect(getStreamMessages({ streamId, limit: 10 })[0].link!.title).toBe(
       "Panjim ferry timetable",
     );
   });
 
   it("fills a missing title from the page and records a failure as 'error'", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     const bare = insertEvent(
-      makeLinkEvent("A/1", channelId, actorId, {
+      makeLinkEvent("A/1", streamId, actorId, {
         linkTitle: null,
         linkDescription: null,
         linkThumbPath: null,
@@ -2244,13 +2343,13 @@ describe("link previews + scraping (v3 §3)", () => {
       }),
     ).id;
     const dead = insertEvent(
-      makeLinkEvent("A/2", channelId, actorId, { linkUrl: "https://example.com/gone" }),
+      makeLinkEvent("A/2", streamId, actorId, { linkUrl: "https://example.com/gone" }),
     ).id;
 
     recordLinkScrape(bare, { scrapedText: "ferries run hourly", title: "Ferries", status: "done" });
     recordLinkScrape(dead, { status: "error", error: "404" });
 
-    expect(getChannelMessages({ channelId, limit: 10 })[0].link!.title).toBe("Ferries");
+    expect(getStreamMessages({ streamId, limit: 10 })[0].link!.title).toBe("Ferries");
     expect(
       getDb()
         .prepare(`SELECT link_scrape_status AS s, link_scrape_error AS e FROM events WHERE id = ?`)
@@ -2260,8 +2359,8 @@ describe("link previews + scraping (v3 §3)", () => {
   });
 
   it("rescan 'link' re-queues scraped rows and drops the stale page text", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeLinkEvent("A/1", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeLinkEvent("A/1", streamId, actorId));
     recordLinkScrape(id, { scrapedText: "gangplank", status: "done" });
 
     expect(rescanMedia(["link"])).toEqual({ media: 0, links: 1, transcripts: 0, frames: 0 });
@@ -2270,8 +2369,8 @@ describe("link previews + scraping (v3 §3)", () => {
   });
 
   it("revoking a message takes its link out of the queue and out of search", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeLinkEvent("A/1", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeLinkEvent("A/1", streamId, actorId));
     recordLinkScrape(id, { scrapedText: "gangplank", status: "done" });
 
     applyRevoke({
@@ -2282,7 +2381,7 @@ describe("link previews + scraping (v3 §3)", () => {
 
     expect(claimPendingLinks(10, { business: false })).toEqual([]);
     expect(searchEvents({ q: "gangplank" })).toEqual([]);
-    expect(getChannelMessages({ channelId, limit: 10 })[0].link).toBeNull();
+    expect(getStreamMessages({ streamId, limit: 10 })[0].link).toBeNull();
   });
 });
 
@@ -2301,19 +2400,19 @@ describe("sampled video frames (v5 §2)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("round-trips through both read paths and shows up as referenced files", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     recordMediaFrames(id, FRAMES);
 
     expect(getEventById(id)!.mediaFrames).toEqual(FRAMES);
-    expect(getChannelMessages({ channelId, limit: 10 })[0].mediaFrames).toEqual(FRAMES);
+    expect(getStreamMessages({ streamId, limit: 10 })[0].mediaFrames).toEqual(FRAMES);
     expect(listMediaFramePaths()).toEqual(FRAMES.map((f) => f.path));
   });
 
   it("stores nothing at all for an empty sample, and reads junk back as null", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     recordMediaFrames(id, []);
     expect(
@@ -2327,8 +2426,8 @@ describe("sampled video frames (v5 §2)", () => {
   });
 
   it("drops entries with no usable path rather than passing them on", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     getDb()
       .prepare(`UPDATE events SET media_frames_json = ? WHERE id = ?`)
@@ -2342,8 +2441,8 @@ describe("sampled video frames (v5 §2)", () => {
   });
 
   it("revoking the video unreferences its frames so the sweep can delete them", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
     recordMediaFrames(id, FRAMES);
 
     applyRevoke({
@@ -2357,8 +2456,8 @@ describe("sampled video frames (v5 §2)", () => {
   });
 
   it("rescan 'frames' drops them and re-reads the video; 'video' alone keeps them", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
     recordMediaFrames(id, FRAMES);
     recordMediaDescription(id, { description: "a car pulling away", status: "done" });
 
@@ -2386,11 +2485,11 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   /** A video the daemon stored without a JPEGThumbnail beside it. */
   function makeThumblessVideo(
     externalId: string,
-    channelId: string,
+    streamId: string,
     actorId: string,
     overrides: Partial<Parameters<typeof insertEvent>[0]> = {},
   ) {
-    return makeRichMediaEvent(externalId, channelId, actorId, "video", {
+    return makeRichMediaEvent(externalId, streamId, actorId, "video", {
       mediaMime: "video/mp4",
       mediaThumbPath: null,
       mediaSeconds: 162,
@@ -2399,14 +2498,14 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   }
 
   it("claims the videos with no thumbnail and skips the ones that have one", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeThumblessVideo("A/VID", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeThumblessVideo("A/VID", streamId, actorId));
     // Has WhatsApp's own thumbnail; nothing to generate.
-    insertEvent(makeRichMediaEvent("A/VID2", channelId, actorId, "video"));
+    insertEvent(makeRichMediaEvent("A/VID2", streamId, actorId, "video"));
     // Not a video, and a video with no file at all.
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
     insertEvent(
-      makeThumblessVideo("A/NOFILE", channelId, actorId, { mediaPath: null }),
+      makeThumblessVideo("A/NOFILE", streamId, actorId, { mediaPath: null }),
     );
 
     expect(claimPendingPosters(10)).toEqual([
@@ -2415,35 +2514,35 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   });
 
   it("hands live arrivals over before the history backlog, newest first", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeThumblessVideo("A/OLD", channelId, actorId, {
+      makeThumblessVideo("A/OLD", streamId, actorId, {
         ts: "2026-07-01T12:00:00.000Z",
         isHistorical: true,
       }),
     );
     insertEvent(
-      makeThumblessVideo("A/NEWER", channelId, actorId, {
+      makeThumblessVideo("A/NEWER", streamId, actorId, {
         ts: "2026-07-02T12:00:00.000Z",
         isHistorical: true,
       }),
     );
     insertEvent(
-      makeThumblessVideo("A/LIVE", channelId, actorId, {
+      makeThumblessVideo("A/LIVE", streamId, actorId, {
         ts: "2026-06-01T12:00:00.000Z",
       }),
     );
 
     expect(claimPendingPosters(10).map((r) => r.id)).toEqual([
-      "wa:A/LIVE",
-      "wa:A/NEWER",
-      "wa:A/OLD",
+      "whatsapp:A/LIVE",
+      "whatsapp:A/NEWER",
+      "whatsapp:A/OLD",
     ]);
   });
 
   it("never claims a revoked row — there is no file left to sample", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeThumblessVideo("A/VID", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeThumblessVideo("A/VID", streamId, actorId));
     applyRevoke({
       sourceId: "whatsapp",
       targetExternalId: "A/VID",
@@ -2454,8 +2553,8 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   });
 
   it("takes the row out of the queue when the poster is recorded", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeThumblessVideo("A/VID", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeThumblessVideo("A/VID", streamId, actorId));
 
     expect(recordVideoPoster(id, "/media/whatsapp/A/VID.poster.jpg")).toBe(true);
     expect(claimPendingPosters(10)).toEqual([]);
@@ -2463,8 +2562,8 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   });
 
   it("refuses to overwrite a thumbnail that arrived meanwhile", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     // The sender's own frame is what they chose to show; ours is a guess at it.
     expect(recordVideoPoster(id, "/media/whatsapp/A/VID.poster.jpg")).toBe(false);
@@ -2472,8 +2571,8 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   });
 
   it("holds the reader off until there is a still, then lets it through", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeThumblessVideo("A/VID", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeThumblessVideo("A/VID", streamId, actorId));
 
     // Pending rather than unsupported — the lockout this replaces was
     // permanent, because the claim only ever matches 'pending'.
@@ -2489,8 +2588,8 @@ describe("claimPendingPosters / recordVideoPoster (v7 §3)", () => {
   });
 
   it("lets sampled frames stand in for the poster", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeThumblessVideo("A/VID", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeThumblessVideo("A/VID", streamId, actorId));
 
     recordMediaFrames(id, [{ path: "/media/whatsapp/A/VID.frame0.jpg", seconds: 0 }]);
     expect(claimPendingMedia(10, CLAIM_ALL).map((r) => r.id)).toEqual([id]);
@@ -2511,11 +2610,11 @@ const TRANSCRIBE_ALL: TranscriptClaimFilter = {
 /** A voice note: audio with a duration and the PTT flag the daemon sets. */
 function makeVoiceNote(
   externalId: string,
-  channelId: string,
+  streamId: string,
   actorId: string,
   overrides: Partial<Parameters<typeof insertEvent>[0]> = {},
 ) {
-  return makeRichMediaEvent(externalId, channelId, actorId, "audio", {
+  return makeRichMediaEvent(externalId, streamId, actorId, "audio", {
     mediaMime: "audio/ogg; codecs=opus",
     mediaFilename: "ptt.ogg",
     mediaSeconds: 14,
@@ -2529,12 +2628,12 @@ describe("transcript status seeding (v5 §3)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("marks what might carry speech pending and everything else unsupported", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
-    insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
-    insertEvent(makeRichMediaEvent("A/DOC", channelId, actorId, "document"));
-    insertEvent(makeEvent("A/TXT", channelId, actorId, "no attachment here"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
+    insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
+    insertEvent(makeRichMediaEvent("A/DOC", streamId, actorId, "document"));
+    insertEvent(makeEvent("A/TXT", streamId, actorId, "no attachment here"));
 
     const rows = getDb()
       .prepare(`SELECT external_id AS x, transcript_status AS s FROM events ORDER BY external_id`)
@@ -2553,20 +2652,20 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   beforeEach(() => upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" }));
 
   it("hands back live rows first with the fields whisper needs", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
+    const { streamId, actorId } = seedSourceChannelActor();
     insertEvent(
-      makeVoiceNote("A/OLD", channelId, actorId, {
+      makeVoiceNote("A/OLD", streamId, actorId, {
         ts: "2026-07-02T13:00:00.000Z",
         isHistorical: true,
       }),
     );
-    insertEvent(makeVoiceNote("A/PTT", channelId, actorId, { ts: "2026-07-02T10:00:00.000Z" }));
+    insertEvent(makeVoiceNote("A/PTT", streamId, actorId, { ts: "2026-07-02T10:00:00.000Z" }));
 
     const pending = claimPendingTranscription(10, TRANSCRIBE_ALL);
     // The history row is newer, but only a live arrival may jump the backlog.
-    expect(pending.map((r) => r.id)).toEqual(["wa:A/PTT", "wa:A/OLD"]);
+    expect(pending.map((r) => r.id)).toEqual(["whatsapp:A/PTT", "whatsapp:A/OLD"]);
     expect(pending[0]).toEqual({
-      id: "wa:A/PTT",
+      id: "whatsapp:A/PTT",
       kind: "audio",
       mediaPath: "/media/whatsapp/A/PTT.bin",
       mime: "audio/ogg; codecs=opus",
@@ -2578,20 +2677,20 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   });
 
   it("gates voice notes and video audio on their own switches", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
-    insertEvent(makeRichMediaEvent("A/VID", channelId, actorId, "video"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
+    insertEvent(makeRichMediaEvent("A/VID", streamId, actorId, "video"));
 
     expect(claimPendingTranscription(10, TRANSCRIBE_ALL).map((r) => r.id)).toEqual([
-      "wa:A/PTT",
-      "wa:A/VID",
+      "whatsapp:A/PTT",
+      "whatsapp:A/VID",
     ]);
     expect(
       claimPendingTranscription(10, { ...TRANSCRIBE_ALL, videoAudio: false }).map((r) => r.id),
-    ).toEqual(["wa:A/PTT"]);
+    ).toEqual(["whatsapp:A/PTT"]);
     expect(
       claimPendingTranscription(10, { ...TRANSCRIBE_ALL, voiceNotes: false }).map((r) => r.id),
-    ).toEqual(["wa:A/VID"]);
+    ).toEqual(["whatsapp:A/VID"]);
     expect(
       claimPendingTranscription(10, {
         voiceNotes: false,
@@ -2602,28 +2701,28 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   });
 
   it("holds back business chats until that switch is on too", () => {
-    const shop = upsertChannel({
+    const shop = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "shop@s.whatsapp.net",
       name: "Corner Store",
       kind: "dm",
       isBusiness: true,
     });
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
     insertEvent(makeVoiceNote("B/PTT", shop, actorId));
 
-    expect(claimPendingTranscription(10, TRANSCRIBE_ALL).map((r) => r.id)).toEqual(["wa:A/PTT"]);
+    expect(claimPendingTranscription(10, TRANSCRIBE_ALL).map((r) => r.id)).toEqual(["whatsapp:A/PTT"]);
     expect(
       claimPendingTranscription(10, { ...TRANSCRIBE_ALL, business: true })
         .map((r) => r.id)
         .sort(),
-    ).toEqual(["wa:A/PTT", "wa:B/PTT"]);
+    ).toEqual(["whatsapp:A/PTT", "whatsapp:B/PTT"]);
   });
 
   it("never hands out a revoked row, and drains it from the queue", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
     expect(claimPendingTranscription(10, TRANSCRIBE_ALL)).toHaveLength(1);
 
     applyRevoke({
@@ -2634,13 +2733,13 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
 
     expect(claimPendingTranscription(10, TRANSCRIBE_ALL)).toEqual([]);
     expect(
-      getDb().prepare(`SELECT transcript_status AS s FROM events WHERE id = 'wa:A/PTT'`).get(),
+      getDb().prepare(`SELECT transcript_status AS s FROM events WHERE id = 'whatsapp:A/PTT'`).get(),
     ).toEqual({ s: null });
   });
 
   it("recordTranscript clears the row from the queue and makes it searchable", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
 
     recordTranscript(id, {
       transcript: "kal subah nikalte hain, ferry pakadni hai",
@@ -2650,7 +2749,7 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
 
     expect(claimPendingTranscription(10, TRANSCRIBE_ALL)).toEqual([]);
     expect(searchEvents({ q: "ferry" }).map((h) => h.eventId)).toEqual([id]);
-    expect(getChannelMessages({ channelId, limit: 10 })[0].transcript).toBe(
+    expect(getStreamMessages({ streamId, limit: 10 })[0].transcript).toBe(
       "kal subah nikalte hain, ferry pakadni hai",
     );
     expect(getEventById(id)!.transcript).toBe("kal subah nikalte hain, ferry pakadni hai");
@@ -2662,8 +2761,8 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   });
 
   it("records silence as unsupported rather than storing an invented sentence", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
 
     recordTranscript(id, { status: "unsupported", error: "degenerate output on silence" });
 
@@ -2678,8 +2777,8 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   });
 
   it("keeps a partial transcript readable without passing it off as complete", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
 
     recordTranscript(id, {
       transcript: "kal subah nikalte hain",
@@ -2697,9 +2796,9 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   });
 
   it("rescan 'transcript' re-queues transcribed rows and drops the stale text", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    const { id } = insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
-    insertEvent(makeRichMediaEvent("A/IMG", channelId, actorId, "image"));
+    const { streamId, actorId } = seedSourceChannelActor();
+    const { id } = insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
+    insertEvent(makeRichMediaEvent("A/IMG", streamId, actorId, "image"));
     recordTranscript(id, {
       transcript: "ferry pakadni hai",
       model: "ggml-large-v3-turbo-q5_0",
@@ -2724,8 +2823,8 @@ describe("claimPendingTranscription / recordTranscript (v5 §3)", () => {
   });
 
   it("rescan 'transcript' never resurrects a revoked row", () => {
-    const { channelId, actorId } = seedSourceChannelActor();
-    insertEvent(makeVoiceNote("A/PTT", channelId, actorId));
+    const { streamId, actorId } = seedSourceChannelActor();
+    insertEvent(makeVoiceNote("A/PTT", streamId, actorId));
     applyRevoke({
       sourceId: "whatsapp",
       targetExternalId: "A/PTT",

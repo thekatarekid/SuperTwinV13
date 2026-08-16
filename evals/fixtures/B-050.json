@@ -1,0 +1,103 @@
+{
+  "id": "B-050",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a20=BigBasket",
+      "a1=Gargi"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "BigBasket",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      },
+      {
+        "alias": "c2",
+        "name": "Gargi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:00+05:30",
+        "who": "a20",
+        "text": "FLAT 40% OFF on your first basket! Use code FRESH40",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T10:00+05:30",
+        "who": "a20",
+        "text": "Limited time - free delivery this weekend. Shop now",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T11:00+05:30",
+        "who": "a20",
+        "text": "Your order OD8841 is out for delivery. Amount due Rs.1,240 by 20-Aug",
+        "c": "c1"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-14T11:00+05:30",
+        "who": "a1",
+        "text": "coffee tomorrow?",
+        "c": "c2"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "assign\nextract|c=c1|vs=c2\n#TI1\nJ|c1|pm|0.85|predominantly campaign offers; one delivery notice does not change the channel's character",
+  "expect": {
+    "state": {
+      "tier": "T4",
+      "reference_tier": "T1",
+      "events_total": 3,
+      "events_enqueued": 3,
+      "events_dropped": 0,
+      "stages": [
+        "enrich",
+        "entity"
+      ],
+      "reference_stages": [
+        "enrich",
+        "entity"
+      ],
+      "same_stages_as_reference": true,
+      "waits_its_turn": true,
+      "orphans_after": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_t4_obligation_kept"
+  },
+  "stub": false,
+  "doc": {
+    "given": "T4 channel contains a real bill with a real due date",
+    "expect": "loop extracted in full, just later",
+    "assert": "tiering orders, never filters"
+  }
+}

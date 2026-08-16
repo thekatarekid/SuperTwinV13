@@ -1,0 +1,80 @@
+{
+  "id": "D-049",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a3"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "sending you the docs now"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:05:00.000Z",
+        "who": "self",
+        "text": "and the second one"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T04:25:00.000Z",
+        "who": "a3",
+        "text": "got them, looking now"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 1,
+      "cut": false,
+      "boundary": null,
+      "event_counts": [
+        3
+      ],
+      "policy_shift_min_gap_ms": 3600000
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": false,
+  "doc": {
+    "given": "gap 20m (< shift_min_gap) then Rashmi initiates",
+    "expect": "NO cut",
+    "assert": "shift below min-gap never cuts"
+  }
+}

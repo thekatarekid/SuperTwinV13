@@ -1,0 +1,35 @@
+{
+  "id": "T-022",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "seal_hash|hash=h1|last=h1",
+  "expect": {
+    "consolidations": []
+  },
+  "assert": {
+    "mode": "absent",
+    "gate": "sched_seal_hash_skip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "seal with unchanged content hash",
+    "expect": "consolidation pass SKIPPED",
+    "assert": "hash gate"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "A-905",
+  "category": "A",
+  "layer": "harness",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [{ "alias": "c1", "name": "Ghar+", "kind": "group", "participants": ["self", "a1", "a2"] }],
+    "events": [],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "S|tier|T1\nS|watermark_moved|true",
+  "expect": { "state": { "tier": "T1", "watermark_moved": true } },
+  "assert": { "mode": "state", "gate": null },
+  "doc": {
+    "given": "harness self-test — state mode",
+    "expect": "the DB fields hold the expected values after the run",
+    "assert": "state"
+  }
+}

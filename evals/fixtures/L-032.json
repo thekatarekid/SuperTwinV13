@@ -1,0 +1,40 @@
+{
+  "id": "L-032",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "entity|id=a1|type=person\nentity|id=a2|type=person\nepisode|id=ep_1|entities=a1,a2|label=Goa trip|source=whatsapp\nprov|episodes=ep_1\nreconcile|times=2",
+  "expect": {
+    "state": {
+      "arc_ids_stable": true,
+      "arcs": 1,
+      "groups": 1,
+      "provisionals": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "arcs_id_stability"
+  },
+  "stub": false,
+  "doc": {
+    "given": "full re-derivation run #2",
+    "expect": "same arc_keys -> same ids; labels and pins survive",
+    "assert": "arc-id stability"
+  }
+}

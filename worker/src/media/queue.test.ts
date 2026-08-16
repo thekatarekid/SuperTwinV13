@@ -22,7 +22,7 @@ import {
   insertEvent,
   recordMediaFrames,
   recordVideoPoster,
-  upsertChannel,
+  upsertStream,
   upsertSource,
   type InsertEventRow,
   type PendingMediaRow,
@@ -37,7 +37,7 @@ import {
   setMediaVideoFrameIntervalSec,
   setMediaVideoFramesEnabled,
   setMediaVoiceNotesEnabled,
-} from "../store/store.js";
+} from "../db/settings.js";
 import type { DescribeBatchResult, DescribeResult } from "./describe.js";
 import type { SampleResult } from "./frames.js";
 import type { LinkScrapeResult, ScrapeOptions } from "./link.js";
@@ -50,6 +50,7 @@ import {
   stopMediaQueue,
   type MediaQueueOptions,
 } from "./queue.js";
+import { setEnrichmentReadAllMedia } from "./batch.js";
 import {
   setMediaBusinessEnabled,
   setMediaImageBatch,
@@ -105,7 +106,7 @@ function seed(
     externalId,
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId: null,
+    streamId: null,
     actorId: null,
     ts,
     kind: "image",
@@ -141,7 +142,7 @@ function seedLink(externalId: string, ts: string, url: string): string {
     externalId,
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId: null,
+    streamId: null,
     actorId: null,
     ts,
     kind: "message",
@@ -273,7 +274,7 @@ describe("throttle", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.groups).toEqual([["wa:a", "wa:b", "wa:c"]]);
+    expect(r.groups).toEqual([["whatsapp:a", "whatsapp:b", "whatsapp:c"]]);
 
     seed("d", "2026-07-02T09:00:01.000Z");
     seed("e", "2026-07-02T09:00:00.000Z");
@@ -282,12 +283,12 @@ describe("throttle", () => {
     expect(r.groups).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(r.groups).toEqual([
-      ["wa:a", "wa:b", "wa:c"],
-      ["wa:d", "wa:e"],
+      ["whatsapp:a", "whatsapp:b", "whatsapp:c"],
+      ["whatsapp:d", "whatsapp:e"],
     ]);
 
-    expect(stored("wa:a")).toMatchObject({
-      media_description: "saw wa:a",
+    expect(stored("whatsapp:a")).toMatchObject({
+      media_description: "saw whatsapp:a",
       media_desc_status: "done",
       media_desc_model: "haiku",
       media_desc_error: null,
@@ -319,24 +320,25 @@ describe("throttle", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(r.ids).toEqual([]);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(r.ids).toEqual(["wa:a"]);
+    expect(r.ids).toEqual(["whatsapp:a"]);
   });
 });
 
 describe("batching", () => {
-  it("a full batch rides one call; the overflow waits for the next", async () => {
-    const ids = seedImages(21);
+  it("a full batch of 16 rides one call; the overflow waits for the next", async () => {
+    const ids = seedImages(17);
     const r = reader();
     queue = new MediaQueue(r.opts);
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.groups[0]).toHaveLength(20);
-    // Twenty descriptions were made, so twenty ticks are owed before the next call.
-    await vi.advanceTimersByTimeAsync(19_999);
+    // Sixteen is arch §10.1's default, not a number this file chose.
+    expect(r.groups[0]).toHaveLength(16);
+    // Sixteen descriptions were made, so sixteen ticks are owed before the next.
+    await vi.advanceTimersByTimeAsync(15_999);
     expect(r.groups).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(r.groups[1]).toEqual([ids[20]]);
+    expect(r.groups[1]).toEqual([ids[16]]);
   });
 
   it("the batch size comes from Settings, and is read at claim time", async () => {
@@ -354,22 +356,25 @@ describe("batching", () => {
     expect(r.groups[1]).toHaveLength(4);
   });
 
-  it("an image the answer never named is read alone, never given another's description", async () => {
-    seed("a", "2026-07-02T10:00:02.000Z");
-    seed("b", "2026-07-02T10:00:01.000Z");
-    seed("c", "2026-07-02T10:00:00.000Z");
+  it("a batch the answer did not account for is split in half, never applied in part", async () => {
+    seed("a", "2026-07-02T10:00:03.000Z");
+    seed("b", "2026-07-02T10:00:02.000Z");
+    seed("c", "2026-07-02T10:00:01.000Z");
+    seed("d", "2026-07-02T10:00:00.000Z");
     const groups: string[][] = [];
     queue = new MediaQueue({
       describe: async (row) => {
         groups.push([row.id]);
         return { ...seen(row), description: "read alone" };
       },
-      // The middle image comes back unmapped: it is simply absent from results.
+      // The first, full call comes back one id short — which under §10.1 makes
+      // the WHOLE answer untrustworthy, including the blocks that did line up.
       describeBatch: async (rows) => {
         groups.push(rows.map((r) => r.id));
         const results = new Map<string, DescribeResult>();
+        const short = rows.length === 4;
         for (const row of rows) {
-          if (row.id !== "wa:b") results.set(row.id, seen(row));
+          if (!(short && row.id === "whatsapp:b")) results.set(row.id, seen(row));
         }
         return {
           results,
@@ -380,18 +385,49 @@ describe("batching", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    // A single leftover goes straight to the read that can settle it, in the
-    // same cycle — not to a queue it has to wait in.
-    expect(groups).toEqual([["wa:a", "wa:b", "wa:c"], ["wa:b"]]);
-    expect(stored("wa:b")).toMatchObject({
-      media_desc_status: "done",
-      media_description: "read alone",
-    });
-    // ...and never a description that might belong to a or c.
-    expect(stored("wa:a").media_description).toBe("saw wa:a");
+    // 4 → 2 + 2, not 4 → three solo reads, and not "apply the three that matched".
+    expect(groups).toEqual([
+      ["whatsapp:a", "whatsapp:b", "whatsapp:c", "whatsapp:d"],
+      ["whatsapp:a", "whatsapp:b"],
+      ["whatsapp:c", "whatsapp:d"],
+    ]);
+    // Nothing from the rejected answer reached the row it was written about.
+    expect(stored("whatsapp:a").media_description).toBe("saw whatsapp:a");
+    expect(stored("whatsapp:b").media_description).toBe("saw whatsapp:b");
   });
 
-  it("an answer that maps nothing is asked again, then read one at a time", async () => {
+  it("splits 16 into 8 + 8 — three calls, not sixteen solo reads", async () => {
+    const ids = seedImages(16);
+    const groups: string[][] = [];
+    queue = new MediaQueue({
+      describe: async (row) => {
+        groups.push([row.id]);
+        return seen(row);
+      },
+      describeBatch: async (rows) => {
+        groups.push(rows.map((r) => r.id));
+        const results = new Map<string, DescribeResult>();
+        for (const row of rows) {
+          // Only the full batch of 16 comes back short; both halves are clean.
+          if (!(rows.length === 16 && row.id === ids[9])) results.set(row.id, seen(row));
+        }
+        return {
+          results,
+          call: { description: null, status: "done", model: "haiku", error: null },
+        };
+      },
+    });
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toHaveLength(16);
+    expect(groups[1]).toEqual(ids.slice(0, 8));
+    expect(groups[2]).toEqual(ids.slice(8));
+    for (const id of ids) expect(stored(id).media_desc_status).toBe("done");
+  });
+
+  it("an answer that maps nothing splits all the way down to single reads", async () => {
     seed("a", "2026-07-02T10:00:02.000Z");
     seed("b", "2026-07-02T10:00:01.000Z");
     seed("c", "2026-07-02T10:00:00.000Z");
@@ -416,7 +452,7 @@ describe("batching", () => {
             description: null,
             status: "error",
             model: "haiku",
-            error: "the answer named none of the 3 files",
+            error: "the answer echoed 0 of 3 ids (3 missing)",
           },
         };
       },
@@ -425,16 +461,16 @@ describe("batching", () => {
 
     await vi.advanceTimersByTimeAsync(0);
     expect(groups).toEqual([
-      ["wa:a", "wa:b", "wa:c"],
-      ["wa:a", "wa:b", "wa:c"],
-      ["wa:a"],
-      ["wa:b"],
-      ["wa:c"],
+      ["whatsapp:a", "whatsapp:b", "whatsapp:c"],
+      ["whatsapp:a", "whatsapp:b"],
+      ["whatsapp:a"],
+      ["whatsapp:b"],
+      ["whatsapp:c"],
     ]);
 
     // Nothing was remembered as unbatchable: the next cycle batches them again.
     await vi.advanceTimersByTimeAsync(3_000);
-    expect(groups[5]).toEqual(["wa:a", "wa:b", "wa:c"]);
+    expect(groups[5]).toEqual(["whatsapp:a", "whatsapp:b", "whatsapp:c"]);
   });
 
   it("a document is never batched with the images around it", async () => {
@@ -451,9 +487,9 @@ describe("batching", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.groups[0]).toEqual(["wa:img1", "wa:img2"]);
+    expect(r.groups[0]).toEqual(["whatsapp:img1", "whatsapp:img2"]);
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(r.groups[1]).toEqual(["wa:doc"]);
+    expect(r.groups[1]).toEqual(["whatsapp:doc"]);
   });
 
   it("a video frame is read one per call", async () => {
@@ -471,29 +507,29 @@ describe("batching", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.groups).toEqual([["wa:v1"]]);
+    expect(r.groups).toEqual([["whatsapp:v1"]]);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(r.groups).toEqual([["wa:v1"], ["wa:v2"]]);
+    expect(r.groups).toEqual([["whatsapp:v1"], ["whatsapp:v2"]]);
   });
 
   it("the newest row being a document does not spend the tick on it", async () => {
     seedDoc("doc", "2026-07-02T10:00:30.000Z");
-    const ids = seedImages(20);
+    const ids = seedImages(16);
     const r = reader();
     queue = new MediaQueue(r.opts);
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
     expect(r.groups[0]).toEqual(ids);
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(r.groups[1]).toEqual(["wa:doc"]);
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(r.groups[1]).toEqual(["whatsapp:doc"]);
   });
 
   it("a queue of mixed kinds still fills a whole image batch", async () => {
     for (let i = 0; i < 12; i++) {
       seedDoc(`d${i}`, `2026-07-02T10:01:${String(30 - i).padStart(2, "0")}.000Z`);
     }
-    const ids = seedImages(20);
+    const ids = seedImages(16);
     const r = reader();
     queue = new MediaQueue(r.opts);
     queue.start();
@@ -502,6 +538,127 @@ describe("batching", () => {
     expect(r.groups[0]).toEqual(ids);
   });
 });
+
+describe("priority, never FIFO (arch §9.2/§9.3)", () => {
+  /** One image per call, so the ORDER is what the groups record. */
+  beforeEach(() => {
+    setMediaImageBatch(1);
+  });
+
+  it("reads the photo from an hour ago before the photo from 2023", async () => {
+    // Inserted oldest-first, so FIFO and rowid order would both start with 2023.
+    seed("old", "2023-04-02T10:00:00.000Z");
+    seed("recent", new Date(Date.now() - 3_600_000).toISOString());
+    const r = reader();
+    queue = new MediaQueue(r.opts);
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.ids).toEqual(["whatsapp:recent"]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(r.ids).toEqual(["whatsapp:recent", "whatsapp:old"]);
+  });
+
+  it("a T1 friend's photo from last week outranks a T4 blast from an hour ago", async () => {
+    const friend = upsertStream({
+      sourceId: "whatsapp",
+      sourceExtId: "friend@s.whatsapp.net",
+      name: "Pranjali",
+      kind: "dm",
+    });
+    const promo = upsertStream({
+      sourceId: "whatsapp",
+      sourceExtId: "promo@s.whatsapp.net",
+      name: "Deals",
+      kind: "dm",
+    });
+    getDb().prepare(`UPDATE streams SET tier = 'T1' WHERE id = ?`).run(friend);
+    getDb().prepare(`UPDATE streams SET tier = 'T4' WHERE id = ?`).run(promo);
+    seed("blast", new Date(Date.now() - 3_600_000).toISOString(), { streamId: promo });
+    seed("photo", new Date(Date.now() - 6 * 86_400_000).toISOString(), { streamId: friend });
+
+    const r = reader();
+    queue = new MediaQueue(r.opts);
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.ids).toEqual(["whatsapp:photo"]);
+  });
+});
+
+describe("the completion pass (arch §8.4)", () => {
+  function seedSession(id: string, eventIds: string[]): void {
+    getDb()
+      .prepare(
+        `INSERT INTO sessions (id, source_id, started_at, ended_at, event_ids,
+                               status, pending_enrichment_count)
+         VALUES (?, 'whatsapp', '2026-07-02T09:00:00.000Z', '2026-07-02T10:00:00.000Z',
+                 ?, 'sealed', ?)`,
+      )
+      .run(id, JSON.stringify(eventIds), eventIds.length);
+  }
+
+  function completionRows(): number {
+    return (
+      getDb()
+        .prepare(
+          `SELECT COUNT(*) AS n FROM work_queue WHERE unit_kind = 'session' AND stage = 'extract'`,
+        )
+        .get() as { n: number }
+    ).n;
+  }
+
+  it("fires once, when the session's last attachment has a verdict", async () => {
+    const a = seed("a", "2026-07-02T09:30:02.000Z");
+    const b = seed("b", "2026-07-02T09:30:01.000Z");
+    seedSession("s1", [a, b]);
+    const r = reader();
+    queue = new MediaQueue(r.opts);
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(r.ids).toHaveLength(2);
+    expect(completionRows()).toBe(1);
+
+    // ...and it is exactly one row, however many more cycles run.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(completionRows()).toBe(1);
+  });
+
+  it("an unreadable attachment resolves the session rather than stranding it", async () => {
+    const a = seed("a", "2026-07-02T09:30:00.000Z");
+    seedSession("s1", [a]);
+    const r = reader(() => ({
+      description: null,
+      status: "unsupported",
+      model: "haiku",
+      error: "nothing to look at",
+    }));
+    queue = new MediaQueue(r.opts);
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stored("whatsapp:a").media_desc_status).toBe("unsupported");
+    expect(completionRows()).toBe(1);
+  });
+
+  it("a sticker skipped by read_all_media = off still moves the countdown", async () => {
+    setEnrichmentReadAllMedia(false);
+    const s = seed("sticker", "2026-07-02T09:30:00.000Z", { kind: "sticker" });
+    seedSession("s1", [s]);
+    const r = reader();
+    queue = new MediaQueue(r.opts);
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    // No model call was made for it...
+    expect(r.ids).toEqual([]);
+    expect(stored("whatsapp:sticker").media_desc_status).toBe("skipped");
+    // ...and pass 2 is not left waiting on a file nobody will ever read.
+    expect(completionRows()).toBe(1);
+  });
+});
+
 
 describe("per-type switches", () => {
   it("images are read by default and held back when switched off", async () => {
@@ -514,11 +671,11 @@ describe("per-type switches", () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(r.ids).toEqual([]);
-    expect(stored("wa:a").media_desc_status).toBe("pending");
+    expect(stored("whatsapp:a").media_desc_status).toBe("pending");
 
     setMediaImagesEnabled(true);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(r.ids).toEqual(["wa:a"]);
+    expect(r.ids).toEqual(["whatsapp:a"]);
   });
 
   it("video is off until asked for — a switch flipped on reaches rows already stored", async () => {
@@ -537,11 +694,11 @@ describe("per-type switches", () => {
 
     setMediaVideoEnabled(true);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(r.ids).toEqual(["wa:v"]);
+    expect(r.ids).toEqual(["whatsapp:v"]);
   });
 
   it("media in a business chat waits for the business switch", async () => {
-    const channelId = upsertChannel({
+    const streamId = upsertStream({
       sourceId: "whatsapp",
       sourceExtId: "1555@s.whatsapp.net",
       name: "Some Shop",
@@ -552,7 +709,7 @@ describe("per-type switches", () => {
       externalId: "biz",
       sourceId: "whatsapp",
       sourceType: "whatsapp",
-      channelId,
+      streamId,
       actorId: null,
       ts: "2026-07-02T10:00:00.000Z",
       kind: "image",
@@ -570,7 +727,7 @@ describe("per-type switches", () => {
 
     setMediaBusinessEnabled(true);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(r.ids).toEqual(["wa:biz"]);
+    expect(r.ids).toEqual(["whatsapp:biz"]);
   });
 });
 
@@ -595,7 +752,7 @@ describe("link scraping", () => {
 
     await vi.advanceTimersByTimeAsync(120_000);
     expect(urls).toEqual([]);
-    expect(storedLink("wa:l").link_scrape_status).toBe("pending");
+    expect(storedLink("whatsapp:l").link_scrape_status).toBe("pending");
   });
 
   it("records the page text and fills a missing title", async () => {
@@ -605,7 +762,7 @@ describe("link scraping", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedLink("wa:l")).toMatchObject({
+    expect(storedLink("whatsapp:l")).toMatchObject({
       link_scrape_status: "done",
       link_scraped_text: "Rates rise again, says the central bank.",
       link_title: "Rates rise again",
@@ -621,7 +778,7 @@ describe("link scraping", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedLink("wa:l").link_scrape_status).toBe("done");
+    expect(storedLink("whatsapp:l").link_scrape_status).toBe("done");
   });
 
   it("a refusal is terminal and carries its reason; no text is invented", async () => {
@@ -643,7 +800,7 @@ describe("link scraping", () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(calls).toBe(1);
-    expect(storedLink("wa:l")).toMatchObject({
+    expect(storedLink("whatsapp:l")).toMatchObject({
       link_scrape_status: "skipped",
       link_scraped_text: null,
       link_scrape_error: "10.0.0.1 resolves only to non-public addresses",
@@ -668,9 +825,9 @@ describe("link scraping", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedLink("wa:l").link_scrape_status).toBe("pending");
+    expect(storedLink("whatsapp:l").link_scrape_status).toBe("pending");
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(storedLink("wa:l")).toMatchObject({
+    expect(storedLink("whatsapp:l")).toMatchObject({
       link_scrape_status: "error",
       link_scrape_error: "socket hang up",
     });
@@ -697,9 +854,9 @@ describe("link scraping", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(order).toEqual(["read wa:a"]);
+    expect(order).toEqual(["read whatsapp:a"]);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(order).toEqual(["read wa:a", "fetch https://example.com/a"]);
+    expect(order).toEqual(["read whatsapp:a", "fetch https://example.com/a"]);
   });
 
   it("hands the fetch the video controls the settings say it may use", async () => {
@@ -762,11 +919,11 @@ describe("pause", () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(r.ids).toEqual([]);
-    expect(stored("wa:a").media_desc_status).toBe("pending");
+    expect(stored("whatsapp:a").media_desc_status).toBe("pending");
 
     setMediaDescribeEnabled(true);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(r.ids).toEqual(["wa:a"]);
+    expect(r.ids).toEqual(["whatsapp:a"]);
   });
 
   it("backfill_enabled off leaves the backlog alone but still reads live media", async () => {
@@ -779,8 +936,8 @@ describe("pause", () => {
     queue.enqueueLive(liveId);
 
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(r.ids).toEqual(["wa:live"]);
-    expect(stored("wa:old").media_desc_status).toBe("pending");
+    expect(r.ids).toEqual(["whatsapp:live"]);
+    expect(stored("whatsapp:old").media_desc_status).toBe("pending");
   });
 });
 
@@ -800,7 +957,7 @@ describe("live media", () => {
     // the live read pays no throttle, so the slot the backlog wants is free.
     expect(r.groups).toHaveLength(2);
     expect(r.groups).toEqual(
-      expect.arrayContaining([["wa:live"], ["wa:old1", "wa:old2"]]),
+      expect.arrayContaining([["whatsapp:live"], ["whatsapp:old1", "whatsapp:old2"]]),
     );
   });
 
@@ -815,17 +972,17 @@ describe("live media", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(g.groups).toEqual([["wa:d1"]]);
+    expect(g.groups).toEqual([["whatsapp:d1"]]);
 
     // The only slot is busy, and a model call in flight is not interrupted.
     queue.enqueueLive(liveId);
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(g.groups).toEqual([["wa:d1"]]);
+    expect(g.groups).toEqual([["whatsapp:d1"]]);
 
     // The moment it frees, live goes first — ahead of the older document.
     g.release();
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(g.groups).toEqual([["wa:d1"], ["wa:live"]]);
+    expect(g.groups).toEqual([["whatsapp:d1"], ["whatsapp:live"]]);
   });
 
   it("wakes an idle queue immediately", async () => {
@@ -837,23 +994,23 @@ describe("live media", () => {
     const id = seed("live", "2026-07-02T10:00:00.000Z");
     queue.enqueueLive(id);
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.ids).toEqual(["wa:live"]);
+    expect(r.ids).toEqual(["whatsapp:live"]);
   });
 
   it("a history replay is backlog: it batches, and it waits its turn", async () => {
-    const ids = seedImages(21);
+    const ids = seedImages(17);
     const r = reader();
     startMediaQueue(r.opts);
     for (const id of ids) enqueueLiveMedia(id, true);
 
     await vi.advanceTimersByTimeAsync(0);
     // One call for the batch, not one per arrival...
-    expect(r.groups).toEqual([ids.slice(0, 20)]);
+    expect(r.groups).toEqual([ids.slice(0, 16)]);
     // ...and the throttle still applies, which is exactly what "live" bypasses.
-    await vi.advanceTimersByTimeAsync(19_999);
+    await vi.advanceTimersByTimeAsync(15_999);
     expect(r.groups).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
-    expect(r.groups[1]).toEqual([ids[20]]);
+    expect(r.groups[1]).toEqual([ids[16]]);
   });
 
   it("a history replay does not read while the backlog is switched off", async () => {
@@ -865,7 +1022,7 @@ describe("live media", () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(r.ids).toEqual([]);
-    expect(stored("wa:h").media_desc_status).toBe("pending");
+    expect(stored("whatsapp:h").media_desc_status).toBe("pending");
   });
 
   it("a row stamped historical stays backlog even if something calls it live", async () => {
@@ -1017,7 +1174,7 @@ describe("rate limits", () => {
 
     // Five slots would otherwise have spent five more calls within four seconds.
     await vi.advanceTimersByTimeAsync(59_999);
-    expect(r.groups).toEqual([["wa:d0"]]);
+    expect(r.groups).toEqual([["whatsapp:d0"]]);
     await vi.advanceTimersByTimeAsync(1);
     expect(r.groups).toHaveLength(2);
 
@@ -1038,7 +1195,7 @@ describe("rate limits", () => {
     // Four calls in — one more than a row's attempts — and it is still queued
     // rather than written off, because none of them was about the file.
     expect(r.ids).toHaveLength(4);
-    expect(stored("wa:d0")).toMatchObject({
+    expect(stored("whatsapp:d0")).toMatchObject({
       media_desc_status: "pending",
       media_desc_error: refused.error,
     });
@@ -1111,7 +1268,7 @@ describe("rate limits", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(order).toEqual(["read wa:d", "hear wa:a"]);
+    expect(order).toEqual(["read whatsapp:d", "hear whatsapp:a"]);
   });
 });
 
@@ -1125,12 +1282,12 @@ describe("failures", () => {
     queue.start();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(stored("wa:a")).toMatchObject({
+    expect(stored("whatsapp:a")).toMatchObject({
       media_desc_status: "pending",
       media_desc_error: "child died",
       media_description: null,
     });
-    expect(claimPendingMedia(10, ALL_KINDS).map((p) => p.id)).toEqual(["wa:a"]);
+    expect(claimPendingMedia(10, ALL_KINDS).map((p) => p.id)).toEqual(["whatsapp:a"]);
   });
 
   it("retries are bounded — the third failure is recorded as terminal", async () => {
@@ -1146,9 +1303,9 @@ describe("failures", () => {
 
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(stored("wa:a").media_desc_status).toBe("pending");
+    expect(stored("whatsapp:a").media_desc_status).toBe("pending");
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(stored("wa:a")).toMatchObject({
+    expect(stored("whatsapp:a")).toMatchObject({
       media_desc_status: "error",
       media_desc_error: "read timed out",
     });
@@ -1207,7 +1364,7 @@ describe("failures", () => {
         .all(),
     ).toEqual([
       {
-        run_id: "media-batch-wa:a",
+        run_id: "media-batch-whatsapp:a-2",
         kind: "media",
         status: "ok",
         prompt_chars: 812,
@@ -1232,7 +1389,7 @@ describe("failures", () => {
     queue.start();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(stored("wa:a")).toMatchObject({
+    expect(stored("whatsapp:a")).toMatchObject({
       media_desc_status: "unsupported",
       media_description: null,
     });
@@ -1269,7 +1426,7 @@ describe("lifecycle", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.groups).toEqual([["wa:a", "wa:b"]]);
+    expect(r.groups).toEqual([["whatsapp:a", "whatsapp:b"]]);
   });
 
   it("stopping mid-read records no verdict — the row is simply still pending", async () => {
@@ -1290,18 +1447,18 @@ describe("lifecycle", () => {
     queue = new MediaQueue(r.opts);
     queue.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.ids).toEqual(["wa:a"]);
+    expect(r.ids).toEqual(["whatsapp:a"]);
 
     queue.stop();
     release!();
     await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(stored("wa:a")).toMatchObject({
+    expect(stored("whatsapp:a")).toMatchObject({
       media_desc_status: "pending",
       media_desc_error: null,
       media_description: null,
     });
-    expect(r.ids).toEqual(["wa:a"]);
+    expect(r.ids).toEqual(["whatsapp:a"]);
   });
 
   it("a stopped queue drops live ids instead of queueing them for nobody", async () => {
@@ -1412,7 +1569,7 @@ describe("video frames", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(s.asked).toEqual([]);
     expect(seenFrames).toEqual([[]]);
-    expect(storedFrames("wa:v")).toBeNull();
+    expect(storedFrames("whatsapp:v")).toBeNull();
   });
 
   it("samples across the clip and hands every frame to ONE read", async () => {
@@ -1433,13 +1590,13 @@ describe("video frames", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(s.asked).toEqual([{ id: "wa:v", intervalSec: 5, maxFrames: 8 }]);
+    expect(s.asked).toEqual([{ id: "whatsapp:v", intervalSec: 5, maxFrames: 8 }]);
     expect(calls).toBe(1);
     expect(handed).toHaveLength(4);
     // The column is the only record those files exist — without it the sweep
     // takes them straight back.
-    expect(JSON.parse(storedFrames("wa:v")!)).toHaveLength(4);
-    expect(stored("wa:v").media_desc_status).toBe("done");
+    expect(JSON.parse(storedFrames("whatsapp:v")!)).toHaveLength(4);
+    expect(stored("whatsapp:v").media_desc_status).toBe("done");
   });
 
   it("reads the interval fresh, so a Settings change lands on the next video", async () => {
@@ -1490,8 +1647,8 @@ describe("video frames", () => {
 
     await vi.advanceTimersByTimeAsync(0);
     expect(handed).toEqual([]);
-    expect(storedFrames("wa:v")).toBeNull();
-    expect(stored("wa:v").media_desc_status).toBe("done");
+    expect(storedFrames("whatsapp:v")).toBeNull();
+    expect(stored("whatsapp:v").media_desc_status).toBe("done");
   });
 
   it("a sampler that throws does not stop the read or the loop", async () => {
@@ -1509,8 +1666,8 @@ describe("video frames", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(r.ids).toEqual(["wa:v"]);
-    expect(stored("wa:v").media_desc_status).toBe("done");
+    expect(r.ids).toEqual(["whatsapp:v"]);
+    expect(stored("whatsapp:v").media_desc_status).toBe("done");
   });
 
   it("sweeps frame files the DB no longer points at, and only those", async () => {
@@ -1621,7 +1778,7 @@ describe("video posters", () => {
 
     await vi.advanceTimersByTimeAsync(300_000);
     expect(p.asked).toHaveLength(3);
-    expect(lines.some((l) => /no poster for wa:v/.test(l))).toBe(true);
+    expect(lines.some((l) => /no poster for whatsapp:v/.test(l))).toBe(true);
   });
 
   it("leaves a video that already has a thumbnail alone", async () => {
@@ -1681,13 +1838,42 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(l.ids).toEqual(["wa:a", "wa:v"]);
-    expect(storedTranscript("wa:a")).toEqual({
+    expect(l.ids).toEqual(["whatsapp:a", "whatsapp:v"]);
+    expect(storedTranscript("whatsapp:a")).toEqual({
       transcript: "Haan bhai, kal shaam ko milte hain.",
       transcript_status: "done",
       transcript_model: "large-v3-turbo-q5_0",
       transcript_error: null,
     });
+  });
+
+  it("read_all_media = off skips sub-2s audio with a verdict, not a silence", async () => {
+    setEnrichmentReadAllMedia(false);
+    seed("blip", "2026-07-02T10:00:01.000Z", {
+      kind: "audio",
+      mediaPath: join(tmpDir, "media", "blip.ogg"),
+      mediaMime: "audio/ogg; codecs=opus",
+      mediaSeconds: 1,
+      mediaMetaJson: JSON.stringify({ voice: true }),
+    });
+    const l = listener();
+    queue = new MediaQueue({ ...reader().opts, transcribe: l.transcribe });
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(l.ids).toEqual([]);
+    expect(storedTranscript("whatsapp:blip").transcript_status).toBe("skipped");
+  });
+
+  it("a 12s voice note is transcribed even with read_all_media off", async () => {
+    setEnrichmentReadAllMedia(false);
+    seedAudio("a", "2026-07-02T10:00:01.000Z");
+    const l = listener();
+    queue = new MediaQueue({ ...reader().opts, transcribe: l.transcribe });
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(l.ids).toEqual(["whatsapp:a"]);
   });
 
   it("both switches off means nothing is transcribed", async () => {
@@ -1700,7 +1886,7 @@ describe("transcription", () => {
 
     await vi.advanceTimersByTimeAsync(120_000);
     expect(l.ids).toEqual([]);
-    expect(storedTranscript("wa:a").transcript_status).toBe("pending");
+    expect(storedTranscript("whatsapp:a").transcript_status).toBe("pending");
   });
 
   it("a switch flipped back on reaches voice notes already on disk", async () => {
@@ -1714,8 +1900,8 @@ describe("transcription", () => {
 
     setMediaVoiceNotesEnabled(true);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(l.ids).toEqual(["wa:a"]);
-    expect(storedTranscript("wa:a").transcript_status).toBe("done");
+    expect(l.ids).toEqual(["whatsapp:a"]);
+    expect(storedTranscript("whatsapp:a").transcript_status).toBe("done");
   });
 
   it("voice notes and video audio gate separately", async () => {
@@ -1727,11 +1913,11 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(l.ids).toEqual(["wa:a"]);
+    expect(l.ids).toEqual(["whatsapp:a"]);
 
     setMediaVideoAudioEnabled(true);
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(l.ids).toEqual(["wa:a", "wa:v"]);
+    expect(l.ids).toEqual(["whatsapp:a", "whatsapp:v"]);
   });
 
   it("waits for every media read AND every link — v5 §5's priority, in order", async () => {
@@ -1759,14 +1945,14 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(order).toEqual(["read wa:img"]);
+    expect(order).toEqual(["read whatsapp:img"]);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(order).toEqual(["read wa:img", "fetch https://example.com/a"]);
+    expect(order).toEqual(["read whatsapp:img", "fetch https://example.com/a"]);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(order).toEqual([
-      "read wa:img",
+      "read whatsapp:img",
       "fetch https://example.com/a",
-      "hear wa:a",
+      "hear whatsapp:a",
     ]);
   });
 
@@ -1799,17 +1985,17 @@ describe("transcription", () => {
     });
     queue.start();
     await vi.advanceTimersByTimeAsync(0);
-    expect(order).toEqual(["hear wa:a"]);
+    expect(order).toEqual(["hear whatsapp:a"]);
 
     const liveId = seed("live", "2026-07-02T11:00:00.000Z");
     queue.enqueueLive(liveId);
     await vi.advanceTimersByTimeAsync(0);
 
     expect(aborted).toBe(true);
-    expect(order).toEqual(["hear wa:a", "read wa:live"]);
+    expect(order).toEqual(["hear whatsapp:a", "read whatsapp:live"]);
     // The transcription that was killed recorded nothing — it is simply still
     // queued, exactly as a crash mid-read would leave it.
-    expect(storedTranscript("wa:a")).toMatchObject({
+    expect(storedTranscript("whatsapp:a")).toMatchObject({
       transcript_status: "pending",
       transcript_error: null,
     });
@@ -1824,7 +2010,7 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedTranscript("wa:a").transcript_status).toBe("done");
+    expect(storedTranscript("whatsapp:a").transcript_status).toBe("done");
   });
 
   it("stores a degenerate verdict as unsupported with no transcript", async () => {
@@ -1840,7 +2026,7 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedTranscript("wa:a")).toMatchObject({
+    expect(storedTranscript("whatsapp:a")).toMatchObject({
       transcript: null,
       transcript_status: "unsupported",
       transcript_error: "the same phrase repeated 6 times",
@@ -1860,14 +2046,14 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedTranscript("wa:a")).toMatchObject({
+    expect(storedTranscript("whatsapp:a")).toMatchObject({
       transcript: "pehla hissa teesra hissa",
       transcript_status: "error",
       transcript_error: "partial: 2 of 3 chunks (whisper-cli exit 3)",
     });
     // Terminal: what came back IS the answer, so it is not asked again.
     await vi.advanceTimersByTimeAsync(120_000);
-    expect(l.ids).toEqual(["wa:a"]);
+    expect(l.ids).toEqual(["whatsapp:a"]);
   });
 
   it("a failure with nothing recovered is retried a bounded number of times", async () => {
@@ -1883,9 +2069,9 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedTranscript("wa:a").transcript_status).toBe("pending");
+    expect(storedTranscript("whatsapp:a").transcript_status).toBe("pending");
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(storedTranscript("wa:a")).toMatchObject({
+    expect(storedTranscript("whatsapp:a")).toMatchObject({
       transcript_status: "error",
       transcript_error: "whisper-cli exit 1",
     });
@@ -1908,9 +2094,9 @@ describe("transcription", () => {
     queue.start();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(storedTranscript("wa:a").transcript_error).toBe("spawn EACCES");
+    expect(storedTranscript("whatsapp:a").transcript_error).toBe("spawn EACCES");
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(storedTranscript("wa:a").transcript_status).toBe("done");
+    expect(storedTranscript("whatsapp:a").transcript_status).toBe("done");
   });
 
   it("costs no tokens, so it logs no run", async () => {
@@ -1943,7 +2129,7 @@ describe("transcription", () => {
     queue.stop();
     release!();
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(storedTranscript("wa:a")).toMatchObject({
+    expect(storedTranscript("whatsapp:a")).toMatchObject({
       transcript: null,
       transcript_status: "pending",
     });

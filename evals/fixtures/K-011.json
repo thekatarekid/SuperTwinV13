@@ -1,0 +1,42 @@
+{
+  "id": "K-011",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "source|id=browser|keys=url\nitem|id=e1|source=whatsapp|ts=2026-08-13T18:40:00Z|text=here https://SITE10.com/x?b=2&a=1&utm_campaign=aug\nitem|id=v1|source=browser|ts=2026-08-13T18:44:00Z|urls=https://site10.com/x?a=1&b=2",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "url",
+        "value": "site10.com/x?a=1&b=2",
+        "left": "e1",
+        "right": "v1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": false,
+  "doc": {
+    "given": "tracking params / shortlink variant of the same url (3)",
+    "expect": "normalised to the same value_norm; bridge fires",
+    "assert": "url normalisation"
+  }
+}

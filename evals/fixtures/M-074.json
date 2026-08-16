@@ -1,0 +1,55 @@
+{
+  "id": "M-074",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-03T17:25:00Z",
+        "who": "self",
+        "text": "sameer's cousin fixes laptops cheap"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Aditya shared news about someone outside the roster. Nothing else was discussed.\nF|1|+Sameer's cousin|ao|0.8|-|Fixes laptops cheaply",
+  "expect": {
+    "claims": [
+      {
+        "subject_id": null,
+        "subject_hint": "Sameer's cousin",
+        "text": "Fixes laptops cheaply"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject_id",
+      "subject_hint",
+      "text"
+    ],
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim about someone not on roster (5)",
+    "expect": "subject '-' + subject_hint",
+    "assert": "unknown beats wrong"
+  }
+}

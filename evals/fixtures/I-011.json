@@ -1,0 +1,40 @@
+{
+  "id": "I-011",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "group|as=g1|src=whatsapp|v=1203630111@g.us|name=Ghar+|sub=family|members=a1=jid:919800000001@s.whatsapp.net",
+  "expect": {
+    "state": {
+      "metadata_edges": 1,
+      "edges_written": 1,
+      "model_calls": 0,
+      "entity_count": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "group Ghar+ participant list includes Pranjali",
+    "expect": "L ... aff/member ... [CODE] conf 1.0, ZERO model calls",
+    "assert": "metadata edge is free"
+  }
+}

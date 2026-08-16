@@ -1,0 +1,35 @@
+{
+  "id": "T-019",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "live",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "delta|messages=40",
+  "expect": {
+    "quadratic_growth": []
+  },
+  "assert": {
+    "mode": "absent",
+    "gate": "sched_live_pass_is_delta"
+  },
+  "stub": false,
+  "doc": {
+    "given": "live pass on a 40-message session",
+    "expect": "DELTA only; tokens O(n) not O(n^2)",
+    "assert": "delta mandatory at 30s"
+  }
+}

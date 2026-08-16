@@ -1,0 +1,40 @@
+{
+  "id": "S-017",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "*T|1|self|a1|ex|i2t|h|w|2026-08-20|-|0.9|Send the deck*",
+  "expect": {
+    "state": {
+      "emphasis_stripped": 1,
+      "accepted": 1,
+      "line_violations": 0,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_emphasis_recovered"
+  },
+  "stub": false,
+  "doc": {
+    "given": "line wrapped as **T/...** (#2)",
+    "expect": "emphasis stripped, line PARSES, strip counted",
+    "assert": "212-violation lesson"
+  }
+}

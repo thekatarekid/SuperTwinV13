@@ -1,0 +1,88 @@
+{
+  "id": "J-005",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rohan Malhotra"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rohan",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T18:40+05:30",
+        "who": "a1",
+        "text": "the ITR deadline is the 31st",
+        "c": "c1",
+        "topic": "tax"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-13T18:41+05:30",
+        "who": "self",
+        "text": "I still need form 16 from the old employer",
+        "c": "c1",
+        "topic": "tax"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-13T18:44+05:30",
+        "who": "a1",
+        "text": "chase them, the CA needs it by Friday",
+        "c": "c1",
+        "topic": "tax"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-13T18:46+05:30",
+        "who": "self",
+        "text": "will mail them tonight and copy the CA",
+        "c": "c1",
+        "topic": "tax"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "session|id=s1|stream=c1|events=1-4|hash=h_J-005\nrun|session=s1",
+  "expect": {
+    "state": {
+      "decision": "one_to_one",
+      "model_calls": 0,
+      "segments": 1,
+      "episodes": 1,
+      "preflag_drift": false,
+      "preflag_reason": "single_topic",
+      "partition_ok": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "episodes_one_to_one_rate"
+  },
+  "stub": false,
+  "doc": {
+    "given": "sealed session solely about tax filing, no drift, no open episodes",
+    "expect": "episode := session, NO MODEL CALL",
+    "assert": "1:1 default"
+  }
+}

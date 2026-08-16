@@ -1,0 +1,72 @@
+{
+  "id": "D-056",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "a1",
+        "text": "ok see you then"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata\nseal\nnow|at=2026-08-10T04:44:00.000Z",
+  "expect": {
+    "state": {
+      "sessions": 1,
+      "statuses": [
+        "open"
+      ],
+      "policy_debounce_ms": 2700000,
+      "seal_modes": [
+        null
+      ],
+      "content_hashes": [
+        false
+      ]
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": false,
+  "doc": {
+    "given": "debounce 44m of silence, debounce_ms=45m",
+    "expect": "NO seal",
+    "assert": "debounce expiry"
+  }
+}

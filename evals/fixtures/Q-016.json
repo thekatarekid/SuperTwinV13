@@ -1,0 +1,66 @@
+{
+  "id": "Q-016",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare"
+    ],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Submit the GST filing",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": "2026-08-20T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-05T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": "done",
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "tasks": [],
+    "waiting": [],
+    "loops": [
+      {
+        "t": "t1",
+        "state": "done",
+        "retained": true
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "state",
+      "retained"
+    ],
+    "gate": "loops_done_retained"
+  },
+  "stub": false,
+  "doc": {
+    "given": "loop reaches state=done",
+    "expect": "leaves every surface immediately",
+    "assert": "never nag about finished things"
+  }
+}

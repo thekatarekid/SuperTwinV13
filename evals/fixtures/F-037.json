@@ -1,0 +1,70 @@
+{
+  "id": "F-037",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "a"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T11:00:00.000Z",
+        "who": "a1",
+        "text": "b"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor|day_boundary=0\nstream|key=c1|tz=Asia/Kolkata\nresegment|times=4",
+  "expect": {
+    "state": {
+      "byte_identical": true,
+      "reruns": 4,
+      "ordered_by": "ts"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_determinism"
+  },
+  "stub": false,
+  "doc": {
+    "given": "same events re-segmented with identical params",
+    "expect": "byte-identical sessions",
+    "assert": "segmentation determinism"
+  }
+}

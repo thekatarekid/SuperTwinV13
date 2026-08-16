@@ -1,0 +1,42 @@
+{
+  "id": "K-010",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "source|id=browser|keys=url\nexpand|from=https://bit.ly/villa-amara|to=https://www.site9.com/villa?ref_src=twsrc\nitem|id=e1|source=whatsapp|ts=2026-08-13T18:40:00Z|text=short link https://bit.ly/villa-amara\nitem|id=v1|source=browser|ts=2026-08-13T18:41:00Z|urls=http://site9.com/villa#reviews",
+  "expect": {
+    "bridges": [
+      {
+        "kind": "url",
+        "value": "site9.com/villa",
+        "left": "e1",
+        "right": "v1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": false,
+  "doc": {
+    "given": "tracking params / shortlink variant of the same url (2)",
+    "expect": "normalised to the same value_norm; bridge fires",
+    "assert": "url normalisation"
+  }
+}

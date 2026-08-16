@@ -1,0 +1,64 @@
+{
+  "id": "H-004",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Sudhir"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Sudhir",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "ask Sudhir about the therapy",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nM|1|Sudhir|a1|0.95",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "Sudhir",
+        "entity": "a1",
+        "confidence": 0.95,
+        "hint": null,
+        "decided_by": "llm:p-ep1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg: 'ask Sudhir about the therapy'",
+    "expect": "M/<ev>/Sudhir/a<k>/>=0.9",
+    "assert": "roster hit"
+  }
+}

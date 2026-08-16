@@ -1,0 +1,38 @@
+{
+  "id": "T-005",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "P-TR1",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "request|call=P-TR1",
+  "expect": {
+    "deferred": [
+      "P-TR1"
+    ],
+    "executed": []
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "P-TR1 on the first-paint path",
+    "expect": "FAIL — must be deferred",
+    "assert": "deferred stages"
+  }
+}

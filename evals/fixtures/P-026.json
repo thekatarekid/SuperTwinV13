@@ -1,0 +1,59 @@
+{
+  "id": "P-026",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "arc|id=n1|label=Insurance renewal\nloop|arc=n1|id=l1|state=open|owner=self|counterparty=a1\nloop|arc=n1|id=l2|state=open|owner=self|counterparty=a1\nsweep\nresolve|arc=n1|loops=l1|state=done\nresolve|arc=n1|loops=l2|state=lapsed\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "arc_id": "n1",
+    "status": "archived",
+    "promoted": true,
+    "retrievable": true,
+    "arc_rows": 1,
+    "spaces_table": 0
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": false,
+  "doc": {
+    "given": "all loops in a promoted arc reach done/lapsed",
+    "expect": "status=archived; still retrievable; id unchanged",
+    "assert": "demotion is a field flip"
+  }
+}

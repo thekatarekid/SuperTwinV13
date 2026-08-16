@@ -1,0 +1,60 @@
+{
+  "id": "N-010",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T10:00:00Z",
+        "who": "self",
+        "text": "my warranty expires on 2026-11-15"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|-|ex|slf|m|q|2026-11-15|-||Renew the warranty before it expires",
+  "expect": {
+    "loops": [
+      {
+        "intent": "Renew the warranty before it expires",
+        "due": "2026-11-15",
+        "recurrence": null,
+        "state": "open",
+        "is_task": true
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "intent",
+      "due",
+      "recurrence",
+      "state",
+      "is_task"
+    ],
+    "gate": "loops_explicit_recall"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'my warranty renews/expires on <date>'",
+    "expect": "T with due + recurrence where applicable",
+    "assert": "TEMPORAL BOUNDARY loop — highest value in old data"
+  }
+}

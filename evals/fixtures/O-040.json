@@ -1,0 +1,84 @@
+{
+  "id": "O-040",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Ana Iyer",
+      "a2=Rahul Mehta",
+      "a3=Priya Nair",
+      "a4=Sam Kohli",
+      "a5=Dev Bhatt",
+      "a6=Kiran Rao"
+    ],
+    "streams": [
+      {
+        "alias": "c2",
+        "name": "Weekend plans",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2",
+          "a3",
+          "a4"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T21:10+05:30",
+        "who": "a2",
+        "text": "i'll book priya's ticket tomorrow"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-12T21:15+05:30",
+        "who": "self",
+        "text": "i'll send ana the packing list"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-12T21:16+05:30",
+        "who": "a2",
+        "text": "dev said he'd pay kiran back"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "arc|c=c2|loops=a2>a3,self>a1,a5>a6",
+  "expect": {
+    "state": {
+      "pairs": [
+        "oo",
+        "so",
+        "tt"
+      ],
+      "involves_self": true,
+      "promotion_eligible": true,
+      "promotion_reason": "self_involved",
+      "lives_on": "space"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "party_no_s_space"
+  },
+  "stub": false,
+  "doc": {
+    "given": "arc with at least one loop containing s",
+    "expect": "eligible for promotion",
+    "assert": "self-involvement required"
+  }
+}

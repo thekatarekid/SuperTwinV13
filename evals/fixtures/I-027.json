@@ -1,0 +1,55 @@
+{
+  "id": "I-027",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=me"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "the villa is booked for Sep",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nN|k1|Villa Amara|plc|venue\nM|1|the villa|k1|0.9",
+  "expect": {
+    "edges": []
+  },
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'the villa is booked for Sep'",
+    "expect": "NO has/owns edge — a booking is not ownership",
+    "assert": "edge discipline"
+  }
+}

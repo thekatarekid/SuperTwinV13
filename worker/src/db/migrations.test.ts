@@ -1,15 +1,20 @@
 // ===========================================================================
-// Migration-set tests (vitest). `0007_phase5` was retired from MIGRATIONS once
-// nothing read nightly_runs / quality_snapshots / task_runs.session_id, and the
-// two halves of that decision have to hold at once:
+// Migration-set tests (vitest). Four ids are retired from MIGRATIONS —
+// `0004_phase2`, `0005_grounded_chat`, `0006_phase34` (V2 §3.2: the
+// spaces/goals/milestones/tasks ontology) and `0007_phase5` — and the two
+// halves of every retirement have to hold at once:
 //
-//   - a fresh DB never grows those objects and still ends up fully migrated;
-//   - a DB installed back when 0007 ran keeps its recorded id, its orphan
+//   - a fresh DB never grows the retired objects, still ends up fully migrated,
+//     and still gets the live pieces 0004–0006 used to carry, which moved to
+//     `0021_v2_prep`;
+//   - a DB installed back when those ran keeps its recorded ids, its orphan
 //     tables and its rows, takes the later migrations on top, and still answers
 //     grounded chat.
 //
-// The second half is seeded by hand from the historical 0007 body below — that
-// SQL no longer exists in schema.ts and must not be resurrected there.
+// The second half is seeded by hand from the historical bodies below — that SQL
+// no longer exists in schema.ts and must not be resurrected there. 0021 then
+// re-adds `chat_sessions.grounded` and friends on top of a DB that already has
+// them, which is exactly the duplicate-column case runMigrationsOn absorbs.
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -28,6 +33,80 @@ import {
 import { getDb, runMigrations } from "./index.js";
 import { MIGRATIONS } from "./schema.js";
 import { buildContextBlock, searchEventHits } from "../server/chat-grounding.js";
+
+/**
+ * Exactly what `0004_phase2`, `0005_grounded_chat` and `0006_phase34` used to
+ * apply, kept only as test fixtures. Trimmed to what a 0007-era DB needs to be
+ * reconstructible: the tables and columns later migrations or these tests touch.
+ */
+const LEGACY_PHASE2 = /* sql */ `
+ALTER TABLE spaces ADD COLUMN slug TEXT;
+ALTER TABLE spaces ADD COLUMN user_pinned INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_slug   ON spaces(slug);
+CREATE INDEX IF NOT EXISTS idx_spaces_status        ON spaces(status);
+
+ALTER TABLE tasks ADD COLUMN title TEXT;
+ALTER TABLE tasks ADD COLUMN approved INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN source_event_ids TEXT;
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+CREATE TABLE IF NOT EXISTS space_people (
+  space_id    TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  person_id   TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  PRIMARY KEY (space_id, person_id)
+);
+
+CREATE TABLE IF NOT EXISTS evaluations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  output_type TEXT NOT NULL,
+  output_id   TEXT NOT NULL,
+  verdict     TEXT NOT NULL CHECK (verdict IN ('up','down')),
+  note        TEXT,
+  ts          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS patterns (
+  slug               TEXT PRIMARY KEY,
+  kind               TEXT NOT NULL CHECK (kind IN ('habit','workflow')),
+  title              TEXT,
+  status             TEXT NOT NULL DEFAULT 'candidate'
+                       CHECK (status IN ('candidate','confirmed','dismissed')),
+  evidence_count     INTEGER NOT NULL DEFAULT 0,
+  evidence_event_ids TEXT,
+  updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+`;
+
+const LEGACY_GROUNDED_CHAT = /* sql */ `
+ALTER TABLE chat_sessions ADD COLUMN grounded INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chat_messages ADD COLUMN citations_json TEXT;
+`;
+
+const LEGACY_PHASE34 = /* sql */ `
+ALTER TABLE tasks ADD COLUMN task_type              TEXT;
+ALTER TABLE tasks ADD COLUMN triage                 TEXT;
+ALTER TABLE tasks ADD COLUMN updated_at             TEXT;
+
+ALTER TABLE extraction_runs ADD COLUMN model TEXT;
+ALTER TABLE extraction_runs ADD COLUMN role  TEXT;
+
+CREATE TABLE IF NOT EXISTS task_runs (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+  space_id        TEXT,
+  status          TEXT,
+  plan            TEXT,
+  transcript_path TEXT,
+  model           TEXT,
+  input_tokens    INTEGER NOT NULL DEFAULT 0,
+  output_tokens   INTEGER NOT NULL DEFAULT 0,
+  duration_ms     INTEGER NOT NULL DEFAULT 0,
+  error           TEXT,
+  started_at      TEXT,
+  finished_at     TEXT
+);
+`;
 
 /** Exactly what `0007_phase5` used to apply, kept only as a test fixture. */
 const LEGACY_PHASE5 = /* sql */ `
@@ -121,6 +200,11 @@ function seedLegacyDb(path: string): void {
     if (!LEGACY_IDS.includes(m.id)) continue;
     db.exec(m.sql);
   }
+  // 0004–0007 are retired from MIGRATIONS, so their bodies come from the
+  // fixtures above — that is what "the DB an old install is in" means here.
+  db.exec(LEGACY_PHASE2);
+  db.exec(LEGACY_GROUNDED_CHAT);
+  db.exec(LEGACY_PHASE34);
   db.exec(LEGACY_PHASE5);
 
   const record = db.prepare(`INSERT INTO schema_migrations (id) VALUES (?)`);
@@ -146,7 +230,7 @@ function seedLegacyDb(path: string): void {
 }
 
 describe("fresh DB", () => {
-  it("migrates cleanly and never grows the retired 0007 objects", () => {
+  it("migrates cleanly and never grows the retired objects", () => {
     runMigrations();
     const db = getDb();
 
@@ -159,13 +243,28 @@ describe("fresh DB", () => {
     const names = tableNames(db);
     expect(names.has("nightly_runs")).toBe(false);
     expect(names.has("quality_snapshots")).toBe(false);
-    expect(columns(db, "task_runs")).not.toContain("session_id");
+    // The spaces/tasks ontology tables 0004/0006 created are gone outright.
+    for (const t of ["space_people", "patterns", "task_runs"]) {
+      expect(names.has(t), `retired table still created: ${t}`).toBe(false);
+    }
 
     // Everything the app actually reads still arrives.
     for (const t of ["events", "events_fts", "app_state", "extraction_runs", "evaluations"]) {
       expect(names.has(t), `missing table: ${t}`).toBe(true);
     }
     expect(columns(db, "events")).toContain("media_description");
+  });
+
+  it("still grows what 0004–0006 carried that something reads (0021_v2_prep)", () => {
+    // The three live pieces: without them grounded chat cannot record a session
+    // or its citations, and the runs viewer cannot attribute a call.
+    runMigrations();
+    const db = getDb();
+    expect(columns(db, "chat_sessions")).toContain("grounded");
+    expect(columns(db, "chat_messages")).toContain("citations_json");
+    expect(columns(db, "extraction_runs")).toEqual(
+      expect.arrayContaining(["model", "role"]),
+    );
   });
 });
 
@@ -188,6 +287,7 @@ describe("DB installed at the old 0007 state", () => {
     const names = tableNames(db);
     expect(names.has("nightly_runs")).toBe(true);
     expect(names.has("quality_snapshots")).toBe(true);
+    expect(names.has("patterns")).toBe(true);
     expect(columns(db, "task_runs")).toContain("session_id");
 
     expect(db.prepare(`SELECT COUNT(*) AS n FROM nightly_runs`).get()).toEqual({ n: 1 });
@@ -1221,14 +1321,20 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
     seed0018Db(dbPath);
     const db = getDb();
 
+    // 0022_v2_core rebuilds events: idx_events_channel/_channel_ts come back as
+    // idx_events_stream/_stream_ts on the renamed column (plus the bridge index
+    // that dies with channel_id in item 1.1), and the V2 columns get their own.
     expect(indexNames(db, "events")).toEqual([
       "idx_events_actor",
-      "idx_events_channel",
-      "idx_events_channel_ts",
+      "idx_events_actor_entity",
+      "idx_events_channel_compat",
       "idx_events_desc_status",
+      "idx_events_enrichment",
       "idx_events_link_status",
       "idx_events_reply_to",
       "idx_events_source_external",
+      "idx_events_stream",
+      "idx_events_stream_ts",
       "idx_events_transcript_status",
       "idx_events_ts",
     ]);
@@ -1238,7 +1344,7 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
           .prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name`)
           .all() as { name: string }[]
       ).map((r) => r.name),
-    ).toEqual(["events_ad", "events_ai", "events_au"]);
+    ).toEqual(["events_ad", "events_ai", "events_au", "events_stream_compat_ai"]);
     expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
@@ -1248,16 +1354,21 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
     const db = getDb();
 
     // A hand-rolled rebuild drops `events` for a moment, and with foreign_keys
-    // ON that implicit delete cascades into both of these.
-    expect(db.prepare(`SELECT event_id FROM space_events`).all()).toEqual([
-      { event_id: "e-text" },
-    ]);
+    // ON that implicit delete cascades into this one. 0022_v2_core rebuilds the
+    // table for real (to shed the stale channels FK on the renamed column) and
+    // stages these rows out and back; space_events, the other child, went with
+    // the legacy ontology that migration drops.
     expect(db.prepare(`SELECT event_id FROM event_embeddings`).all()).toEqual([
       { event_id: "e-text" },
     ]);
     // Still enforced afterwards, in both directions.
     expect(() =>
-      db.prepare(`INSERT INTO space_events (space_id, event_id) VALUES ('s1', 'nope')`).run(),
+      db
+        .prepare(
+          `INSERT INTO event_embeddings (event_id, model, dim, vector)
+           VALUES ('nope', 'm', 1, x'00')`,
+        )
+        .run(),
     ).toThrow(/FOREIGN KEY/);
     db.prepare(`DELETE FROM events WHERE id = 'e-text'`).run();
     expect(db.prepare(`SELECT event_id FROM event_embeddings`).all()).toEqual([]);

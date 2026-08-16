@@ -1,0 +1,42 @@
+{
+  "id": "S-043",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "I looked at the messages and I think there are two claims here.\nThe first is about the Berlin move and the second is about a deadline.\nLet me know if you want me to write them out.",
+  "expect": {
+    "state": {
+      "response_violations": 1,
+      "line_violations": 0,
+      "accepted": 0,
+      "skipped": 3,
+      "non_blank_lines": 3,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_parser_never_throws"
+  },
+  "stub": false,
+  "doc": {
+    "given": "whole answer was prose",
+    "expect": "EXACTLY ONE no_wire_lines violation",
+    "assert": "one violation for the answer"
+  }
+}

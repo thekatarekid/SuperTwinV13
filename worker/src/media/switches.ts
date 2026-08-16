@@ -27,8 +27,8 @@ import {
   getMediaVideoFramesEnabled,
   getMediaVideoMaxHeight,
   getMediaVoiceNotesEnabled,
-} from "../store/store.js";
-import { DEFAULT_IMAGE_BATCH, MAX_IMAGE_BATCH } from "./describe.js";
+} from "../db/settings.js";
+import { getEnrichmentImageBatchSize, setEnrichmentImageBatchSize } from "./batch.js";
 import type { LinkVideoBounds } from "./linkvideo.js";
 
 export const MEDIA_IMAGES_ENABLED_KEY = "media.images_enabled";
@@ -78,19 +78,22 @@ export function setMediaLinkScrapeEnabled(v: boolean): void {
 }
 
 /**
- * Images per CLI call. Read on every cycle rather than at startup, so a change
- * lands on the next claim; clamped both ways because the value decides how many
- * files one model call is asked to hold apart, and a nonsense one costs either
- * the whole batching win (1) or a whole answer (too many).
+ * Images per CLI call. The value itself moved to `enrichment.image_batch_size`
+ * (arch §10.1, default 16, range 1–32) and lives in ./batch.ts with the rest of
+ * the enrichment settings; these two keep the `media.*` spelling the Settings
+ * route already speaks pointed at it, so there is exactly one number.
+ *
+ * Read on every cycle rather than at startup, so a change lands on the next
+ * claim; clamped both ways because the value decides how many files one model
+ * call is asked to hold apart, and a nonsense one costs either the whole
+ * batching win (1) or a whole answer (too many).
  */
 export function getMediaImageBatch(): number {
-  const n = Number(appStateGet(MEDIA_IMAGE_BATCH_KEY));
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_IMAGE_BATCH;
-  return Math.min(Math.floor(n), MAX_IMAGE_BATCH);
+  return getEnrichmentImageBatchSize();
 }
 
 export function setMediaImageBatch(n: number): void {
-  appStateSet(MEDIA_IMAGE_BATCH_KEY, String(Math.floor(n)));
+  setEnrichmentImageBatchSize(n);
 }
 
 /** What the claim query may hand out now. Documents have no switch of their own. */
@@ -104,8 +107,8 @@ export function mediaClaimFilter(): MediaClaimFilter {
 }
 
 /**
- * The v5 switches live in store.ts with the rest of the settings surface the
- * server reads; what belongs here is only the shape the claim wants. Voice
+ * The v5 switches live in db/settings.ts with the rest of the settings surface
+ * the server reads; what belongs here is only the shape the claim wants. Voice
  * notes and video audio gate independently — someone who wants their voice
  * notes read has not thereby asked for every forwarded clip to be transcribed.
  */

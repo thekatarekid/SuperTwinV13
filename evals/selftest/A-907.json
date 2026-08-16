@@ -1,0 +1,26 @@
+{
+  "id": "A-907",
+  "category": "A",
+  "layer": "harness",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "B|tokens|1180\nB|calls|1",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": { "tokens": { "max": 1200 }, "calls": { "max": 1 } },
+    "gate": null
+  },
+  "doc": {
+    "given": "harness self-test — budget mode",
+    "expect": "measured tokens <= 1200 and exactly one call on the path",
+    "assert": "budget"
+  }
+}

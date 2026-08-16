@@ -1,0 +1,56 @@
+{
+  "id": "M-092",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2024-03-04T10:00:00Z",
+        "who": "a1",
+        "text": "we've moved to the new indiranagar office"
+      },
+      {
+        "n": 2,
+        "ts": "2024-03-04T10:02:00Z",
+        "who": "a1",
+        "text": "i cycle to work now"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "Y|e1|Pranjali moved to the new Indiranagar office and now cycles to work.\nF|1|a1|1p|0.9|-|Works from the new Indiranagar office\nH|2|a1|1p|0.9|-|Cycles to work",
+  "expect": {
+    "state": {
+      "claims_extracted": 2,
+      "claims_written": 2,
+      "old_evidence_claims": 2,
+      "old_evidence_written": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "claims_not_age_filtered"
+  },
+  "stub": false,
+  "doc": {
+    "given": "claim from a 2024 backfill episode (1)",
+    "expect": "extracted in full; NO age filtering on claims",
+    "assert": "claims are never age-filtered"
+  }
+}

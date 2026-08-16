@@ -1,0 +1,40 @@
+{
+  "id": "C-038",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "slots|pending=4",
+  "expect": {
+    "state": {
+      "pending_images": 4,
+      "lane_e_slots": 0,
+      "lane_u_slots_positive": true,
+      "lane_e_slots_after_paint_positive": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": false,
+  "doc": {
+    "given": "first-paint window, 4 images pending",
+    "expect": "Lane E holds ZERO LLM slots until first paint completes",
+    "assert": "slot reservation"
+  }
+}

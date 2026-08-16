@@ -1,0 +1,22 @@
+{
+  "id": "A-903",
+  "category": "A",
+  "layer": "harness",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": ["a1=Pranjali Sachdeva", "a2=Rahul"],
+    "streams": [],
+    "events": [],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "P|claims|kind=habit,subject=a1\nP|claims|kind=fact,subject=a2\nP|claims|kind=interest,subject=a1",
+  "expect": { "claims": [{ "kind": "habit", "subject": "a1" }] },
+  "assert": { "mode": "contains", "on": ["kind", "subject"], "gate": null },
+  "doc": {
+    "given": "harness self-test — contains mode, two extra claims produced",
+    "expect": "the expected claim is present; extras are allowed and counted against precision",
+    "assert": "contains"
+  }
+}

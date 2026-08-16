@@ -1,0 +1,48 @@
+{
+  "id": "T-003",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "P-CL1",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "request|call=P-CL1\nrequest|call=P-EP1\nrequest|call=P-TR1\nrequest|call=P-SP1\nrequest|call=P-AG1\nrequest|call=P-AG2\nrequest|call=P-AG3\nrequest|call=enrich",
+  "expect": {
+    "executed": [
+      "P-CL1"
+    ],
+    "deferred": [
+      "P-EP1",
+      "P-TR1",
+      "P-SP1",
+      "enrich"
+    ],
+    "barred": [
+      "P-AG1",
+      "P-AG2",
+      "P-AG3"
+    ]
+  },
+  "assert": {
+    "mode": "exact",
+    "gate": "latency_first_paint_calls"
+  },
+  "stub": false,
+  "doc": {
+    "given": "first-paint path inspected",
+    "expect": "exactly ONE LLM call (P-CL1)",
+    "assert": "one-call critical path"
+  }
+}

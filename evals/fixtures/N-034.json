@@ -1,0 +1,45 @@
+{
+  "id": "N-034",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
+    "streams": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T16:00:00Z",
+        "who": "a1",
+        "text": "an assistant could handle the whole rabies shots for you, you know"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {
+    "loops": []
+  },
+  "assert": {
+    "mode": "absent",
+    "gate": "loops_implicit_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "agent COULD help with rabies shots",
+    "expect": "NO loop — capability guess, not intent",
+    "assert": "hypothetical is not latent"
+  }
+}

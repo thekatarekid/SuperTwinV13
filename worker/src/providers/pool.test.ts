@@ -1,0 +1,338 @@
+// ===========================================================================
+// Per-resource-class concurrency (arch §4.4.1–§4.4.3, §4.6).
+//
+// Three things are worth testing here and they are all observable without a
+// real model call: the caps actually hold under concurrent load, warm-first
+// serialises the first call of a batch (evals U-013 / U-014), and a refusal
+// pauses the lane WITHOUT spending the unit's retry budget (§4.6).
+// ===========================================================================
+
+import { describe, it, expect } from "vitest";
+
+import {
+  classifyFailure,
+  clampLimit,
+  isRefusal,
+  laneCaps,
+  refusalBackoffMs,
+  ResourcePool,
+  RESOURCE_LIMITS,
+  RETRY_DELAYS_MS,
+  Semaphore,
+  REFUSAL_BACKOFF_BASE_MS,
+  REFUSAL_BACKOFF_MAX_MS,
+  DB_APPLY_CONCURRENCY,
+} from "./pool.js";
+
+/** A task that records overlap: returns after `ms`, tracking peak concurrency. */
+function tracker() {
+  let live = 0;
+  let peak = 0;
+  const order: string[] = [];
+  const task = (name: string, ms = 5) => async () => {
+    live += 1;
+    if (live > peak) peak = live;
+    order.push(`start:${name}`);
+    await new Promise((r) => setTimeout(r, ms));
+    order.push(`end:${name}`);
+    live -= 1;
+    return name;
+  };
+  return {
+    task,
+    get peak() {
+      return peak;
+    },
+    order,
+  };
+}
+
+describe("the limit table (§4.4.1)", () => {
+  it("carries the documented default and max per class", () => {
+    expect(RESOURCE_LIMITS).toEqual({
+      llm: { default: 8, max: 16 },
+      transcribe: { default: 1, max: 3 },
+      embed: { default: 2, max: 8 },
+      ffmpeg: { default: 2, max: 4 },
+      scrape: { default: 8, max: 16 },
+    });
+    // SQLite is a single writer — not a setting.
+    expect(DB_APPLY_CONCURRENCY).toBe(1);
+  });
+
+  it("clamps a user setting into [1, max] rather than trusting it", () => {
+    expect(clampLimit("llm", 99)).toBe(16);
+    expect(clampLimit("llm", 0)).toBe(1);
+    expect(clampLimit("transcribe", 16)).toBe(3); // sixteen whispers thrash
+    expect(clampLimit("ffmpeg", 3)).toBe(3);
+    expect(clampLimit("embed", Number.NaN)).toBe(2);
+  });
+});
+
+describe("Semaphore", () => {
+  it("never lets more than `limit` holders in at once", async () => {
+    const sem = new Semaphore(3);
+    const t = tracker();
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) => sem.run(t.task(`t${i}`))),
+    );
+    expect(t.peak).toBe(3);
+    expect(sem.inFlight).toBe(0);
+  });
+
+  it("releases a queued waiter when a limit is raised", async () => {
+    const sem = new Semaphore(0);
+    let ran = false;
+    const p = sem.run(() => {
+      ran = true;
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ran).toBe(false);
+    sem.setLimit(1);
+    await p;
+    expect(ran).toBe(true);
+  });
+
+  it("a double release never over-credits the pool", async () => {
+    const sem = new Semaphore(1);
+    const release = await sem.acquire();
+    release();
+    release();
+    expect(sem.inFlight).toBe(0);
+  });
+});
+
+describe("caps hold under concurrent load", () => {
+  it("caps each class independently", async () => {
+    const pool = new ResourcePool();
+    const llm = tracker();
+    const whisper = tracker();
+    await Promise.all([
+      ...Array.from({ length: 20 }, (_, i) => pool.run("llm", llm.task(`l${i}`))),
+      ...Array.from({ length: 6 }, (_, i) =>
+        pool.run("transcribe", whisper.task(`w${i}`)),
+      ),
+    ]);
+    expect(llm.peak).toBeLessThanOrEqual(8);
+    expect(whisper.peak).toBe(1);
+  });
+
+  it("honours a configured ceiling, clamped to the table max", async () => {
+    const pool = new ResourcePool({ warmFirst: false });
+    pool.configure({ llm: 99, embed: 4 });
+    expect(pool.limitOf("llm")).toBe(16);
+    expect(pool.limitOf("embed")).toBe(4);
+    const t = tracker();
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) => pool.run("embed", t.task(`e${i}`))),
+    );
+    expect(t.peak).toBe(4);
+  });
+});
+
+describe("the LLM pool is split by lane (§4.4.1.1)", () => {
+  it("splits 40 % enrichment / 60 % understanding", () => {
+    expect(laneCaps(8, false)).toEqual({ enrichment: 3, understanding: 5 });
+    expect(laneCaps(16, false)).toEqual({ enrichment: 6, understanding: 10 });
+    // Neither lane is ever left with nothing outside first paint.
+    expect(laneCaps(2, false).enrichment).toBeGreaterThan(0);
+    expect(laneCaps(2, false).understanding).toBeGreaterThan(0);
+  });
+
+  it("a photo backlog cannot starve extraction", async () => {
+    const pool = new ResourcePool({ warmFirst: false });
+    const enrich = tracker();
+    const understand = tracker();
+    await Promise.all([
+      ...Array.from({ length: 30 }, (_, i) =>
+        pool.run("llm", enrich.task(`c${i}`), { lane: "enrichment" }),
+      ),
+      ...Array.from({ length: 4 }, (_, i) =>
+        pool.run("llm", understand.task(`x${i}`), { lane: "understanding" }),
+      ),
+    ]);
+    expect(enrich.peak).toBeLessThanOrEqual(3);
+    expect(understand.peak).toBeGreaterThan(0);
+  });
+
+  it("first paint gives enrichment zero and hands it back afterwards", async () => {
+    const pool = new ResourcePool({ firstPaint: true, warmFirst: false });
+    expect(pool.laneLimit("enrichment")).toBe(0);
+    expect(pool.laneLimit("understanding")).toBe(8);
+
+    let captioned = false;
+    const caption = pool.run(
+      "llm",
+      () => {
+        captioned = true;
+      },
+      { lane: "enrichment" },
+    );
+    await pool.run("llm", () => {}, { lane: "understanding" });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(captioned).toBe(false); // held until there is something on screen
+
+    pool.setFirstPaint(false);
+    await caption;
+    expect(captioned).toBe(true);
+    expect(pool.laneLimit("enrichment")).toBe(3);
+  });
+});
+
+describe("warm-then-fan-out (§4.4.3.1, evals U-013/U-014)", () => {
+  it("runs the first call ALONE, then releases the rest", async () => {
+    const pool = new ResourcePool(); // warm_first defaults ON
+    expect(pool.warmFirstEnabled).toBe(true);
+    const t = tracker();
+    const tasks = Array.from({ length: 8 }, (_, i) => t.task(`c${i}`, 5));
+    const out = await pool.runBatch("llm", tasks);
+
+    expect(out).toEqual(tasks.map((_, i) => `c${i}`));
+    // The warm call must have finished before ANY other call started.
+    expect(t.order[0]).toBe("start:c0");
+    expect(t.order[1]).toBe("end:c0");
+    // ...and the remaining seven then fanned out, up to the lane's cap.
+    expect(t.peak).toBe(pool.laneLimit("understanding"));
+    expect(t.peak).toBeGreaterThan(1);
+  });
+
+  it("with warm_first off the batch is dispatched at once — all misses", async () => {
+    const pool = new ResourcePool({ warmFirst: false });
+    const t = tracker();
+    await pool.runBatch(
+      "llm",
+      Array.from({ length: 8 }, (_, i) => t.task(`c${i}`, 5)),
+    );
+    // The first call never got the prefix to itself: the fan-out overlapped it.
+    expect(t.order[1]).not.toBe("end:c0");
+    expect(t.peak).toBe(pool.laneLimit("understanding"));
+  });
+
+  it("a per-batch override beats the global setting either way", async () => {
+    const pool = new ResourcePool({ warmFirst: false });
+    const t = tracker();
+    await pool.runBatch(
+      "llm",
+      Array.from({ length: 4 }, (_, i) => t.task(`c${i}`, 5)),
+      { warmFirst: true },
+    );
+    expect(t.order[1]).toBe("end:c0");
+    expect(t.peak).toBe(3); // the three that fanned out after the warm call
+  });
+
+  it("an empty or single-task batch is not a special case", async () => {
+    const pool = new ResourcePool();
+    expect(await pool.runBatch("llm", [])).toEqual([]);
+    expect(await pool.runBatch("llm", [() => "only"])).toEqual(["only"]);
+  });
+});
+
+describe("error policy (§4.6)", () => {
+  const refusals = [
+    "Claude AI usage limit reached",
+    "HTTP 429 Too Many Requests",
+    "rate limit exceeded",
+    "401 unauthorized",
+    "invalid api key",
+    "credit balance is too low",
+    "please run /login",
+    "authentication_error",
+  ];
+
+  it("recognises every refusal shape, and nothing else", () => {
+    for (const m of refusals) expect(isRefusal({ message: m })).toBe(true);
+    // Auth failures arrive as CLI_ERROR — there is no AUTH_REQUIRED code.
+    expect(isRefusal({ code: "CLI_ERROR", message: "unauthorized" })).toBe(true);
+    expect(isRefusal({ code: "QUOTA_EXCEEDED" })).toBe(true);
+    expect(isRefusal({ code: "TIMEOUT", message: "run exceeded 120000ms" })).toBe(false);
+    expect(isRefusal({ message: "malformed row at line 4" })).toBe(false);
+  });
+
+  it("a refusal pauses the lane and does NOT spend the retry budget", () => {
+    const d = classifyFailure({ code: "CLI_ERROR", message: "usage limit" }, 0);
+    expect(d.action).toBe("pause");
+    expect(d.spendsRetryBudget).toBe(false);
+    expect(d.waitMs).toBe(REFUSAL_BACKOFF_BASE_MS);
+  });
+
+  it("backs off 60 s doubling to a 900 s ceiling", () => {
+    expect(refusalBackoffMs(1)).toBe(60_000);
+    expect(refusalBackoffMs(2)).toBe(120_000);
+    expect(refusalBackoffMs(4)).toBe(480_000);
+    expect(refusalBackoffMs(5)).toBe(REFUSAL_BACKOFF_MAX_MS);
+    expect(refusalBackoffMs(50)).toBe(REFUSAL_BACKOFF_MAX_MS);
+  });
+
+  it("every other failure walks 2 s / 10 s / 30 s and is then quarantined", () => {
+    expect(RETRY_DELAYS_MS).toEqual([2_000, 10_000, 30_000]);
+    const err = { code: "TIMEOUT" as const, message: "run exceeded 120000ms" };
+    expect(classifyFailure(err, 0)).toMatchObject({ action: "retry", waitMs: 2_000, spendsRetryBudget: true });
+    expect(classifyFailure(err, 1)).toMatchObject({ action: "retry", waitMs: 10_000 });
+    expect(classifyFailure(err, 2)).toMatchObject({ action: "retry", waitMs: 30_000 });
+    expect(classifyFailure(err, 3).action).toBe("quarantine");
+  });
+
+  it("a cancel is neither a retry nor a quarantine", () => {
+    expect(classifyFailure({ code: "CANCELLED", message: "run cancelled" }).action).toBe("cancelled");
+  });
+
+  it("the pool pauses just the failing lane, and the pause is visible", () => {
+    let now = 1_000_000;
+    const pool = new ResourcePool({ now: () => now });
+    const d = pool.noteFailure("llm:understanding", {
+      code: "CLI_ERROR",
+      message: "429 too many requests",
+    });
+    expect(d.action).toBe("pause");
+    expect(pool.isPaused("llm:understanding")).toBe(true);
+    expect(pool.pausedForMs("llm:understanding")).toBe(60_000);
+    // The other lane keeps working — a paused lane is not a stopped pipeline.
+    expect(pool.isPaused("llm:enrichment")).toBe(false);
+
+    now += 60_000;
+    expect(pool.isPaused("llm:understanding")).toBe(false);
+  });
+
+  it("consecutive refusals lengthen the pause; a success clears the streak", () => {
+    let now = 0;
+    const pool = new ResourcePool({ now: () => now });
+    const lane = "llm:enrichment" as const;
+    expect(pool.noteFailure(lane, { message: "usage limit" }).waitMs).toBe(60_000);
+    expect(pool.noteFailure(lane, { message: "usage limit" }).waitMs).toBe(120_000);
+    pool.noteSuccess(lane);
+    expect(pool.noteFailure(lane, { message: "usage limit" }).waitMs).toBe(60_000);
+  });
+
+  it("sustained refusals halve the effective LLM concurrency, then ramp back", () => {
+    let now = 0;
+    const pool = new ResourcePool({ now: () => now });
+    expect(pool.effectiveLlmLimit()).toBe(8);
+    pool.noteFailure("llm:understanding", { message: "rate limit" });
+    pool.noteFailure("llm:understanding", { message: "rate limit" });
+    expect(pool.effectiveLlmLimit()).toBe(4);
+    expect(pool.limitOf("llm")).toBe(4);
+    now += 600_001;
+    expect(pool.effectiveLlmLimit()).toBe(8);
+  });
+
+  it("a paused lane holds work until the backoff expires", async () => {
+    let now = 0;
+    const slept: number[] = [];
+    const pool = new ResourcePool({
+      now: () => now,
+      // The sleep is what the real pool blocks on; here it just advances time.
+      sleep: async (ms) => {
+        slept.push(ms);
+        now += ms;
+      },
+    });
+    pool.noteFailure("llm:understanding", { message: "usage limit" });
+    let ran = false;
+    await pool.run("llm", () => {
+      ran = true;
+    });
+    expect(slept).toEqual([60_000]);
+    expect(ran).toBe(true);
+    expect(pool.isPaused("llm:understanding")).toBe(false);
+  });
+});

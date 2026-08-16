@@ -10,13 +10,14 @@
 import type {
   Actor,
   AdapterStatus,
-  Channel,
   Range,
   SourceEvent,
   StatusUpdate,
+  Stream,
 } from "./types.js";
 
 export interface SourceAdapter {
+  /** The manifest's `source_id` — the prefix on every row and key it owns. */
   readonly sourceId: string; // "whatsapp"
   readonly sourceType: string; // "whatsapp"
 
@@ -44,7 +45,7 @@ export interface SourceAdapter {
   disconnect(): Promise<void>;
 
   onEvent(cb: (e: SourceEvent) => void): void;
-  onChannel(cb: (c: Channel) => void): void;
+  onStream(cb: (s: Stream) => void): void;
   onActor(cb: (a: Actor) => void): void;
   onStatus(cb: (s: StatusUpdate) => void): void;
 

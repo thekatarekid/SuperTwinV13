@@ -1,0 +1,43 @@
+{
+  "id": "G-012",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bind|as=p|src=whatsapp|kind=jid|v=919800000004@s.whatsapp.net|name=Sudhir\nbind|as=c|src=contacts|kind=phone|v=+91 98000 00004|name=Sudhir (contacts)",
+  "expect": {
+    "state": {
+      "last_rung": "cross_source",
+      "last_decided_by": "code:cross_source",
+      "last_confidence": 1,
+      "last_bound_to": "p",
+      "entity_count": 1,
+      "person_count": 1,
+      "model_calls": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "Contacts phone +919803 == WhatsApp jid phone for Sudhir",
+    "expect": "BIND same entity [CODE] conf 1.0",
+    "assert": "cross-source phone join"
+  }
+}

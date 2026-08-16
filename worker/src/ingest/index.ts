@@ -14,16 +14,18 @@
 // and reads status / subscribes to the status stream.
 // ===========================================================================
 
+import { DescendingCohortBuffer } from "../adapters/backfill-order.js";
+import type { SourceManifest } from "../adapters/registry.js";
 import type { SourceAdapter } from "../adapters/source-adapter.js";
 import { isRange } from "../adapters/types.js";
 import type {
   Actor,
   AdapterStatus,
-  Channel,
   MediaInfo,
   Range,
   SourceEvent,
   StatusUpdate,
+  Stream,
 } from "../adapters/types.js";
 import {
   applyEdit,
@@ -32,24 +34,32 @@ import {
   appStateSet,
   clearImportFlags,
   deleteReaction,
-  IMPORT_DONE_KEY,
-  IMPORT_RANGE_KEY,
+  importDoneKey,
+  importRangeKey,
   insertEvent,
-  resetWhatsappData,
+  pausedKey,
+  resetSourceData,
+  setSelfIdentity,
   upsertActor,
-  upsertChannel,
   upsertSource,
+  upsertStream,
 } from "../db/ingest.js";
 import type { MediaMeta } from "../db/ingest.js";
+import { markSourceBackfillComplete, noteIngestedEvent } from "../db/watermarks.js";
 import { enqueueLiveMedia } from "../media/queue.js";
-
-const PAUSED_KEY = "whatsapp.paused";
-const SELF_JID_KEY = "whatsapp.self_jid";
 
 /** Live-ingest nudge debounce (Rev 2 §R2.2): coalesce bursts into one frame. */
 const NUDGE_DEBOUNCE_MS = 750;
-/** Cap the channel-id array in a nudge; presence of the frame is the signal. */
-const NUDGE_MAX_CHANNELS = 50;
+/** Cap the stream-id array in a nudge; presence of the frame is the signal. */
+const NUDGE_MAX_STREAMS = 50;
+
+/**
+ * How long a history burst may sit in the re-order buffer before it is written.
+ * The buffer only exists to turn an ascending daemon into descending cohorts
+ * (arch §2.2 note 1); a burst that stops arriving must still land, so a quiet
+ * gap flushes it.
+ */
+const BACKFILL_FLUSH_MS = 250;
 
 /**
  * Pack the low-traffic media fields into `events.media_meta_json` (media spec
@@ -69,15 +79,45 @@ function mediaMetaJson(media: MediaInfo | null | undefined): string | null {
   return Object.keys(meta).length > 0 ? JSON.stringify(meta) : null;
 }
 
+/**
+ * What lands in `events.raw_json`. Normally the source's own raw payload; when
+ * the adapter had to clamp a future timestamp (normalize.ts), the original
+ * value rides along so a wrong phone clock stays visible instead of being
+ * silently absorbed into `ts`.
+ */
+function rawJson(e: SourceEvent): string | null {
+  if (e.skew_clamped_from === undefined) {
+    return e.raw === undefined ? null : JSON.stringify(e.raw);
+  }
+  const base =
+    e.raw !== null && typeof e.raw === "object" && !Array.isArray(e.raw)
+      ? (e.raw as Record<string, unknown>)
+      : e.raw === undefined
+        ? {}
+        : { raw: e.raw };
+  return JSON.stringify({ ...base, skew_clamped_from: e.skew_clamped_from });
+}
+
 export interface IngestionStats {
-  channelsUpserted: number;
+  streamsUpserted: number;
   actorsUpserted: number;
   eventsInserted: number;
   eventsDeduped: number;
 }
 
+export interface IngestionOptions {
+  /**
+   * The source's manifest (arch §2.2). Optional only so the Ingestion class
+   * stays constructible in tests that care about nothing else; when it is
+   * present, `capabilities.backfill_order` decides whether history is
+   * re-ordered into descending cohorts on the way in.
+   */
+  manifest?: SourceManifest<SourceEvent>;
+}
+
 export class Ingestion {
   private readonly adapter: SourceAdapter;
+  private readonly manifest: SourceManifest<SourceEvent> | null;
   private lastStatus: AdapterStatus;
   private paused = false;
   private readonly statusSubs = new Set<(s: StatusUpdate) => void>();
@@ -88,21 +128,44 @@ export class Ingestion {
   private importDone = false;
   private importRangeValue: Range | undefined;
 
-  // Live-ingest nudge debounce (Rev 2 §R2.2). Distinct channel ids touched since
+  // Live-ingest nudge debounce (Rev 2 §R2.2). Distinct stream ids touched since
   // the last flushed nudge, plus the pending timer.
-  private pendingNudgeChannels = new Set<string>();
+  private pendingNudgeStreams = new Set<string>();
   private nudgeTimer: NodeJS.Timeout | null = null;
 
+  // Newest-page-first history (arch §2.2 note 1). Historical events are held
+  // just long enough to be handed on in descending cohorts; live events never
+  // enter the buffer — a message arriving now is already the newest thing there
+  // is, and delaying it to sort it would be absurd.
+  private readonly backfillBuffer: DescendingCohortBuffer<SourceEvent> | null;
+  private backfillTimer: NodeJS.Timeout | null = null;
+
   readonly stats: IngestionStats = {
-    channelsUpserted: 0,
+    streamsUpserted: 0,
     actorsUpserted: 0,
     eventsInserted: 0,
     eventsDeduped: 0,
   };
 
-  constructor(adapter: SourceAdapter) {
+  constructor(adapter: SourceAdapter, opts: IngestionOptions = {}) {
     this.adapter = adapter;
+    this.manifest = opts.manifest ?? null;
     this.lastStatus = adapter.getStatus();
+    const cap = this.manifest?.capabilities;
+    this.backfillBuffer = cap
+      ? new DescendingCohortBuffer<SourceEvent>(
+          // The manifest states the order the CORE is served. whatsmeow hands
+          // its history over ascending, so "desc" here means "re-order it",
+          // which is exactly what the buffer is for.
+          cap.backfill_order === "desc" ? "asc" : cap.backfill_order,
+          { pageHintEvents: cap.page_hint_events },
+        )
+      : null;
+  }
+
+  /** The manifest this source was registered with, if any. */
+  getManifest(): SourceManifest<SourceEvent> | null {
+    return this.manifest;
   }
 
   /**
@@ -113,16 +176,16 @@ export class Ingestion {
     upsertSource({
       id: this.adapter.sourceId,
       type: this.adapter.sourceType,
-      name: "WhatsApp",
+      name: this.manifest?.display_name ?? this.adapter.sourceId,
     });
 
     // Restore the kill-switch flag (survives restart).
-    this.paused = appStateGet(PAUSED_KEY) === "1";
+    this.paused = appStateGet(pausedKey(this.sourceId)) === "1";
 
     // Restore persisted import state (Rev 2 §R2.1) so a relaunch reports
     // importDone:true immediately after boot when it was set previously.
-    this.importDone = appStateGet(IMPORT_DONE_KEY) === "true";
-    const savedRange = appStateGet(IMPORT_RANGE_KEY);
+    this.importDone = appStateGet(importDoneKey(this.sourceId)) === "true";
+    const savedRange = appStateGet(importRangeKey(this.sourceId));
     this.importRangeValue = isRange(savedRange) ? savedRange : undefined;
     if (
       "setPaused" in this.adapter &&
@@ -140,7 +203,7 @@ export class Ingestion {
       void this.adapter.setRange?.(this.importRangeValue);
     }
 
-    this.adapter.onChannel((c) => this.onChannel(c));
+    this.adapter.onStream((s) => this.onStream(s));
     this.adapter.onActor((a) => this.onActor(a));
     this.adapter.onEvent((e) => this.onEvent(e));
     this.adapter.onStatus((s) => this.onStatus(s));
@@ -167,6 +230,13 @@ export class Ingestion {
   private onStatus(s: StatusUpdate): void {
     // Track the freshest snapshot from the adapter for the /status endpoint.
     this.lastStatus = this.adapter.getStatus();
+
+    // History is exhausted: flush whatever the re-order buffer still holds, so
+    // the tail of an ascending import is not left waiting on a timer.
+    if (s.type === "backfill_complete") {
+      this.flushBackfill();
+      markSourceBackfillComplete(this.sourceId);
+    }
 
     // Persist import state on the daemon's backfill_complete (Rev 2 §R2.1). The
     // first completed backfill pins import_done=true + the range so a relaunch
@@ -204,13 +274,13 @@ export class Ingestion {
   private markImportDone(range: Range): void {
     this.importDone = true;
     this.importRangeValue = range;
-    appStateSet(IMPORT_DONE_KEY, "true");
-    appStateSet(IMPORT_RANGE_KEY, range);
+    appStateSet(importDoneKey(this.sourceId), "true");
+    appStateSet(importRangeKey(this.sourceId), range);
   }
 
   /**
    * Clear the in-memory import flags after a reset (Rev 2 §R2.3). The persisted
-   * app_state rows are cleared inside resetWhatsappData()'s transaction; this
+   * app_state rows are cleared inside resetSourceData()'s transaction; this
    * keeps the live /status snapshot consistent (importDone:false) without a
    * relaunch.
    */
@@ -223,7 +293,7 @@ export class Ingestion {
 
   async setPaused(paused: boolean): Promise<void> {
     this.paused = paused;
-    appStateSet(PAUSED_KEY, paused ? "1" : "0");
+    appStateSet(pausedKey(this.sourceId), paused ? "1" : "0");
     await this.adapter.pause(paused);
     // Emit a synthetic status frame so subscribers see the change immediately.
     this.onStatus({ type: "status", state: this.getStatus().state });
@@ -235,20 +305,20 @@ export class Ingestion {
 
   // ---- Ingestion handlers ---------------------------------------------------
 
-  private onChannel(c: Channel): void {
-    upsertChannel({
-      sourceId: this.adapter.sourceId,
-      sourceExtId: c.source_ext_id,
-      name: c.name,
-      kind: c.kind,
-      isBusiness: c.is_business,
+  private onStream(s: Stream): void {
+    upsertStream({
+      sourceId: this.sourceId,
+      sourceExtId: s.source_ext_id,
+      name: s.name,
+      kind: s.kind,
+      isBusiness: s.is_business,
     });
-    this.stats.channelsUpserted += 1;
+    this.stats.streamsUpserted += 1;
   }
 
   private onActor(a: Actor): void {
     upsertActor({
-      sourceId: this.adapter.sourceId,
+      sourceId: this.sourceId,
       sourceExtId: a.source_ext_id,
       displayName: a.display_name,
       handle: a.handle ?? null,
@@ -256,21 +326,67 @@ export class Ingestion {
     });
     this.stats.actorsUpserted += 1;
     if (a.is_self && a.source_ext_id) {
-      appStateSet(SELF_JID_KEY, a.source_ext_id);
+      // How "me" appears in this source — what the manifest's
+      // self_identity.value_getter reads back (arch §2.2 note 4).
+      setSelfIdentity(this.sourceId, a.source_ext_id);
     }
   }
 
+  /** The source id everything this instance writes is namespaced by. */
+  get sourceId(): string {
+    return this.adapter.sourceId;
+  }
+
+  /**
+   * Every event the adapter emits enters here. Live events are written
+   * immediately; historical ones go through the descending-cohort buffer first,
+   * so the newest history is written before the oldest even when the daemon can
+   * only walk forwards (arch §2.2 note 1, build item 1.1).
+   */
   private onEvent(e: SourceEvent): void {
     // Kill-switch: never ingest while paused.
     if (this.paused) return;
 
-    // Resolve (lazy upsert) channel + actor ids per contract §5 mapping.
-    const channelId = upsertChannel({
-      sourceId: this.adapter.sourceId,
-      sourceExtId: e.channel_ext_id,
+    if (e.is_historical === true && this.backfillBuffer) {
+      for (const cohort of this.backfillBuffer.pushEvent(e)) this.writeCohort(cohort);
+      this.scheduleBackfillFlush();
+      return;
+    }
+    this.writeEvent(e);
+  }
+
+  /** Write one descending cohort, newest first. */
+  private writeCohort(cohort: readonly SourceEvent[]): void {
+    for (const event of cohort) this.writeEvent(event);
+  }
+
+  /**
+   * Flush the re-order buffer after a quiet gap. History arrives in bursts and
+   * the burst boundary is the only page boundary the daemon gives us.
+   */
+  private scheduleBackfillFlush(): void {
+    if (this.backfillTimer) return;
+    this.backfillTimer = setTimeout(() => {
+      this.backfillTimer = null;
+      this.flushBackfill();
+    }, BACKFILL_FLUSH_MS);
+    this.backfillTimer.unref?.();
+  }
+
+  /** Write everything still buffered, newest cohort first. */
+  flushBackfill(): void {
+    if (!this.backfillBuffer) return;
+    for (const cohort of this.backfillBuffer.flush()) this.writeCohort(cohort);
+  }
+
+  private writeEvent(e: SourceEvent): void {
+    // Resolve (lazy upsert) stream + actor ids per contract §5 mapping.
+    const streamId = upsertStream({
+      sourceId: this.sourceId,
+      sourceExtId: e.stream_ext_id,
     });
     const actorId = upsertActor({
-      sourceId: this.adapter.sourceId,
+      sourceId: this.sourceId,
       sourceExtId: e.actor_ext_id,
     });
 
@@ -291,24 +407,24 @@ export class Ingestion {
     if (e.edit_of_external_id) {
       if (
         applyEdit({
-          sourceId: this.adapter.sourceId,
+          sourceId: this.sourceId,
           targetExternalId: e.edit_of_external_id,
           text: e.text ?? "",
           editedAt: e.ts,
         })
       ) {
-        this.nudge(channelId);
+        this.nudge(streamId);
         return;
       }
     } else if (e.revoke_of_external_id) {
       if (
         applyRevoke({
-          sourceId: this.adapter.sourceId,
+          sourceId: this.sourceId,
           targetExternalId: e.revoke_of_external_id,
           revokedAt: e.ts,
         })
       ) {
-        this.nudge(channelId);
+        this.nudge(streamId);
         return;
       }
     } else if (
@@ -320,27 +436,27 @@ export class Ingestion {
       // empty one. Nothing stored => nothing to do, and no row to insert either.
       if (
         deleteReaction({
-          sourceId: this.adapter.sourceId,
+          sourceId: this.sourceId,
           targetExternalId: replyToExternalId,
           actorId,
         }) > 0
       ) {
-        this.nudge(channelId);
+        this.nudge(streamId);
       }
       return;
     }
 
     const res = insertEvent({
       externalId: e.external_id,
-      sourceId: this.adapter.sourceId,
+      sourceId: this.sourceId,
       sourceType: this.adapter.sourceType,
-      channelId,
+      streamId,
       actorId,
       ts: e.ts,
       kind: e.kind,
       text: e.text ?? "",
       mediaPath: e.media?.path ?? null,
-      rawJson: e.raw === undefined ? null : JSON.stringify(e.raw),
+      rawJson: rawJson(e),
       replyToExternalId,
       replyToText,
       mediaMime: e.media?.mime ?? null,
@@ -361,12 +477,18 @@ export class Ingestion {
 
     if (res.inserted) {
       this.stats.eventsInserted += 1;
+      // The two cursors move in opposite directions and never touch: a history
+      // page lowers the floor, a live message lifts the head (db/watermarks).
+      noteIngestedEvent(streamId, e.ts, {
+        historical: e.is_historical === true,
+        externalId: e.external_id,
+      });
       // An attachment that just landed is read now rather than waiting its turn
       // behind the import backlog (media spec §8) — but history sync arrives
       // through this same callback, and an import IS the backlog, not something
       // entitled to jump it.
       if (e.media?.path) enqueueLiveMedia(res.id, e.is_historical === true);
-      this.nudge(channelId);
+      this.nudge(streamId);
     } else {
       this.stats.eventsDeduped += 1;
     }
@@ -375,20 +497,20 @@ export class Ingestion {
   // ---- Live-ingest nudge (Rev 2 §R2.2) -------------------------------------
 
   /**
-   * A channel's stored messages changed — schedule a debounced frame so the UI
+   * A stream's stored messages changed — schedule a debounced frame so the UI
    * refetches. Fires for ALL persisted changes, including from_me / self-chat
    * (bug 2) and in-place edits/revokes/reaction removals, which produce no new
    * row but do change what the chat renders.
    */
-  private nudge(channelId: string): void {
-    if (channelId) this.pendingNudgeChannels.add(channelId);
+  private nudge(streamId: string): void {
+    if (streamId) this.pendingNudgeStreams.add(streamId);
     this.scheduleNudge();
   }
 
   /**
    * Schedule (or extend) the debounced ingest nudge. Coalesces a burst of
    * persisted events into a single `{ type:"ingest", ts, channels }` frame fanned
-   * out on the same status stream that /api/whatsapp/stream forwards.
+   * out on the same status stream that /api/sources/:source_id/stream forwards.
    */
   private scheduleNudge(): void {
     if (this.nudgeTimer) return; // a flush is already pending; it will include us
@@ -398,12 +520,15 @@ export class Ingestion {
 
   private flushNudge(): void {
     this.nudgeTimer = null;
-    const channels = [...this.pendingNudgeChannels].slice(0, NUDGE_MAX_CHANNELS);
-    this.pendingNudgeChannels.clear();
+    const streams = [...this.pendingNudgeStreams].slice(0, NUDGE_MAX_STREAMS);
+    this.pendingNudgeStreams.clear();
+    // `channels` carries the same ids under their old name for one release, so
+    // the UI keeps refetching while it is rewritten (arch §3.3 leak 6).
     this.emitFrame({
       type: "ingest",
       ts: new Date().toISOString(),
-      channels,
+      streams,
+      channels: streams,
     });
   }
 
@@ -432,7 +557,7 @@ export class Ingestion {
    * `relink` adds on top).
    */
   async logout(): Promise<void> {
-    clearImportFlags();
+    clearImportFlags(this.sourceId);
     this.clearImportState();
     await this.adapter.logout();
   }
@@ -441,16 +566,16 @@ export class Ingestion {
    * Re-link (Rev 3 §R3.2): a full clean re-sync. WhatsApp only pushes history to
    * a linked device ONCE (right after linking), so a silent reset can't recover
    * wiped history — the user must re-link. Steps:
-   *   (1) wipe all ingested whatsapp data (events/channels/actors/orphan people),
+   *   (1) wipe all ingested data for this source (events/streams/actors/people),
    *   (2) clear the persisted import flags (+ in-memory snapshot),
    *   (3) send `logout` to the daemon — it clears its session and exits 0; the
    *       adapter restarts it fresh into pairing (need_pairing → qr on pair).
-   * resetWhatsappData() already clears the import flags inside its transaction;
+   * resetSourceData() already clears the import flags inside its transaction;
    * we still clear the in-memory snapshot so /status reports importDone:false
    * immediately without a relaunch.
    */
-  async relink(): Promise<ReturnType<typeof resetWhatsappData>> {
-    const cleared = resetWhatsappData(this.adapter.sourceId);
+  async relink(): Promise<ReturnType<typeof resetSourceData>> {
+    const cleared = resetSourceData(this.sourceId);
     this.clearImportState();
     await this.adapter.logout();
     return cleared;

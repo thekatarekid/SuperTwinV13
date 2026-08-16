@@ -1,0 +1,39 @@
+{
+  "id": "T-026",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "pause|from_ms=0|to_ms=252000|now_ms=0",
+  "expect": {
+    "state": {
+      "paused": true,
+      "countdown": "paused — rate limit, resumes in 04:12",
+      "retry_budget_spent": false
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "quota pause occurs",
+    "expect": "countdown rendered; retry budget NOT spent",
+    "assert": "pause is not a stall"
+  }
+}

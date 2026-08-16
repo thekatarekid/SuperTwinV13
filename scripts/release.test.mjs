@@ -1,0 +1,376 @@
+import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  APP_NAME,
+  MANIFEST_HEADER,
+  VERSION_FILES,
+  archivedDmgs,
+  bumpLockfile,
+  bumpSource,
+  dmgVersion,
+  nextVersion,
+  preflight,
+  recordRelease,
+  recordedVersions,
+} from "./release.mjs";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const script = join(repoRoot, "scripts", "release.mjs");
+
+// ---------------------------------------------------------------------------
+// A throwaway repo with the four version files, so the CLI can be run for real
+// without bumping the working tree.
+// ---------------------------------------------------------------------------
+function fixture({ version = "0.5.3", dmgs = [], manifest = MANIFEST_HEADER } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "st-release-"));
+  for (const dir of ["scripts", "worker", "src-tauri", "releases"]) {
+    mkdirSync(join(root, dir), { recursive: true });
+  }
+
+  writeFileSync(
+    join(root, "package.json"),
+    `${JSON.stringify({ name: "supertwinv11", private: true, version, workspaces: ["worker"] }, null, 2)}\n`,
+  );
+  writeFileSync(
+    join(root, "worker/package.json"),
+    `${JSON.stringify({ name: "@supertwinv11/worker", version, private: true }, null, 2)}\n`,
+  );
+  writeFileSync(
+    join(root, "src-tauri/tauri.conf.json"),
+    `${JSON.stringify({ productName: APP_NAME, version, identifier: "com.supertwin.v11" }, null, 2)}\n`,
+  );
+  writeFileSync(
+    join(root, "src-tauri/Cargo.toml"),
+    `[package]\nname = "supertwinv11"\nversion = "${version}"\nedition = "2021"\n\n[dependencies]\ntauri = { version = "2", features = [] }\n`,
+  );
+  writeFileSync(
+    join(root, "package-lock.json"),
+    `${JSON.stringify(
+      {
+        name: "supertwinv11",
+        version,
+        lockfileVersion: 3,
+        packages: {
+          "": { name: "supertwinv11", version, workspaces: ["worker"] },
+          worker: { name: "@supertwinv11/worker", version },
+          "node_modules/mkdirp-classic": { version: "0.5.3" },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(join(root, "RELEASES.md"), manifest);
+
+  // The real script, run from inside the fixture: it anchors on its own path.
+  copyFileSync(script, join(root, "scripts", "release.mjs"));
+  for (const name of dmgs) writeFileSync(join(root, "releases", name), "not really 700 MB");
+
+  return root;
+}
+
+function run(root, args) {
+  return spawnSync(process.execPath, [join(root, "scripts", "release.mjs"), ...args], {
+    cwd: root,
+    encoding: "utf8",
+  });
+}
+
+function versionsIn(root) {
+  return {
+    pkg: JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version,
+    worker: JSON.parse(readFileSync(join(root, "worker/package.json"), "utf8")).version,
+    tauri: JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8")).version,
+    cargo: /^version = "(.+)"$/m.exec(readFileSync(join(root, "src-tauri/Cargo.toml"), "utf8"))[1],
+    lock: JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8")).version,
+  };
+}
+
+function withFixture(opts, fn) {
+  const root = fixture(opts);
+  try {
+    return fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+describe("nextVersion", () => {
+  it("bumps the patch by default", () => {
+    expect(nextVersion("0.5.3", [])).toBe("0.5.4");
+    expect(nextVersion("0.5.9", ["--no-build"])).toBe("0.5.10");
+    expect(nextVersion("1.0.0", ["--patch"])).toBe("1.0.1");
+  });
+
+  it("bumps the minor and zeroes the patch", () => {
+    expect(nextVersion("0.5.3", ["--minor"])).toBe("0.6.0");
+    expect(nextVersion("1.9.7", ["--minor"])).toBe("1.10.0");
+  });
+
+  it("bumps the major and zeroes the rest", () => {
+    expect(nextVersion("0.5.3", ["--major"])).toBe("1.0.0");
+    expect(nextVersion("2.4.9", ["--major"])).toBe("3.0.0");
+  });
+
+  it("takes --set verbatim", () => {
+    expect(nextVersion("0.5.3", ["--set", "0.9.1"])).toBe("0.9.1");
+    // --set wins over a bump flag rather than compounding with it.
+    expect(nextVersion("0.5.3", ["--major", "--set", "0.5.4"])).toBe("0.5.4");
+  });
+
+  it("rejects a --set that is not X.Y.Z", () => {
+    for (const bad of [undefined, "v0.6.0", "0.6", "0.6.0-rc1", "latest"]) {
+      expect(() => nextVersion("0.5.3", bad === undefined ? ["--set"] : ["--set", bad])).toThrow(
+        /--set needs a X\.Y\.Z version/,
+      );
+    }
+  });
+
+  it("refuses two bump flags at once instead of silently picking one", () => {
+    expect(() => nextVersion("0.5.3", ["--minor", "--major"])).toThrow(/not several/);
+  });
+});
+
+describe("dmg names", () => {
+  it("reads the version out of any arch suffix Tauri emits", () => {
+    expect(dmgVersion(`${APP_NAME}_0.6.0_aarch64.dmg`)).toBe("0.6.0");
+    expect(dmgVersion(`${APP_NAME}_0.6.0_universal.dmg`)).toBe("0.6.0");
+    expect(dmgVersion(`${APP_NAME}_0.6.0_x64.dmg`)).toBe("0.6.0");
+  });
+
+  it("ignores anything that is not one of ours", () => {
+    expect(dmgVersion("README.md")).toBeNull();
+    expect(dmgVersion("SomethingElse_0.6.0_aarch64.dmg")).toBeNull();
+    expect(dmgVersion(`${APP_NAME}_0.6_aarch64.dmg`)).toBeNull();
+  });
+});
+
+describe("the archive is append-only", () => {
+  it("refuses to build a version whose .dmg is already in releases/", () => {
+    withFixture({ version: "0.5.3", dmgs: [`${APP_NAME}_0.5.4_aarch64.dmg`] }, (root) => {
+      const res = run(root, ["--no-build"]);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toMatch(/already exists/);
+      // and it bailed before writing anything
+      expect(versionsIn(root)).toEqual({
+        pkg: "0.5.3",
+        worker: "0.5.3",
+        tauri: "0.5.3",
+        cargo: "0.5.3",
+        lock: "0.5.3",
+      });
+      expect(readFileSync(join(root, "releases", `${APP_NAME}_0.5.4_aarch64.dmg`), "utf8")).toBe(
+        "not really 700 MB",
+      );
+    });
+  });
+
+  it("refuses whatever architecture the existing .dmg was built for", () => {
+    for (const arch of ["universal", "x64"]) {
+      withFixture({ version: "0.5.3", dmgs: [`${APP_NAME}_0.5.4_${arch}.dmg`] }, (root) => {
+        const res = run(root, ["--no-build"]);
+        expect(res.status).toBe(1);
+        expect(res.stderr).toMatch(/already exists/);
+      });
+    }
+  });
+
+  it("refuses a version RELEASES.md already records as shipped", () => {
+    const manifest = `${MANIFEST_HEADER}| 0.5.4 | 636 MB | \`${"a".repeat(64)}\` |\n`;
+    withFixture({ version: "0.5.3", manifest }, (root) => {
+      const res = run(root, ["--no-build"]);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toMatch(/already records 0\.5\.4/);
+      expect(readFileSync(join(root, "RELEASES.md"), "utf8")).toBe(manifest);
+    });
+  });
+
+  it("leaves .dmgs for every other version alone", () => {
+    const keep = [`${APP_NAME}_0.5.2_aarch64.dmg`, `${APP_NAME}_0.5.3_aarch64.dmg`];
+    withFixture({ version: "0.5.3", dmgs: keep }, (root) => {
+      expect(run(root, ["--no-build"]).status).toBe(0);
+      expect(archivedDmgs(join(root, "releases"), "0.5.2")).toEqual([keep[0]]);
+      expect(archivedDmgs(join(root, "releases"), "0.5.3")).toEqual([keep[1]]);
+    });
+  });
+
+  it("preflight names the offending file", () => {
+    withFixture({ version: "0.5.3", dmgs: [`${APP_NAME}_0.6.0_aarch64.dmg`] }, (root) => {
+      expect(() => preflight(root, "0.6.0")).toThrow(/SuperTwinV11_0\.6\.0_aarch64\.dmg/);
+      expect(() => preflight(root, "0.6.1")).not.toThrow();
+    });
+  });
+});
+
+describe("npm run release -- --no-build", () => {
+  it("bumps every version file, the lockfile included", () => {
+    withFixture({ version: "0.5.3" }, (root) => {
+      const res = run(root, ["--no-build"]);
+      expect(res.status).toBe(0);
+      expect(versionsIn(root)).toEqual({
+        pkg: "0.5.4",
+        worker: "0.5.4",
+        tauri: "0.5.4",
+        cargo: "0.5.4",
+        lock: "0.5.4",
+      });
+      const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+      expect(lock.packages[""].version).toBe("0.5.4");
+      expect(lock.packages.worker.version).toBe("0.5.4");
+      // an unrelated dependency that happens to sit at 0.5.3 must not move
+      expect(lock.packages["node_modules/mkdirp-classic"].version).toBe("0.5.3");
+    });
+  });
+
+  it("honours --minor and --set on the real files", () => {
+    withFixture({ version: "0.5.3" }, (root) => {
+      expect(run(root, ["--minor", "--no-build"]).status).toBe(0);
+      expect(versionsIn(root).pkg).toBe("0.6.0");
+    });
+    withFixture({ version: "0.5.3" }, (root) => {
+      expect(run(root, ["--set", "1.2.3", "--no-build"]).status).toBe(0);
+      expect(versionsIn(root).tauri).toBe("1.2.3");
+    });
+  });
+
+  it("appends a pending manifest row and keeps every prior one", () => {
+    const manifest = `${MANIFEST_HEADER}| 0.5.2 | 636 MB | \`${"b".repeat(64)}\` |\n| 0.5.3 | 636 MB | \`${"c".repeat(64)}\` |\n`;
+    withFixture({ version: "0.5.3", manifest }, (root) => {
+      expect(run(root, ["--no-build"]).status).toBe(0);
+      const after = readFileSync(join(root, "RELEASES.md"), "utf8");
+      expect(after.startsWith(manifest.trimEnd())).toBe(true);
+      expect([...recordedVersions(after).keys()]).toEqual(["0.5.2", "0.5.3", "0.5.4"]);
+      expect(recordedVersions(after).get("0.5.4").pending).toBe(true);
+      expect(recordedVersions(after).get("0.5.3").pending).toBe(false);
+    });
+  });
+
+  it("builds nothing", () => {
+    withFixture({ version: "0.5.3" }, (root) => {
+      const res = run(root, ["--no-build"]);
+      expect(res.stdout).toMatch(/nothing built/);
+      expect(archivedDmgs(join(root, "releases"), "0.5.4")).toEqual([]);
+    });
+  });
+});
+
+describe("bumpSource", () => {
+  it("rewrites only the package's own version line", () => {
+    const cargo = readFileSync(join(repoRoot, "src-tauri/Cargo.toml"), "utf8");
+    const out = bumpSource(cargo, "src-tauri/Cargo.toml", "9.9.9");
+    expect(/^version = "9\.9\.9"$/m.test(out)).toBe(true);
+    // tauri = { version = "2", ... } is a dependency pin, not ours
+    expect(out).toContain('tauri = { version = "2"');
+  });
+
+  it("rewrites the first version key in a json file", () => {
+    const conf = readFileSync(join(repoRoot, "src-tauri/tauri.conf.json"), "utf8");
+    expect(JSON.parse(bumpSource(conf, "src-tauri/tauri.conf.json", "9.9.9")).version).toBe("9.9.9");
+  });
+
+  it("throws rather than write a file it does not understand", () => {
+    expect(() => bumpSource("{}\n", "package.json", "1.0.0")).toThrow(/no version field/);
+    expect(() => bumpSource('{"version":"1.0.0"}', "package.json", "1.0")).toThrow(/X\.Y\.Z/);
+  });
+
+  it("covers every file the release touches", () => {
+    for (const rel of VERSION_FILES) {
+      const text = readFileSync(join(repoRoot, rel), "utf8");
+      expect(() => bumpSource(text, rel, "9.9.9")).not.toThrow();
+    }
+  });
+});
+
+describe("bumpLockfile", () => {
+  it("moves the root and workspace versions and nothing else", () => {
+    const lock = readFileSync(join(repoRoot, "package-lock.json"), "utf8");
+    const before = JSON.parse(lock);
+    const after = JSON.parse(bumpLockfile(lock, "9.9.9", ["worker"]));
+    expect(after.version).toBe("9.9.9");
+    expect(after.packages[""].version).toBe("9.9.9");
+    expect(after.packages.worker.version).toBe("9.9.9");
+    for (const [key, pkg] of Object.entries(after.packages)) {
+      if (key === "" || key === "worker") continue;
+      expect(pkg.version).toBe(before.packages[key].version);
+    }
+  });
+
+  it("round-trips the lockfile npm writes, byte for byte", () => {
+    // If this drifts, every release would show a spurious whole-file diff.
+    const lock = readFileSync(join(repoRoot, "package-lock.json"), "utf8");
+    const current = JSON.parse(lock).version;
+    expect(bumpLockfile(lock, current, ["worker"])).toBe(lock);
+  });
+});
+
+describe("recordRelease", () => {
+  const sha = "d".repeat(64);
+
+  it("starts a manifest from the header when there is none", () => {
+    const out = recordRelease("", "0.1.0", { size: "47 MB", sha256: sha });
+    expect(out).toContain("| Version | Size | SHA-256 |");
+    expect(out.trimEnd().endsWith(`| 0.1.0 | 47 MB | \`${sha}\` |`)).toBe(true);
+  });
+
+  it("appends without disturbing earlier rows", () => {
+    const base = `${MANIFEST_HEADER}| 0.1.0 | 47 MB | \`${"e".repeat(64)}\` |\n`;
+    const out = recordRelease(base, "0.2.0", { size: "48 MB", sha256: sha });
+    expect(out.startsWith(base.trimEnd())).toBe(true);
+    expect([...recordedVersions(out).keys()]).toEqual(["0.1.0", "0.2.0"]);
+  });
+
+  it("fills in the row a --no-build bump left pending", () => {
+    const pending = recordRelease(MANIFEST_HEADER, "0.6.0", null);
+    expect(recordedVersions(pending).get("0.6.0").pending).toBe(true);
+    const filled = recordRelease(pending, "0.6.0", { size: "700 MB", sha256: sha });
+    expect(recordedVersions(filled).get("0.6.0").pending).toBe(false);
+    expect(filled).toContain(`| 0.6.0 | 700 MB | \`${sha}\` |`);
+    // filled in, not appended twice
+    expect(filled.match(/^\| 0\.6\.0 \|/gm)).toHaveLength(1);
+  });
+
+  it("refuses to rewrite a row that already carries a digest", () => {
+    const base = recordRelease(MANIFEST_HEADER, "0.6.0", { size: "700 MB", sha256: sha });
+    expect(() => recordRelease(base, "0.6.0", { size: "701 MB", sha256: "f".repeat(64) })).toThrow(
+      /refusing to rewrite/,
+    );
+  });
+
+  it("is a no-op when a pending version is bumped again", () => {
+    const pending = recordRelease(MANIFEST_HEADER, "0.6.0", null);
+    expect(recordRelease(pending, "0.6.0", null)).toBe(pending);
+  });
+});
+
+describe("the committed manifest", () => {
+  it("lists the version the repo is currently at", () => {
+    const version = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
+    const manifest = readFileSync(join(repoRoot, "RELEASES.md"), "utf8");
+    expect([...recordedVersions(manifest).keys()]).toContain(version);
+  });
+
+  it("never lists a version twice", () => {
+    const rows = readFileSync(join(repoRoot, "RELEASES.md"), "utf8")
+      .split("\n")
+      .map((l) => /^\|\s*(\d+\.\d+\.\d+)\s*\|/.exec(l))
+      .filter(Boolean)
+      .map((m) => m[1]);
+    expect(rows).toHaveLength(new Set(rows).size);
+  });
+
+  it("keeps the .dmg files out of git", () => {
+    expect(readFileSync(join(repoRoot, ".gitignore"), "utf8")).toContain("releases/*.dmg");
+  });
+});

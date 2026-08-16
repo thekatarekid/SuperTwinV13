@@ -1,6 +1,6 @@
 // Resolving a citation back to the message it points at.
 //
-// The context block and the corpus print the short form of an event id — a
+// The context block prints the short form of an event id — a
 // WhatsApp id is `wa:<chat jid>/<stanza>` and the jid half repeats the chat the
 // section header already names, ~7,900 chars of one measured section (v7 §6,
 // lever 5). Shortening it is only safe because this resolves it, so this is
@@ -40,8 +40,8 @@ beforeAll(() => {
   const channel = db.prepare(
     `INSERT INTO channels (id, source_id, name, kind) VALUES (?, 'whatsapp', ?, 'dm')`,
   );
-  channel.run(`whatsapp:ch:${CHAT}`, "Priya");
-  channel.run(`whatsapp:ch:${OTHER}`, "Rashmi");
+  channel.run(`whatsapp:st:${CHAT}`, "Priya");
+  channel.run(`whatsapp:st:${OTHER}`, "Rashmi");
   db.prepare(
     `INSERT INTO actors (id, source_id, display_name) VALUES ('ac-1', 'whatsapp', 'Priya')`,
   ).run();
@@ -52,26 +52,26 @@ beforeAll(() => {
   `);
   event.run(
     HIT,
-    `whatsapp:ch:${CHAT}`,
+    `whatsapp:st:${CHAT}`,
     "2026-07-27T09:21:17.000Z",
     "sunday lunch chalna hai kahin?",
     `${CHAT}/${STANZA}`,
   );
   event.run(
     `wa:${CHAT}/${SHARED}`,
-    `whatsapp:ch:${CHAT}`,
+    `whatsapp:st:${CHAT}`,
     "2026-07-27T09:34:30.000Z",
     "Haan Haan. It's a definite watch",
     `${CHAT}/${SHARED}`,
   );
   event.run(
     `wa:${OTHER}/${SHARED}`,
-    `whatsapp:ch:${OTHER}`,
+    `whatsapp:st:${OTHER}`,
     "2026-07-27T09:40:00.000Z",
     "different chat, same stanza",
     `${OTHER}/${SHARED}`,
   );
-  event.run("plain", `whatsapp:ch:${CHAT}`, "2026-07-27T09:45:00.000Z", "no slash", "plain");
+  event.run("plain", `whatsapp:st:${CHAT}`, "2026-07-27T09:45:00.000Z", "no slash", "plain");
 });
 
 afterAll(() => {

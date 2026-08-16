@@ -1,0 +1,44 @@
+{
+  "id": "S-020",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "## Claims found\nF|1|a1|1p|0.9|2026-08-08|I moved to Berlin",
+  "expect": {
+    "state": {
+      "skips": [
+        "heading"
+      ],
+      "accepted": 1,
+      "line_violations": 0,
+      "skipped": 1,
+      "non_blank_lines": 2,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_accounting_holds"
+  },
+  "stub": false,
+  "doc": {
+    "given": "line wrapped in ``` fence / # heading / - bullet",
+    "expect": "skipped and counted, not a violation",
+    "assert": "markdown skip classes"
+  }
+}

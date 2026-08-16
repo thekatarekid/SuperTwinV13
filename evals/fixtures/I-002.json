@@ -1,0 +1,70 @@
+{
+  "id": "I-002",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "self=me",
+      "a1=Mummy"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Mummy",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "maa called twice this morning",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nL|1|a1|rel|mother|self|0.85|maa",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "related_to",
+        "subtype": "mother",
+        "dst": "self",
+        "confidence": 0.85,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "maa"
+        ]
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "quote 'maa' about Mummy",
+    "expect": "L/<ev>/<src>/rel/mother/<dst>/conf/'maa'",
+    "assert": "related_to with verbatim quote"
+  }
+}

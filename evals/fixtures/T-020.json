@@ -1,0 +1,37 @@
+{
+  "id": "T-020",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "live|interval_ms=30000|quiet_ms=0|activity=50|mode=steady",
+  "expect": {
+    "backpressure": [
+      "high activity — batching every 2 min"
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "chatty stream, 50 msgs in 10min",
+    "expect": "backpressure lengthens effective interval; shown in UI",
+    "assert": "visible backpressure"
+  }
+}

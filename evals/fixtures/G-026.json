@@ -1,0 +1,61 @@
+{
+  "id": "G-026",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Mummy"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Mummy",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "Mumma wants the reports scanned",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "alias|e=a1|src=whatsapp|a=Mumma|ev=1|q=Mumma wants the reports scanned",
+  "expect": {
+    "state": {
+      "entity_count": 1,
+      "person_count": 1,
+      "alias_rows": 1,
+      "alias_evidence": 1,
+      "model_calls": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "entities_precision"
+  },
+  "stub": false,
+  "doc": {
+    "given": "'Mumma' used consistently where Mummy is counterparty",
+    "expect": "alias identity row on Mummy, evidence quoted",
+    "assert": "alias not a new entity"
+  }
+}

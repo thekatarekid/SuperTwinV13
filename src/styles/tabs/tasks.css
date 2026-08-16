@@ -1,0 +1,230 @@
+/* ==========================================================================
+   Tasks surface — arch §14.7.
+
+   The surface's shape carries its meaning, so the CSS has to as well:
+
+     1. THE TWO LISTS LOOK DIFFERENT. "You said you'd do this" is solid and
+        committed; "suggested by your twin" is dashed and lighter. Two lists
+        with different verbs (§14.7 rule 1) that looked identical would be one
+        list with a label.
+     2. "WAITING ON OTHERS" IS NOT A TO-DO LIST. No card chrome, no action
+        buttons, muted throughout — it reads as a note, which is what it is.
+     3. PROVISIONAL IS VISIBLE AT A GLANCE (§14.0b). The accent left-edge and
+        the ◍ marker, never a subtle tint.
+   ========================================================================== */
+
+.task-list {
+  margin-bottom: var(--space-4);
+}
+
+.task-list__title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-display);
+}
+
+.task-list__note {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.task-list__groups,
+.task-group__tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.task-group {
+  margin-bottom: var(--space-3);
+}
+
+.task-group__space {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.task {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Rule 1: a suggestion is visibly not a commitment. */
+.task--implicit {
+  border-style: dashed;
+  border-left-color: var(--border-strong);
+  background: var(--well);
+}
+
+.task--lapsed {
+  border-left-color: var(--warn);
+}
+
+.task--provisional {
+  border-left-color: var(--accent);
+}
+
+.task--retracted {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.task--retracted .task__intent {
+  text-decoration: line-through;
+}
+
+.task__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.task__intent {
+  flex: 1 1 16rem;
+  color: var(--text);
+}
+
+.task__due,
+.task__space,
+.task__why {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-warm-label);
+}
+
+.task__quote {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-ink);
+}
+
+.task__quote-at,
+.task__inferred,
+.task__lapsed,
+.task__provisional,
+.task__pending,
+.task__retracted,
+.task__teaches,
+.task__gap {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.task__lapsed {
+  color: var(--warn);
+}
+
+/* Rule 3. */
+.task__provisional,
+.task__pending {
+  color: var(--accent);
+}
+
+.task__evidence {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) 0 0;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.task__evidence-id,
+.task__origin {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.task__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---- the done check ----------------------------------------------------- */
+
+.done-checks {
+  border: 1px solid var(--accent-border);
+  background: var(--accent-tint);
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.done-checks h2,
+.waiting h2 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-display);
+}
+
+.done-checks ul,
+.waiting ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.done-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.done-check__observation,
+.done-check__quote {
+  color: var(--text-ink);
+}
+
+/* ---- waiting on others (rule 2) ----------------------------------------- */
+
+.waiting {
+  padding: var(--space-3) 0 var(--space-6);
+  border-top: 1px dashed var(--border);
+  color: var(--text-muted);
+}
+
+.waiting__note,
+.waiting__reason {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.waiting__reason {
+  margin: 0 0 0 var(--space-2);
+}
+
+.waiting__who {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-warm-label);
+}

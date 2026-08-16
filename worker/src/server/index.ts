@@ -42,6 +42,7 @@ import {
   isValidRole,
 } from "../providers/claude-local/models.js";
 import {
+  getDebugExportEnabled,
   getSelectedModel,
   setSelectedModel,
   getAllSelectedModels,
@@ -81,17 +82,22 @@ import {
   MAX_VIDEO_FRAME_INTERVAL_SEC,
   MAX_VIDEO_FRAME_MAX,
   MAX_VIDEO_MAX_HEIGHT,
-  mediaQueueCounts,
-  mediaSpend,
-} from "../store/store.js";
+} from "../db/settings.js";
+import { mediaQueueCounts, mediaSpend } from "../db/runs.js";
 import type { Ingestion } from "../ingest/index.js";
 import { startMediaQueue, stopMediaQueue } from "../media/queue.js";
 // The reader's own getter, not a copy of it: it is what the claim query reads
 // every cycle, so anything else here could serve a size nothing acts on.
 import { getMediaImageBatch, setMediaImageBatch } from "../media/switches.js";
+import {
+  getEnrichmentReadAllMedia,
+  getEnrichmentSalienceGate,
+  setEnrichmentReadAllMedia,
+  setEnrichmentSalienceGate,
+} from "../media/batch.js";
 import { MAX_IMAGE_BATCH } from "../media/describe.js";
 import { WHISPER_MODELS } from "../media/tools.js";
-import { handleWhatsAppRoute } from "./whatsapp-routes.js";
+import { handleSourceRoute } from "./whatsapp-routes.js";
 import {
   abortModelDownloads,
   handleMediaToolsRoute,
@@ -105,7 +111,14 @@ import {
   stopSemanticIndexer,
 } from "../retrieval/indexer.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
+import { handleOpsRoute } from "./ops-routes.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
+// Item 2.6 — the reconcile job's manual entry point and its nightly timer.
+import { startNightlyTimer, type ReconcileTimer } from "../reconcile/index.js";
+// The episode stage's scheduled caller — the 14-day aging clock (§11.1 rule 5)
+// and the sealed-session sweep through the real P-EP2 judge.
+import { startEpisodeClock, type EpisodeClock } from "../scheduler/episode-pass.js";
+import { handleReconcileRoute } from "../reconcile/routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -190,6 +203,9 @@ const MEDIA_SWITCHES: readonly [string, (v: boolean) => void][] = [
   ["video_frames_enabled", setMediaVideoFramesEnabled],
   ["video_audio_enabled", setMediaVideoAudioEnabled],
   ["voice_notes_enabled", setMediaVoiceNotesEnabled],
+  // The two V2 enrichment switches (§14.0c MEDIA panel, arch §8.4 table).
+  ["read_all_media", setEnrichmentReadAllMedia],
+  ["salience_gate", setEnrichmentSalienceGate],
 ];
 
 // The clamped integers it serves and accepts, each with its ceiling and where
@@ -326,9 +342,17 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   // backlog on the throttle from Settings. The semantic indexer keeps the same
   // company — it too is a backlog nobody should have to wait on, and it costs
   // one null per minute while the tier is off.
+  // The nightly reconcile (item 2.6, §8.1) keeps the same company: it ticks,
+  // asks the DB whether a day has passed, and costs nothing when it has not.
+  let nightly: ReconcileTimer | null = null;
+  // The episode clock (§11.1 rule 5) keeps the same company: it ages quiet
+  // episodes once a day and works the queue's episode stage in between.
+  let episodeClock: EpisodeClock | null = null;
   if (opts?.media ?? process.env.NODE_ENV !== "test") {
     startMediaQueue();
     startSemanticIndexer();
+    nightly = startNightlyTimer();
+    episodeClock = startEpisodeClock();
   }
 
   const server = createServer((req, res) => {
@@ -363,6 +387,8 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
             // a half-fetched model leaves only its `.part`.
             stopMediaQueue();
             stopSemanticIndexer();
+            nightly?.stop();
+            episodeClock?.stop();
             abortModelDownloads();
             abortEmbeddingDownload();
             for (const [, ac] of inflight) ac.abort();
@@ -647,17 +673,40 @@ async function handle(
     return;
   }
 
-  // --- WhatsApp + Inbox + media routes (Phase 1, additive).
-  if (path.startsWith("/api/whatsapp/") ||
+  // --- Source + Inbox + media routes (Phase 1, additive). `/api/whatsapp/*`
+  // is the aliased spelling of `/api/sources/whatsapp/*`, kept one release
+  // (arch §3.3 leak 4).
+  if (path === "/api/sources" ||
+      path.startsWith("/api/sources/") ||
+      path.startsWith("/api/whatsapp/") ||
       path.startsWith("/api/inbox/") ||
       path.startsWith("/api/media/")) {
-    const handled = await handleWhatsAppRoute(req, res, ingestion);
+    const handled = await handleSourceRoute(req, res, ingestion);
     if (handled) return;
   }
 
-  // --- Brain wiki routes (Phase 2, additive).
-  if (path.startsWith("/api/brain/")) {
+  // --- Brain FILE reads are a debug export, not a product surface (V2 §3.2),
+  // so GET /api/brain/file is off the default router: it is mounted only while
+  // `settings.debug_export` is set. Reading the flag per request rather than at
+  // boot is deliberate — turning the export off has to take effect immediately,
+  // and this costs one indexed app_state lookup on a path nobody hot-loops.
+  if (path.startsWith("/api/brain/") && getDebugExportEnabled()) {
     const handled = await handleBrainRoute(req, res);
+    if (handled) return;
+  }
+
+  // --- Reconcile (item 2.6): the manual entry point beside the cohort-boundary
+  // and nightly ones. Same job, same one run id, so a hand-triggered pass is
+  // undoable exactly like a scheduled one.
+  if (path.startsWith("/api/reconcile/")) {
+    const handled = await handleReconcileRoute(req, res);
+    if (handled) return;
+  }
+
+  // --- Ops surface (item 4.4): import progress, quarantine browser, question
+  // queue, per-lane pause/resume, undo-run. Owns everything under /api/ops/.
+  if (path.startsWith("/api/ops/")) {
+    const handled = await handleOpsRoute(req, res);
     if (handled) return;
   }
 
@@ -665,6 +714,9 @@ async function handle(
   // which returns false for /api/brain/(info|reveal) so they land here.
   if (
     path === "/api/runs" ||
+    path === "/api/latency" ||
+    path === "/api/usage" ||
+    path === "/api/usage/estimate" ||
     path.startsWith("/api/logs/") ||
     path === "/api/brain/info" ||
     path === "/api/brain/reveal" ||
@@ -845,7 +897,8 @@ async function handleChat(
   };
 
   // ---- Pre-turn retrieval (grounded only): inject the conversation around the
-  // hits for this question, and refresh the on-disk corpus the run can Grep.
+  // hits for this question. Nothing is written to disk — the plaintext message
+  // dump the run used to be able to Grep is gone (V2 §3.2).
   // The RAW message is what gets persisted/displayed; the augmented text is
   // what gets dispatched. Awaited because the semantic tier is async; it costs
   // nothing when there is no embedding model, which is its default state.
@@ -983,6 +1036,8 @@ function mediaSettings(): {
   video_frames_enabled: boolean;
   video_audio_enabled: boolean;
   voice_notes_enabled: boolean;
+  read_all_media: boolean;
+  salience_gate: boolean;
   rate_per_min: number;
   concurrency: number;
   image_batch: number;
@@ -1001,6 +1056,8 @@ function mediaSettings(): {
     video_frames_enabled: getMediaVideoFramesEnabled(),
     video_audio_enabled: getMediaVideoAudioEnabled(),
     voice_notes_enabled: getMediaVoiceNotesEnabled(),
+    read_all_media: getEnrichmentReadAllMedia(),
+    salience_gate: getEnrichmentSalienceGate(),
     rate_per_min: getMediaRatePerMin(),
     concurrency: getMediaConcurrency(),
     image_batch: getMediaImageBatch(),

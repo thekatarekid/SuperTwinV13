@@ -1,0 +1,41 @@
+{
+  "id": "C-034",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "priority|",
+  "expect": {
+    "state": {
+      "order": [
+        "whatsapp:PHOTO1H",
+        "whatsapp:PHOTO2023"
+      ],
+      "read_first": "whatsapp:PHOTO1H"
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": false,
+  "doc": {
+    "given": "photo from 1h ago and photo from 2023 both queued",
+    "expect": "1h-ago photo captioned first",
+    "assert": "media queue priority = cohort priority"
+  }
+}

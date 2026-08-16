@@ -1,0 +1,37 @@
+{
+  "id": "T-029",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "late_media|session=s1|pending=1",
+  "expect": {
+    "reprocess_target": [
+      "s1"
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "enrich_late_original_session"
+  },
+  "stub": false,
+  "doc": {
+    "given": "late transcript arrives",
+    "expect": "re-read in the SAME session/episode/roster",
+    "assert": "context preserved"
+  }
+}

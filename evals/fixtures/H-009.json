@@ -1,0 +1,64 @@
+{
+  "id": "H-009",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [
+      "a1=Rajat"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rajat",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "ask Rajat about Rahul's wedding",
+        "c": "c1"
+      }
+    ],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "#WIRE\nM|1|Rajat|a1|0.95",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "Rajat",
+        "entity": "a1",
+        "confidence": 0.95,
+        "hint": null,
+        "decided_by": "llm:p-ep1"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": false,
+  "doc": {
+    "given": "msg: 'ask Rajat about the Rahul's wedding'",
+    "expect": "M/<ev>/Rajat/a<k>/>=0.9",
+    "assert": "roster hit"
+  }
+}

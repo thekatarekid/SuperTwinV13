@@ -3,7 +3,7 @@
 // the load-bearing guarantees: streaming, resume-context, cwd-change-fresh,
 // poison fallback, cancel, and 0 orphaned processes.
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { claudeLocalProvider } from "./index.js";
 import { billableTokens } from "../usage.js";
 import type { ProviderStreamEvent } from "../types.js";
+import { skipWithoutRealCli } from "../../testing/real-cli.js";
 
 // Real-CLI turns are slow; give them room.
 const TURN_TIMEOUT = 90_000;
@@ -54,11 +55,7 @@ function drain(events: ProviderStreamEvent[]): {
   return { types: events.map((e) => e.type), text, sessionIds };
 }
 
-describe("claude-local adapter (real CLI)", () => {
-  beforeAll(() => {
-    // Sanity: the CLI must be present, else these tests are meaningless.
-    execFileSync("claude", ["--version"], { encoding: "utf8" });
-  });
+describe.skipIf(skipWithoutRealCli)("claude-local adapter (real CLI)", () => {
 
   it(
     "streams delta events and finishes with done + a session id",

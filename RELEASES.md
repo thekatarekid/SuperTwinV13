@@ -17,3 +17,4 @@ Nothing here is ever removed.
 | 0.5.3 | 636 MB | `d54b5e82ef2a4670281ae144b6a2a407cecd96dad2201c865a7944c9d4a7f1bd` |
 | 0.6.0 | — | pending |
 | 0.7.0 | — | pending |
+| 0.8.0 | — | pending |

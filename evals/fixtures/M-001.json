@@ -5,9 +5,18 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T15:40:00Z",
+        "who": "self",
+        "text": "i've started bhangra on saturdays"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +27,34 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nH|1|self|1p|0.95|-|Attends bhangra classes on Saturdays",
+  "expect": {
+    "claims": [
+      {
+        "tag": "H",
+        "kind": "habit",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Attends bhangra classes on Saturdays"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
     "gate": "claim_subject_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "self says: 'i've started bhangra on saturdays'",
     "expect": "H/<ev>/self/1p/conf/-/Attends bhangra classes on Saturdays",

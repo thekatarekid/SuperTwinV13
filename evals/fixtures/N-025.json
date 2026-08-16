@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T11:00:00Z",
+        "who": "self",
+        "text": "i go to bhangra class every Tuesday"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,22 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "H|1|self|1p||-|Goes to bhangra class every Tuesday",
+  "expect": {
+    "state": {
+      "loops": 0,
+      "claims": 1,
+      "claim_kinds": [
+        "habit"
+      ],
+      "tasks": 0
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "loops_explicit_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "habit statement about bhangra class",
     "expect": "H claim, NO loop",

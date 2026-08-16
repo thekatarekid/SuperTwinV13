@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-15T09:00:00Z",
+        "who": "self",
+        "text": "i'll send you the rabies shots link tonight"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,36 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "T|1|self|a1|ex|i2t|m|d|2026-08-15T18:00Z|-|0.95|Send Pranjali the rabies shots link",
+  "expect": {
+    "loops": [
+      {
+        "intent": "Send Pranjali the rabies shots link",
+        "owner": "self",
+        "counterparty": "a1",
+        "origin": "explicit",
+        "due": "2026-08-15T18:00Z",
+        "state": "open",
+        "horizon": "today",
+        "is_task": true
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": "loops_explicit_precision"
+    "on": [
+      "intent",
+      "owner",
+      "counterparty",
+      "origin",
+      "due",
+      "state",
+      "horizon",
+      "is_task"
+    ],
+    "gate": "loops_explicit_recall"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "self: 'i'll send you the rabies shots link tonight'",
     "expect": "T/.../self/a<k>/ex/i2t/.../due today/...",

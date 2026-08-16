@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-01T12:00:00Z",
+        "who": "self",
+        "text": "morning"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,19 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "claim_subject_accuracy"
+  "frozen_response": "Y|e1|A greeting with no substantive content.\nO|-|a1|ao|0.8|-|Considers the office canteen bad",
+  "expect": {
+    "state": {
+      "claims_extracted": 0,
+      "claims_written": 0,
+      "unsupported": 1
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": null
+  },
+  "stub": false,
   "doc": {
     "given": "claim emitted with no event citation",
     "expect": "REJECT — no evidence, no write",

@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T20:00:00Z",
+        "who": "a1",
+        "text": "we should get dinner sometime"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -19,12 +29,14 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
+  "expect": {
+    "loops": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "loops_explicit_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'we should get dinner sometime' (3)",
     "expect": "NO loop — no unresolved end state",

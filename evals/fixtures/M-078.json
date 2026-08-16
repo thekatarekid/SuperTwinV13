@@ -5,9 +5,18 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2025-11-05T08:30:00Z",
+        "who": "self",
+        "text": "from next month I'm vegetarian"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +27,26 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "Y|e1|Aditya declared a vegetarian diet starting the following month. Nothing else was discussed.\nF|1|self|1p|0.9|2025-12-01|Vegetarian from December 2025",
+  "expect": {
+    "claims": [
+      {
+        "valid_from": "2025-12-01",
+        "stored_valid_from": "2025-12-01",
+        "text": "Vegetarian from December 2025"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
+    "on": [
+      "valid_from",
+      "stored_valid_from",
+      "text"
+    ],
     "gate": "claim_subject_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'from next month I'm vegetarian' (3)",
     "expect": "valid_from set to the stated boundary",

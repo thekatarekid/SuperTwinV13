@@ -5,12 +5,38 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T10:00:00Z",
+        "who": "a1",
+        "text": "my broadband renews on the 28th, I'll sort it"
+      }
+    ],
     "open": {
       "episodes": [],
-      "loops": []
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Pranjali renews the broadband plan",
+          "origin": "explicit",
+          "owner": "a1",
+          "counterparty": "self",
+          "due": "2026-08-28T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-10T10:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
     },
     "db": {
       "entities": [],
@@ -19,12 +45,26 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": null
+  "expect": {
+    "tasks": [],
+    "waiting": [
+      {
+        "t": "t1",
+        "intent": "Pranjali renews the broadband plan",
+        "owner": "a1"
+      }
+    ]
   },
-  "stub": true,
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "intent",
+      "owner"
+    ],
+    "gate": "loops_non_user_owner_tasks"
+  },
+  "stub": false,
   "doc": {
     "given": "loop owner=Pranjali",
     "expect": "does NOT appear in Tasks; shows under Waiting on others / People",

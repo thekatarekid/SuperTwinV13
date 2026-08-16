@@ -5,9 +5,20 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Sudhir Katare",
+      "a2=Hrishikesh Deshpande"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-08T20:30:00Z",
+        "who": "a1",
+        "text": "hrishikesh said the new flat is great"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +29,28 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "state",
-    "gate": "claim_subject_accuracy"
+  "frozen_response": "Y|e1|Sudhir relayed something Hrishikesh had said. Nothing else was discussed.\nO|1|a2|rs|0.6|-|Considers the new flat great",
+  "expect": {
+    "claims": [
+      {
+        "subject": "a2",
+        "attribution": "reported_speech",
+        "confidence": 0.6,
+        "text": "Considers the new flat great"
+      }
+    ]
   },
-  "stub": true,
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject",
+      "attribution",
+      "confidence",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
+  },
+  "stub": false,
   "doc": {
     "given": "Sudhir relays what Hrishikesh said",
     "expect": "attribution=rs",

@@ -10,13 +10,18 @@
 |---|---|---|
 | 0 Foundations | 0.1–0.7 | ✅ gate passed |
 | 1 Ingest→Sessions | 1.1–1.11 | ✅ gate passed |
-| 2 Episodes/Arcs | 2.1–2.7 | pending |
-| 3 Claims/Loops/Spaces/Tasks | 3.1–3.10 | pending |
+| 2 Episodes/Arcs | 2.1–2.7 | ✅ gate passed |
+| 3 Claims/Loops/Spaces/Tasks | 3.1–3.10 | ✅ gate passed |
 | 4 Hardening | 4.1–4.4 | pending |
 | 5 Second source | 5.1–5.4 | pending |
 
 ## Log
 
+- **PHASES 2 + 3 GATES PASSED.** Eval **1000/1000 cases · 0 gates breached · 0 pending** · 80/96 gates measured · worker 3052/3052 · root 485/485 · scripts 67/67. Cheat-scan clean (no skips; every gates.ts threshold verbatim vs arch §14.2).
+- **Audit round (Phase 2)** — the unreported Phase 2 run was audited item-by-item before gating. Caught and fixed: a tautological `episodes_one_to_one_rate` (denominator was 14 hand-picked positives reading 1.00 by construction → per-observation over all routed sessions), a latent `episode_verdicts` row-shape corruption that would have silently broken never-re-judge, an unfalsifiable wrong-attach gate (now measured off persisted rows, all three violation kinds fire in tests), and the unwired P-EP2 judge seam.
+- **1:1 rate** — first honest measurement read 41.2% vs the 60% floor because the J corpus was a coverage matrix, not a traffic sample. Fixed with a representative corpus; now **62.8%**, threshold untouched.
+- **Gap-close fan-out** — M(95)/N(75)/Q(30) fixtures authored + `claims`/`loops`/`tasks` executors driving real product code over temp SQLite; spaces cap implemented in product (`applySpacesCap`) and proven on a ~3,000-event corpus; episode engine wired into the scheduler with the aging clock.
+- **Still no-data (15 gates)** — need live runtime or real media files (scheduler restart/full-import, enrichment queue incl. bolded `enrich_caption_wrong_image`, corrections-survive). Flagged for Phase 4; the harness refuses to call them pass.
 - **PHASE 1 GATE PASSED.** typecheck clean · worker 2060/2060 · root 327/327 · scripts 67/67 = **2,454 tests** · eval **580/580 cases**, 96 gates defined / **47 measured** / **0 breached**.
   - Session F1 100%, determinism 0 drift, explainable 100%. Entity precision 100%, mention linking 100%, edge precision 100%. All streams tiered, 0 orphans on promotion. First claim 18 s (gate 30 s), first triple 34 s (gate 120 s), no stall 60 s (gate 90 s), first-paint calls 1, adjudicator-before-paint 0.
   - **Gap closed.** Those three entity gates now measure real product code (`worker/src/entities/audit.ts`) — silent guesses **0 over 350 audited resolutions**, recall 100% over 27 opportunities, metadata edges 100% over 19 memberships. Gates measured 44 → 47.

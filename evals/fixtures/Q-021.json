@@ -5,12 +5,30 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
     "events": [],
     "open": {
       "episodes": [],
-      "loops": []
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Compare broadband plans in Bangalore",
+          "origin": "implicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": true,
+          "attempt_state": null
+        }
+      ]
     },
     "db": {
       "entities": [],
@@ -19,12 +37,36 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
+  "expect": {
+    "claims": [
+      {
+        "kind": "preference",
+        "subject": "self",
+        "decided_by": "user"
+      }
+    ],
+    "loops": [
+      {
+        "t": "t1",
+        "state": "dropped",
+        "retained": true
+      }
+    ],
+    "tasks": []
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "kind",
+      "subject",
+      "decided_by",
+      "state",
+      "retained"
+    ],
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "user taps 'not useful' on an implicit loop (1)",
     "expect": "writes a user-sourced preference claim that enters future rosters",

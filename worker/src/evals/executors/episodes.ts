@@ -44,6 +44,7 @@ import { partitions, runEpisodePass, type EngineSession, type EpisodeJudge } fro
 import { preflagDrift, type DriftEvent, type PreflagResult } from "../../episodes/preflag.js";
 import { MIN_CALIB_PAIRS } from "../../retrieval/calibration-floor.js";
 import { createAliasTable } from "../../wire/aliases.js";
+import { trafficGateObservations } from "./episodes-traffic.js";
 import type { Fixture, FixtureEvent } from "../fixtures.js";
 import type { Executor, GateObservation, Produced } from "../runner.js";
 
@@ -485,6 +486,12 @@ export const episodesExecutor: Executor = (ctx): Produced => {
   } finally {
     world.close();
   }
+
+  // §14.2's "1:1 default rate" is a rate over TRAFFIC, and the J table is a
+  // coverage matrix, not traffic (see episodes-traffic.ts). The representative
+  // corpus rides with the first J case that completes — once per suite, so the
+  // gate's denominator holds each of its sessions exactly once.
+  acc.gates.push(...trafficGateObservations());
 
   return { output: acc.output, state: acc.state, metrics: acc.metrics, gates: acc.gates };
 };

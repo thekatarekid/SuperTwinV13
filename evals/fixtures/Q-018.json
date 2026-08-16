@@ -5,12 +5,46 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rohan Mehta"
+    ],
     "streams": [],
     "events": [],
     "open": {
       "episodes": [],
-      "loops": []
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Confirm the villa to Rohan",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "a1",
+          "due": "2026-08-20T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        },
+        {
+          "t": "t2",
+          "intent": "Shortlist a photographer for Diwali",
+          "origin": "implicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-05T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
     },
     "db": {
       "entities": [],
@@ -19,12 +53,29 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
+  "expect": {
+    "explicit": [
+      {
+        "t": "t1",
+        "verb": "you said you'd do this"
+      }
+    ],
+    "implicit": [
+      {
+        "t": "t2",
+        "verb": "suggested by your twin"
+      }
+    ]
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "verb"
+    ],
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "explicit vs implicit loops rendered (2)",
     "expect": "TWO separate lists, different verbs, never interleaved",

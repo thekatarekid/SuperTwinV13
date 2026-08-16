@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2025-08-25T10:00:00Z",
+        "who": "self",
+        "text": "my health insurance renews on 2025-09-01, it's annual"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "T|1|self|-|ex|slf|m|y|2025-09-01|annual||Renew the health insurance",
+  "expect": {
+    "state": {
+      "states": [
+        "open"
+      ],
+      "state_reasons": [
+        "recurrence_next_future"
+      ],
+      "next_occurrences": [
+        "2026-09-01T00:00:00.000Z"
+      ],
+      "tasks": 1,
+      "past_due_open_violations": 0
+    }
+  },
   "assert": {
     "mode": "state",
-    "gate": "loops_explicit_precision"
+    "gate": "loops_recurring_live"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "past due + recurrence annual, next occurrence in the future",
     "expect": "state=open — LIVE",

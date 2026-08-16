@@ -5,9 +5,18 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-06T21:00:00Z",
+        "who": "self",
+        "text": "i love jazz"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +27,26 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "claim_subject_accuracy"
+  "frozen_response": "Y|e1|Aditya expressed a personal preference. Nothing else was discussed.\nP|1|self|1p|0.95|-|Loves jazz",
+  "expect": {
+    "claims": [
+      {
+        "subject": "self",
+        "text": "Loves jazz",
+        "stray": []
+      }
+    ]
   },
-  "stub": true,
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "subject",
+      "text",
+      "stray"
+    ],
+    "gate": "claims_third_person"
+  },
+  "stub": false,
   "doc": {
     "given": "'I love X' said by self",
     "expect": "text='Loves X' — never 'I love X'",

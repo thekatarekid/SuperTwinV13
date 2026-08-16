@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rashmi Iyer"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T11:20:00Z",
+        "who": "a1",
+        "text": "ACT is way overpriced"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,30 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "Y|e1|Rashmi shared one personal statement about their own life. Nothing else was discussed.\nO|1|a1|1p|0.95|-|Considers ACT broadband overpriced",
+  "expect": {
+    "claims": [
+      {
+        "tag": "O",
+        "kind": "opinion",
+        "subject": "a1",
+        "attribution": "first_person",
+        "text": "Considers ACT broadband overpriced"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": "claim_subject_accuracy"
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "text"
+    ],
+    "gate": "claim_attribution_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "Rashmi says: 'ACT is way overpriced'",
     "expect": "O/<ev>/a<k>/1p/...",

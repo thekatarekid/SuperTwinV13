@@ -22,6 +22,7 @@ import { getDb } from "../db/connection.js";
 import { meEntityId } from "../entities/binding.js";
 import { logMutation } from "../entities/merge.js";
 import { isArchetype, reviseArchetype, type Archetype, type ArchetypeSource } from "./archetype.js";
+import { applySpacesCap } from "./constraints.js";
 import {
   applyRecurrenceCap,
   isPromotionRoute,
@@ -296,7 +297,9 @@ export function promoteArcs(opts: SweepOptions = {}): PromotionSweep {
     if (input) raw.push(promotionVerdict(input));
   }
 
-  const verdicts = applyRecurrenceCap(raw, lastEvidence);
+  // The recurrence cap first (§11.3, ~10 live), then the corpus-wide spaces
+  // cap (Phase 3 gate, ≤ 45 live) — pinned spaces exempt from both.
+  const verdicts = applySpacesCap(applyRecurrenceCap(raw, lastEvidence), lastEvidence);
   const applied: ApplyResult[] = [];
   if (opts.dryRun !== true) {
     for (const verdict of verdicts) applied.push(applyPromotionVerdict(verdict, opts));

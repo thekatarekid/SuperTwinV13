@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-09-20T09:00:00Z",
+        "who": "self",
+        "text": "my broadband renews on the 28th"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "T|1|self|-|ex|slf|m|mo|2026-09-28|monthly||Renew the broadband plan",
+  "expect": {
+    "loops": [
+      {
+        "intent": "Renew the broadband plan",
+        "due": "2026-09-28"
+      }
+    ]
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "set_equal",
+    "on": [
+      "intent",
+      "due"
+    ],
     "gate": "loops_explicit_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'the 28th' in an episode dated 2026-09-20",
     "expect": "resolved against the EPISODE date, not today",

@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T10:00:00Z",
+        "who": "self",
+        "text": "my visa expires on 2026-10-10"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,30 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "T|1|self|-|ex|slf|m|q|2026-10-10|-||Renew the visa before it expires",
+  "expect": {
+    "loops": [
+      {
+        "intent": "Renew the visa before it expires",
+        "due": "2026-10-10",
+        "recurrence": null,
+        "state": "open",
+        "is_task": true
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": "loops_explicit_precision"
+    "on": [
+      "intent",
+      "due",
+      "recurrence",
+      "state",
+      "is_task"
+    ],
+    "gate": "loops_explicit_recall"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'my visa renews/expires on <date>'",
     "expect": "T with due + recurrence where applicable",

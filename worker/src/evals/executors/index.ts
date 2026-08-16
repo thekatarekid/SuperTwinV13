@@ -17,16 +17,19 @@ import { accountingExecutor } from "./accounting.js";
 import { arcsExecutor } from "./arcs.js";
 import { bridgesExecutor } from "./bridges.js";
 import { calibExecutor } from "./calib.js";
+import { claimsExecutor } from "./claims.js";
 import { edgesExecutor } from "./edges.js";
 import { entitiesExecutor } from "./entities.js";
 import { episodesExecutor } from "./episodes.js";
 import { enrichmentExecutor } from "./enrichment.js";
 import { ingestExecutor } from "./ingest.js";
+import { loopsExecutor } from "./loops.js";
 import { mentionsExecutor } from "./mentions.js";
 import { partyExecutor } from "./party.js";
 import { promotionExecutor } from "./promotion.js";
 import { schedulerExecutor } from "./scheduler.js";
 import { sessionsExecutor } from "./sessions.js";
+import { tasksExecutor } from "./tasks.js";
 import { tiersExecutor } from "./tiers.js";
 import { wireExecutor } from "./wire.js";
 import { writeExecutor } from "./write.js";
@@ -36,15 +39,18 @@ export {
   arcsExecutor,
   bridgesExecutor,
   calibExecutor,
+  claimsExecutor,
   edgesExecutor,
   entitiesExecutor,
   episodesExecutor,
   ingestExecutor,
+  loopsExecutor,
   mentionsExecutor,
   partyExecutor,
   promotionExecutor,
   schedulerExecutor,
   sessionsExecutor,
+  tasksExecutor,
   tiersExecutor,
   wireExecutor,
   writeExecutor,
@@ -63,8 +69,11 @@ export const PRODUCT_EXECUTORS = {
   mentions: mentionsExecutor,
   edges: edgesExecutor,
   episodes: episodesExecutor,
+  loops: loopsExecutor,
+  tasks: tasksExecutor,
   bridges: bridgesExecutor,
   arcs: arcsExecutor,
+  claims: claimsExecutor,
   wire: wireExecutor,
   accounting: accountingExecutor,
   calib: calibExecutor,

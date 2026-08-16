@@ -5,12 +5,60 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
     "events": [],
     "open": {
       "episodes": [],
-      "loops": []
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Book flights to Indore",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": "2026-09-01T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        },
+        {
+          "t": "t2",
+          "intent": "Renew the car insurance",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": "2026-08-30T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-08T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        },
+        {
+          "t": "t3",
+          "intent": "Research jump seats for the car",
+          "origin": "implicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": null,
+          "recurrence": null,
+          "stated_at": "2026-08-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
     },
     "db": {
       "entities": [],
@@ -19,12 +67,33 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
+  "expect": {
+    "explicit": [
+      {
+        "t": "t1",
+        "verb": "you said you'd do this"
+      },
+      {
+        "t": "t2",
+        "verb": "you said you'd do this"
+      }
+    ],
+    "implicit": [
+      {
+        "t": "t3",
+        "verb": "suggested by your twin"
+      }
+    ]
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "verb"
+    ],
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "explicit vs implicit loops rendered (3)",
     "expect": "TWO separate lists, different verbs, never interleaved",

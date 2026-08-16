@@ -69,31 +69,30 @@ describe("npm run eval", () => {
     expect(text).toContain("fixtures: 1000 loaded");
     expect(text).toContain("no network calls");
     expect(text).toContain("GATES (architecture §14.2)");
-    // A–L, O, P, R, S, T, U and V are authored and run; the rest are stubs.
-    expect(text).toContain("PENDING (200)");
-    expect(text).toContain("cases:    1000 · pass 800 · fail 0 · pending 200");
+    // Every category A–V is authored and runs; nothing is pending any more.
+    expect(text).toContain("cases:    1000 · pass 1000 · fail 0 · pending 0");
 
-    // EVERY CASE PASSES; ONE GATE DOES NOT — and that is the honest state of
-    // the build, not a flake to be waited out.
+    // EVERY CASE AND EVERY MEASURED GATE PASSES — including
+    // `episodes_one_to_one_rate`, §14.2's "1:1 default rate ≥ 60%".
     //
-    // `episodes_one_to_one_rate` is §14.2's "1:1 default rate ≥ 60%". It used
-    // to read 1.00 because it was fed only by the fourteen J fixtures whose
-    // `assert.gate` named it, and all fourteen are the same one-topic
-    // scenario — a denominator of hand-picked positives. Measured over every
-    // session the engine actually ROUTES it reads 41.2% (21 of 51), because
-    // the J corpus is a COVERAGE MATRIX (12 pivots, 12 resumes, 5 cross-stream,
-    // 4 drift) and not a sample of traffic. The engine itself is not at fault:
-    // it takes the zero-call default on 21 of the 21 sessions where the
-    // precondition holds and calls on 30 of the 30 where it does not.
-    //
-    // So this breach says the BAR HAS NO REPRESENTATIVE CORPUS TO BE MEASURED
-    // ON yet, and it stays red until one exists. Do not silence it by
-    // narrowing the denominator or moving the threshold — that is exactly the
-    // shape of the bug this pinning replaced. When a representative episode
-    // corpus lands, this expectation flips back to `code === 0`.
-    expect(text).toContain("breached: episodes_one_to_one_rate");
-    expect(code).toBe(1);
-  });
+    // That gate's history is worth keeping: it first read 1.00 off fourteen
+    // hand-picked one-topic fixtures (a denominator the fixtures chose), then
+    // an honest 41.2% (21 of 51) once every ROUTED session fed it — red not
+    // because the engine was wasteful (it defaulted on 21/21 sessions where
+    // the precondition held) but because the J table is a coverage matrix,
+    // not traffic. The representative-traffic corpus the pinned breach asked
+    // for now exists (`executors/episodes-traffic.ts`): 78 more sessions with
+    // a traffic-shaped mix, routed by the real engine over a real DB, folded
+    // into the same denominator. The rate is measured, not arranged — if the
+    // engine ever starts buying calls on ordinary sessions, this goes red
+    // again, which is the point.
+    expect(text).toContain("episodes_one_to_one_rate");
+    expect(text).not.toContain("breached: episodes_one_to_one_rate");
+    expect(code).toBe(0);
+    // 90s: the gold set now runs ~970 authored cases, most against a fresh
+    // temp SQLite DB with the real migrations, and the whole worker suite runs
+    // this file in parallel with 149 others. ~30s alone, more under load.
+  }, 90_000);
 
   it("goes green on the self-test directory", async () => {
     const sink = capture();

@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2025-08-14T09:00:00Z",
+        "who": "self",
+        "text": "fix the balcony leak by tomorrow, promise"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "loops_explicit_precision"
+  "frozen_response": "T|1|self|a1|ex|i2t|m|d|2025-08-15|-|0.85|Fix the balcony leak",
+  "expect": {
+    "state": {
+      "states": [
+        "lapsed"
+      ],
+      "tasks": 0,
+      "rows": 1
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "loops_past_due_not_task"
+  },
+  "stub": false,
   "doc": {
     "given": "past due, no recurrence, no resolving evidence",
     "expect": "state=lapsed; not a task",

@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Hrishikesh Katare"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-13T14:00:00Z",
+        "who": "a1",
+        "text": "i really need to renew his gym membership before september"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "loops_explicit_precision"
+  "frozen_response": "T|1|a1|-|ex|slf|m|mo|2026-09-01|-||Hrishikesh needs to renew his gym membership",
+  "expect": {
+    "state": {
+      "triages": [
+        "context"
+      ],
+      "owners": [
+        "a1"
+      ],
+      "tasks": 0
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "loops_non_user_owner_tasks"
+  },
+  "stub": false,
   "doc": {
     "given": "loop owned by Hrishikesh, counterparty null",
     "expect": "triage=context; NEVER in the user's task list",

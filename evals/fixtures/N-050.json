@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:00:00Z",
+        "who": "self",
+        "text": "i'll do it — email the therapist the forms — tonight for sure"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +28,25 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "loops_explicit_precision"
+  "frozen_response": "T|1|self|a1|ex|i2t|m|d|2026-08-14T20:00Z|-|0.9|Email the therapist the forms",
+  "expect": {
+    "state": {
+      "states": [
+        "lapsed"
+      ],
+      "state_reasons": [
+        "past_due_no_recurrence"
+      ],
+      "past_due_open_violations": 0,
+      "tasks": 0,
+      "rows": 1
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "loops_born_past_due_open"
+  },
+  "stub": false,
   "doc": {
     "given": "loop created with due already in the past (4)",
     "expect": "state=lapsed, never born 'open'",

@@ -5,9 +5,19 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Pranjali Sachdeva"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T16:00:00Z",
+        "who": "a1",
+        "text": "an assistant could handle the whole bhangra class for you, you know"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -19,12 +29,14 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
+  "expect": {
+    "loops": []
+  },
   "assert": {
     "mode": "absent",
-    "gate": "loops_explicit_precision"
+    "gate": "loops_implicit_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "agent COULD help with bhangra class",
     "expect": "NO loop — capability guess, not intent",

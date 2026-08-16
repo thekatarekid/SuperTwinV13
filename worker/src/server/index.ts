@@ -114,6 +114,9 @@ import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // Item 2.6 — the reconcile job's manual entry point and its nightly timer.
 import { startNightlyTimer, type ReconcileTimer } from "../reconcile/index.js";
+// The episode stage's scheduled caller — the 14-day aging clock (§11.1 rule 5)
+// and the sealed-session sweep through the real P-EP2 judge.
+import { startEpisodeClock, type EpisodeClock } from "../scheduler/episode-pass.js";
 import { handleReconcileRoute } from "../reconcile/routes.js";
 import {
   augmentMessage,
@@ -341,10 +344,14 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   // The nightly reconcile (item 2.6, §8.1) keeps the same company: it ticks,
   // asks the DB whether a day has passed, and costs nothing when it has not.
   let nightly: ReconcileTimer | null = null;
+  // The episode clock (§11.1 rule 5) keeps the same company: it ages quiet
+  // episodes once a day and works the queue's episode stage in between.
+  let episodeClock: EpisodeClock | null = null;
   if (opts?.media ?? process.env.NODE_ENV !== "test") {
     startMediaQueue();
     startSemanticIndexer();
     nightly = startNightlyTimer();
+    episodeClock = startEpisodeClock();
   }
 
   const server = createServer((req, res) => {
@@ -380,6 +387,7 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
             stopMediaQueue();
             stopSemanticIndexer();
             nightly?.stop();
+            episodeClock?.stop();
             abortModelDownloads();
             abortEmbeddingDownload();
             for (const [, ac] of inflight) ac.abort();

@@ -5,9 +5,18 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T15:40:00Z",
+        "who": "self",
+        "text": "i think therapy actually helps"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +27,34 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "Y|e1|Aditya shared one personal statement in passing. Nothing else was discussed.\nB|1|self|1p|0.95|-|Believes therapy helps",
+  "expect": {
+    "claims": [
+      {
+        "tag": "B",
+        "kind": "belief",
+        "subject": "self",
+        "attribution": "first_person",
+        "confidence": 0.95,
+        "valid_from": null,
+        "text": "Believes therapy helps"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
+    "on": [
+      "tag",
+      "kind",
+      "subject",
+      "attribution",
+      "confidence",
+      "valid_from",
+      "text"
+    ],
     "gate": "claim_subject_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "self says: 'i think therapy actually helps'",
     "expect": "B/<ev>/self/1p/conf/-/Believes therapy helps",

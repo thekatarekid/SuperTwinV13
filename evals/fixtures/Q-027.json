@@ -5,12 +5,30 @@
   "call": "[CODE]",
   "mode": "backfill",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
     "events": [],
     "open": {
       "episodes": [],
-      "loops": []
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Renew the expired gym membership",
+          "origin": "explicit",
+          "owner": "self",
+          "counterparty": "self",
+          "due": "2026-03-01T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-02-10T09:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
     },
     "db": {
       "entities": [],
@@ -19,12 +37,26 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
+  "expect": {
+    "lapsed": [
+      {
+        "t": "t1",
+        "state": "lapsed",
+        "reason": "born lapsed"
+      }
+    ],
+    "tasks": []
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": null
+    "on": [
+      "t",
+      "state",
+      "reason"
+    ],
+    "gate": "loops_past_due_not_task"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "loop born lapsed from backfill",
     "expect": "shows LAPSED with reason 'born lapsed'",

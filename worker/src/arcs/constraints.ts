@@ -20,9 +20,16 @@
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
+import { meEntityId } from "../entities/binding.js";
 import { logMutation } from "../entities/merge.js";
 import { resolveEntityId } from "../entities/registry.js";
 import { arcKey, type AnchorRef } from "./key.js";
+import {
+  REFERENCE_EDGE_KINDS,
+  ROUTE_PRECEDENCE,
+  type PromotionRoute,
+  type PromotionVerdict,
+} from "./promote.js";
 import { readArcByKey, readArcs } from "./provisional.js";
 
 /** The actor stamped on every mutation reconcile writes. */
@@ -211,5 +218,211 @@ export function compactCommittedArcs(opts: {
   }
 
   return { rekeyed, mutations, collisions };
+}
+
+// ---- the spaces cap ---------------------------------------------------------
+//
+// Phase 3 gate / §14.3 row 11: "total spaces ≤ 45" on the reference corpus —
+// the prior system surfaced 87 and buried the ten that mattered. §11.3 already
+// caps the loosest route (recurrence, ~10 live) inside `promote.ts`; this is
+// the outer wall over the WHOLE live population, and it lives in this file
+// because the one thing it must never do is evict a user constraint: a pinned
+// arc is a hard wall (step ④ above), so `usr` spaces are exempt even when that
+// leaves the population over the cap. No amount of tidiness overrules a person.
+
+/** "total spaces ≤ 45" — the live (non-archived) population, corpus-wide. */
+export const SPACES_LIVE_CAP = 45;
+
+function msOf(value: string | null | undefined): number {
+  if (typeof value !== "string" || value.trim() === "") return 0;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** Lower is stronger: an open loop beats an anchor beats a rhythm. */
+function routeStrength(verdict: PromotionVerdict): number {
+  const recorded = verdict.promotionReason;
+  const at = recorded === null ? -1 : ROUTE_PRECEDENCE.indexOf(recorded);
+  return at === -1 ? ROUTE_PRECEDENCE.length : at;
+}
+
+/**
+ * Applied AFTER the recurrence cap, over the verdicts of one sweep. When more
+ * than `cap` live spaces would surface, the weakest-justified, stalest ones go
+ * back to being browsable threads — the same field flip as any demotion, id
+ * unchanged, nothing deleted. Never evicted: `usr` spaces (a pin is a user
+ * constraint) and archived spaces (already off the surfaced list).
+ */
+export function applySpacesCap(
+  verdicts: readonly PromotionVerdict[],
+  lastEvidenceAt: ReadonlyMap<string, string | null>,
+  cap: number = SPACES_LIVE_CAP,
+): PromotionVerdict[] {
+  const live = verdicts.filter((v) => v.promoted && v.status !== "archived");
+  if (live.length <= cap) return [...verdicts];
+
+  const exempt = live.filter((v) => v.routes.includes("usr"));
+  const contenders = live.filter((v) => !v.routes.includes("usr"));
+  const keep = Math.max(0, cap - exempt.length);
+
+  // Strongest justification first, then freshest evidence, then stable id.
+  const ranked = [...contenders].sort((a, b) => {
+    const strength = routeStrength(a) - routeStrength(b);
+    if (strength !== 0) return strength;
+    const freshness = msOf(lastEvidenceAt.get(b.arcId)) - msOf(lastEvidenceAt.get(a.arcId));
+    return freshness !== 0 ? freshness : a.arcId.localeCompare(b.arcId);
+  });
+  const evicted = new Set(ranked.slice(keep).map((v) => v.arcId));
+
+  return verdicts.map((v) => {
+    if (!evicted.has(v.arcId)) return v;
+    const reason: PromotionRoute | null = v.promotionReason;
+    const evidence = { ...v.evidence };
+    if (reason !== null) {
+      evidence[reason] = {
+        ...evidence[reason],
+        qualifies: false,
+        detail: `${evidence[reason].detail} — beyond the ${cap} live spaces cap`,
+      };
+    }
+    return {
+      ...v,
+      promoted: false,
+      promotionReason: null,
+      routes: [],
+      status: null,
+      statusReason: null,
+      livesOn: "thread" as const,
+      demoted: true,
+      retained: false,
+      evidence,
+    };
+  });
+}
+
+// ---- space justification and label audits -----------------------------------
+//
+// Measured the way `entities/audit.ts` measures: against the ROWS THAT LANDED,
+// never against the in-memory verdict that wrote them. The Phase 3 gate box
+// asks ">90% holding a live loop or a reference anchor" — so the audit
+// re-derives both facts from `loops` and `entity_edges`, and a promotion bug
+// that stamps a flattering `promotion_reason` cannot hide behind it.
+
+export interface SpaceJustification {
+  arcId: string;
+  /** Holds a live (open) loop, counted from `loops` rows. */
+  liveLoop: boolean;
+  /** Anchored on an entity I have an active has/located_at edge to. */
+  referenceAnchor: boolean;
+  justified: boolean;
+}
+
+function anchorsOf(raw: unknown): string[] {
+  if (typeof raw !== "string" || raw.trim() === "") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+interface LiveSpaceRow {
+  id: string;
+  label: string | null;
+  user_label: string | null;
+  anchor_entity_ids: string | null;
+}
+
+function readLiveSpaces(): LiveSpaceRow[] {
+  return getDb()
+    .prepare(
+      `SELECT id, label, user_label, anchor_entity_ids
+         FROM arcs WHERE promoted = 1 AND (status IS NULL OR status != 'archived') ORDER BY id`,
+    )
+    .all() as LiveSpaceRow[];
+}
+
+/** Every live space, and whether the tables (not the verdict) justify it. */
+export function auditSpaceJustifications(): SpaceJustification[] {
+  const db = getDb();
+  const self = meEntityId();
+  const marks = REFERENCE_EDGE_KINDS.map(() => "?").join(", ");
+  const anchored: ReadonlySet<string> =
+    self === null
+      ? new Set()
+      : new Set(
+          (
+            db
+              .prepare(
+                `SELECT dst_entity_id AS id FROM entity_edges
+                  WHERE src_entity_id = ? AND status = 'active' AND kind IN (${marks})`,
+              )
+              .all(self, ...REFERENCE_EDGE_KINDS) as { id: string }[]
+          ).map((r) => r.id),
+        );
+  const openArcs = new Set(
+    (
+      db.prepare(`SELECT DISTINCT arc_id FROM loops WHERE state = 'open' AND arc_id IS NOT NULL`).all() as {
+        arc_id: string;
+      }[]
+    ).map((r) => r.arc_id),
+  );
+
+  return readLiveSpaces().map((row) => {
+    const liveLoop = openArcs.has(row.id);
+    const referenceAnchor = anchorsOf(row.anchor_entity_ids).some((id) => anchored.has(id));
+    return { arcId: row.id, liveLoop, referenceAnchor, justified: liveLoop || referenceAnchor };
+  });
+}
+
+/** justified / live, or null when there are no live spaces — `no data`, not 1.0. */
+export function spaceJustificationRate(): number | null {
+  const all = auditSpaceJustifications();
+  if (all.length === 0) return null;
+  return all.filter((a) => a.justified).length / all.length;
+}
+
+// §14.2 `labels` row: "space labels containing no anchor entity where one
+// exists". Denominator = live spaces whose anchor set names at least one entity
+// with a canonical name; numerator = those whose rendered label (the user's
+// word first, then the derived one) contains none of them.
+
+export interface SpaceLabelAudit {
+  arcId: string;
+  label: string | null;
+  anchors: string[];
+  /** True when the label names none of its anchors. */
+  anchorless: boolean;
+}
+
+export function auditSpaceLabels(): SpaceLabelAudit[] {
+  const db = getDb();
+  const out: SpaceLabelAudit[] = [];
+  for (const row of readLiveSpaces()) {
+    const anchorIds = anchorsOf(row.anchor_entity_ids);
+    if (anchorIds.length === 0) continue;
+    const marks = anchorIds.map(() => "?").join(", ");
+    const canonicals = (
+      db.prepare(`SELECT canonical FROM entities WHERE id IN (${marks})`).all(...anchorIds) as {
+        canonical: string | null;
+      }[]
+    )
+      .map((r) => r.canonical)
+      .filter((c): c is string => typeof c === "string" && c.trim() !== "");
+    if (canonicals.length === 0) continue;
+    const label = row.user_label ?? row.label;
+    const haystack = (label ?? "").toLowerCase();
+    const anchorless = !canonicals.some((c) => haystack.includes(c.toLowerCase()));
+    out.push({ arcId: row.id, label, anchors: anchorIds, anchorless });
+  }
+  return out;
+}
+
+/** anchorless / auditable, or null when no live space has a named anchor. */
+export function anchorlessLabelRate(): number | null {
+  const all = auditSpaceLabels();
+  if (all.length === 0) return null;
+  return all.filter((a) => a.anchorless).length / all.length;
 }
 

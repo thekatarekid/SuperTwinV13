@@ -5,12 +5,31 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare",
+      "a1=Rashmi Katare"
+    ],
     "streams": [],
     "events": [],
     "open": {
       "episodes": [],
-      "loops": []
+      "loops": [
+        {
+          "t": "t1",
+          "intent": "Rashmi confirms the Diwali dates",
+          "origin": "explicit",
+          "owner": "a1",
+          "counterparty": "self",
+          "due": "2026-09-05T06:00:00Z",
+          "recurrence": null,
+          "stated_at": "2026-08-08T12:00:00Z",
+          "last_reinforced_at": null,
+          "resolution_evidence_event": null,
+          "user_gesture": null,
+          "not_useful": false,
+          "attempt_state": null
+        }
+      ]
     },
     "db": {
       "entities": [],
@@ -19,12 +38,26 @@
     }
   },
   "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": null
+  "expect": {
+    "tasks": [],
+    "waiting": [
+      {
+        "t": "t1",
+        "intent": "Rashmi confirms the Diwali dates",
+        "owner": "a1"
+      }
+    ]
   },
-  "stub": true,
+  "assert": {
+    "mode": "set_equal",
+    "on": [
+      "t",
+      "intent",
+      "owner"
+    ],
+    "gate": "loops_non_user_owner_tasks"
+  },
+  "stub": false,
   "doc": {
     "given": "loop owner=Rashmi",
     "expect": "does NOT appear in Tasks; shows under Waiting on others / People",

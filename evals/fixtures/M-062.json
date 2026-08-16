@@ -5,9 +5,18 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
+    "roster": [
+      "self=Aditya Katare"
+    ],
     "streams": [],
-    "events": [],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-04T13:00:00Z",
+        "who": "self",
+        "text": "ok"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +27,16 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "Y|e1|A one-word logistics acknowledgement. Nothing substantive was said or claimed.",
+  "expect": {
+    "claims": [],
+    "unsupported": []
+  },
   "assert": {
     "mode": "absent",
-    "gate": "claim_subject_accuracy"
+    "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'ok'",
     "expect": "NO claim emitted",

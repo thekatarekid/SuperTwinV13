@@ -24,6 +24,11 @@
 //   sweep                                    run promotion over every arc
 //   revise|arc=n1|to=prj|source=model|reason=…
 //   report|arc=n1                            snapshot that arc's fields
+//   gold|spaces=N                            the reference corpus's gold space
+//                                            count — declares this scenario a
+//                                            corpus and feeds the §14.2 spaces
+//                                            gates; `arc|…|gold_archetype=hld`
+//                                            marks per-arc archetype gold
 //
 // `self` is the real `me` entity (`ensureMeEntity`), so the party rule is
 // evaluated against the same id the product uses, not against a string.
@@ -56,11 +61,16 @@ import {
   type Cadence,
   type PromotionVerdict,
 } from "../../arcs/promote.js";
+import {
+  anchorlessLabelRate,
+  applySpacesCap,
+  spaceJustificationRate,
+} from "../../arcs/constraints.js";
 import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { ensureMeEntity } from "../../entities/binding.js";
 import { mutationsFor } from "../../entities/merge.js";
 import type { Fixture } from "../fixtures.js";
-import type { Executor, Produced } from "../runner.js";
+import type { Executor, GateObservation, Produced } from "../runner.js";
 
 interface Line {
   tag: string;
@@ -136,6 +146,10 @@ function runScenario(fixture: Fixture, response: string): Produced {
 
   const now = fixture.given.events.at(-1)?.ts ?? "2026-08-16T12:00:00.000Z";
   const shapes = new Map<string, ArchetypeShape>();
+  /** Set by a `gold|spaces=N` record — this scenario is a reference corpus. */
+  let goldSpaces: number | null = null;
+  /** arc id → the gold archetype its `arc|…|gold_archetype=` field declared. */
+  const goldArchetypes = new Map<string, Archetype>();
   const output: Record<string, unknown> = {};
   const state: Record<string, unknown> = {};
   const metrics: Record<string, number> = {};
@@ -170,7 +184,8 @@ function runScenario(fixture: Fixture, response: string): Produced {
       .map(({ id }) => readPromotionInput(id, { now }))
       .filter((i): i is NonNullable<typeof i> => i !== null)
       .map((input) => promotionVerdict({ ...input, shape: shapes.get(input.arcId) ?? input.shape }));
-    const verdicts = applyRecurrenceCap(raw, last);
+    // Same cap order as `promoteArcs`: recurrence first, then the corpus cap.
+    const verdicts = applySpacesCap(applyRecurrenceCap(raw, last), last);
     for (const verdict of verdicts) applyPromotionVerdict(verdict);
     sweep = { verdicts };
   };
@@ -196,6 +211,11 @@ function runScenario(fixture: Fixture, response: string): Produced {
 
       case "arc": {
         const id = required(fields, "id");
+        if (fields.gold_archetype !== undefined) {
+          const gold = toArchetype(fields.gold_archetype);
+          if (gold === null) throw new Error(`promotion scenario: unknown gold_archetype ${fields.gold_archetype}`);
+          goldArchetypes.set(id, gold);
+        }
         db.prepare(
           `INSERT INTO arcs (id, arc_key, label, anchor_entity_ids, state, last_evidence_at,
                              user_pinned, cadence, ends_at)
@@ -280,6 +300,13 @@ function runScenario(fixture: Fixture, response: string): Produced {
 
       case "sweep":
         runSweep();
+        break;
+
+      case "gold":
+        goldSpaces = Number(required(fields, "spaces"));
+        if (!Number.isFinite(goldSpaces) || goldSpaces <= 0) {
+          throw new Error(`promotion scenario: gold spaces must be a positive count`);
+        }
         break;
 
       case "revise": {
@@ -368,7 +395,57 @@ function runScenario(fixture: Fixture, response: string): Produced {
   metrics.arcs = (db.prepare(`SELECT COUNT(*) AS n FROM arcs`).get() as { n: number }).n;
   state.live_spaces = live.length;
   state.all_spaces_justified = live.every((s) => s.promotionReason !== null);
-  return { output, state, metrics };
+
+  // ---- §14.2 spaces / labels gates, measured off the world that landed -----
+  //
+  // Only a scenario that declared gold is a reference corpus; a one-arc case
+  // has no gold count and feeds nothing (no data beats a flattering zero).
+  const gates: GateObservation[] = [];
+  if (goldSpaces !== null) {
+    const deltaPct = ((live.length - goldSpaces) / goldSpaces) * 100;
+    metrics.space_count_delta_pct = deltaPct;
+    gates.push({
+      gate: "spaces_count_vs_gold",
+      passed: Math.abs(deltaPct) <= 25,
+      value: deltaPct,
+      note: `${live.length} live spaces vs gold ${goldSpaces} (${deltaPct.toFixed(1)}%)`,
+    });
+
+    // Phase 3 gate box: > 90% of spaces holding a live loop or a reference
+    // anchor — re-derived from `loops`/`entity_edges` rows, never from the
+    // verdict that wrote them.
+    const justified = spaceJustificationRate();
+    if (justified !== null) {
+      metrics.justified_rate = justified;
+      state.justified_rate = justified;
+      state.justified_over_90pct = justified > 0.9;
+    }
+
+    // §14.2 labels row, off the labels the corpus actually rendered.
+    const anchorless = anchorlessLabelRate();
+    if (anchorless !== null) {
+      metrics.anchorless_label_rate = anchorless;
+      gates.push({
+        gate: "labels_anchor_entity",
+        passed: anchorless <= 0.1,
+        value: anchorless,
+        note: `${(anchorless * 100).toFixed(1)}% of anchored space labels name no anchor entity`,
+      });
+    }
+  }
+  for (const [arcId, gold] of goldArchetypes) {
+    const row = db.prepare(`SELECT archetype FROM arcs WHERE id = ?`).get(arcId) as
+      | { archetype: string | null }
+      | undefined;
+    const actual = row?.archetype ?? null;
+    gates.push({
+      gate: "spaces_archetype_accuracy",
+      passed: actual === gold,
+      note: `${arcId}: archetype ${actual ?? "null"} vs gold ${gold}`,
+    });
+  }
+
+  return { output, state, metrics, gates };
 }
 
 export const promotionExecutor: Executor = ({ fixture, response }): Produced =>

@@ -225,6 +225,12 @@ class World {
     return vec;
   }
 
+  /** The stream alias (`c1`) behind a real stream id. */
+  streamAliasOf(streamId: string): string {
+    for (const [alias, id] of this.streams) if (id === streamId) return alias;
+    return streamId;
+  }
+
   /** The alias the fixture speaks in. New episodes get `n1`, `n2`, … */
   aliasOf(episodeId: string): string {
     const known = this.aliases.get(episodeId);
@@ -401,11 +407,25 @@ export const episodesExecutor: Executor = (ctx): Produced => {
       }
     }
 
+    // The world as it ended up: one row per episode, in the fixture's own
+    // aliases. This is what "TWO separate episodes" is asserted on.
+    for (const row of getDb()
+      .prepare(`SELECT id, stream_id, topic_label, arc_state, outcome FROM episodes ORDER BY created_at, id`)
+      .all() as { id: string; stream_id: string; topic_label: string | null; arc_state: string; outcome: string | null }[]) {
+      bucket(acc, "episodes").push({
+        episode: world.aliasOf(row.id),
+        stream: world.streamAliasOf(row.stream_id),
+        label: row.topic_label,
+        arc_state: row.arc_state,
+        outcome: row.outcome,
+      });
+    }
+
     if (decisions.length > 0) {
       acc.state.decisions = decisions;
       acc.state.model_calls = calls;
       acc.state.partition_ok = partitionOk;
-      acc.state.episodes = (getDb().prepare(`SELECT COUNT(*) AS n FROM episodes`).get() as { n: number }).n;
+      acc.state.episodes = (acc.output.episodes ?? []).length;
       acc.state.stable_ids = landings.every((l) => l === landings[0]);
     }
     acc.metrics.model_calls = calls;

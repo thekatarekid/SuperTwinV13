@@ -274,6 +274,53 @@ describe("suite tallies and gate feeding", () => {
     expect(roundTrip.status).toBe("pass");
   });
 
+  it("folds an executor's extra gate observations into their own gates", async () => {
+    // A run of real product code measures more than the one thing its case
+    // asserts. Each observation is its own datum, so five observations in one
+    // case are five entries in the gate's denominator — not one.
+    registerExecutor("observing_layer", () => ({
+      output: { claims: [{ kind: "habit", subject: "a1", confidence: 0.95 }] },
+      state: {},
+      metrics: {},
+      gates: [
+        { gate: "entities_recall", passed: true },
+        { gate: "entities_recall", passed: false, note: "a phone in two sources sits on two entities" },
+        { gate: "entities_no_silent_guess", passed: true },
+        { gate: "not_a_gate_in_14_2", passed: false },
+      ],
+    }));
+    const f = fixture("A-901");
+    f.layer = "observing_layer";
+    const suite = await runSuite([f], { mode: "frozen" });
+
+    const recall = suite.gates.find((g) => g.gate.id === "entities_recall")!;
+    expect(recall.cases).toBe(2);
+    expect(recall.value).toBe(0.5);
+    expect(recall.status).toBe("fail");
+
+    const silent = suite.gates.find((g) => g.gate.id === "entities_no_silent_guess")!;
+    expect(silent.cases).toBe(1);
+    expect(silent.value).toBe(0);
+    expect(silent.status).toBe("pass");
+
+    // The case's own assertion still feeds its own gate, once.
+    expect(suite.results[0].gateObservations).toHaveLength(4);
+  });
+
+  it("leaves a gate no_data when the executor observed nothing for it", async () => {
+    registerExecutor("silent_layer", () => ({
+      output: { claims: [{ kind: "habit", subject: "a1", confidence: 0.95 }] },
+      state: {},
+      metrics: {},
+    }));
+    const f = fixture("A-901");
+    f.layer = "silent_layer";
+    const suite = await runSuite([f], { mode: "frozen" });
+    const recall = suite.gates.find((g) => g.gate.id === "entities_recall")!;
+    expect(recall.status).toBe("no_data");
+    expect(recall.value).toBeNull();
+  });
+
   it("marks a gate no_data when only pending cases mention it", async () => {
     const stub = fixture("S-901");
     stub.stub = true;

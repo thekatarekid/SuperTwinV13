@@ -28,11 +28,36 @@ import { measureGates, type GateInput, type GateReading } from "./gates.js";
 
 export type EvalMode = "frozen" | "live";
 
+/**
+ * One measurement a run made against a §14.2 gate other than the case's own
+ * `assert.gate`.
+ *
+ * A case asserts ONE thing, but a run of real product code observes several:
+ * the identity ladder can be asked, over the same temp DB, how many of the
+ * joins the graph owed it actually happened, and how many resolutions
+ * committed with nothing justifying them. Those are per-OBSERVATION facts, not
+ * per-case ones — five metadata edges in one case are five chances to be
+ * wrong — so they are emitted individually and folded into the gate's own
+ * denominator rather than being squeezed into the case's pass/fail bit.
+ *
+ * The rule from `gates.ts` still holds: an observation nobody emitted leaves
+ * its gate at `no data`, never at a pass.
+ */
+export interface GateObservation {
+  /** A §14.2 gate id. An unknown id is ignored by `measureGates`. */
+  gate: string;
+  passed: boolean;
+  /** Why, for the failure line. */
+  note?: string;
+}
+
 /** What a run produced. `output` holds buckets (`claims`, `loops`, …). */
 export interface Produced {
   output: Record<string, unknown>;
   state: Record<string, unknown>;
   metrics: Record<string, number>;
+  /** Gate measurements this run made beyond the case's own assertion. */
+  gates?: GateObservation[];
 }
 
 export interface ExecutorContext {
@@ -267,6 +292,8 @@ export interface CaseResult {
   diffs: Diff[];
   extras: number;
   metrics: Record<string, number>;
+  /** Gates this run measured beyond `gate`. Empty for a pending case. */
+  gateObservations: GateObservation[];
   durationMs: number;
 }
 
@@ -310,6 +337,7 @@ export async function runCase(fixture: Fixture, options: SuiteOptions): Promise<
     diffs: [],
     extras: 0,
     metrics: {},
+    gateObservations: [],
     durationMs: Date.now() - started,
   });
 
@@ -333,6 +361,7 @@ export async function runCase(fixture: Fixture, options: SuiteOptions): Promise<
         diffs: [{ kind: "threw", path: "live", note: (err as Error).message }],
         extras: 0,
         metrics: {},
+        gateObservations: [],
         durationMs: Date.now() - started,
       };
     }
@@ -350,6 +379,7 @@ export async function runCase(fixture: Fixture, options: SuiteOptions): Promise<
       diffs: [{ kind: "threw", path: fixture.layer, actual: message, note: (err as Error).stack?.split("\n")[1]?.trim() }],
       extras: 0,
       metrics,
+      gateObservations: [],
       durationMs: Date.now() - started,
     };
   }
@@ -363,6 +393,7 @@ export async function runCase(fixture: Fixture, options: SuiteOptions): Promise<
     diffs: outcome.diffs,
     extras: outcome.extras,
     metrics: merged,
+    gateObservations: produced.gates ?? [],
     durationMs: Date.now() - started,
   };
 }
@@ -392,12 +423,29 @@ export async function runSuite(fixtures: readonly Fixture[], options: SuiteOptio
     .map((t) => ({ ...t, passRate: t.pass + t.fail > 0 ? t.pass / (t.pass + t.fail) : null }))
     .sort((a, b) => (a.category < b.category ? -1 : 1));
 
-  const gateInputs: GateInput[] = results.map((r) => ({
-    gateId: r.gate,
-    passed: r.status === "pass",
-    counted: r.status !== "pending",
-    metrics: r.metrics,
-  }));
+  // The case's own assertion feeds its `assert.gate`; every extra observation
+  // the run made feeds its own gate on its own terms. A failed case still
+  // contributes its observations — they measure different rows of §14.2, and
+  // dropping them would let one broken expectation blank a gate to `no data`.
+  const gateInputs: GateInput[] = [];
+  for (const r of results) {
+    gateInputs.push({
+      gateId: r.gate,
+      passed: r.status === "pass",
+      counted: r.status !== "pending",
+      metrics: r.metrics,
+    });
+    for (const observation of r.gateObservations) {
+      // No metrics: an observation is a pass/fail fact, and letting the case's
+      // metric bag ride along would feed a `value` gate a number nobody
+      // measured for it.
+      gateInputs.push({
+        gateId: observation.gate,
+        passed: observation.passed,
+        counted: r.status !== "pending",
+      });
+    }
+  }
 
   return {
     mode: options.mode,

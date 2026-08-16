@@ -340,16 +340,25 @@
    - [ ] every session boundary is explainable in one line
    - [ ] user corrections survive a full re-derivation
 
-### ✅ PHASE 1 GATE — PASSED (1 measurement gap)
+### ✅ PHASE 1 GATE — PASSED
 
 - [x] evals **A B C D E F G H I O T** green — 580/580 cases pass (these 500 + Phase 0's 80), 0 gates breached
 - [x] session F1 ≥ 0.90, determinism exact — `sessions_boundary_f1` 100%, `sessions_determinism` 0 drift, `sessions_explainable` 100%
-- [~] entity precision ≥ 0.98, zero silent guesses — precision **100% PASS**; `entities_no_silent_guess` still reads **no data** (unmeasured, not passing). `entities_recall` and `entities_metadata_edges` likewise unmeasured. Closing these is tracked below.
+- [x] entity precision ≥ 0.98, zero silent guesses — precision 100%, `entities_no_silent_guess` **0 over 350 audited resolutions**, recall 100% over 27 opportunities, metadata edges 100% over 19 memberships. All mutation-verified (see below).
 - [x] 100% of streams tiered; zero orphans on tier promotion — `tiers_all_assigned` 100%, `tiers_no_orphans_on_promotion` 0
 
 **Measured at gate:** typecheck clean · worker 2060/2060 · root 327/327 · scripts 67/67 = 2,454 tests · eval 580/580 cases, 96 gates defined / 44 measured / 0 breached.
 
-**Open measurement gap:** three entity gates report `no data` rather than a value. A gate with no measurement is not a pass, so this gate is recorded as passed-with-a-gap, not clean.
+**Gap closed.** The three entity gates that read `no data` now measure real product code via `worker/src/entities/audit.ts`, reading the graph back out of the same temp SQLite DB the G/H/I executors build. Root cause: a fixture carries exactly one `assert.gate` and all 150 G/H/I cases spent theirs on precision/linking/edge-precision, so nothing could feed a second gate. Fixed with a `Produced.gates` seam — an executor emits `GateObservation[]` and `runSuite` folds each into that gate's own denominator per-observation, not per-case. Observations from a *failed* case still count, so a broken expectation cannot blank a gate back to `no data`.
+
+**Mutation-verified — a gate that cannot fail is not a gate:**
+| mutation | result |
+|---|---|
+| force the `[ML]` rung on regardless of calibration | `entities_no_silent_guess` = 3, **FAIL** |
+| disable rung ② cross-source binding | `entities_recall` = 51.9%, **FAIL** |
+| drop one calendar attendee edge | `entities_metadata_edges` = 84.2%, **FAIL** |
+
+Worth noting: under mutation 1, `entities_precision` only slipped to 98.6% and **still passed**. The silent-guess gate is what caught it — which is exactly why leaving it unmeasured was not acceptable. All mutations reverted.
 
 ---
 

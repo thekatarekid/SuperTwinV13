@@ -9,7 +9,7 @@
 | Phase | Items | State |
 |---|---|---|
 | 0 Foundations | 0.1–0.7 | ✅ gate passed |
-| 1 Ingest→Sessions | 1.1–1.11 | ✅ gate passed (1 measurement gap) |
+| 1 Ingest→Sessions | 1.1–1.11 | ✅ gate passed |
 | 2 Episodes/Arcs | 2.1–2.7 | pending |
 | 3 Claims/Loops/Spaces/Tasks | 3.1–3.10 | pending |
 | 4 Hardening | 4.1–4.4 | pending |
@@ -19,7 +19,9 @@
 
 - **PHASE 1 GATE PASSED (with one gap).** typecheck clean · worker 2060/2060 · root 327/327 · scripts 67/67 = **2,454 tests** · eval **580/580 cases**, 96 gates defined / 44 measured / **0 breached**.
   - Session F1 100%, determinism 0 drift, explainable 100%. Entity precision 100%, mention linking 100%, edge precision 100%. All streams tiered, 0 orphans on promotion. First claim 18 s (gate 30 s), first triple 34 s (gate 120 s), no stall 60 s (gate 90 s), first-paint calls 1, adjudicator-before-paint 0.
-  - **Gap:** `entities_no_silent_guess`, `entities_recall` and `entities_metadata_edges` report `no data`. Unmeasured is not passing — being closed before Phase 2's gate.
+  - **Gap closed.** Those three entity gates now measure real product code (`worker/src/entities/audit.ts`) — silent guesses **0 over 350 audited resolutions**, recall 100% over 27 opportunities, metadata edges 100% over 19 memberships. Gates measured 44 → 47.
+  - Root cause was structural: a fixture carries one `assert.gate`, and all 150 G/H/I cases spent theirs on precision/linking/edge-precision, so nothing could feed a second gate. New `Produced.gates` seam folds `GateObservation[]` into each gate's own denominator per-observation; observations from a *failed* case still count, so a broken expectation can't blank a gate back to `no data`.
+  - Mutation-verified: forcing the `[ML]` rung on without calibration → silent-guess gate **FAILS at 3**; disabling cross-source binding → recall **51.9% FAIL**; dropping an attendee edge → metadata edges **84.2% FAIL**. Under the first, `entities_precision` only fell to 98.6% and still passed — the silent-guess gate is what caught it.
 - **1.1 Registry** — manifest-driven, exactly one adapter. Source leaks fixed: `wa:` → `${source_id}:`, `resetWhatsappData` → `resetSourceData(source_id)`, `app_state` → `source.<id>.*`, routes → `/api/sources/:source_id/*` with the old ones aliased one release, `channels` → `streams`. History sync driven newest-page-first with a descending cohort buffer.
 - **1.2 Tiers** — `[CODE]` rules first; only ambiguous channels reach P-TI1, batched ≤10/call, verdict cached against a sample fingerprint so a second pass costs 0 calls. Tier is the scheduler's primary sort key. Mutation-checked: breaking the rules fails 18 cases, so the suite isn't vacuous.
 - **1.3–1.4** — salience scaffold built generically (WhatsApp sets `prefilter:none`); enrichment queue never blocks the text path.

@@ -24,6 +24,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, getDb } from "../../db/connection.js";
+import {
+  auditMetadataEdges,
+  auditResolutionRecall,
+  auditResolutions,
+  type MetadataMembership,
+} from "../../entities/audit.js";
 import { ensureMeEntity, meEntityId, mentionsOfEvent, type RosterEntry } from "../../entities/binding.js";
 import { edgeEvidence, listEdges, type EdgeRow } from "../../entities/edges.js";
 import { isNegativePair, readDecision } from "../../entities/merge.js";
@@ -32,7 +38,7 @@ import { insertEvent, upsertActor, upsertSource, upsertStream } from "../../db/i
 import { identitiesOf, type IdentityKind } from "../../entities/identities.js";
 import { ENUMS } from "../../wire/tolerance.js";
 import type { Fixture } from "../fixtures.js";
-import type { Produced } from "../runner.js";
+import type { GateObservation, Produced } from "../runner.js";
 
 const SOURCE = "whatsapp";
 const SELF_JID = "919999900000@s.whatsapp.net";
@@ -59,6 +65,12 @@ export class World {
   readonly events = new Map<number, string>();
   readonly binds: BindRecord[] = [];
   readonly roster: RosterEntry[] = [];
+  /**
+   * Every member a SOURCE named in a participant/attendee list, as the real
+   * binder resolved it. The expectation behind `entities_metadata_edges`: the
+   * list came from the source, so the edge is owed whatever any model says.
+   */
+  readonly memberships: MetadataMembership[] = [];
   modelCalls = 0;
   merged: boolean | null = null;
   refuseReason = "";
@@ -345,6 +357,7 @@ export function snapshot(world: World, fixture: Fixture): Produced {
   };
 
   return {
+    gates: gateObservations(world),
     output: {
       binds: world.binds,
       entities: live
@@ -367,6 +380,56 @@ export function snapshot(world: World, fixture: Fixture): Produced {
       fixture_events: fixture.given.events.length,
     },
   };
+}
+
+/**
+ * The three §14.2 entity rows a case's ASSERTION cannot carry, measured off the
+ * graph this case actually built (`entities/audit.ts`):
+ *
+ *   entities_no_silent_guess   one observation per resolution that committed —
+ *                              a merge, an identity, a linked mention, an edge,
+ *                              a `same` verdict. A failed observation IS the
+ *                              violation the gate counts, so the gate's value is
+ *                              literally "how many silent guesses happened".
+ *   entities_recall            one per join the graph owed itself: a phone or
+ *                              email under two sources, a stored `same` verdict.
+ *   entities_metadata_edges    one per member a source named in a participant
+ *                              or attendee list.
+ *
+ * A case with none of these emits nothing, which is right — it measured
+ * nothing, and a gate nobody measured stays `no data`.
+ */
+export function gateObservations(world: World): GateObservation[] {
+  const out: GateObservation[] = [];
+
+  // One observation per resolution the audit EXAMINED — clean ones included,
+  // so the gate has a denominator and cannot read `no data` merely because
+  // nothing went wrong.
+  for (const audit of auditResolutions()) {
+    out.push({
+      gate: "entities_no_silent_guess",
+      passed: audit.guess === null,
+      ...(audit.guess ? { note: `${audit.subject} ${audit.id}: ${audit.guess.reason}` } : {}),
+    });
+  }
+
+  for (const opportunity of auditResolutionRecall()) {
+    out.push({
+      gate: "entities_recall",
+      passed: opportunity.recovered,
+      note: opportunity.reason,
+    });
+  }
+
+  for (const check of auditMetadataEdges(world.memberships)) {
+    out.push({
+      gate: "entities_metadata_edges",
+      passed: check.captured,
+      note: check.reason,
+    });
+  }
+
+  return out;
 }
 
 function distinctTombstones(winner: string): number {

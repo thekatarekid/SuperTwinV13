@@ -10,6 +10,7 @@
 
 import { isCalibUseCase, putCalib, type CalibUseCase } from "../../db/calib.js";
 import { getDb } from "../../db/connection.js";
+import type { MetadataMembership } from "../../entities/audit.js";
 import {
   bindCalendarAttendees,
   bindGroupParticipants,
@@ -140,6 +141,11 @@ export function runScript(world: World, script: readonly ScriptLine[]): void {
         });
         world.label(res.containerEntityId, f.as);
         res.memberEntityIds.forEach((id, i) => world.label(id, members[i]?.label));
+        // The SOURCE named these participants, so an edge is owed for each one
+        // (§14.2 "metadata edges captured"). Taken from the bound member ids,
+        // not from the edges the binder returned — asking the writer whether it
+        // wrote would measure nothing.
+        recordMemberships(world, res.containerEntityId, res.memberEntityIds, "affiliated_with");
         break;
       }
       case "cal": {
@@ -152,6 +158,7 @@ export function runScript(world: World, script: readonly ScriptLine[]): void {
         });
         world.label(res.containerEntityId, f.as);
         res.memberEntityIds.forEach((id, i) => world.label(id, members[i]?.label));
+        recordMemberships(world, res.containerEntityId, res.memberEntityIds, "participates_in");
         break;
       }
       case "mention": {
@@ -290,6 +297,23 @@ export function runScript(world: World, script: readonly ScriptLine[]): void {
       default:
         throw new Error(`entity script: unknown tag ${JSON.stringify(tag)}`);
     }
+  }
+}
+
+/**
+ * A member the source listed is a metadata edge owed. The container itself can
+ * appear in its own participant list (a group jid that is also a member id);
+ * `binding.ts` skips that edge deliberately, so it is not owed one either.
+ */
+function recordMemberships(
+  world: World,
+  containerEntityId: string,
+  memberEntityIds: readonly string[],
+  kind: MetadataMembership["kind"],
+): void {
+  for (const memberEntityId of memberEntityIds) {
+    if (memberEntityId === containerEntityId) continue;
+    world.memberships.push({ memberEntityId, containerEntityId, kind });
   }
 }
 

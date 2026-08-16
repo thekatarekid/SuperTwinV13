@@ -107,3 +107,44 @@ describe("the model seam", () => {
     expect(produced.output.edges).toEqual([]);
   });
 });
+
+describe("the gate observations a case emits (§14.2 entities rows)", () => {
+  it("emits one silent-guess observation per resolution that committed", () => {
+    const script = [
+      "bind|as=p|src=whatsapp|kind=jid|v=919800000001@s.whatsapp.net|name=Pranjali",
+      "bind|as=c|src=contacts|kind=phone|v=+91 98000 00001|name=Pranjali (contacts)",
+    ].join("\n");
+    const produced = runEntityCase(fixture(script), script);
+    const silent = (produced.gates ?? []).filter((g) => g.gate === "entities_no_silent_guess");
+    // Three identity rows (the jid, its derived phone, the contacts phone) —
+    // all clean, all counted, so the gate reads 0 out of 3 rather than no data.
+    expect(silent.length).toBeGreaterThan(0);
+    expect(silent.every((g) => g.passed)).toBe(true);
+  });
+
+  it("counts a cross-source phone as a recall opportunity and sees it recovered", () => {
+    const script = [
+      "bind|as=p|src=whatsapp|kind=jid|v=919800000001@s.whatsapp.net|name=Pranjali",
+      "bind|as=c|src=contacts|kind=phone|v=+91 98000 00001|name=Pranjali (contacts)",
+    ].join("\n");
+    const produced = runEntityCase(fixture(script), script);
+    const recall = (produced.gates ?? []).filter((g) => g.gate === "entities_recall");
+    expect(recall).toHaveLength(1);
+    expect(recall[0].passed).toBe(true);
+  });
+
+  it("owes one metadata-edge observation per member the source named", () => {
+    const script =
+      "group|as=g1|src=whatsapp|v=1203630111@g.us|name=Ghar+|sub=family|" +
+      "members=a1=jid:919800000001@s.whatsapp.net,a2=jid:919800000002@s.whatsapp.net";
+    const produced = runEntityCase(fixture(script), script);
+    const metadata = (produced.gates ?? []).filter((g) => g.gate === "entities_metadata_edges");
+    expect(metadata).toHaveLength(2);
+    expect(metadata.every((g) => g.passed)).toBe(true);
+  });
+
+  it("emits nothing for these gates when a case resolves nothing", () => {
+    const produced = runEntityCase(fixture(""), "");
+    expect(produced.gates ?? []).toEqual([]);
+  });
+});

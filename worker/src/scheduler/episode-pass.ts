@@ -48,13 +48,14 @@ import {
   type EpisodePassResult,
 } from "../episodes/engine.js";
 import { driftWantsModel, preflagDrift, type DriftEvent, type PreflagResult } from "../episodes/preflag.js";
-import { MAX_EPISODE_CANDIDATES, readOpenEpisodes } from "../episodes/store.js";
+import { MAX_EPISODE_CANDIDATES, readOpenEpisodes, retractVerdict } from "../episodes/store.js";
 import { ep2InputFor, ep2Judge } from "../prompts/p-ep2-judge.js";
 import { P_EP2, P_EP2_SESSION_MARKER, P_EP2_SYSTEM, buildEp2Prompt, ep2Legend } from "../prompts/p-ep2.js";
 import { runPrompt, type PromptRunStatus, type RunnerDeps } from "../prompts/runner.js";
 import { decodeVector } from "../db/embeddings.js";
 import { activeEmbeddingModel } from "../retrieval/model-registry.js";
 import { computePriority, horizonFor, isTier, type Tier } from "../tiers/priority.js";
+import { salvageAnswer, type Cl1Partial } from "./cl1-runner.js";
 import {
   claimWork,
   completeWork,
@@ -63,6 +64,10 @@ import {
   type EnqueueOutcome,
   type WorkItem,
 } from "./queue.js";
+
+function log(line: string): void {
+  console.error(`[episode] ${line}`);
+}
 
 // ---------------------------------------------------------------------------
 // Reading a sealed session back as the engine's view of it
@@ -196,6 +201,13 @@ export interface Ep2CallOutcome {
   /** The runner's terminal status, or `disabled` when the process is off. */
   status: PromptRunStatus | "disabled";
   error: { code: string; message: string } | null;
+  /**
+   * Set when the unit was QUARANTINED and still handed back usable wire lines
+   * (`salvageAnswer` — the records are the authority, not the status). Not an
+   * error — the answer is being applied — and not nothing either, which is why
+   * it is its own field rather than a silent `error: null`.
+   */
+  partial: Cl1Partial | null;
 }
 
 /** Told about every attempt, before its answer reaches the engine. */
@@ -219,7 +231,7 @@ export function ep2RunnerInvoke(
 ): AsyncEp2Invoke {
   return async (prompt) => {
     if (!getProcessEnabled("episode")) {
-      opts.observe?.({ providerCalls: 0, status: "disabled", error: null });
+      opts.observe?.({ providerCalls: 0, status: "disabled", error: null, partial: null });
       return null;
     }
     const result = await runPrompt(
@@ -240,21 +252,22 @@ export function ep2RunnerInvoke(
       },
       opts.deps ?? {},
     );
-    const answered = result.status !== "failed" && result.status !== "quarantined";
-    const usable = answered && result.responses.length > 0;
+    // THE RECORDS ARE THE AUTHORITY, NOT THE STATUS (`salvageAnswer`, P-CL1's
+    // rule, reused verbatim). One prose sentence used to void the whole paid
+    // answer into a model-free fallback. The engine re-reads every line itself
+    // (`segmentsFromWire` keeps valid G lines, counts the rest as violations),
+    // so nothing is tolerated that the engine would not reject again — only
+    // the blast radius changed. Cancelled/empty answers still fail loudly.
+    const salvaged = salvageAnswer(result, "the P-EP2 call produced no usable answer");
     opts.observe?.({
       // Every provider call pushes its run id, retries included — so this is
       // the billed count, not the invocation count.
       providerCalls: result.runIds.length,
       status: result.status,
-      error: usable
-        ? null
-        : {
-            code: result.error?.code ?? (answered ? "EMPTY_RESPONSE" : "NO_ANSWER"),
-            message: result.error?.message ?? "the P-EP2 call produced no usable answer",
-          },
+      error: salvaged.error,
+      partial: salvaged.partial,
     });
-    return usable ? result.responses.join("\n") : null;
+    return salvaged.text;
   };
 }
 
@@ -428,7 +441,13 @@ export async function drainEpisodeQueue(
         continue;
       }
       report.ran += 1;
-      if (result.decision === "one_to_one_fallback") report.fallbacks += 1;
+      if (result.decision === "one_to_one_fallback") {
+        report.fallbacks += 1;
+        // LOUD on purpose: this verdict is model-free and the queue's verdict
+        // gate would otherwise settle it forever. `rejudgeFallbackSessions`
+        // is how it gets another hearing.
+        log(`WARN fallback session=${item.unitId} — ${result.reason}`);
+      }
       report.decisions.push({ sessionId: item.unitId, decision: result.decision });
       completeWork(item.id);
     } catch {
@@ -450,6 +469,78 @@ export async function episodePassAfterSeal(
   enqueueEpisodePasses(sessionIds, { cohortId: opts.cohortId ?? null, ...(opts.now === undefined ? {} : { now: opts.now }) });
   const { cohortId: _cohortId, ...rest } = opts;
   return drainEpisodeQueue({ ...rest, limit: sessionIds.length });
+}
+
+// ---------------------------------------------------------------------------
+// The second hearing — a fallback verdict is temporary, not a downgrade
+// ---------------------------------------------------------------------------
+
+export interface FallbackRejudgeReport {
+  /** Sessions whose fallback verdict was retracted and re-enqueued. */
+  sessions: string[];
+  retracted: number;
+  enqueued: EnqueueOutcome[];
+}
+
+/**
+ * Give every `one_to_one_fallback` verdict another hearing. A fallback is the
+ * engine's SAFE answer to a lost model call — but it is persisted like any
+ * verdict, and both settling gates (the queue's verdict check, §11.1's hash
+ * gate) read that row: without this, one provider outage is a permanent,
+ * model-free segmentation. The fix is retraction, not tolerance:
+ * `retractVerdict` takes the fallback verdict AND everything it wrote back out
+ * (its 1:1 episodes included), re-opening both gates, and the session goes
+ * back on the queue. Only a session whose LATEST verdict is a fallback
+ * qualifies, and the caller still owns WHEN to drain (`drainEpisodeQueue` with
+ * a live `invoke`) — this never spends a model call itself. If the fresh pass
+ * loses its call too, the engine writes another fallback and this finds it.
+ */
+export function rejudgeFallbackSessions(
+  opts: { limit?: number; now?: number; cohortId?: string | null } = {},
+): FallbackRejudgeReport {
+  const now = opts.now ?? Date.now();
+  const limit = Math.max(1, Math.floor(opts.limit ?? 100));
+  const rows = getDb()
+    .prepare(
+      `SELECT v.id AS id, v.session_id AS session_id
+         FROM episode_verdicts v
+         JOIN sessions s ON s.id = v.session_id AND s.status = 'sealed'
+        WHERE v.decision = 'one_to_one_fallback'
+          AND NOT EXISTS (
+            SELECT 1 FROM episode_verdicts w
+             WHERE w.session_id = v.session_id
+               AND (w.created_at > v.created_at
+                    OR (w.created_at = v.created_at AND w.rowid > v.rowid))
+          )
+        ORDER BY v.created_at, v.rowid
+        LIMIT ?`,
+    )
+    .all(limit) as { id: string; session_id: string }[];
+
+  const report: FallbackRejudgeReport = { sessions: [], retracted: 0, enqueued: [] };
+  for (const row of rows) {
+    const retraction = retractVerdict(row.id);
+    if (retraction === null) continue;
+    report.retracted += 1;
+    report.sessions.push(row.session_id);
+    // The queue keeps the drained unit's row at `done`, and "finished work
+    // stays finished" would refuse the re-enqueue — but the retraction just
+    // unfinished it. Clearing the stale row is part of re-opening the gates.
+    getDb()
+      .prepare(
+        `DELETE FROM work_queue
+          WHERE stage = 'episode' AND unit_kind = 'session' AND unit_id = ? AND state = 'done'`,
+      )
+      .run(row.session_id);
+    log(
+      `rejudge session=${row.session_id} — fallback verdict ${row.id} retracted` +
+        `${retraction.episodesDeleted.length > 0 ? `, episode(s) ${retraction.episodesDeleted.join(",")} removed` : ""}`,
+    );
+  }
+  if (report.sessions.length > 0) {
+    report.enqueued = enqueueEpisodePasses(report.sessions, { cohortId: opts.cohortId ?? null, now });
+  }
+  return report;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +595,9 @@ export function startEpisodeClock(
     void (async () => {
       try {
         runEpisodeAging();
+        // The second hearing first: retract what fallbacks the queue is
+        // sitting on so this same tick's drain buys their real calls.
+        rejudgeFallbackSessions({ limit: opts.drainLimit ?? 8 });
         enqueueEpisodePasses(unjudgedSealedSessions({ limit: opts.drainLimit ?? 8 }));
         await drainEpisodeQueue({ invoke, limit: opts.drainLimit ?? 8 });
       } catch {

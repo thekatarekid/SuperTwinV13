@@ -214,7 +214,10 @@ const VERDICT_COLUMNS = `id, episode_id, session_id, run_id, decision, candidate
  * §11.1's hash gate. Understanding is keyed on CONTENT: any session whose
  * `content_hash` matches has already answered this question, whatever its id.
  * Newest verdict wins — a re-judge (a repair round, a user correction) is the
- * answer that stands.
+ * answer that stands. A `one_to_one_fallback` never qualifies: it is the
+ * engine's model-free stopgap for a LOST call, not an answer to the content
+ * question, and reusing one by hash would copy it into a sibling session as a
+ * permanent `hash_reuse` verdict that `rejudgeFallbackSessions` can never see.
  */
 export function readVerdictForHash(contentHash: string): StoredVerdict | null {
   if (typeof contentHash !== "string" || contentHash === "") return null;
@@ -226,6 +229,7 @@ export function readVerdictForHash(contentHash: string): StoredVerdict | null {
          FROM episode_verdicts v
          JOIN sessions s ON s.id = v.session_id
         WHERE s.content_hash = ?
+          AND COALESCE(v.decision, '') != 'one_to_one_fallback'
         ORDER BY v.created_at DESC, v.rowid DESC
         LIMIT 1`,
     )
@@ -285,6 +289,116 @@ export function persistVerdict(params: PersistVerdictParams): string {
       createdAt,
     });
   return id;
+}
+
+// ---- retraction ------------------------------------------------------------
+
+/** What `retractVerdict` undid, so the caller can log it honestly. */
+export interface VerdictRetraction {
+  verdictId: string;
+  sessionId: string;
+  /** Episodes this verdict alone was holding up — gone with it. */
+  episodesDeleted: string[];
+  /** Episodes that survived with the retracted session's membership removed. */
+  episodesUpdated: string[];
+}
+
+/**
+ * Take one verdict — and everything it wrote — back out, so the session can be
+ * judged again. The inverse of `runEpisodePass`'s write path, for the ONE case
+ * where re-judging is legitimate: a `one_to_one_fallback` is a model-free
+ * verdict wearing a normal verdict's clothes, and both gates that keep a judged
+ * session settled (the queue's verdict check, §11.1's hash gate) read the row
+ * this deletes. Membership rows carry the verdict's stamp (`episode_sessions.
+ * verdict_id`), so only what THIS verdict landed is removed; an episode with
+ * members left is rebuilt from its remaining sessions, an empty one is deleted
+ * (its arc memberships and embeddings cascade). Null when the verdict does not
+ * exist — retracting twice is a no-op, not an error.
+ */
+export function retractVerdict(verdictId: string): VerdictRetraction | null {
+  const db = getDb();
+  const run = db.transaction((): VerdictRetraction | null => {
+    const verdict = db
+      .prepare(`SELECT id, session_id FROM episode_verdicts WHERE id = ?`)
+      .get(verdictId) as { id: string; session_id: string } | undefined;
+    if (verdict === undefined) return null;
+    const sessionId = verdict.session_id;
+
+    const memberships = db
+      .prepare(`SELECT episode_id FROM episode_sessions WHERE session_id = ? AND verdict_id = ?`)
+      .all(sessionId, verdictId) as { episode_id: string }[];
+    db.prepare(`DELETE FROM episode_sessions WHERE session_id = ? AND verdict_id = ?`).run(sessionId, verdictId);
+
+    const removedEventIds = new Set(
+      parseJsonArray(
+        (db.prepare(`SELECT event_ids FROM sessions WHERE id = ?`).get(sessionId) as
+          | { event_ids: string | null }
+          | undefined)?.event_ids ?? null,
+      ),
+    );
+
+    const episodesDeleted: string[] = [];
+    const episodesUpdated: string[] = [];
+    for (const m of memberships) {
+      const episode = readEpisode(m.episode_id);
+      if (episode === null) continue;
+      const remaining = db
+        .prepare(`SELECT session_id FROM episode_sessions WHERE episode_id = ?`)
+        .all(m.episode_id) as { session_id: string }[];
+      if (remaining.length === 0) {
+        // The verdict was this episode's whole reason to exist.
+        db.prepare(`DELETE FROM episodes WHERE id = ?`).run(m.episode_id);
+        episodesDeleted.push(m.episode_id);
+        continue;
+      }
+      // Events belong to exactly one session, so subtracting the retracted
+      // session's events is exact even when other verdicts split THEIR
+      // sessions across episodes. Entities may be shared, so those are
+      // re-derived from the remaining members; the span from the remaining
+      // events' own instants, the way segment spans are built.
+      const keptMembers = new Set(remaining.map((r) => r.session_id));
+      const sessionIds = episode.sessionIds.filter((id) => keptMembers.has(id));
+      for (const id of remaining.map((r) => r.session_id)) if (!sessionIds.includes(id)) sessionIds.push(id);
+      const eventIds = episode.eventIds.filter((id) => !removedEventIds.has(id));
+      let entityIds: string[] = [];
+      let startedAt: string | null = null;
+      let endedAt: string | null = null;
+      if (sessionIds.length > 0) {
+        const marks = sessionIds.map(() => "?").join(",");
+        const rows = db
+          .prepare(`SELECT id, participant_entity_ids FROM sessions WHERE id IN (${marks})`)
+          .all(...sessionIds) as { id: string; participant_entity_ids: string | null }[];
+        for (const row of rows) entityIds = mergeIds(entityIds, parseJsonArray(row.participant_entity_ids));
+      }
+      if (eventIds.length > 0) {
+        const marks = eventIds.map(() => "?").join(",");
+        const span = db
+          .prepare(`SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM events WHERE id IN (${marks})`)
+          .get(...eventIds) as { lo: string | null; hi: string | null };
+        startedAt = span.lo;
+        endedAt = span.hi;
+      }
+      db.prepare(
+        `UPDATE episodes
+            SET session_ids = @sessionIds, event_ids = @eventIds, entity_ids = @entityIds,
+                started_at = @startedAt, ended_at = @endedAt, updated_at = @updatedAt
+          WHERE id = @id`,
+      ).run({
+        id: m.episode_id,
+        sessionIds: JSON.stringify(sessionIds),
+        eventIds: JSON.stringify(eventIds),
+        entityIds: JSON.stringify(entityIds),
+        startedAt,
+        endedAt,
+        updatedAt: new Date().toISOString(),
+      });
+      episodesUpdated.push(m.episode_id);
+    }
+
+    db.prepare(`DELETE FROM episode_verdicts WHERE id = ?`).run(verdictId);
+    return { verdictId, sessionId, episodesDeleted, episodesUpdated };
+  });
+  return run();
 }
 
 // ---- writes ----------------------------------------------------------------

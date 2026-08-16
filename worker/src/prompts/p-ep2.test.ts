@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
+import { renderTemplate, specsFor } from "./legend.js";
 import type { PackEvent } from "../wire/pack.js";
 import {
   buildEp2Prompt,
@@ -94,6 +95,37 @@ describe("the call is built exactly as §12.3 specifies", () => {
     // The legend renders the G template from the tag table, never by hand.
     expect(system).toContain("G | <session> | <events> | <decision>");
     expect(system).toContain("att=attach");
+  });
+
+  it("states the output contract in the legend's own template shape, once", () => {
+    // The SYSTEM's OUTPUT line must be the SAME template the legend renders
+    // from the tag table — two differently-shaped templates for one tag is
+    // how proof4's models miscounted field boundaries into the alias field.
+    const rendered = renderTemplate(specsFor(["G"])[0]);
+    expect(P_EP2_SYSTEM).toContain(rendered);
+    // The old ad-hoc shape, with bare "|" inside placeholders, must be gone.
+    expect(P_EP2_SYSTEM).not.toContain("<att|new>");
+    expect(P_EP2_SYSTEM).not.toContain("<e-alias | ->");
+  });
+
+  it("carries a worked example whose lines parse cleanly as G records", () => {
+    // The describe.ts lesson: a worked example beside the template is what
+    // actually stops prose leakage. The example must itself be valid wire.
+    expect(P_EP2_SYSTEM).toContain("G|s1|1,2|att|e1|0.93|villa shortlist for Goa");
+    expect(P_EP2_SYSTEM).toContain("G|s1|3,4|new|-|0.85|mom's medical reports");
+    const answer = parseEp2Response(DOC_ANSWER, built().context);
+    expect(answer.violations).toEqual([]);
+    expect(answer.segments).toHaveLength(2);
+  });
+
+  it("bans prose, questions and invented aliases at the answer site", () => {
+    // proof4's quarantines, one clause each: `unknown_tag: "Once you clarify"`
+    // (a question as a line) and `bad_alias: episode` (words in field 5).
+    expect(P_EP2_SYSTEM).toContain("no preamble");
+    expect(P_EP2_SYSTEM).toContain("no questions");
+    expect(P_EP2_SYSTEM).toContain("do not ask — emit new with low confidence");
+    expect(P_EP2_SYSTEM).toContain("Never invent one, never write words");
+    expect(P_EP2_SYSTEM).toContain(`On new: exactly "-"`);
   });
 
   it("transcribes the §12.3 settings, thinking off and six sessions per call", () => {

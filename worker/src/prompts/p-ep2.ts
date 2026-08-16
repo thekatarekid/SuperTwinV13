@@ -71,7 +71,16 @@ export const P_EP2 = {
 /** The one tag this call may emit. Anything else is counted, never applied. */
 export const P_EP2_TAGS = ["G"] as const;
 
-/** §12.3 SYSTEM, verbatim. */
+/**
+ * §12.3 SYSTEM, hardened after the proof4 run: the OUTPUT block is now the
+ * legend-shaped template (one shape, not two — the old ad-hoc line embedded
+ * bare "|" inside placeholders and taught field-boundary miscounts), carries a
+ * worked example and an explicit no-prose/no-questions rule (the describe.ts
+ * fix, which measurably stopped preamble leakage), and restates the closed
+ * e-alias list at the answer site so an invented alias is a stated violation,
+ * not a plausible reading. Field semantics are unchanged; the wire format is
+ * untouched.
+ */
 export const P_EP2_SYSTEM = `You segment sealed sessions into topical episodes.
 
 FOR EACH SESSION
@@ -94,8 +103,25 @@ RULES
 - Confidence < 0.6 on an attach → prefer new. A wrong merge destroys; a wrong
   split is repairable.
 
-OUTPUT
-  G | <session> | <events> | <att|new> | <e-alias | -> | <conf> | <label>`;
+OUTPUT — G lines only, one per segment. Nothing before, between or after
+them: no preamble, no explanation, no questions, no closing remark. If
+anything is unclear, do not ask — emit new with low confidence instead.
+
+  G | <session> | <events> | <decision> | <episode> | <confidence> | <topic>
+
+  <session>    the block's s-token, copied verbatim (s1, s2, ...)
+  <events>     the segment's event numbers — base-36, commas and ranges
+  <decision>   att or new — nothing else
+  <episode>    on att: ONE e-alias copied verbatim from that session's own
+               #E lines (e1, e2, ...). Never invent one, never write words
+               or the episode's label here. On new: exactly "-".
+  <confidence> a decimal in [0,1]
+  <topic>      the 2-6 word label — the ONLY field that may contain words
+
+EXAMPLE — session s1: events 1-2 continue open episode e1, events 3-4 start
+a new matter. The complete answer is exactly these two lines:
+  G|s1|1,2|att|e1|0.93|villa shortlist for Goa
+  G|s1|3,4|new|-|0.85|mom's medical reports`;
 
 /**
  * §5.5's input grammar has no session marker — it packs streams, not sessions —

@@ -180,6 +180,13 @@ export interface DequeueOptions {
   limit?: number;
   /** Restrict to these stages — how a lane takes only its own work (§9.4). */
   stages?: readonly Stage[];
+  /**
+   * Restrict to these unit kinds. A stage is not always one kind — `extract`
+   * holds episode units (the cohort ladder) AND session units (the live delta
+   * and the pass-2 completion), and a drainer that claims by stage alone will
+   * treat one's ids as the other's. Unset means every kind, as before.
+   */
+  unitKinds?: readonly UnitKind[];
   /** ISO instant used to honour `not_before_at`. */
   nowIso?: string;
 }
@@ -195,17 +202,19 @@ export function peekWork(options: DequeueOptions = {}): WorkItem[] {
   const limit = Math.max(1, Math.floor(options.limit ?? 1));
   const nowIso = options.nowIso ?? new Date().toISOString();
   const stages = options.stages ?? STAGES;
+  const unitKinds = options.unitKinds ?? UNIT_KINDS;
   const rows = getDb()
     .prepare(
       `SELECT id, unit_kind, unit_id, cohort_id, stage, priority, attempts, state, not_before_at
          FROM work_queue
         WHERE state = 'ready'
           AND stage IN (${stages.map(() => "?").join(",")})
+          AND unit_kind IN (${unitKinds.map(() => "?").join(",")})
           AND (not_before_at IS NULL OR not_before_at <= ?)
         ORDER BY priority DESC, id
         LIMIT ?`,
     )
-    .all(...stages, nowIso, limit) as WorkRow[];
+    .all(...stages, ...unitKinds, nowIso, limit) as WorkRow[];
   return rows.map(toItem);
 }
 

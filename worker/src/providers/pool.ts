@@ -394,7 +394,13 @@ export class ResourcePool {
       return this.sems[cls].run(fn);
     }
     const lane = opts.lane ?? "understanding";
-    await this.awaitResume(`llm:${lane}`);
+    // A pause on the bare "llm" family (the ops surface's "LLM pool" row)
+    // holds BOTH lanes; a composite pause holds just its lane. Re-check both
+    // until neither is paused — one can be re-paused while the other waits.
+    while (this.isPaused("llm") || this.isPaused(`llm:${lane}`)) {
+      await this.awaitResume("llm");
+      await this.awaitResume(`llm:${lane}`);
+    }
     this.refreshLlm();
     const laneRelease = await this.laneSems[lane].acquire();
     try {

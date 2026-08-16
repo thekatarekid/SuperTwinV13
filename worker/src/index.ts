@@ -11,7 +11,9 @@
 //      and re-run by ingest once the backfill has actually created streams.
 //   5. start the bootstrap derivation driver (§9.1-§9.7) — the scheduled caller
 //      for tier -> segment -> seal -> cohort -> episodes -> reconcile. It is
-//      OFF unless opted in; see the cost note at the call site.
+//      ON (`full`, capped) by default for an installed app; app_state
+//      'bootstrap.mode' and SUPERTWIN_BOOTSTRAP override — cost note at the
+//      call site.
 //   6. on SIGINT/SIGTERM: stop the driver, close the server and kill any
 //      in-flight `claude` children, then exit clean (kill-switch foundation —
 //      no orphans).
@@ -36,8 +38,10 @@
 // re-derive it: there is no P-EP1 runner, so nothing writes graph EDGES;
 // nothing writes `claim_embeddings`, so the [ML] near-hit rung stays blocked and
 // P-AG3 is never bought; identity binding is unwired at ingest, so session
-// participants are actor ids, not entity ids; and nothing flips `sources.mode`
-// to 'steady' or starts `scheduler/live.ts` — that loop still has no caller.
+// participants are actor ids, not entity ids; and the steady driver's
+// P-CL1Δ session runner (`SteadyDeps.extract`) is unfilled, so a due delta
+// pass is refused loudly (`provider_outage`) rather than fired into a queue
+// nothing drains — see `scheduler/steady.ts`.
 
 import { runMigrations } from "./db/index.js";
 import { runStartupCalibration } from "./retrieval/calibration.js";
@@ -51,6 +55,7 @@ import { Ingestion } from "./ingest/index.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { ensureTiers } from "./tiers/ensure.js";
 import { startBootstrapDriver, type BootstrapDriver } from "./scheduler/bootstrap.js";
+import { startSteadyDriver, type SteadyDriver } from "./scheduler/steady.js";
 
 async function main(): Promise<void> {
   runMigrations();
@@ -138,12 +143,17 @@ async function main(): Promise<void> {
   // here and no other entry point can forget to pass one.
   //
   // COST: `resolveBootstrapMode()` is opts -> app_state('bootstrap.mode') ->
-  // env(SUPERTWIN_BOOTSTRAP) -> **off**, and we deliberately pass no mode here.
-  // So on an un-opted-in install this timer performs the free watermark repair
-  // and logs one projection line saying what a run WOULD cost — it does NOT
-  // start an unbounded full-corpus LLM run on boot. `dry` adds reporting with
-  // zero calls and zero writes; `slice` is capped at 40 model calls; `full` at
-  // 400. Every model call in every stage passes one shared `spend()` gate.
+  // env(SUPERTWIN_BOOTSTRAP) -> **full**, and we deliberately pass no mode
+  // here: an installed app DERIVES BY DEFAULT. The old silent-`off` default
+  // meant a fresh install imported everything and derived nothing, for ever —
+  // that was the bug, not the safeguard. `full` is still capped at 400 model
+  // calls per tick, every call passes one shared `spend()` gate, the driver
+  // logs the projection (calls + est dollars) before the first spend, the
+  // resolved mode AND its source are logged at boot, and the ops lanes
+  // (`POST /api/ops/lanes/pause`, lane `llm:understanding`) hold the spend
+  // mid-run. Set app_state 'bootstrap.mode' or SUPERTWIN_BOOTSTRAP to `off`
+  // to stop all spend — the free stages (watermark repair, tiers, identity,
+  // rosters, arcs) run regardless of mode.
   //
   // Started here rather than beside the other four timers at
   // server/index.ts:351-356 only because that file is being edited
@@ -156,6 +166,20 @@ async function main(): Promise<void> {
     console.error("[worker] bootstrap driver failed to start (continuing):", err);
   }
 
+  // ---- The steady-state driver (item 3.4, arch §8.1 exit + §8.3). Runs from
+  // boot in BOTH modes: before the flip its tick is free work only — the
+  // `enrich` lane-entry reconciliation and the settled check — and the flip
+  // itself writes `app_state sources.mode = 'steady'` exactly once, when
+  // `bootstrapSettled()` holds. COST: the live trigger's spend is bounded by
+  // the shipped budgets in `scheduler/live-budgets.ts`, and while the P-CL1Δ
+  // seam is unfilled a due delta pass is REFUSED loudly rather than committed.
+  let steady: SteadyDriver | null = null;
+  try {
+    steady = startSteadyDriver();
+  } catch (err) {
+    console.error("[worker] steady driver failed to start (continuing):", err);
+  }
+
   let shuttingDown = false;
   const shutdown = async (sig: string): Promise<void> => {
     if (shuttingDown) return;
@@ -166,6 +190,7 @@ async function main(): Promise<void> {
       // the latch `runBootstrapTick` polls via `shouldStop`, so an in-flight
       // tick stops between stages instead of being killed mid-cohort.
       bootstrap?.stop();
+      steady?.stop();
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
       if (adapter) await adapter.disconnect();

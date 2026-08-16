@@ -640,6 +640,11 @@ export async function drainExtractQueue(
   const now = opts.now ?? Date.now();
   const items = claimWork({
     stages: ["extract"],
+    // EPISODE UNITS ONLY. The `extract` stage also carries SESSION units — the
+    // live delta (scheduler/live.ts) and the pass-2 completion
+    // (media/enrich-pass.ts) — and claiming by stage alone hands their session
+    // ids to `runCl1ForEpisodes` as episode ids, which retries them forever.
+    unitKinds: ["episode"],
     limit: Math.max(1, Math.floor(opts.limit ?? 8)),
     nowIso: new Date(now).toISOString(),
   });

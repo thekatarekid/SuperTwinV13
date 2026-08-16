@@ -1101,13 +1101,13 @@ events 3229 → tiers 93/93 → identity 3141 events bound, 105 entities (FREE)
   
 - **Goals renders empty** — `sweepGoalEmergence` proposes, but `confirmGoalProposal` has no HTTP route and `/api/goals` reads confirmed-only. Needs a propose/confirm surface.
   
-- **`enrich` work_queue stage** — 3,141 rows ready, **no production drainer**.
+- **`enrich` work_queue stage** — 3,141 rows ready, **no production drainer**. **Closed in §5.6** — drainer wired, free, proven on real data.
   
-- **13 genuinely dead subsystems** remain unreachable from the bundle (26 of 188 modules unreachable from `index.ts`; 13 after excluding harness/eval): `scheduler/live` (steady mode never starts), `scheduler/paint`, `scheduler/reprocess`, `salience/score`, `episodes/embed` (why arc-ladder rung ③ can never nominate), `loops/done` + `loops/triage` (the P-DD1/P-TR1 lanes), prompts `p-ag1` `p-ep1` `p-sp1` `p-cl1d`, and `adapters/calendar` + `adapters/contacts` (the Phase 5 second source is never registered).
+- **13 genuinely dead subsystems** remain unreachable from the bundle (26 of 188 modules unreachable from `index.ts`; 13 after excluding harness/eval): `scheduler/live` (steady mode never starts), `scheduler/paint`, `scheduler/reprocess`, `salience/score`, `episodes/embed` (why arc-ladder rung ③ can never nominate), `loops/done` + `loops/triage` (the P-DD1/P-TR1 lanes), prompts `p-ag1` `p-ep1` `p-sp1` `p-cl1d`, and `adapters/calendar` + `adapters/contacts` (the Phase 5 second source is never registered). **Partially closed in §5.6** — `scheduler/live` (steady mode) and `p-cl1d` are now wired with production callers; the rest remain dead.
   
 - **No P-EP1 runner**, so `entity_edges` only ever carry `affiliated_with` (group membership). **P-AG3 is unreachable** because nothing writes `claim_embeddings`.
   
-- **P-EP2 reliability** — one 25-call run: 9 ok, 13 retried, 3 quarantined, with prose leakage (`unknown_tag: "Once you clarify"`, `bad_alias: episode`); 5 sessions took model-free fallback verdicts and 2 cohorts paused `provider_outage`. Needs attention.
+- **P-EP2 reliability** — one 25-call run: 9 ok, 13 retried, 3 quarantined, with prose leakage (`unknown_tag: "Once you clarify"`, `bad_alias: episode`); 5 sessions took model-free fallback verdicts and 2 cohorts paused `provider_outage`. Needs attention. **Closed in §5.6** — root cause was the SYSTEM's own malformed output template; prompt hardened, salvage ported, fallbacks now re-judgeable.
   
 - **`P_AG3.role === "claim"`** is a live bug in `worker/src/prompts/p-ag3.ts` — `"claim"` is not in `RUN_ROLES`. Worked around by passing `"adjudicate"`.
   
@@ -1125,6 +1125,61 @@ The durable guard is two things:
 
 ### 5.5.5 Privacy — retention story is currently false
 The Claude CLI writes **full transcripts** to `~/.claude/projects/-Users-adityakatare-SuperTwinV11-media/`, **outside** the app data dir, retaining image content and descriptions indefinitely — observed to include a medical prescription and bank/UPI screenshots. If the retention story assumes everything lives under `~/SuperTwinV11`, that is not true today.
+
+* * *
+## 5.6 FRESH-INSTALL CORRECTION ROUND — the pipeline that never started
+**Measured:** root **496** · `tsc` clean · worker full serial suite still running at time of writing (last complete run **3368/3369**; the sole failure is a known flaky that passes in isolation). **v0.11.0 release build is in progress, not yet cut.**
+
+### 5.6.0 What the user saw — say it plainly
+Fresh 0.10.0 install: **only media enrichment ran. Nothing else.** No tiers, no identity, no sessions, no claims. Not one defect — three interacting ones, each individually survivable, jointly fatal:
+
+1. **The seal timer raced the sidecar.** whatsapp-go emits `backfill-complete` at connect+0s with `chats=0`, **before** any history-sync payload arrives. The 5 s seal timer fired in dead air (`[tiers] backfill (backfill_complete): 0/0 streams` at 00:23:46); the real 93 streams landed 00:23:54–00:24:56; and `touchBackfillSeal` only ever **extended an already-armed timer** — one-shot in practice. Nothing ever sealed.
+  
+2. **"Unconditional" free work wasn't.** The tick's `ensureTiers` sat **after** the `mode==="off"` early return, so even the zero-cost stages never ran when the mode was off.
+  
+3. **`bootstrap.mode` unset meant OFF — by design.** The right guardrail for development (§5.5 shipped the driver off deliberately, to stop burning tokens); the wrong default for an installed product, where nobody will ever set the key.
+  
+
+Defect 3 guaranteed the tick did nothing paid; defect 2 extended that to the free stages; defect 1 meant that even had the mode been on, no stream was ever sealed to work from.
+
+### 5.6.1 What was fixed
+1. **Seal re-arms.** The seal now re-arms when rows land after it has fired, gated on `importDone` + a new `hasUnsealedStreams` probe. Converges: late history waves re-seal, sealed live traffic never re-arms, genuinely new live streams do.
+  
+2. **Tick order rebuilt.** Now: A `repairBackfillFlags` → dry return → B `ensureTiers` → B2 identity → B3 arc backlog → **off return** → projection → A2 provider gate → C sessions → C3 fallback re-judge → D/E cohorts. Free stages (tiers, identity, rosters, arcs) run in **every** mode including `off`.
+  
+3. **`DEFAULT_BOOTSTRAP_MODE="full"`.** Wallet caps and the cohort budget ramp are unchanged; `app_state`/env overrides still work; the boot log states the resolved mode **and which source resolved it**; a dry projection with estimated dollars is logged before the first spend.
+  
+4. **Steady mode wired — was dead code with zero callers.** New `worker/src/scheduler/steady.ts` flips `sources.mode` bootstrap→steady **exactly once** when `bootstrapSettled()` (idempotent, restart-safe), then runs live ticks — `scheduler/live.ts` `runLiveTick` was previously unreachable. The `enrich` work_queue drainer is wired: rows were being filed with **zero consumers**. Free, verified against the runs ledger.
+  
+5. **P-CL1Δ delta runner built** (`worker/src/scheduler/cl1-delta.ts`). The "dead" `prompts/p-cl1d.ts` **was** the spec's §12.5 delta prompt — it was missing only its caller. New-message extraction in steady mode now runs through the same wallet/accounting/salvage/attribution plumbing as bootstrap P-CL1.
+  
+6. **P-EP2 reliability** (was 9 ok / 13 retried / 3 quarantined in 25 calls). Diagnosed on the real quarantine rows: prose-in-alias-field ×3 because **the SYSTEM's own output template was malformed** — bare `|` inside placeholders, conflicting with the legend's derived template — plus one conversational line ("Once you clarify"). Fallout: **13 of 25** verdicts were silent `one_to_one_fallback`. Fixes: prompt hardened (legend-shaped template, worked example, explicit no-preamble/no-questions bans, closed alias list restated at the answer site — "never invent one; on new emit -"); salvage ported from P-CL1 (records-not-status; one bad line no longer voids a paid answer) — all 4 real proof-run failures replay green at **zero model spend**; fallback verdicts are now re-judgeable (`rejudgeFallbackSessions` on the episode clock **and** bootstrap C3), and a hash-reuse leak is fixed — a content-identical sibling can no longer silently inherit a model-free verdict. Model routing verified **correct in code**: the episode role defaults to claude-sonnet-5 per spec; the haiku deviation was DB data in the old install, and a fresh install has no overrides.
+  
+7. **Ops pause actually pauses.** `pool.run("llm")` only awaited composite keys (`llm:understanding`), so the Ops tab's "LLM pool" pause held **nothing**. Bare-family and composite keys are both honoured; tests prove both-paused semantics.
+  
+
+### 5.6.2 Proven on real data
+A copy of the user's fresh-install DB **at its exact broken state** (93/93 streams tier NULL). The live DB was sha256-verified untouched.
+
+- **Auto-start with NO mode key and NO env:** resolved `{mode:"full", source:"default"}` → tiers 93 NULL → **0** NULL (0 model calls) → identity **3,051/3,051** events bound, 105 entities (**free**) → rosters 97 streams / 31 edges (**free**).
+- **Bounded paid tick:** **$0.2263** actual. Cohort done: 4 episodes, 4 claims, **0 fallbacks, 0 errors**.
+- **Full-corpus projection:** now **643 calls / est $0.32** — P-EP2 caching is now effective.
+- **Enrich drain:** 3,051 rows enqueued, 254 completed in one tick, **$0.00**.
+- **Steady flip correctly REFUSED:** 23 cohorts still pending, so `bootstrapSettled()` says no. The flip's own suite is 8/8 green; a full-corpus settle has **not** been exercised.
+
+### 5.6.3 Known remaining gaps
+- **Z (correction) lines are not applied** — P-CL1Δ counts and WARNs them, nothing more. No Z applier exists **anywhere** in the codebase; §12.5's own notes say corrections arrive as fresh H lines, so this may be by design, but it is unproven either way.
+  
+- **Media pass-2 completion consumer** still unwired.
+  
+- Still dead from the §5.5.3 list: `scheduler/paint`, `scheduler/reprocess`, `salience/score`, `episodes/embed` (arc-ladder rung ③ still cannot nominate), `loops/done` + `loops/triage` (P-DD1/P-TR1), prompts `p-ag1` `p-ep1` `p-sp1`, and `adapters/calendar` + `adapters/contacts`.
+  
+- **Spaces promotion bar unproven on the full corpus** — the wiring emits verdicts, but a full-corpus run has still not been driven through promotion.
+  
+- **Goals propose/confirm route still missing** — unchanged from §5.5.3.
+  
+- **The spec doc's §12.3 SYSTEM text now lags the shipped P-EP2 prompt** — the hardened prompt is a superset of what §12.3 shows. The spec should be reconciled, not the prompt reverted.
+  
 
 * * *
 ## 6. Global acceptance — the build is done when

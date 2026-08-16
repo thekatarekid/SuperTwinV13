@@ -25,11 +25,15 @@
 //      -9 halfway through a cohort costs the in-flight rung and nothing else.
 //      There is no cursor, no progress file and no accumulator to drift.
 //
-//   3. COST IS A FIRST-CLASS INPUT, not a consequence. The default mode is
-//      `off`; `dry` makes zero provider calls and zero writes; `slice` is
-//      bounded in streams, sessions, cohorts AND total model calls. Every
-//      model call passes through ONE `spend()` gate, so the cap is a property
-//      of the code rather than of how carefully the stages were written.
+//   3. COST IS A FIRST-CLASS INPUT, not a consequence. The default mode for an
+//      installed app is `full` (capped at 400 calls/tick; the silent-`off`
+//      default was itself the bug — see DEFAULT_BOOTSTRAP_MODE); `off` remains
+//      the explicit no-spend override, `dry` makes zero provider calls and
+//      zero writes, and `slice` is bounded in streams, sessions, cohorts AND
+//      total model calls. Every model call passes through ONE `spend()` gate,
+//      so the cap is a property of the code rather than of how carefully the
+//      stages were written. The free stages (tiers, identity, rosters, arcs)
+//      run in EVERY mode except `dry` — free-and-unconditional is literal.
 //      `getProcessEnabled` is read-on-by-default and is NOT a cost control.
 //
 //   4. A FAILED TICK IS LOUD. `startEpisodeClock`'s shape is copied exactly —
@@ -123,6 +127,7 @@ import {
   drainEpisodeQueue,
   enqueueEpisodePasses,
   ep2RunnerInvoke,
+  rejudgeFallbackSessions,
   type AsyncEp2Invoke,
   type Ep2Observer,
 } from "./episode-pass.js";
@@ -185,7 +190,11 @@ const UNBOUNDED = Number.MAX_SAFE_INTEGER;
  * capped — an "unbounded" mode is how a corpus turns into an overnight spend.
  */
 const LIMITS_BY_MODE: Record<BootstrapMode, ResolvedLimits> = {
-  off: { maxEntityEvents: 0, maxStreams: 0, maxSessions: 0, maxCohorts: 0, maxLlmCalls: 0, cohortConcurrency: 1, extractParallelism: 0 },
+  // `off` still binds identities: the stage is structurally free (no wallet is
+  // ever handed to it) and gating it behind spend was exactly the silent-off
+  // failure — "free and unconditional" has to be literally true. The cap is a
+  // LATENCY bound per tick, same as slice's; the paid stages stay at zero.
+  off: { maxEntityEvents: 5_000, maxStreams: 0, maxSessions: 0, maxCohorts: 0, maxLlmCalls: 0, cohortConcurrency: 1, extractParallelism: 0 },
   dry: { maxEntityEvents: UNBOUNDED, maxStreams: UNBOUNDED, maxSessions: UNBOUNDED, maxCohorts: UNBOUNDED, maxLlmCalls: 0, cohortConcurrency: 1, extractParallelism: 0 },
   // `slice` binds far more events than it segments streams on purpose: the
   // stage is free, and a slice whose roster is half-bound reproduces exactly
@@ -219,22 +228,50 @@ function positive(n: unknown): n is number {
 }
 
 /**
- * `opts.mode` → `app_state` → env → `off`. NOTHING on the boot path may resolve
- * to `full` implicitly: a driver that starts a whole-corpus run because a row
- * was left behind in a settings table is the exact failure the opt-in exists to
- * prevent, so an unreadable or unknown value is `off`.
+ * What an installed app runs with when NOBODY has said anything: `full`, with
+ * its existing wallet cap (400 calls/tick), cohort budget ramp and pacing.
+ *
+ * This deliberately reverses the old default. `off` was a cost guardrail
+ * during development; on an installed product it meant a fresh install
+ * imported everything and then derived NOTHING, silently, for ever — the
+ * failure that cost a day to diagnose. The controls all survive: an explicit
+ * `app_state` row still wins, the env still wins after it (tests set
+ * SUPERTWIN_BOOTSTRAP=off), every model call still passes the one wallet gate,
+ * and the ops lanes can pause the spend.
  */
-export function resolveBootstrapMode(explicit?: BootstrapMode): BootstrapMode {
-  if (explicit !== undefined) return explicit;
+export const DEFAULT_BOOTSTRAP_MODE: BootstrapMode = "full";
+
+/** Which link of the resolution chain produced the mode — for the boot log. */
+export type BootstrapModeSource = "explicit" | "app_state" | "env" | "default";
+
+export interface ResolvedBootstrapMode {
+  mode: BootstrapMode;
+  source: BootstrapModeSource;
+}
+
+/**
+ * `opts.mode` → `app_state` → env → {@link DEFAULT_BOOTSTRAP_MODE}. An
+ * unreadable or unknown stored value falls through to the next link rather
+ * than being guessed at. The SOURCE travels with the answer so the boot log
+ * can say WHY the mode is what it is — the silent-off failure was as much a
+ * legibility bug as a wiring one.
+ */
+export function resolveBootstrapModeDetailed(explicit?: BootstrapMode): ResolvedBootstrapMode {
+  if (explicit !== undefined) return { mode: explicit, source: "explicit" };
   let stored: string | null = null;
   try {
     stored = appStateGet(BOOTSTRAP_MODE_KEY);
   } catch {
     stored = null; // no DB yet — the env is still allowed to speak.
   }
-  if (isBootstrapMode(stored)) return stored;
+  if (isBootstrapMode(stored)) return { mode: stored, source: "app_state" };
   const env = process.env[BOOTSTRAP_MODE_ENV];
-  return isBootstrapMode(env) ? env : "off";
+  if (isBootstrapMode(env)) return { mode: env, source: "env" };
+  return { mode: DEFAULT_BOOTSTRAP_MODE, source: "default" };
+}
+
+export function resolveBootstrapMode(explicit?: BootstrapMode): BootstrapMode {
+  return resolveBootstrapModeDetailed(explicit).mode;
 }
 
 // ---------------------------------------------------------------------------
@@ -985,6 +1022,18 @@ function log(line: string): void {
   console.error(`[bootstrap] ${line}`);
 }
 
+/**
+ * Blended $/M billable tokens — FOR THE PROJECTION LOG ONLY, never billing.
+ * The provider reports real `costUsd` per run; this is the order-of-magnitude
+ * number printed before the first spend so the log states dollars, not just
+ * calls. Deliberately a round API-equivalent blend of input+output rates.
+ */
+export const EST_USD_PER_MILLION_BILLABLE_TOKENS = 3;
+
+function estUsd(billableTokens: number): string {
+  return ((billableTokens / 1_000_000) * EST_USD_PER_MILLION_BILLABLE_TOKENS).toFixed(2);
+}
+
 function note(report: BootstrapReport, stage: string, unit: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   report.errors.push(`${stage}(${unit}): ${message}`);
@@ -1016,57 +1065,32 @@ export async function runBootstrapTick(opts: BootstrapTickOptions): Promise<Boot
   } catch (err) {
     note(report, "backfill_flags", "-", err);
   }
-  if (mode === "off") return report;
 
-  // ---- the projection. `dry` stops here, having written nothing.
-  try {
-    // The RESOLVED limits, not the caller's: a slice run must project the slice
-    // it is about to do, not the whole corpus.
-    Object.assign(report, planBootstrap(limits, { now }), {
-      mode,
-      backfillFlagsRepaired: report.backfillFlagsRepaired,
-      errors: report.errors,
-    });
-  } catch (err) {
-    note(report, "plan", "-", err);
-    report.stoppedBy = "error";
-    return report;
-  }
-  if (mode === "dry") return report;
-
-  // ---- A2. THE PROVIDER MUST EXIST BEFORE ANYTHING IS ALLOWED TO SPEND.
-  //
-  // `register(claudeLocalProvider)` lives in index.ts's `main()`, not here, so
-  // a driver started any other way (a script, a test harness, an integrator's
-  // own entry point) has an EMPTY registry. Every P-EP2 call then fails with
-  // SPAWN_FAILED, `ep2RunnerInvoke` hands the engine a null, the engine reads
-  // that as its safe 1:1 fallback — and the tick reports `errors: []`,
-  // `stoppedBy: null` and a cohort marked `done` over verdicts no model ever
-  // saw. That has already happened once on this build.
-  //
-  // Refuse instead, before the first dollar. An injected `invoke` is the
-  // stated exception: the caller has supplied its own transport and the
-  // registry is not what it goes through.
-  if (limits.maxLlmCalls > 0 && deps.invoke === undefined && getProvider(DEFAULT_PROVIDER_ID) === undefined) {
-    note(
-      report,
-      "provider",
-      DEFAULT_PROVIDER_ID,
-      new Error(
-        `provider "${DEFAULT_PROVIDER_ID}" is not registered — call register(claudeLocalProvider) ` +
-          `before starting the driver (worker/src/index.ts does this in main()). Refusing to run: ` +
-          `every model call would fail and every verdict would silently be a model-free fallback`,
-      ),
-    );
-    report.stoppedBy = "provider_outage";
+  // ---- `dry` stops after the projection, having written nothing. It returns
+  // BEFORE the free stages below on purpose: tiers, identity and arcs are free
+  // of model calls but they are still WRITES, and `dry`'s contract is zero of
+  // both. `off` is different — it is the no-spend default, not a no-write
+  // diagnostic, so it falls through to the free derivation.
+  if (mode === "dry") {
+    try {
+      Object.assign(report, planBootstrap(limits, { now }), {
+        mode,
+        backfillFlagsRepaired: report.backfillFlagsRepaired,
+        errors: report.errors,
+      });
+    } catch (err) {
+      note(report, "plan", "-", err);
+      report.stoppedBy = "error";
+    }
     return report;
   }
 
-  // ---- B. tiers, through `ensureTiers` — the tier layer owns its own model
-  // opt-in, its own batching and its own coverage assertion, and it never
-  // throws. This tick's only additions are the gate (nothing to do → one
-  // `SELECT id, tier FROM streams`) and the wallet: whatever P-TI1 spent here
-  // is unavailable to the understanding rung below.
+  // ---- B. tiers, through `ensureTiers` — FREE AND UNCONDITIONAL, `off`
+  // included. `streams.tier` NULL is what makes a channel unreachable by every
+  // scheduler lane, and the tier layer owns its own model opt-in; in `off` the
+  // wallet is 0, so the call is structurally zero-LLM. This is R2's fix: the
+  // tick used to return for `off` before reaching this, so a fresh install sat
+  // at 93/93 tier-NULL for ever.
   //
   // Vacuously complete on a cold install (zero streams), which is exactly why
   // the boot-time call alone was never enough (§9.3 rule 4).
@@ -1096,19 +1120,86 @@ export async function runBootstrapTick(opts: BootstrapTickOptions): Promise<Boot
   // tier) and before sessions (`toSegEvent` reads `actor_entity_id`, and a
   // sealed session's participants are immutable) — and therefore before the
   // extract stage, whose roster is the thing this exists for. Free by
-  // construction: no wallet is passed, and none can be spent.
-  //
-  // The projection above deliberately still runs FIRST, because `dry` has to
-  // return before any write. On a stream segmented by `author_shift` that makes
-  // the first tick's `sessionsProjected` a pre-binding rehearsal and the run a
-  // post-binding one, so the two can differ by a boundary; from the second tick
-  // on there is nothing left to bind and they agree again. Session IDS do not
-  // move either way — `sessionIdOf` is (stream, instant, first event).
+  // construction: no wallet is passed, and none can be spent — which is also
+  // why it runs in `off`, with the same latency cap `slice` uses.
   bindIdentitiesStage(limits.maxEntityEvents, now, report, stopped);
   if (stopped()) {
     report.stoppedBy = "stopped";
     return report;
   }
+
+  // ---- B3. THE ARC BACKLOG, and the reconcile that surfaces it. Free (rungs
+  // ①/② are `[CODE]`, rung ④ is off this path), so it runs in `off` too, and
+  // it runs BEFORE the paid ladder for the money reason documented on
+  // `placeArcs`: every stopping path below RETURNS, and a free stage placed
+  // behind them is one the user only gets when they can afford the paid ones.
+  // Fresh episodes are covered per cohort inside `understandCohort`.
+  // Counted BEFORE the sweep so the projection below can report the backlog
+  // this tick found, not the residue it left — the sweep runs first now, and
+  // `planBootstrap`'s own count would read an already-swept queue as 0.
+  const arcBacklogBeforeSweep = pendingArcEpisodes({ limit: ARC_PASS_LIMIT }).length;
+  if (arcBacklogBeforeSweep > 0) {
+    placeArcs("backlog", report);
+    try {
+      onArcChange({ now, mode: "bootstrap" });
+    } catch (err) {
+      note(report, "reconcile", "backlog", err);
+    }
+  }
+  if (mode === "off" || stopped()) {
+    if (stopped()) report.stoppedBy = "stopped";
+    return report;
+  }
+
+  // ---- the projection, for the modes that will now run the paid ladder. After
+  // identity on purpose: the rehearsal walks post-binding boundaries, the same
+  // ones the run below will cut.
+  try {
+    // The RESOLVED limits, not the caller's: a slice run must project the slice
+    // it is about to do, not the whole corpus.
+    Object.assign(report, planBootstrap(limits, { now }), {
+      mode,
+      backfillFlagsRepaired: report.backfillFlagsRepaired,
+      errors: report.errors,
+      // B3 swept before this projection ran; report what the tick FOUND.
+      episodesWithoutArc: Math.max(arcBacklogBeforeSweep, pendingArcEpisodes({ limit: ARC_PASS_LIMIT }).length),
+    });
+  } catch (err) {
+    note(report, "plan", "-", err);
+    report.stoppedBy = "error";
+    return report;
+  }
+
+  // ---- A2. THE PROVIDER MUST EXIST BEFORE ANYTHING IS ALLOWED TO SPEND.
+  //
+  // `register(claudeLocalProvider)` lives in index.ts's `main()`, not here, so
+  // a driver started any other way (a script, a test harness, an integrator's
+  // own entry point) has an EMPTY registry. Every P-EP2 call then fails with
+  // SPAWN_FAILED, `ep2RunnerInvoke` hands the engine a null, the engine reads
+  // that as its safe 1:1 fallback — and the tick reports `errors: []`,
+  // `stoppedBy: null` and a cohort marked `done` over verdicts no model ever
+  // saw. That has already happened once on this build.
+  //
+  // Refuse instead, before the first dollar. An injected `invoke` is the
+  // stated exception: the caller has supplied its own transport and the
+  // registry is not what it goes through.
+  if (limits.maxLlmCalls > 0 && deps.invoke === undefined && getProvider(DEFAULT_PROVIDER_ID) === undefined) {
+    note(
+      report,
+      "provider",
+      DEFAULT_PROVIDER_ID,
+      new Error(
+        `provider "${DEFAULT_PROVIDER_ID}" is not registered — call register(claudeLocalProvider) ` +
+          `before starting the driver (worker/src/index.ts does this in main()). Refusing to run: ` +
+          `every model call would fail and every verdict would silently be a model-free fallback`,
+      ),
+    );
+    report.stoppedBy = "provider_outage";
+    return report;
+  }
+
+  // (Tiers, identity and the arc backlog already ran above, ahead of the `off`
+  // return — free-and-unconditional means literally that.)
 
   // ---- C. sessions. Per stream so an interruption loses at most one walk.
   let sessionRoom = limits.maxSessions;
@@ -1128,39 +1219,64 @@ export async function runBootstrapTick(opts: BootstrapTickOptions): Promise<Boot
     return report;
   }
 
-  // ---- C2. THE ARC BACKLOG, and the reconcile that surfaces it.
-  //
-  // Stage L5 inside `understandCohort` covers every episode THIS tick makes.
-  // It does not cover the install that already ran: on a database whose cohorts
-  // are all `done`, neither `resumeCohorts` nor `planNextCohort` fires, no
-  // cohort reaches the understanding rung, and the 9 episodes already sitting
-  // there would never be placed. That is the exact defect this stage exists to
-  // undo, so the wiring must not reintroduce it — pending is a property of the
-  // rows, and the tick sweeps them whether or not a cohort ran.
-  //
-  // BEFORE D/E, NOT AFTER, and the reason is money. Every stopping path in the
-  // cohort ladder — budget, provider outage, error — RETURNS out of this
-  // function. A free stage placed behind them is a free stage the user only
-  // gets when they can afford the paid ones, which is precisely backwards: the
-  // first thing a run out of budget should still deliver is the derivation that
-  // costs nothing. Fresh episodes are covered per cohort a few lines down, so
-  // running the backlog first loses nothing.
-  //
-  // `onArcChange` is the designed commit trigger for provisionals that arrive
-  // outside a cohort boundary (§8.1's "on change"): it refuses when nothing is
-  // pending, coalesces so a tick every 60 s cannot re-run the whole table, and
-  // funnels into the same `runReconcile` — one run id, one undo.
-  if (pendingArcEpisodes({ limit: 1 }).length > 0) {
-    placeArcs("backlog", report);
-    try {
-      onArcChange({ now, mode: "bootstrap" });
-    } catch (err) {
-      note(report, "reconcile", "backlog", err);
+  // ---- C2. A SECOND arc sweep for the sessions stage's own products would be
+  // vacuous here — episodes only appear at the understanding rung, and stage L5
+  // inside `understandCohort` covers every episode this tick makes. The
+  // pre-existing backlog was swept at B3, before the `off` return.
+
+  // ---- C3. THE SECOND HEARING. A `one_to_one_fallback` verdict is the
+  // engine's model-free answer to a lost call, persisted like any verdict —
+  // both settling gates read that row, so without this stage one provider
+  // outage is a permanent, model-free segmentation. The retraction itself is
+  // free, but it re-opens work only a model can close, so the stage sits
+  // BEHIND the A2 provider check and inside the wallet: nothing is retracted
+  // that this tick cannot afford to re-judge, and the drain runs through the
+  // same counted-spend shape as `understandCohort`. Sessions whose cohorts are
+  // long since `done` are exactly the ones no cohort rung will ever revisit,
+  // which is why this is a top-level stage and not part of the ladder.
+  {
+    const room = remainingCalls(wallet);
+    if (room > 0 && !stopped()) {
+      try {
+        const rejudged = rejudgeFallbackSessions({ limit: room, now });
+        if (rejudged.retracted > 0) {
+          let billed = 0;
+          const observe: Ep2Observer = (outcome) => {
+            billed += outcome.providerCalls;
+            if (outcome.error !== null) {
+              note(report, "rejudge", "-", new Error(`${outcome.error.code}: ${outcome.error.message}`));
+            }
+          };
+          const base = deps.invoke ?? ep2RunnerInvoke({ cohortId: "rejudge", observe });
+          const counted: AsyncEp2Invoke = async (prompt) => {
+            if (remainingCalls(wallet) <= 0) return null;
+            const before = billed;
+            wallet.spent += 1;
+            const answer = await base(prompt);
+            wallet.spent += Math.max(0, billed - before - 1);
+            return answer;
+          };
+          const drained = await drainEpisodeQueue({
+            invoke: counted,
+            limit: rejudged.retracted,
+            now,
+            runId: "rejudge",
+          });
+          report.fallbackVerdicts += drained.fallbacks;
+          report.llmCallsSpent = wallet.spent;
+          log(
+            `rejudge retracted=${rejudged.retracted} ran=${drained.ran} ` +
+              `fallbacks=${drained.fallbacks} llm=${wallet.spent}/${wallet.cap}`,
+          );
+        }
+      } catch (err) {
+        note(report, "rejudge", "-", err);
+      }
     }
-    if (stopped()) {
-      report.stoppedBy = "stopped";
-      return report;
-    }
+  }
+  if (stopped()) {
+    report.stoppedBy = "stopped";
+    return report;
   }
 
   // ---- D. in-flight cohorts FIRST (§9.7 rule 5). A cohort caught mid-ladder
@@ -1496,10 +1612,11 @@ export interface BootstrapSettled {
 /**
  * All four conditions for leaving bootstrap, each read from the DB.
  *
- * The flip itself — `sources.mode = 'steady'` plus starting the live loop — is
- * deliberately NOT done here: `scheduler/live.ts` has no caller yet, and a
- * driver that silently started a second scheduler would be the same class of
- * surprise this file exists to remove. The integrate step owns that switch.
+ * The flip itself — `app_state sources.mode = 'steady'` plus the live loop —
+ * is deliberately NOT done here: `scheduler/steady.ts` owns that switch
+ * (`flipToSteadyIfSettled`), reading this function each tick, and a driver
+ * that silently started a second scheduler would be the same class of
+ * surprise this file exists to remove.
  */
 export function bootstrapSettled(now: number = Date.now()): BootstrapSettled {
   const rows = getDb().prepare(`SELECT backfill_complete FROM watermarks`).all() as {
@@ -1555,7 +1672,8 @@ export interface StartBootstrapOptions {
  */
 export function startBootstrapDriver(opts: StartBootstrapOptions = {}): BootstrapDriver {
   const intervalMs = opts.intervalMs ?? BOOTSTRAP_INTERVAL_MS;
-  const mode = resolveBootstrapMode(opts.mode);
+  const resolved = resolveBootstrapModeDetailed(opts.mode);
+  const mode = resolved.mode;
   // `?? ` rather than a spread order: `exactOptionalPropertyTypes` is off, so
   // `{ extract: undefined }` is a legal object whose spread would silently
   // erase the default and give the caller a claim-free pipeline.
@@ -1564,28 +1682,63 @@ export function startBootstrapDriver(opts: StartBootstrapOptions = {}): Bootstra
   let ticking = false;
   let stopped = false;
 
+  // WHY the mode is what it is, stated once, at boot, unmissably. The V1 of
+  // this driver resolved to `off` silently and a whole day went to discovering
+  // that a fresh install "ran" a pipeline that could never spend or write.
+  log(
+    `mode=${mode} (resolved from ${resolved.source}` +
+      (resolved.source === "default"
+        ? ` — no app_state '${BOOTSTRAP_MODE_KEY}' row and no ${BOOTSTRAP_MODE_ENV} env; ` +
+          `an installed app derives by default. Set either to 'off' to stop all spend`
+        : `; app_state '${BOOTSTRAP_MODE_KEY}' > env ${BOOTSTRAP_MODE_ENV} > default '${DEFAULT_BOOTSTRAP_MODE}'`) +
+      `), interval=${intervalMs}ms`,
+  );
+
   try {
     const plan = planBootstrap(opts.limits ?? {});
+    const calls =
+      plan.llmCallsProjected.ti1 + plan.llmCallsProjected.ep2 + plan.llmCallsProjected.cl1 + plan.llmCallsProjected.ag3;
     log(
-      `mode=${mode} interval=${intervalMs}ms projection: streams_without_tier=${plan.streamsWithoutTier} ` +
+      `projection: streams_without_tier=${plan.streamsWithoutTier} ` +
         `events_without_identity=${plan.eventsWithoutIdentity} (free) ` +
         `sessions=${plan.sessionsProjected} cohorts=${plan.cohortsProjected} ` +
-        `llm(ti1=${plan.llmCallsProjected.ti1} ep2=${plan.llmCallsProjected.ep2} cl1=${plan.llmCallsProjected.cl1}) ` +
-        `billable_tokens=${plan.billableTokensProjected}` +
-        (mode === "off" ? " — set app_state bootstrap.mode (dry|slice|full) to opt in" : ""),
+        `llm=${calls} (ti1=${plan.llmCallsProjected.ti1} ep2=${plan.llmCallsProjected.ep2} cl1=${plan.llmCallsProjected.cl1}) ` +
+        `billable_tokens=${plan.billableTokensProjected} est_cost=$${estUsd(plan.billableTokensProjected)}` +
+        (mode === "off" ? " — mode off: only the free stages will run" : ""),
     );
     last = { ...last, ...plan, mode };
   } catch (err) {
     log(`projection failed at start (the driver still runs): ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // The projection above is logged before a single tick, so it is also the
+  // start-of-first-real-run number; this latch just makes the moment the first
+  // SPENDING tick begins explicit in the log, once, with its own projection —
+  // the mode can flip from off to full mid-flight via app_state.
+  let firstSpendLogged = mode === "slice" || mode === "full";
+
   const handle = setInterval(() => {
     if (ticking || stopped) return;
     ticking = true;
     void (async () => {
       try {
+        const tickMode = resolveBootstrapMode(opts.mode);
+        if (!firstSpendLogged && (tickMode === "slice" || tickMode === "full")) {
+          firstSpendLogged = true;
+          try {
+            const plan = planBootstrap(opts.limits ?? {});
+            const calls =
+              plan.llmCallsProjected.ti1 + plan.llmCallsProjected.ep2 + plan.llmCallsProjected.cl1;
+            log(
+              `first ${tickMode} run starting: projected llm=${calls} ` +
+                `billable_tokens=${plan.billableTokensProjected} est_cost=$${estUsd(plan.billableTokensProjected)}`,
+            );
+          } catch {
+            /* the tick's own plan step will report */
+          }
+        }
         last = await runBootstrapTick({
-          mode: resolveBootstrapMode(opts.mode),
+          mode: tickMode,
           ...(opts.limits === undefined ? {} : { limits: opts.limits }),
           deps,
           shouldStop: () => stopped,

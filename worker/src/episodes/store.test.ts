@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
-import { upsertSource, upsertStream } from "../db/ingest.js";
+import { insertEvent, upsertActor, upsertSource, upsertStream } from "../db/ingest.js";
 import {
   MAX_EPISODE_CANDIDATES,
   persistVerdict,
@@ -19,6 +19,7 @@ import {
   readEpisodesOfStream,
   readOpenEpisodes,
   readVerdictForHash,
+  retractVerdict,
   setVerdictEpisode,
   writeEpisode,
 } from "./store.js";
@@ -191,5 +192,101 @@ describe("the hash gate lookup", () => {
       createdAt: new Date(NOW).toISOString(),
     });
     expect(readVerdictForHash("h1")?.id).toBe(second);
+  });
+});
+
+describe("retraction", () => {
+  /** A sealed session with REAL event rows, so the span recompute has instants. */
+  function sessionWithEvents(id: string, texts: readonly string[], baseOffsetMin: number): string[] {
+    const actor = upsertActor({ sourceId: "whatsapp", sourceExtId: "rohan", displayName: "Rohan" });
+    const eventIds = texts.map(
+      (text, i) =>
+        insertEvent({
+          externalId: `${id}-ev${i + 1}`,
+          sourceId: "whatsapp",
+          sourceType: "whatsapp",
+          streamId: C1,
+          actorId: actor,
+          ts: new Date(NOW - (baseOffsetMin - i) * 60_000).toISOString(),
+          kind: "message",
+          text,
+          mediaPath: null,
+          rawJson: null,
+          isHistorical: true,
+        }).id,
+    );
+    getDb()
+      .prepare(
+        `INSERT INTO sessions (id, stream_id, source_id, started_at, ended_at, event_ids, status, content_hash)
+         VALUES (?, ?, 'whatsapp', ?, ?, ?, 'sealed', ?)`,
+      )
+      .run(id, C1, new Date(NOW).toISOString(), new Date(NOW).toISOString(), JSON.stringify(eventIds), `h_${id}`);
+    return eventIds;
+  }
+
+  function verdictFor(sessionId: string, decision: string, at: number): string {
+    return persistVerdict({
+      episodeId: null,
+      sessionId,
+      decision,
+      candidates: [],
+      output: { segments: [] },
+      createdAt: new Date(at).toISOString(),
+    });
+  }
+
+  it("takes back exactly what the verdict wrote: empty episodes die, shared ones are rebuilt", () => {
+    const ev1 = sessionWithEvents("s1", ["goa dates?", "13th to 17th"], 120);
+    const ev2 = sessionWithEvents("s2", ["deposit due friday"], 30);
+    const v1 = verdictFor("s1", "judged", NOW - DAY);
+    const v2 = verdictFor("s2", "one_to_one_fallback", NOW);
+    // v1 lands s1 on the shared episode; v2 attaches s2 there AND mints its own.
+    writeEpisode(
+      { id: "ep_shared", streamId: C1, topicLabel: "goa trip", labelSource: "model",
+        sessionId: "s1", eventIds: ev1, startedAt: null, endedAt: null, addedBy: "new", verdictId: v1 },
+      { now: NOW },
+    );
+    writeEpisode(
+      { id: "ep_shared", streamId: C1, topicLabel: "goa trip", labelSource: "model",
+        sessionId: "s2", eventIds: ev2, startedAt: null, endedAt: null, addedBy: "attach", verdictId: v2 },
+      { now: NOW },
+    );
+    writeEpisode(
+      { id: "ep_solo", streamId: C1, topicLabel: null, labelSource: "derived",
+        sessionId: "s2", eventIds: ev2, startedAt: null, endedAt: null, addedBy: "new", verdictId: v2 },
+      { now: NOW },
+    );
+
+    const undone = retractVerdict(v2);
+    expect(undone).not.toBeNull();
+    expect(undone!.sessionId).toBe("s2");
+    expect(undone!.episodesDeleted).toEqual(["ep_solo"]);
+    expect(undone!.episodesUpdated).toEqual(["ep_shared"]);
+
+    // The solo episode and the verdict are gone; the other verdict stands.
+    expect(readEpisode("ep_solo")).toBeNull();
+    const verdicts = getDb().prepare(`SELECT id FROM episode_verdicts ORDER BY id`).all() as { id: string }[];
+    expect(verdicts.map((v) => v.id)).toEqual([v1]);
+
+    // The shared episode is s1's alone again — members, events, and span.
+    const shared = readEpisode("ep_shared");
+    expect(shared!.sessionIds).toEqual(["s1"]);
+    expect(shared!.eventIds).toEqual(ev1);
+    expect(shared!.startedAt).toBe(new Date(NOW - 120 * 60_000).toISOString());
+    expect(shared!.endedAt).toBe(new Date(NOW - 119 * 60_000).toISOString());
+    expect(readEpisodesOfSession("s2")).toEqual([]);
+  });
+
+  it("retracting a missing or already-retracted verdict is a null, not an error", () => {
+    expect(retractVerdict("ev_nope")).toBeNull();
+    sessionWithEvents("s1", ["hi"], 10);
+    const v = verdictFor("s1", "one_to_one_fallback", NOW);
+    writeEpisode(
+      { id: "ep1", streamId: C1, topicLabel: null, labelSource: "derived",
+        sessionId: "s1", eventIds: ["whatever"], startedAt: null, endedAt: null, addedBy: "new", verdictId: v },
+      { now: NOW },
+    );
+    expect(retractVerdict(v)).not.toBeNull();
+    expect(retractVerdict(v)).toBeNull();
   });
 });

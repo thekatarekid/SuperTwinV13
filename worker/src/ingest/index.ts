@@ -45,7 +45,11 @@ import {
   upsertStream,
 } from "../db/ingest.js";
 import type { MediaMeta } from "../db/ingest.js";
-import { markSourceBackfillComplete, noteIngestedEvent } from "../db/watermarks.js";
+import {
+  hasUnsealedStreams,
+  markSourceBackfillComplete,
+  noteIngestedEvent,
+} from "../db/watermarks.js";
 import { enqueueLiveMedia } from "../media/queue.js";
 import { ensureTiers } from "../tiers/ensure.js";
 
@@ -73,6 +77,13 @@ const BACKFILL_FLUSH_MS = 250;
  * (scheduler/horizons) then reports "bootstrap" for ever. The seal is therefore
  * re-armed by every row that inserts and only fires once nothing has landed for
  * this long.
+ *
+ * The frame can also land in DEAD AIR: whatsapp-go emits it at connect+0 with
+ * chats=0, BEFORE whatsmeow's history-sync payloads arrive, so the first seal
+ * fires over an empty database. The seal is therefore RE-ARMABLE after it has
+ * fired (`touchBackfillSeal`), gated on `hasUnsealedStreams` so ordinary live
+ * traffic on a fully sealed source never re-arms it — each late wave of history
+ * re-seals exactly once and the loop converges.
  */
 const BACKFILL_SEAL_MS = 5_000;
 
@@ -427,12 +438,28 @@ export class Ingestion {
   }
 
   /**
-   * Extend an ALREADY-ARMED seal. A row landing before the daemon said
-   * `backfill_complete` is just the import running; it must not arm a seal of
-   * its own, so this is a no-op until that frame has been seen.
+   * Extend an ALREADY-ARMED seal — or RE-ARM one that has already fired.
+   *
+   * The re-arm is what fixes the dead-air frame: the daemon can announce
+   * `backfill_complete` seconds before the first history payload lands, so the
+   * first seal fires over nothing and every stream created afterwards would
+   * stay unsealed (and tier-NULL) for ever if the seal were one-shot.
+   *
+   * Two gates keep this convergent instead of a live-traffic loop:
+   *   - `importDone` — a row landing before the daemon said `backfill_complete`
+   *     is just the import running; it must not arm a seal of its own.
+   *   - `hasUnsealedStreams` — one index probe. Once a seal has caught every
+   *     stream, live messages on sealed streams answer false and nothing
+   *     re-arms; only a write that could have created an UNSEALED stream (late
+   *     history, a brand-new chat) buys another seal, and that seal marks it,
+   *     so each re-arm retires the condition that caused it.
    */
   private touchBackfillSeal(): void {
-    if (this.backfillSealTimer) this.scheduleBackfillSeal();
+    if (this.backfillSealTimer) {
+      this.scheduleBackfillSeal();
+      return;
+    }
+    if (this.importDone && hasUnsealedStreams(this.sourceId)) this.scheduleBackfillSeal();
   }
 
   /**
@@ -443,6 +470,13 @@ export class Ingestion {
    */
   private sealBackfill(): void {
     this.backfillSealTimer = null;
+    // The re-order buffer holds a burst that has not been written yet: sealing
+    // under it would mark streams complete while their rows are still in
+    // memory. A pending flush means ingest is NOT quiet — wait another window.
+    if (this.backfillTimer) {
+      this.scheduleBackfillSeal();
+      return;
+    }
     const seal = markSourceBackfillComplete(this.sourceId);
 
     // Tiering (item 1.2, arch §9.3 rule 4) hangs off THIS edge, not off the

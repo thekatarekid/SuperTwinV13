@@ -485,6 +485,60 @@ describe("import seal ordering (build item 1.1)", () => {
     expect(sealed("quiet@x")).toBe(true);
   });
 
+  it("re-arms after firing: the dead-air frame (chats=0 at connect+0) still seals the real import", async () => {
+    const adapter = startIngestion();
+    // whatsapp-go emits its backfill-complete frame BEFORE whatsmeow's
+    // history-sync payloads arrive; the first seal fires over an empty DB.
+    adapter.emitStatus({ type: "backfill_complete", range: "30d", chats: 0, messages: 0 });
+    vi.advanceTimersByTime(SEAL_MS);
+
+    // ...then the real import lands, in the window a one-shot seal is blind to.
+    adapter.emitEvent(message({ is_historical: true }));
+    expect(sealed("alice@x")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SEAL_MS);
+    expect(sealed("alice@x")).toBe(true);
+    // The re-seal re-runs ensureTiers, so the stream is reachable by the
+    // scheduler — tier NULL was the downstream half of this bug.
+    const row = getDb().prepare(`SELECT tier FROM streams WHERE external_key = 'alice@x'`).get() as
+      | { tier: string | null }
+      | undefined;
+    expect(row?.tier).not.toBeNull();
+  });
+
+  it("converges: each late wave re-seals once, and sealed live traffic never re-arms", async () => {
+    const adapter = new StubAdapter();
+    const ingestion = new Ingestion(adapter);
+    ingestion.start();
+    adapter.emitEvent(message({ is_historical: true })); // alice@x, pre-frame
+    adapter.emitStatus(DONE);
+    await vi.advanceTimersByTimeAsync(SEAL_MS);
+    expect(sealed("alice@x")).toBe(true);
+
+    // Wave one, after the seal already fired.
+    adapter.emitEvent(message({ external_id: "bob@x/H1", stream_ext_id: "bob@x", actor_ext_id: "bob@x", is_historical: true }));
+    await vi.advanceTimersByTimeAsync(SEAL_MS);
+    expect(sealed("bob@x")).toBe(true);
+
+    // Wave two, later still — re-seals again.
+    adapter.emitEvent(message({ external_id: "carol@x/H1", stream_ext_id: "carol@x", actor_ext_id: "carol@x", is_historical: true }));
+    await vi.advanceTimersByTimeAsync(SEAL_MS);
+    expect(sealed("carol@x")).toBe(true);
+
+    // A live message on a fully sealed source must NOT arm another seal —
+    // that would be a seal per quiet gap for ever.
+    adapter.emitEvent(message({ external_id: "alice@x/LIVE2", ts: "2026-08-15T10:00:00.000Z" }));
+    expect(
+      (ingestion as unknown as { backfillSealTimer: unknown }).backfillSealTimer,
+    ).toBeNull();
+    // But a live message that CREATES a stream is exactly a re-arm: the new
+    // chat needs its watermark sealed and its tier assigned.
+    adapter.emitEvent(message({ external_id: "dave@x/L1", stream_ext_id: "dave@x", actor_ext_id: "dave@x", ts: "2026-08-15T10:01:00.000Z" }));
+    expect(sealed("dave@x")).toBe(false);
+    await vi.advanceTimersByTimeAsync(SEAL_MS);
+    expect(sealed("dave@x")).toBe(true);
+  });
+
   it("repairs an existing install on boot: import_done=true but nothing sealed", () => {
     const adapter = startIngestion();
     adapter.emitEvent(message({ is_historical: true }));

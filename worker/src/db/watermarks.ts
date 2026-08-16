@@ -44,6 +44,7 @@ interface WatermarkStatements {
   noteBackfill: Database.Statement;
   complete: Database.Statement;
   unsealed: Database.Statement;
+  anyUnsealed: Database.Statement;
   countStreams: Database.Statement;
   reset: Database.Statement;
 }
@@ -95,6 +96,17 @@ function statements(): WatermarkStatements {
         LEFT JOIN watermarks w ON w.stream_id = s.id
        WHERE s.source_id = ?
          AND COALESCE(w.backfill_complete, 0) = 0
+    `),
+    // The same predicate as `unsealed`, capped at one row: the ingest seal asks
+    // "is there anything left to seal" once per post-import write, so this must
+    // cost an index probe, not a list.
+    anyUnsealed: db.prepare(`
+      SELECT 1 AS ok
+        FROM streams s
+        LEFT JOIN watermarks w ON w.stream_id = s.id
+       WHERE s.source_id = ?
+         AND COALESCE(w.backfill_complete, 0) = 0
+       LIMIT 1
     `),
     countStreams: db.prepare(`SELECT COUNT(*) AS n FROM streams WHERE source_id = ?`),
     reset: db.prepare(`DELETE FROM watermarks WHERE stream_id IN (SELECT id FROM streams WHERE source_id = ?)`),
@@ -178,6 +190,16 @@ export function markSourceBackfillComplete(sourceId: string): BackfillSealReport
   tx();
   const { n } = s.countStreams.get(sourceId) as { n: number };
   return { streams: n, sealed: ids.length };
+}
+
+/**
+ * Does the source still own a stream whose import is not sealed? One index
+ * probe. This is the ingest seal's re-arm gate: after `markSourceBackfillComplete`
+ * has caught everything, ordinary live traffic answers false here and the seal
+ * timer is never re-armed — which is what keeps the re-seal loop convergent.
+ */
+export function hasUnsealedStreams(sourceId: string): boolean {
+  return statements().anyUnsealed.get(sourceId) !== undefined;
 }
 
 /** Drop every watermark belonging to a source (used by the source reset). */

@@ -335,4 +335,68 @@ describe("error policy (§4.6)", () => {
     expect(ran).toBe(true);
     expect(pool.isPaused("llm:understanding")).toBe(false);
   });
+
+  // A controllable pool: sleeps park until we wake them, so a manual pause
+  // genuinely HOLDS work instead of fast-forwarding past it.
+  function heldPool() {
+    const wakes: Array<() => void> = [];
+    const pool = new ResourcePool({
+      sleep: () => new Promise<void>((r) => wakes.push(r)),
+    });
+    const wake = async () => {
+      for (const w of wakes.splice(0)) w();
+      // Let the awaitResume loop re-check the pause state.
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    };
+    return { pool, wake };
+  }
+
+  it("pausing the bare llm family holds a lane's work until resume", async () => {
+    const { pool, wake } = heldPool();
+    pool.pauseLane("llm", 60 * 60_000);
+    let ran = false;
+    const p = pool.run("llm", () => {
+      ran = true;
+    }, { lane: "understanding" });
+    await wake();
+    expect(ran).toBe(false);
+    pool.resumeLane("llm");
+    await wake();
+    await p;
+    expect(ran).toBe(true);
+  });
+
+  it("a manual composite-lane pause still holds its lane's work", async () => {
+    const { pool, wake } = heldPool();
+    pool.pauseLane("llm:understanding", 60 * 60_000);
+    let ran = false;
+    const p = pool.run("llm", () => {
+      ran = true;
+    }, { lane: "understanding" });
+    await wake();
+    expect(ran).toBe(false);
+    pool.resumeLane("llm:understanding");
+    await wake();
+    await p;
+    expect(ran).toBe(true);
+  });
+
+  it("with family AND lane both paused, resuming one is not enough", async () => {
+    const { pool, wake } = heldPool();
+    pool.pauseLane("llm", 60 * 60_000);
+    pool.pauseLane("llm:understanding", 60 * 60_000);
+    let ran = false;
+    const p = pool.run("llm", () => {
+      ran = true;
+    }, { lane: "understanding" });
+    await wake();
+    expect(ran).toBe(false);
+    pool.resumeLane("llm");
+    await wake();
+    expect(ran).toBe(false); // the composite pause still holds it
+    pool.resumeLane("llm:understanding");
+    await wake();
+    await p;
+    expect(ran).toBe(true);
+  });
 });

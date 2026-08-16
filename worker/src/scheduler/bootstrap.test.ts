@@ -20,6 +20,7 @@ import {
   bootstrapSettled,
   planBootstrap,
   resolveBootstrapMode,
+  resolveBootstrapModeDetailed,
   runBootstrapTick,
   startBootstrapDriver,
   BOOTSTRAP_MODE_KEY,
@@ -172,7 +173,7 @@ describe("runBootstrapTick — dry", () => {
 });
 
 describe("runBootstrapTick — off", () => {
-  it("does the free watermark repair and nothing else", async () => {
+  it("does every free stage — repair, tiers — and spends nothing, writes no session", async () => {
     stream("alpha");
     appStateSet(importDoneKey(SOURCE), "true");
     const streamId = (getDb().prepare(`SELECT id FROM streams`).get() as { id: string }).id;
@@ -182,8 +183,13 @@ describe("runBootstrapTick — off", () => {
 
     expect(report.backfillFlagsRepaired).toBe(1);
     expect(readWatermark(streamId)?.backfill_complete).toBe(true);
+    // R2: tiering is free and no longer gated behind the mode — a stream must
+    // never sit at tier NULL just because nobody opted into spending.
+    expect(tiers()).not.toContain(null);
+    // The paid ladder stays firmly off: no sessions, no cohorts, no calls.
     expect(count("sessions")).toBe(0);
-    expect(tiers()).toEqual([null]);
+    expect(count("cohorts")).toBe(0);
+    expect(report.llmCallsSpent).toBe(0);
     // Sticky and idempotent: a second pass finds nothing left to repair.
     expect((await runBootstrapTick({ mode: "off", now: NOW })).backfillFlagsRepaired).toBe(0);
   });
@@ -400,6 +406,36 @@ describe("a provider outage", () => {
     expect(report.stoppedBy).not.toBe("provider_outage");
     expect(report.cohortsDone.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("the next healthy tick RE-JUDGES the outage's fallback verdicts (stage C3)", async () => {
+    stream("alpha");
+
+    // Tick 1: total outage — every verdict is the engine's model-free 1:1.
+    const outage = await runBootstrapTick({ mode: "slice", now: NOW, deps: { invoke: async () => null } });
+    expect(outage.fallbackVerdicts).toBeGreaterThan(0);
+    const fallbacks = (): number =>
+      (
+        getDb()
+          .prepare(`SELECT COUNT(*) AS n FROM episode_verdicts v
+                     WHERE v.decision = 'one_to_one_fallback'
+                       AND NOT EXISTS (SELECT 1 FROM episode_verdicts w
+                                        WHERE w.session_id = v.session_id AND w.rowid > v.rowid)`)
+          .get() as { n: number }
+      ).n;
+    expect(fallbacks()).toBeGreaterThan(0);
+
+    // Tick 2: the provider is back. C3 retracts the fallbacks and buys the
+    // real judgement — a paused cohort's `unjudged` check alone would never
+    // have revisited them, because a fallback IS a persisted verdict.
+    const healthy = await runBootstrapTick({ mode: "slice", now: NOW, deps: { invoke: answeringInvoke() } });
+    expect(healthy.fallbackVerdicts).toBe(0);
+    expect(fallbacks()).toBe(0);
+    expect(healthy.llmCallsSpent).toBeGreaterThan(0);
+
+    // And the hearing is not a loop: a third tick finds nothing to retract.
+    const third = await runBootstrapTick({ mode: "slice", now: NOW, deps: { invoke: answeringInvoke() } });
+    expect(third.fallbackVerdicts).toBe(0);
+  });
 });
 
 // ===========================================================================
@@ -579,15 +615,16 @@ describe("the identity stage", () => {
     expect(planBootstrap({}, { now: NOW }).eventsWithoutIdentity).toBe(0);
   });
 
-  it("does not run at all in `off`", async () => {
+  it("runs in `off` too — the stage is free, and free means unconditional", async () => {
     pairSelf();
     twoSidedStream("alpha");
 
     const report = await runBootstrapTick({ mode: "off", now: NOW });
 
-    expect(report.identity).toBeNull();
-    expect(count("entities")).toBe(0);
-    expect(unboundEvents()).toBe(8);
+    expect(report.identity).not.toBeNull();
+    expect(report.identity?.bound).toBe(8);
+    expect(unboundEvents()).toBe(0);
+    expect(report.llmCallsSpent).toBe(0);
   });
 
   it("honours maxEntityEvents and leaves the rest ready for the next tick", async () => {
@@ -610,17 +647,53 @@ describe("the identity stage", () => {
 });
 
 describe("mode resolution", () => {
-  it("defaults to off, and app_state wins over the environment", () => {
-    expect(resolveBootstrapMode()).toBe("off");
+  it("defaults to full for an installed app, and app_state wins over the environment", () => {
+    // R3: nobody said anything -> the installed default is `full` (capped).
+    // Silent-off was the bug: a fresh install imported and then derived nothing.
+    expect(resolveBootstrapModeDetailed()).toEqual({ mode: "full", source: "default" });
     process.env.SUPERTWIN_BOOTSTRAP = "slice";
-    expect(resolveBootstrapMode()).toBe("slice");
+    expect(resolveBootstrapModeDetailed()).toEqual({ mode: "slice", source: "env" });
     appStateSet(BOOTSTRAP_MODE_KEY, "dry");
-    expect(resolveBootstrapMode()).toBe("dry");
-    // An unknown value is `off`, never an implicit full-corpus run.
+    expect(resolveBootstrapModeDetailed()).toEqual({ mode: "dry", source: "app_state" });
+    // An unknown stored value falls through to the next link, never a guess.
     appStateSet(BOOTSTRAP_MODE_KEY, "everything");
     delete process.env.SUPERTWIN_BOOTSTRAP;
-    expect(resolveBootstrapMode()).toBe("off");
-    expect(resolveBootstrapMode("full")).toBe("full");
+    expect(resolveBootstrapMode()).toBe("full");
+    expect(resolveBootstrapModeDetailed("full")).toEqual({ mode: "full", source: "explicit" });
+  });
+
+  it("an explicit off override still works, from both app_state and env", () => {
+    appStateSet(BOOTSTRAP_MODE_KEY, "off");
+    expect(resolveBootstrapModeDetailed()).toEqual({ mode: "off", source: "app_state" });
+    appStateSet(BOOTSTRAP_MODE_KEY, "");
+    process.env.SUPERTWIN_BOOTSTRAP = "off";
+    expect(resolveBootstrapModeDetailed()).toEqual({ mode: "off", source: "env" });
+  });
+});
+
+describe("fresh install derives unattended (R1+R2+R3)", () => {
+  it("empty DB, boot, THEN data arrives — tiers and derivation happen with no mode ever set", async () => {
+    // Nobody sets app_state 'bootstrap.mode' and no env is exported: this is
+    // the resolved mode an installed app boots with.
+    const mode = resolveBootstrapMode();
+    expect(mode).toBe("full");
+
+    // Boot tick over the empty database: nothing to do, nothing spent.
+    const empty = await runBootstrapTick({ mode, now: NOW, deps: { invoke: answeringInvoke() } });
+    expect(empty.stoppedBy).toBe("no_work");
+    expect(empty.llmCallsSpent).toBe(0);
+
+    // THEN the import lands (streams + events + the import-done flag) — the
+    // exact order the dead-air frame produces on a real install.
+    stream("alpha");
+    appStateSet(importDoneKey(SOURCE), "true");
+
+    const report = await runBootstrapTick({ mode, now: NOW, deps: { invoke: answeringInvoke() } });
+
+    expect(tiers()).not.toContain(null);
+    expect(report.sessionsSealed).toBeGreaterThan(0);
+    expect(report.cohortsDone.length).toBeGreaterThan(0);
+    expect(report.errors).toEqual([]);
   });
 });
 

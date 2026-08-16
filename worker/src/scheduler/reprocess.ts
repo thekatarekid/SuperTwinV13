@@ -512,8 +512,13 @@ interface ExtractedRow {
  * block. Claims and loops both, keyed off the evidence rows that point at this
  * session's events — evidence is the only honest link, because a claim can be
  * reinforced from elsewhere and still belong here.
+ *
+ * Exported for `./cl1-delta.ts`: the live delta pass carries the SAME block
+ * (§12.5 "already-extracted ids"), keyed off the same evidence rows, and a
+ * second copy of this query is how the two passes would drift on what
+ * "already listed" means.
  */
-function extractedOf(eventIds: readonly string[]): { items: Cl1dExtractedItem[]; ids: Record<string, string> } {
+export function extractedItemsFor(eventIds: readonly string[]): { items: Cl1dExtractedItem[]; ids: Record<string, string> } {
   if (eventIds.length === 0) return { items: [], ids: {} };
   const marks = eventIds.map(() => "?").join(",");
   const db = getDb();
@@ -587,6 +592,6 @@ export function completionPassContext(sessionId: string): CompletionPassContext 
     else priorEvents.push(packed);
   }
 
-  const { items, ids } = extractedOf(rows.map((r) => r.id));
+  const { items, ids } = extractedItemsFor(rows.map((r) => r.id));
   return { sessionId, mode, priorEvents, newEvents, extracted: items, itemIds: ids };
 }

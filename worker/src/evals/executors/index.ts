@@ -17,6 +17,7 @@ import { accountingExecutor } from "./accounting.js";
 import { calibExecutor } from "./calib.js";
 import { edgesExecutor } from "./edges.js";
 import { entitiesExecutor } from "./entities.js";
+import { episodesExecutor } from "./episodes.js";
 import { enrichmentExecutor } from "./enrichment.js";
 import { ingestExecutor } from "./ingest.js";
 import { mentionsExecutor } from "./mentions.js";
@@ -31,6 +32,7 @@ export {
   calibExecutor,
   edgesExecutor,
   entitiesExecutor,
+  episodesExecutor,
   ingestExecutor,
   mentionsExecutor,
   partyExecutor,
@@ -51,6 +53,7 @@ export const PRODUCT_EXECUTORS = {
   entities: entitiesExecutor,
   mentions: mentionsExecutor,
   edges: edgesExecutor,
+  episodes: episodesExecutor,
   wire: wireExecutor,
   accounting: accountingExecutor,
   calib: calibExecutor,

@@ -3,10 +3,10 @@
 // happy-path SSE chat end-to-end (real `claude` CLI).
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { skipWithoutRealCli } from "../testing/real-cli.js";
 
 // Point the DB at a temp file BEFORE importing the db/server modules (the db
 // module reads SUPERTWIN_DB_PATH at load). vitest gives each test file its own
@@ -55,9 +55,8 @@ async function readSse(res: Response): Promise<Array<Record<string, unknown>>> {
   return events;
 }
 
-describe("worker server (real CLI)", () => {
+describe.skipIf(skipWithoutRealCli)("worker server (real CLI)", () => {
   beforeAll(async () => {
-    execFileSync("claude", ["--version"], { encoding: "utf8" });
     runMigrations();
     register(claudeLocalProvider);
     server = await startServer({ port: 0 }); // ephemeral

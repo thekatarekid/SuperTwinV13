@@ -13,10 +13,15 @@
 | 2 Episodes/Arcs | 2.1–2.7 | ✅ gate passed |
 | 3 Claims/Loops/Spaces/Tasks | 3.1–3.10 | ✅ gate passed |
 | 4 Hardening | 4.1–4.4 | ✅ gate passed |
-| 5 Second source | 5.1–5.4 | pending |
+| 5 Second source | 5.1–5.4 | ✅ thesis gate passed |
 
 ## Log
 
+- **PHASE 5 THESIS GATE PASSED — build complete.** Worker 3153/3153 · root 496/496 · scripts 67/67 · eval 1000/1000, 94/96 measured, 0 breached.
+- **The thesis held: zero core changes.** `git diff` vs v0.8.0 over db/entities/arcs/scheduler/sessions/wire/evals core is **empty**. Calendar + contacts are two manifests + adapters composed from pre-existing generic APIs (`registerSource`, `Ingestion`, `resolveIdentity`, `mergeEntities`, `runBridgePass`, `runArcLadder`, `promoteArcs`). Calendar registration is flag-gated (`SUPERTWIN_PHASE5_CALENDAR=1`) so the shipped single-source boot is byte-identical.
+- **5.2** — cross-source identity precision **1.0 (24/24)**, zero model calls proven structurally + behaviourally, over a trap corpus (similar names, shared landline, missing country codes, jid lookalike, dot-Gmail). Order-independent.
+- **5.3/5.4** — one space spans WhatsApp AND Calendar via both `url` and `attendee_set` bridges at precision 1.0, promoted by the real `promoteArcs()` sweep (an arc is not a space — the gate agent caught that the original test stopped at the arc and extended it through promotion).
+- **Honest residuals:** `enrich_ambient_prefilter` stays no-data (all three manifests are non-ambient; no traffic fabricated). ICS parser ignores TZID / doesn't expand RRULE (documented). Boot wiring for calendar left as the flag-gated call per the zero-core-file rule.
 - **PHASE 4 GATE PASSED.** Eval **1000/1000 · 96 gates defined / 94 measured / 0 breached** (was 80 measured) · worker 3115/3115 · root 496/496 · scripts 67/67. All 8 critical gates PASS incl. `all_model_output_discarded` = 0.
 - **4.1** — 6 gates moved no-data→measured via real-scheduler harnesses: recency order 0 inversions, restart re-judges 0 (literal mid-import close+reopen), bootstrap-seal 100%, live-preempts-backfill 1 cohort, done-detection precision 100% (the 4 authored wrong-done temptations all declined), corrections-survive 7/7 incl. surviving `undoRun`. CI breach-enforcement proven by a deliberate local breach → exit 1, reverted.
 - **4.2 Latency** — TTFT captured at first streamed delta per run (NULL when no token, never 0), persisted milestones, `/api/latency`, quiet-day proof over the REAL scheduler at full 30 s cadence (2,880 ticks). **This proof caught a real budget breach:** an idle open session re-fired an empty quiet-delta every 30 s (~480 calls/day vs the 12 budget); fixed in `runLiveTick`.

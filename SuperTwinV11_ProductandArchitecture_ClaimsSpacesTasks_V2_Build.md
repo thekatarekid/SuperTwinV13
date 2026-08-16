@@ -575,14 +575,14 @@ Worth noting: under mutation 1, `entities_precision` only slipped to 98.6% and *
 
 ## PHASE 5 — Second source proof *(optional, proves the thesis)*
 
-### ⇉N 5.1 Calendar adapter · ⇉N 5.2 Contacts adapter · ⇉N 5.3 Cross-source bridges
+### ⇉N 5.1 Calendar adapter · ⇉N 5.2 Contacts adapter · ⇉N 5.3 Cross-source bridges — ✅ DONE
 
 1. Two manifests, no core changes. Contacts phones/emails must merge with WhatsApp identities at the `[CODE]` rung.
-2. **Acceptance** — [ ] cross-source identity precision ≥ 0.98 with zero model calls
+2. **Acceptance** — [x] cross-source identity precision ≥ 0.98 with zero model calls — measured **1.0 (24/24 code-rung merges)** over a trap corpus (similar-name pairs, shared landline, no-country-code numbers, group-jid lookalike, dot-different Gmail). Zero model calls proven three ways: report counter, every `resolution_decisions` decider is `code:*`, and structurally (adapter modules cannot import providers/prompts/retrieval).
 
-### ⛓ 5.4 The thesis gate
+### ⛓ 5.4 The thesis gate — ✅ PASSED
 
-1. **Acceptance** — [ ] at least one space whose arc spans WhatsApp **and** Calendar via an `attendee_set` or `url` bridge, precision 1.0
+1. **Acceptance** — [x] at least one space whose arc spans WhatsApp **and** Calendar via an `attendee_set` or `url` bridge, precision 1.0 — the cross-source arc bridges via **both** `url` and `attendee_set`, trap events refused, bridge precision 1.0 and cross-join precision 1.0, then the REAL `promoteArcs()` sweep promotes it as the only space (reason `cmt`, status `active`). **Zero-core-change thesis verified by diff:** `git diff` vs the Release 0.8.0 commit over db/entities/arcs/scheduler/sessions/wire/evals-runner/gates is EMPTY — the second source is exactly two manifests plus adapters through pre-existing generic APIs, flag-gated so the shipped single-source boot is byte-identical.
 
 ---
 

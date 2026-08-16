@@ -162,8 +162,8 @@ describe("pacing against the quota window (§9.7 rule 2)", () => {
       windowLimit: 1_000_000,
       windowRemainingMs: 0,
     });
-    // 1000 + 4000*1.25 + 20000*0.1 + 600 = 8600, not the raw 25,600.
-    expect(decision.billable).toBe(8_600);
+    // 1000 + 4000*2.0 + 20000*0.1 + 600 = 11,600, not the raw 25,600.
+    expect(decision.billable).toBe(11_600);
     expect(decision.admit).toBe(true);
   });
 

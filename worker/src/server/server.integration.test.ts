@@ -96,20 +96,20 @@ describe.skipIf(skipWithoutRealCli)("worker server (real CLI)", () => {
       expect(sessionEv).toBeTruthy();
       const sessionId = sessionEv!.sessionId as string;
 
-      // /api/sessions shows it.
+      // /api/chat/sessions shows it.
       const list = await getJson<
         Array<{ sessionId: string; messageCount: number }>
-      >(`${base}/api/sessions`);
+      >(`${base}/api/chat/sessions`);
       expect(Array.isArray(list)).toBe(true);
       const found = list.find((s) => s.sessionId === sessionId);
       expect(found).toBeTruthy();
       expect(found!.messageCount).toBeGreaterThanOrEqual(2); // user + assistant
 
-      // /api/sessions/:id returns the transcript.
+      // /api/chat/sessions/:id returns the transcript.
       const detail = await getJson<{
         session: { sessionId: string };
         messages: Array<{ role: string }>;
-      }>(`${base}/api/sessions/${sessionId}`);
+      }>(`${base}/api/chat/sessions/${sessionId}`);
       expect(detail.session.sessionId).toBe(sessionId);
       const roles = detail.messages.map((m) => m.role);
       expect(roles).toContain("user");
@@ -147,9 +147,141 @@ describe.skipIf(skipWithoutRealCli)("worker server (real CLI)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/sessions/new returns a null-session marker", async () => {
-    const res = await fetch(`${base}/api/sessions/new`, { method: "POST" });
+  it("POST /api/chat/sessions/new returns a null-session marker", async () => {
+    const res = await fetch(`${base}/api/chat/sessions/new`, { method: "POST" });
     const body = (await res.json()) as { sessionId: string | null };
     expect(body.sessionId).toBeNull();
+  });
+});
+
+// ===========================================================================
+// V2 surface routes — the "is it actually mounted?" guard
+//
+// Every V2 tab test injects a fake worker client, so before this suite existed
+// NOTHING in the repo drove a V2 route against the real router. That is exactly
+// how eight route modules shipped fully written and mounted nowhere: each tab
+// suite was green against its fake while every surface 404'd in the real app.
+//
+// This suite is deliberately NOT inside the `skipIf(skipWithoutRealCli)` block
+// above. The router is the thing under test, not the `claude` binary, so gating
+// it on the CLI would let CI go green on precisely the bug it exists to catch.
+// ===========================================================================
+
+describe("V2 surface routes are mounted and serving", () => {
+  let v2: ServerHandle;
+  let v2Base: string;
+
+  beforeAll(async () => {
+    runMigrations();
+    // startServer rejects unless the default provider is registered. Registering
+    // is a Map.set on a plain object — it does not touch the CLI.
+    register(claudeLocalProvider);
+    v2 = await startServer({ port: 0, media: false });
+    v2Base = `http://127.0.0.1:${v2.port}`;
+  }, 30_000);
+
+  afterAll(async () => {
+    if (v2) await v2.close();
+  });
+
+  /**
+   * GET a surface path and hand back the parsed body, failing loudly on the one
+   * status that means "no handler owns this": the router's terminal 404.
+   */
+  async function getPage<T>(path: string): Promise<T> {
+    const res = await fetch(`${v2Base}${path}`);
+    expect(res.status, `${path} answered ${res.status} — handler not mounted?`).not.toBe(404);
+    expect(res.status, `${path} answered ${res.status}`).toBe(200);
+    return (await res.json()) as T;
+  }
+
+  // The control for the assertion above: `not.toBe(404)` is only evidence that a
+  // route is mounted if an unowned path really does still 404.
+  it("still 404s a path no module owns", async () => {
+    const res = await fetch(`${v2Base}/api/nonexistent`);
+    expect(res.status).toBe(404);
+  });
+
+  // ---- THE regression -----------------------------------------------------
+  // `/api/sessions` used to reach the Phase-0 chat list, which answers with a
+  // BARE ARRAY of CLI transcripts. The Sessions tab reads `.sessions` off the
+  // response, got `undefined`, and the tab broke — with a 200, not a 404. So
+  // status alone proves nothing here: the SHAPE is the contract.
+  it("GET /api/sessions returns the sessions page OBJECT, not a bare array", async () => {
+    const body = await getPage<{
+      sessions: unknown[];
+      sealedCount: number;
+      sources: unknown[];
+      streams: unknown[];
+    }>("/api/sessions");
+    expect(Array.isArray(body), "/api/sessions regressed to the Phase-0 bare array").toBe(false);
+    expect(typeof body).toBe("object");
+    expect(body).not.toBeNull();
+    expect(Array.isArray(body.sessions)).toBe(true);
+    expect(typeof body.sealedCount).toBe("number");
+    expect(Array.isArray(body.sources)).toBe(true);
+    expect(Array.isArray(body.streams)).toBe(true);
+  });
+
+  // The other half of that move: the chat list it displaced still answers, on
+  // its new path, in its own (bare-array) shape.
+  it("GET /api/chat/sessions still returns the Phase-0 bare array", async () => {
+    const body = await getPage<unknown[]>("/api/chat/sessions");
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  it("GET /api/coverage returns a coverage snapshot", async () => {
+    const body = await getPage<{
+      mode: string;
+      rows: unknown[];
+      pausedLabel: string | null;
+      remainingMinutes: number | null;
+    }>("/api/coverage");
+    expect(Array.isArray(body)).toBe(false);
+    expect(typeof body.mode).toBe("string");
+    expect(Array.isArray(body.rows)).toBe(true);
+  });
+
+  // Surfaces whose page is a keyed object. An EMPTY page is a pass — the claim
+  // is "this route answers in its own shape", not "the DB has rows in it".
+  const PAGES: Array<{
+    path: string;
+    arrays: string[];
+    objects?: string[];
+    numbers?: string[];
+  }> = [
+    { path: "/api/entities", arrays: ["entities"], objects: ["counts"], numbers: ["unresolvedCount"] },
+    { path: "/api/episodes", arrays: ["episodes", "streams"], objects: ["counts"] },
+    { path: "/api/arcs", arrays: ["arcs"], objects: ["counts"] },
+    { path: "/api/claims", arrays: ["groups", "subjects"], objects: ["counts"], numbers: ["conflictCount"] },
+    { path: "/api/spaces", arrays: ["spaces", "notSpaces", "lifeProjects"], objects: ["counts"] },
+    { path: "/api/tasks", arrays: ["tasks", "doneChecks", "waitingOnOthers"] },
+    { path: "/api/people", arrays: ["people"], objects: ["counts"] },
+  ];
+
+  it.each(PAGES)("GET $path returns its page object", async ({ path, arrays, objects, numbers }) => {
+    const body = await getPage<Record<string, unknown>>(path);
+    expect(Array.isArray(body), `${path} returned an array, not a page object`).toBe(false);
+    for (const key of arrays) {
+      expect(Array.isArray(body[key]), `${path} → ${key} is not an array`).toBe(true);
+    }
+    for (const key of objects ?? []) {
+      expect(typeof body[key], `${path} → ${key} is not an object`).toBe("object");
+      expect(body[key], `${path} → ${key} is null`).not.toBeNull();
+    }
+    for (const key of numbers ?? []) {
+      expect(typeof body[key], `${path} → ${key} is not a number`).toBe("number");
+    }
+  });
+
+  // Surfaces whose page IS a list. Empty is the expected state on a fresh DB.
+  it.each([
+    "/api/resolution-queue",
+    "/api/arcs/questions",
+    "/api/claims/conflicts",
+    "/api/goals",
+  ])("GET %s returns a (possibly empty) list", async (path) => {
+    const body = await getPage<unknown[]>(path);
+    expect(Array.isArray(body), `${path} did not return a list`).toBe(true);
   });
 });

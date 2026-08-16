@@ -213,7 +213,9 @@ describe("plain JSON endpoints", () => {
     } as unknown as Response);
     vi.stubGlobal("fetch", fetchMock);
     await expect(listSessions()).resolves.toEqual(rows);
-    expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/sessions$/);
+    // Phase-0 chat sessions moved under /api/chat/ so the V2 surface can own
+    // /api/sessions (which returns an object, not this bare array).
+    expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/chat\/sessions$/);
   });
 
   it("cancelRun POSTs the runId", async () => {

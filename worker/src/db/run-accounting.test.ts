@@ -15,9 +15,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, getDb } from "./connection.js";
-import { runMigrations } from "./index.js";
+import { logRun, runMigrations } from "./index.js";
+import { latencySnapshot } from "./latency-marks.js";
+import { RUNS_BACKFILL } from "./migrations/0026_runs_backfill.js";
 import {
   cacheReality,
+  DEFAULT_MODEL_LABEL,
   estimateImportSpend,
   importProgress,
   isRunRole,
@@ -105,10 +108,27 @@ describe("recordRun attribution", () => {
     ).toThrow(/role is required/);
   });
 
-  it("refuses a run with no cohort_id", () => {
+  it("refuses a BLANK cohort_id — an empty id is a dropped value", () => {
     expect(() => seed({ role: "extract", model: "m", cohortId: "" })).toThrow(
-      /cohort_id is required/,
+      /cohort_id/,
     );
+  });
+
+  it("accepts an EXPLICIT null cohort — chat and media belong to no cohort", () => {
+    const id = recordRun({
+      role: "chat",
+      model: "claude-haiku-4.5",
+      cohortId: null,
+      usage: { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 },
+    });
+    const row = getDb().prepare(`SELECT cohort_id FROM runs WHERE id = ?`).get(id) as {
+      cohort_id: string | null;
+    };
+    expect(row.cohort_id).toBeNull();
+    // Out of every cohort-scoped read, still in the unfiltered totals — which
+    // is the whole point: that is where the money is.
+    expect(usageTotals({ importMode: "bootstrap" }).runCount).toBe(0);
+    expect(usageTotals().runCount).toBe(1);
   });
 
   it("refuses a run with no model — accounting is per (role, model)", () => {
@@ -192,10 +212,10 @@ describe("the four-way identity", () => {
       outputTokens: 206,
     });
     expect(extract.billableTokens).toBe(expected);
-    expect(expected).toBe(18_338);
-    // A raw sum would trip the quota window roughly ten times early.
+    expect(expected).toBe(26_326);
+    // A raw sum would trip the quota window several times early.
     expect(extract.billableTokens).toBeLessThan(
-      (extract.totalInputTokens + extract.outputTokens) / 3,
+      (extract.totalInputTokens + extract.outputTokens) / 2,
     );
   });
 
@@ -393,5 +413,283 @@ describe("runCounts and usageSummary", () => {
     expect(u.cache.hitRate).toBeCloseTo(850 / 1010, 10);
     expect(u.runs.total).toBe(2);
     expect(u.thisImport.events).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cost <-> tokens. The one assertion that catches a wrong weight or a dropped
+// field: if the dollars the CLI reported and the tokens we stored stop
+// agreeing, one of the two halves is wrong, and it is never the dollars.
+//
+// This is what would have caught the 1.25 cache-write weight. That weight is
+// the 5-MINUTE cache TTL; this build's CLI writes 1-HOUR entries (2.0x), and
+// the gap read as a 31.5% under-count of billable tokens with nobody noticing,
+// because nothing ever compared the token side against the cost side.
+// ---------------------------------------------------------------------------
+
+/**
+ * The 23 real media runs from an installed build, verbatim:
+ * [input, cache_write, cache_read, output, cost_usd the CLI reported].
+ * claude-haiku-4-5, $1.36 of genuine spend.
+ */
+const MEASURED_RUNS: [number, number, number, number, number][] = [
+  [20, 21055, 43863, 2936, 0.0626903],
+  [20, 12420, 50929, 2140, 0.0418399],
+  [20, 32782, 44434, 3539, 0.0898014],
+  [20, 9555, 49245, 1181, 0.0309405],
+  [20, 8020, 49050, 987, 0.026691],
+  [20, 8949, 49054, 671, 0.0269784],
+  [20, 33787, 44434, 3857, 0.0933554],
+  [20, 10457, 49849, 912, 0.0314979],
+  [20, 30710, 44434, 3359, 0.0848434],
+  [20, 12708, 49414, 2102, 0.0420474],
+  [20, 10281, 47452, 955, 0.0310972],
+  [20, 9812, 49806, 1110, 0.0311676],
+  [20, 7062, 47254, 765, 0.0234964],
+  [20, 32042, 44434, 4136, 0.0912314],
+  [20, 8884, 49060, 641, 0.026705],
+  [20, 18207, 50228, 3301, 0.0593868],
+  [20, 29556, 44434, 4914, 0.0901884],
+  [20, 17753, 49671, 2243, 0.0531251],
+  [20, 31064, 44434, 3493, 0.0861584],
+  [20, 30838, 44434, 5165, 0.0943174],
+  [20, 29328, 44434, 5720, 0.0937914],
+  [20, 30299, 44434, 6105, 0.0977784],
+  [20, 14415, 50236, 2839, 0.0494796],
+];
+
+/**
+ * claude-haiku-4.5 list price with a 1-HOUR cache write, $/MTok.
+ *
+ * This table lives in the TEST and nowhere else. Production stores the CLI's
+ * own `total_cost_usd` verbatim and never prices anything locally (§4.4.4
+ * invariant 3) — which is exactly what makes it usable here as an INDEPENDENT
+ * check: the stored dollars and the stored tokens come from different places,
+ * so their agreeing is evidence rather than a tautology.
+ */
+const HAIKU_1H_USD_PER_MTOK = {
+  input: 1.0,
+  cacheWrite: 2.0,
+  cacheRead: 0.1,
+  output: 5.0,
+};
+
+function recomputeUsd([input, write, read, output]: [number, number, number, number, number]): number {
+  const p = HAIKU_1H_USD_PER_MTOK;
+  return (
+    (input * p.input + write * p.cacheWrite + read * p.cacheRead + output * p.output) / 1e6
+  );
+}
+
+describe("stored cost agrees with stored tokens", () => {
+  beforeEach(() => {
+    cohort("c1", { events: 23 });
+    for (const r of MEASURED_RUNS) {
+      seed({
+        role: "media",
+        model: "claude-haiku-4-5-20251001",
+        cohortId: "c1",
+        input: r[0],
+        create: r[1],
+        read: r[2],
+        output: r[3],
+        costUsd: r[4],
+      });
+    }
+  });
+
+  it("SUM(cost_usd) over the window lands within 5% of a 1h-price recompute", () => {
+    const totals = usageTotals();
+    const recomputed = MEASURED_RUNS.reduce((n, r) => n + recomputeUsd(r), 0);
+    expect(totals.runCount).toBe(23);
+    expect(Math.abs(totals.costUsd - recomputed) / totals.costUsd).toBeLessThan(0.05);
+  });
+
+  it("the 5-minute write price misses by five times the tolerance", () => {
+    // The proof the assertion above has teeth: swap the one weight that was
+    // wrong and the same check fails by ~27%.
+    const totals = usageTotals();
+    const atFiveMinute = MEASURED_RUNS.reduce(
+      (n, r) => n + (r[0] * 1.0 + r[1] * 1.25 + r[2] * 0.1 + r[3] * 5.0) / 1e6,
+      0,
+    );
+    expect(Math.abs(totals.costUsd - atFiveMinute) / totals.costUsd).toBeGreaterThan(0.25);
+  });
+
+  it("stored billable_tokens re-derives from the stored token columns", () => {
+    // The gate and the pacer read the stored figure, so a weight that drifts
+    // away from what the columns say would gate on a number nobody can check.
+    const totals = usageTotals();
+    const expected = MEASURED_RUNS.reduce(
+      (n, r) =>
+        n +
+        billableTokens({
+          inputTokens: r[0],
+          cacheCreationInputTokens: r[1],
+          cacheReadInputTokens: r[2],
+          outputTokens: r[3],
+        }),
+      0,
+    );
+    expect(totals.billableTokens).toBe(expected);
+    // 1,071,997 at the 1-hour rate; the flat-1.25 bug read 734,511 over the
+    // same 23 rows — a 31.5% under-count of what the gate and the pacer see.
+    expect(totals.billableTokens).toBe(1_071_997);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The production write path. `runs` used to have exactly ONE writer — the V2
+// prompt runner — so an installed build whose real spend is chat plus
+// background media reading showed an empty Usage board and an empty Latency
+// panel over $1.36 of money that had genuinely been spent.
+// ---------------------------------------------------------------------------
+
+function logged(over: Partial<Parameters<typeof logRun>[0]> = {}): void {
+  logRun({
+    provider: "claude-local",
+    sessionId: null,
+    runId: "media-evt-1",
+    kind: "media",
+    promptChars: 120,
+    inputTokens: 20,
+    cacheCreationInputTokens: 21055,
+    cacheReadInputTokens: 43863,
+    outputTokens: 2936,
+    costUsd: 0.0626903,
+    durationMs: 42680,
+    status: "ok",
+    errorCode: null,
+    role: "media",
+    model: "claude-haiku-4-5-20251001",
+    ...over,
+  });
+}
+
+describe("logRun dual-writes production runs into runs", () => {
+  it("a logged run reaches Settings > Usage, cost and tokens together", () => {
+    logged();
+    const totals = usageTotals();
+    expect(totals.runCount).toBe(1);
+    expect(totals.costUsd).toBeCloseTo(0.0626903, 10);
+    expect(totals.totalInputTokens).toBe(20 + 21055 + 43863);
+    expect(totals.billableTokens).toBe(
+      billableTokens({
+        inputTokens: 20,
+        cacheCreationInputTokens: 21055,
+        cacheReadInputTokens: 43863,
+        outputTokens: 2936,
+      }),
+    );
+    const [row] = usageByRole();
+    expect(row.role).toBe("media");
+    expect(row.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  it("writes the latency mark too, so per-call-type grading has data", () => {
+    logged();
+    const snap = latencySnapshot();
+    expect(snap.calls).toHaveLength(1);
+    expect(snap.calls[0]).toMatchObject({
+      callType: "media",
+      model: "claude-haiku-4-5-20251001",
+      calls: 1,
+      worstTotalMs: 42680,
+    });
+    // Nothing measured a first token on this path, and a 0 would claim the
+    // call was instantaneous — so coverage reports the gap instead of hiding it.
+    expect(snap.calls[0].worstTtftMs).toBeNull();
+    expect(snap.ttftCoverage).toBe(0);
+  });
+
+  it("survives a retry reusing the same provider run id", () => {
+    // `media-<event id>` is reused on a retry; keying `runs` on it would throw
+    // a UNIQUE violation inside the streaming path. Both attempts are real
+    // spend and both must land.
+    logged();
+    logged();
+    expect(usageTotals().runCount).toBe(2);
+    expect(runCounts().total).toBe(2);
+  });
+
+  it("does not mirror a run whose role is outside RUN_ROLES", () => {
+    // Inventing a role would undo the one thing `runs` is for. The phase-0 log
+    // still has the row; the accounting table refuses to guess at it.
+    logged({ role: "gossip", kind: "gossip" });
+    expect(usageTotals().runCount).toBe(0);
+    const n = getDb().prepare(`SELECT COUNT(*) AS n FROM extraction_runs`).get() as { n: number };
+    expect(n.n).toBe(1);
+  });
+
+  it("labels a subscription-default model instead of grouping under a blank", () => {
+    logged({ model: "" });
+    expect(usageByRole()[0].model).toBe(DEFAULT_MODEL_LABEL);
+  });
+
+  it("leaves the cohort null, so background spend never joins an import", () => {
+    cohort("c1", { events: 10, state: "done" });
+    logged();
+    expect(usageTotals({ importMode: "bootstrap" }).runCount).toBe(0);
+    // ...and therefore never inflates the per-event pre-flight estimate.
+    expect(estimateImportSpend(100).projectedUsd).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0026_runs_backfill — history carried across, twice-safe.
+// ---------------------------------------------------------------------------
+
+describe("the extraction_runs -> runs backfill", () => {
+  /** A row written the way the pre-fix build wrote it: log only, no mirror. */
+  function legacyRow(runId: string, role: string): void {
+    getDb()
+      .prepare(
+        `INSERT INTO extraction_runs
+           (provider, session_id, run_id, kind, prompt_chars, input_tokens,
+            cache_creation_input_tokens, cache_read_input_tokens, output_tokens,
+            cost_usd, duration_ms, status, error_code, model, role, created_at)
+         VALUES ('claude-local', NULL, ?, ?, 0, 20, 21055, 43863, 2936,
+                 0.0626903, 42680, 'ok', NULL, 'claude-haiku-4-5-20251001', ?,
+                 '2026-08-16T14:44:50.738Z')`,
+      )
+      .run(runId, role, role);
+  }
+
+  it("copies history in, and running it twice changes nothing", () => {
+    legacyRow("media-a", "media");
+    legacyRow("media-b", "media");
+    expect(usageTotals().runCount).toBe(0);
+
+    getDb().exec(RUNS_BACKFILL);
+    const first = usageTotals();
+    expect(first.runCount).toBe(2);
+    expect(first.costUsd).toBeCloseTo(0.1253806, 10);
+    expect(first.billableTokens).toBe(
+      2 * billableTokens({ inputTokens: 20, cacheCreationInputTokens: 21055, cacheReadInputTokens: 43863, outputTokens: 2936 }),
+    );
+    // Latency marks come across with it: recordRun writes a run and its mark
+    // together, so a half-backfill would leave the two at different counts.
+    expect(latencySnapshot().calls[0].calls).toBe(2);
+
+    getDb().exec(RUNS_BACKFILL);
+    expect(usageTotals()).toEqual(first);
+    expect(latencySnapshot().calls[0].calls).toBe(2);
+  });
+
+  it("backdates started_at by the measured duration, not the log's stamp", () => {
+    legacyRow("media-a", "media");
+    getDb().exec(RUNS_BACKFILL);
+    const row = getDb().prepare(`SELECT started_at, ended_at FROM runs`).get() as {
+      started_at: string;
+      ended_at: string;
+    };
+    expect(row.ended_at).toBe("2026-08-16T14:44:50.738Z");
+    expect(Date.parse(row.ended_at) - Date.parse(row.started_at)).toBe(42680);
+  });
+
+  it("leaves a row it cannot attribute in the log rather than inventing a role", () => {
+    legacyRow("mystery", "gossip");
+    getDb().exec(RUNS_BACKFILL);
+    expect(usageTotals().runCount).toBe(0);
   });
 });

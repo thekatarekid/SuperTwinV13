@@ -26,9 +26,10 @@ const REAL_RUN: Usage = {
 };
 
 describe("billableTokens", () => {
-  it("weights cache writes at 1.25x and cache reads at 0.1x", () => {
-    // 18 + 10651*1.25 + 48000*0.1 + 206
-    expect(billableTokens(REAL_RUN)).toBe(18338);
+  it("weights 1-hour cache writes at 2x and cache reads at 0.1x", () => {
+    // 18 + 10651*2.0 + 48000*0.1 + 206 — the writes are unattributed here, and
+    // an unattributed write bills at the 1-hour rate this build's CLI charges.
+    expect(billableTokens(REAL_RUN)).toBe(26326);
   });
 
   it("stays far under the raw sum, which is what would trip the quota gate", () => {
@@ -38,7 +39,7 @@ describe("billableTokens", () => {
       REAL_RUN.cacheReadInputTokens +
       REAL_RUN.outputTokens;
     expect(raw).toBe(58875);
-    expect(billableTokens(REAL_RUN)).toBeLessThan(raw / 3);
+    expect(billableTokens(REAL_RUN)).toBeLessThan(raw / 2);
   });
 
   it("is 0 for an empty accounting", () => {
@@ -120,7 +121,7 @@ describe("usageParts", () => {
       cacheRead: 48_000,
       totalInput: 58_669,
       output: 206,
-      billable: 18_338,
+      billable: 26_326,
     });
     // The sum is derived from the parts, so no surface can show one without
     // the other and read as two separate spends.

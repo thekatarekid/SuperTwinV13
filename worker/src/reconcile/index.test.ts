@@ -313,8 +313,14 @@ describe("④ the ≤ 12 model calls/quiet-day budget", () => {
     expect(report.steps.find((s) => s.name === "cheap")!.detail).toEqual({ ok: true });
   });
 
-  it("keeps the built-in registry to the one [CODE] step", () => {
-    expect(reconcileSteps().map((s) => s.name)).toEqual(["arcs"]);
+  it("ships §12 step 28's three steps, in ladder order and all [CODE]", () => {
+    // Order is load-bearing: `promotion` reads the arcs `arcs` committed, and
+    // `goals` joins loops to the spaces `promotion` promoted.
+    expect(reconcileSteps().map((s) => s.name)).toEqual(["arcs", "promotion", "goals"]);
+    // The whole shipped registry is free, which is what lets the ≤ 12 calls/day
+    // budget be spent entirely on work the user asked for.
+    expect(reconcileSteps().map((s) => s.modelCalls)).toEqual([0, 0, 0]);
+    expect(runReconcile({ now: NOW, mode: "steady" }).modelCalls).toBe(0);
   });
 });
 

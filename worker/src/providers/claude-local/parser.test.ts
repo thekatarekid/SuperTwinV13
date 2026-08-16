@@ -212,6 +212,39 @@ describe("extractUsage", () => {
     });
   });
 
+  it("reads the cache_creation TTL split, which prices the write half", () => {
+    expect(
+      extractUsage({
+        input_tokens: 10,
+        cache_creation_input_tokens: 10472,
+        cache_creation: {
+          ephemeral_5m_input_tokens: 0,
+          ephemeral_1h_input_tokens: 10472,
+        },
+        cache_read_input_tokens: 18764,
+        output_tokens: 4,
+      }),
+    ).toEqual({
+      inputTokens: 10,
+      cacheCreationInputTokens: 10472,
+      cacheCreation5mInputTokens: 0,
+      cacheCreation1hInputTokens: 10472,
+      cacheReadInputTokens: 18764,
+      outputTokens: 4,
+    });
+  });
+
+  it("leaves the split ABSENT when the line carried none — 0/0 would lie", () => {
+    const u = extractUsage({
+      input_tokens: 10,
+      cache_creation_input_tokens: 10472,
+      cache_read_input_tokens: 18764,
+      output_tokens: 4,
+    });
+    expect(u.cacheCreation5mInputTokens).toBeUndefined();
+    expect(u.cacheCreation1hInputTokens).toBeUndefined();
+  });
+
   it("coerces missing/garbage fields to 0 and omits an absent cost", () => {
     expect(extractUsage(undefined)).toEqual({
       inputTokens: 0,
@@ -234,6 +267,10 @@ describe("per-run accumulation (real 2-turn CLI output)", () => {
   const RUN_TOTAL = {
     inputTokens: 18,
     cacheCreationInputTokens: 10651,
+    // Both turns wrote 1-HOUR cache entries — the reason a cache write on this
+    // build bills at 2.0x a fresh input token, not the 5-minute TTL's 1.25x.
+    cacheCreation5mInputTokens: 0,
+    cacheCreation1hInputTokens: 10651,
     cacheReadInputTokens: 48000,
     outputTokens: 206,
   };
@@ -261,6 +298,28 @@ describe("per-run accumulation (real 2-turn CLI output)", () => {
     expect(out.result?.usage).toEqual({ ...RUN_TOTAL, costUsd: 0.02715 });
   });
 
+  it("carries the turns' TTL split onto the result, which carries none", () => {
+    // The result line states the write TOTAL but no `cache_creation` object,
+    // so without the carry-across every finished run would look unattributed.
+    expect(R.result).not.toContain("cache_creation\":{");
+    const p = new StreamJsonParser();
+    feed(p, [R.init, R.t1Start, R.t1Delta, R.t1Stop, R.t2Start, R.t2Delta, R.t2Stop]);
+    const usage = p.push(R.result + "\n").result!.usage;
+    expect(usage.cacheCreation1hInputTokens).toBe(10651);
+    expect(usage.cacheCreation5mInputTokens).toBe(0);
+  });
+
+  it("leaves the split absent when the turns do not add up to the total", () => {
+    // A turn that never streamed: 179 of the 10,651 written tokens are
+    // unaccounted for, so claiming the split describes the whole run would be
+    // a guess. billableTokens then prices the remainder at the 1-hour rate.
+    const p = new StreamJsonParser();
+    feed(p, [R.init, R.t1Start, R.t1Delta, R.t1Stop]);
+    const usage = p.push(R.result + "\n").result!.usage;
+    expect(usage.cacheCreationInputTokens).toBe(10651);
+    expect(usage.cacheCreation1hInputTokens).toBeUndefined();
+  });
+
   it("counts a turn once even though every content block repeats it", () => {
     const p = new StreamJsonParser();
     // Two `assistant` lines share one message id and one usage snapshot.
@@ -268,6 +327,8 @@ describe("per-run accumulation (real 2-turn CLI output)", () => {
     expect(p.usageSoFar()).toEqual({
       inputTokens: 10,
       cacheCreationInputTokens: 10472,
+      cacheCreation5mInputTokens: 0,
+      cacheCreation1hInputTokens: 10472,
       cacheReadInputTokens: 18764,
       outputTokens: 149,
     });
@@ -295,6 +356,8 @@ describe("per-run accumulation (real 2-turn CLI output)", () => {
     expect(p.usageSoFar()).toEqual({
       inputTokens: 18,
       cacheCreationInputTokens: 10651,
+      cacheCreation5mInputTokens: 0,
+      cacheCreation1hInputTokens: 10651,
       cacheReadInputTokens: 48000,
       outputTokens: 153,
     });

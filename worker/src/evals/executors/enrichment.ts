@@ -107,6 +107,35 @@ function num(fields: Record<string, string>, key: string, fallback: number): num
   return n;
 }
 
+/**
+ * The ids `buildBatchPrompt` actually issued, read back out of the prompt.
+ *
+ * The stub has to scrape them, which couples it to the prompt's LAYOUT — and
+ * that coupling has already cost a silent blackout once. The prompt used to
+ * open each item with `#01 /path/to/file`; it now puts the id on its own line
+ * above the path (`id #01`, then `    file: …`) so the model cannot read the
+ * pair as one token. The old scraper matched nothing against the new layout,
+ * so it handed `blocks` an EMPTY id list, every batch answer came back as the
+ * empty string, and `describeMediaBatch` turned that into sixteen `error`
+ * results — which `runBatchWithSplit` counts as a complete, unmismatched call.
+ * Every batch case then went green while captioning nothing at all.
+ *
+ * Hence both spellings are accepted, and matching NEITHER throws instead of
+ * answering with silence: a stub that cannot see the prompt must fail the run,
+ * never quietly agree with it.
+ */
+function promptIds(message: string): string[] {
+  const current = [...message.matchAll(/^[ \t]*id[ \t]+(#\d\d)[ \t]*$/gm)].map((m) => m[1]!);
+  if (current.length > 0) return current;
+  const legacy = [...message.matchAll(/^(#\d\d) /gm)].map((m) => m[1]!);
+  if (legacy.length > 0) return legacy;
+  throw new Error(
+    "the enrichment stub found no @@ID ids in the batch prompt — buildBatchPrompt's " +
+      "layout changed and this scraper did not follow it; fix promptIds rather than " +
+      "letting the stub answer with an empty string",
+  );
+}
+
 /** The frozen model. `blocks` is the answer it gives to a batch of `n` ids. */
 function stubProvider(blocks: (ids: string[]) => string): Provider & { calls: SendOptions[] } {
   const calls: SendOptions[] = [];
@@ -116,7 +145,7 @@ function stubProvider(blocks: (ids: string[]) => string): Provider & { calls: Se
     cancel: () => false,
     async send(opts: SendOptions): Promise<ProviderResult> {
       calls.push(opts);
-      const ids = [...opts.message.matchAll(/^(#\d\d) /gm)].map((m) => m[1]!);
+      const ids = promptIds(opts.message);
       opts.onEvent({ type: "delta", text: blocks(ids) });
       return {
         sessionId: "",
@@ -290,7 +319,12 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
   ctx.state.batch_calls = outcome.calls;
   ctx.state.mismatches = outcome.mismatches;
   ctx.state.applied = captions.length;
-  ctx.state.every_image_captioned = captions.length === count;
+  // CAPTIONED means captioned. Counting rows the split driver handed a result
+  // to — rather than rows that came back `done` — is how a run in which every
+  // single image failed still read as "16 applied, every image captioned".
+  const described = captions.filter((c) => c.status === "done").length;
+  ctx.state.described = described;
+  ctx.state.every_image_captioned = described === count;
   // A rejected answer writes NOTHING — not even the blocks that lined up.
   ctx.state.first_call_applied = perCall[0]?.applied ?? 0;
   ctx.metrics.calls = sizes.length;
@@ -304,8 +338,8 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
   ctx.gates.push(...auditCaptionAttachment(applied));
   ctx.gates.push({
     gate: "enrich_all_media_captioned",
-    passed: captions.length === count,
-    note: `${captions.length}/${count} captioned`,
+    passed: described === count,
+    note: `${described}/${count} captioned (${captions.length} applied)`,
   });
   if (count >= batchSize && !mismatched) {
     // The honoured batch size is only measurable when enough images are
@@ -322,8 +356,8 @@ async function runBatch(ctx: Ctx, fields: Record<string, string>): Promise<void>
     // applied, everything eventually captioned by the halves.
     ctx.gates.push({
       gate: "enrich_mismatch_split_retry",
-      passed: (perCall[0]?.applied ?? 0) === 0 && captions.length === count,
-      note: `first call applied ${perCall[0]?.applied ?? 0}, ${captions.length}/${count} after split`,
+      passed: (perCall[0]?.applied ?? 0) === 0 && described === count,
+      note: `first call applied ${perCall[0]?.applied ?? 0}, ${described}/${count} captioned after split`,
     });
   }
   // The same media episode, end to end: pass 1 on text with attachments still

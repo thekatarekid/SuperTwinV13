@@ -83,7 +83,7 @@ export type ProviderStreamEvent =
 
 export type ChatRole = "user" | "assistant" | "system";
 
-/** Row shape from GET /api/sessions. */
+/** Row shape from GET /api/chat/sessions. */
 export interface SessionSummary {
   sessionId: string;
   title: string | null;
@@ -96,7 +96,7 @@ export interface SessionSummary {
   messageCount: number;
 }
 
-/** A stored message inside a session detail (GET /api/sessions/:id). */
+/** A stored message inside a session detail (GET /api/chat/sessions/:id). */
 export interface SessionMessage {
   role: ChatRole;
   content: string;
@@ -635,14 +635,14 @@ export async function cancelRun(runId: string): Promise<{ ok: boolean }> {
   return postJson<{ ok: boolean }>("/api/cancel", { runId });
 }
 
-/** GET /api/sessions — most-recent-first list. */
+/** GET /api/chat/sessions — most-recent-first list. */
 export async function listSessions(signal?: AbortSignal): Promise<SessionSummary[]> {
-  return getJson<SessionSummary[]>("/api/sessions", signal);
+  return getJson<SessionSummary[]>("/api/chat/sessions", signal);
 }
 
-/** GET /api/sessions/:id — session + full transcript. */
+/** GET /api/chat/sessions/:id — session + full transcript. */
 export async function getSession(id: string, signal?: AbortSignal): Promise<SessionDetail> {
-  return getJson<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`, signal);
+  return getJson<SessionDetail>(`/api/chat/sessions/${encodeURIComponent(id)}`, signal);
 }
 
 /** GET /api/quota — rolling usage window. */

@@ -402,10 +402,24 @@ describe("buildBatchPrompt", () => {
     for (const id of ["#01", "#02", "#03"]) expect(p).toContain(id);
     expect(p).toContain("Read each of these 3 files");
     expect(p).toContain(BATCH_MARKER);
-    expect(p).toContain("character for character");
     // The whole-set rule is stated to the model, not only enforced after it.
     expect(p).toContain("exactly once — all 3 of them");
     expect(p).toContain("UNREADABLE");
+  });
+
+  it("detaches the id from the path and forbids anything after it on the marker line", () => {
+    const rows = images(2);
+    const p = buildBatchPrompt(
+      rows.map((r) => ({ row: r, path: r.mediaPath as string })),
+    );
+    // The id is on its own line — rendered as `#01 /long/path` the model reads
+    // the two as one token and echoes both back as the id.
+    expect(p).toContain("id #01\n    file:");
+    expect(p).toContain(`${BATCH_MARKER} #NN`);
+    expect(p).toContain("NOTHING\nfollows it on that line");
+    // A worked example, and the ban on a preamble turn.
+    expect(p).toContain(`So a block for id #01 looks exactly like this:\n\n${BATCH_MARKER} #01`);
+    expect(p).toContain("Do not write anything at");
   });
 });
 
@@ -461,6 +475,86 @@ describe("parseBatchAnswer", () => {
       missing: ["#02"],
       unexpected: ["#09"],
     });
+  });
+
+  // ---- The three answer shapes that rejected six real, CORRECT runs -------
+  // Every string below is what the CLI actually returned; the model's answers
+  // were right each time and the parser threw them away.
+
+  it("mode A: an id with the file's path appended is still that id", () => {
+    const parsed = parseBatchAnswer(
+      `${BATCH_MARKER} #01 /Users/adityakatare/SuperTwinV11/media/whatsapp/` +
+        `120363258303310545@g.us/3AAF3432BD790FBD3EFE.jpg\nA photo.\n` +
+        `${BATCH_MARKER} #02\nAnother.`,
+      ["#01", "#02"],
+    );
+    expect(parsed.returned).toEqual(["#01", "#02"]);
+    expect(parsed.blocks.get("#01")).toBe("A photo.");
+    expect(verifyEcho(["#01", "#02"], parsed.returned).matched).toBe(true);
+  });
+
+  it("mode A: a bare filename with no #NN is matched back by basename", () => {
+    const parsed = parseBatchAnswer(
+      `${BATCH_MARKER} 3AAF3432BD790FBD3EFE.jpg\nA photo.\n` +
+        `${BATCH_MARKER} 3EB0C1D2.jpg\nAnother.`,
+      ["#01", "#02"],
+      [
+        { id: "#01", paths: ["/media/whatsapp/g.us/3AAF3432BD790FBD3EFE.jpg"] },
+        { id: "#02", paths: ["/media/whatsapp/g.us/3EB0C1D2.jpg"] },
+      ],
+    );
+    expect(parsed.returned).toEqual(["#01", "#02"]);
+    expect(parsed.blocks.get("#01")).toBe("A photo.");
+    expect(parsed.blocks.get("#02")).toBe("Another.");
+  });
+
+  it("a filename that merely starts with digits is NOT read as an id", () => {
+    // `12.jpg` must not become #12 — a caption filed against the wrong photo
+    // is the one outcome worse than rejecting the batch.
+    const parsed = parseBatchAnswer(`${BATCH_MARKER} 12.jpg\nA photo.`, ["#12"]);
+    expect(parsed.returned).toEqual(["12.jpg"]);
+    expect(verifyEcho(["#12"], parsed.returned).matched).toBe(false);
+  });
+
+  it("mode B: a preamble glued onto the first marker no longer destroys it", () => {
+    // The preamble turn and the first answer turn were concatenated with no
+    // separator, so the first marker was mid-line and the line-anchored parser
+    // dropped a correct description on the floor.
+    const parsed = parseBatchAnswer(
+      `I'll read all 16 image files for you.${BATCH_MARKER} #01\nThe first one.\n\n` +
+        `${BATCH_MARKER} #02\nThe second one.`,
+      ["#01", "#02"],
+    );
+    expect(parsed.returned).toEqual(["#01", "#02"]);
+    expect(parsed.blocks.get("#01")).toBe("The first one.");
+    expect(parsed.blocks.get("#02")).toBe("The second one.");
+    expect(verifyEcho(["#01", "#02"], parsed.returned).matched).toBe(true);
+  });
+
+  it("mode C: a duplicated block is reported symmetrically, never half-swallowed", () => {
+    // A leaked duplicate assistant block glues a second copy on with no
+    // separator. This is still a mismatch — the answer really does name every
+    // id twice — but BOTH copies are now seen, where before the duplicate's
+    // #01 was destroyed and only its stray #02 survived ("3 of 2 ids").
+    const one = `${BATCH_MARKER} #01\nThe first one.\n${BATCH_MARKER} #02\nThe second one.`;
+    const parsed = parseBatchAnswer(`${one}${one}`, ["#01", "#02"]);
+    expect(parsed.returned).toEqual(["#01", "#02", "#01", "#02"]);
+    expect(verifyEcho(["#01", "#02"], parsed.returned)).toMatchObject({
+      matched: false,
+      missing: [],
+      unexpected: ["#01", "#02"],
+    });
+    // The first copy's descriptions are intact, so the split retry is the only
+    // cost — no correct answer is silently lost.
+    expect(parsed.blocks.get("#01")).toBe("The first one.");
+  });
+
+  it("reports the marker lines it actually saw, for the run log", () => {
+    const parsed = parseBatchAnswer(
+      `${BATCH_MARKER} #01 /very/long/path.jpg\nA photo.`,
+      ["#01"],
+    );
+    expect(parsed.markers).toEqual([`${BATCH_MARKER} #01 /very/long/path.jpg`]);
   });
 
   it("an UNREADABLE block echoes its id but carries no description", () => {
@@ -524,6 +618,41 @@ describe("describeMediaBatch", () => {
       missing: ["#15", "#16"],
       unexpected: ["#914", "#915"],
     });
+  });
+
+  it("a preamble turn and a path-suffixed id are both answered, not rejected", async () => {
+    // The exact shape of the runs that cost ~22% of the media spend: correct
+    // descriptions, thrown away over the marker's punctuation.
+    const rows = images(3);
+    const provider = stubProvider(
+      `I'll read all 3 image files for you.${BATCH_MARKER} #01 ${rows[0].mediaPath}\n` +
+        `A photo of ${rows[0].id}.\n\n` +
+        `${BATCH_MARKER} #02\nA photo of ${rows[1].id}.\n\n` +
+        `${BATCH_MARKER} ${rows[2].filename}\nA photo of ${rows[2].id}.`,
+    );
+    const batch = await describeMediaBatch(rows, { provider });
+
+    expect(batch.echo).toMatchObject({ matched: true });
+    for (const r of rows) {
+      expect(batch.results.get(r.id)).toMatchObject({
+        description: `A photo of ${r.id}.`,
+        status: "done",
+      });
+    }
+  });
+
+  it("a genuinely wrong answer is still rejected, and the error names the markers", async () => {
+    const rows = images(3);
+    const provider = stubProvider(
+      `${BATCH_MARKER} #01\nA photo.\n\n${BATCH_MARKER} #07\nNot ours.`,
+    );
+    const batch = await describeMediaBatch(rows, { provider });
+
+    expect(batch.results.size).toBe(0);
+    expect(batch.echo).toMatchObject({ matched: false, unexpected: ["#07"] });
+    expect(batch.call.error).toContain("echoed 2 of 3 ids");
+    // The sample is what makes this diagnosable from extraction_runs alone.
+    expect(batch.call.error).toContain(`markers: ${BATCH_MARKER} #01 | ${BATCH_MARKER} #07`);
   });
 
   it("an answer that names nothing we asked about maps no image at all", async () => {

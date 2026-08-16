@@ -1202,7 +1202,7 @@ _4-way tokens, cost correctness, caching reality_
 | U-003 | Usage UI shows Input 21,849 next to Cache 21,846 | FAIL — same tokens twice | no double presentation |
 | U-004 | cost and tokens aggregated | same filter, same row set | the '—' cost bug |
 | U-005 | run without role or cohort_id | FAIL | attribution mandatory |
-| U-006 | quota gate input | billable = input + 1.25*cache_create + 0.1*cache_read + output | never a raw sum |
+| U-006 | quota gate input | billable = input + 1.25*cache_create_5m + 2.0*cache_create_1h + 0.1*cache_read + output | never a raw sum |
 | U-007 | cost value shown | verbatim from the CLI's reported total_cost_usd | never recomputed locally |
 | U-008 | block labelled 'Chat' containing background extraction | FAIL | truthful labels |
 | U-009 | before a bootstrap | projected cost shown from event count x tokens/event | estimate before spend |

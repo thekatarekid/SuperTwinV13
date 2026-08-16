@@ -101,9 +101,16 @@ describe("0020_v2_core applies", () => {
     // earlier ids created, so nothing that reshapes a table may precede it.
     // What follows it only ADDS to the schema it leaves behind — today that is
     // 0023_stream_tiers (build item 1.2), whose columns hang off `streams`,
-    // which this migration is what creates, and 0024_latency_marks (item 4.2),
-    // a standalone table touching nothing the rebuild reshaped.
-    expect(ids.slice(ids.indexOf("0022_v2_core") + 1)).toEqual(["0023_stream_tiers", "0024_latency_marks"]);
+    // which this migration is what creates, 0024_latency_marks (item 4.2), a
+    // standalone table touching nothing the rebuild reshaped,
+    // 0025_cache_write_split, four ADD COLUMNs, and 0026_runs_backfill, which
+    // only copies rows between tables the ids above already created.
+    expect(ids.slice(ids.indexOf("0022_v2_core") + 1)).toEqual([
+      "0023_stream_tiers",
+      "0024_latency_marks",
+      "0025_cache_write_split",
+      "0026_runs_backfill",
+    ]);
 
     expect(
       (

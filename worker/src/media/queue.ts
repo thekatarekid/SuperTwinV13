@@ -271,6 +271,15 @@ export class MediaQueue {
   /** The wait that produced it, doubled on each consecutive refusal. */
   private backoffMs = 0;
   private abort: AbortController | null = null;
+  /**
+   * Why the last batch call failed, straight from describeMediaBatch. The split
+   * driver only ever sees an EMPTY results map for a rejected answer — a
+   * mismatch inside the call returns no verdicts at all — so its own verdict
+   * reads "N missing, 0 unexpected" whatever actually went wrong. This carries
+   * the real reason (and the marker sample) through to the log line, keyed by
+   * the chunk so two slots splitting at once cannot borrow each other's.
+   */
+  private readonly batchErrors = new Map<string, string>();
   /** The in-flight transcription's own kill switch — see enqueueLive. */
   private transcribeAbort: AbortController | null = null;
   private lastSweepAt = 0;
@@ -717,10 +726,14 @@ export class MediaQueue {
       solo: (row) => this.read(row),
       running: () => this.running,
       onMismatch: (verdict, chunk) => {
-        this.log(
-          `[media] batch of ${chunk.length} rejected: ${verdict.missing.length} id(s) missing, ` +
-            `${verdict.unexpected.length} unexpected — splitting`,
-        );
+        // The inner error names the ids and the malformed markers; the outer
+        // verdict can only ever say "all of them missing", which is noise.
+        const key = chunkKey(chunk);
+        const why =
+          this.batchErrors.get(key) ??
+          `${verdict.missing.length} id(s) missing, ${verdict.unexpected.length} unexpected`;
+        this.batchErrors.delete(key);
+        this.log(`[media] batch of ${chunk.length} rejected: ${why} — splitting`);
       },
     });
     if (outcome.mismatches > 0) {
@@ -750,8 +763,14 @@ export class MediaQueue {
     if (!this.running) return { results: new Map() };
 
     // One call, one logged run — the batch's spend belongs to the invocation,
-    // not to a fraction of each image.
+    // not to a fraction of each image. The error text carries the echo verdict
+    // and a sample of the offending markers, so extraction_runs.error_code is
+    // enough to tell WHY a batch was rejected without the CLI transcript.
     this.logRead(runId, batch.call, Date.now() - startedAt);
+    const key = chunkKey(rows);
+    if (batch.call.status === "error" && batch.call.error) {
+      this.batchErrors.set(key, batch.call.error);
+    } else this.batchErrors.delete(key);
 
     // A refusal belongs to the CALL, not to any file in it: it is counted once
     // however many rows carry the message, and re-asking one file at a time is
@@ -1012,6 +1031,11 @@ export class MediaQueue {
       model: result.model,
     });
   }
+}
+
+/** Identifies one chunk of the split recursion — first row plus its size. */
+function chunkKey(rows: readonly PendingMediaRow[]): string {
+  return `${rows[0]?.id ?? ""}:${rows.length}`;
 }
 
 /** A batch whose call never returned: every row failed, retryably. */

@@ -106,8 +106,8 @@ describe("GET /api/quota", () => {
       cacheCreationInputTokens: 10_651,
       cacheReadInputTokens: 48_000,
       outputTokens: 206,
-      // 18 + 10651*1.25 + 48000*0.1 + 206
-      billableTokens: 18_338,
+      // 18 + 10651*2.0 + 48000*0.1 + 206
+      billableTokens: 26_326,
       runCount: 1,
     });
   });
@@ -137,8 +137,8 @@ describe("GET /api/quota", () => {
       cacheCreationInputTokens: 400,
       cacheReadInputTokens: 5_000,
       outputTokens: 40,
-      // 12 + 400*1.25 + 5000*0.1 + 40
-      billableTokens: 1_052,
+      // 12 + 400*2.0 + 5000*0.1 + 40
+      billableTokens: 1_352,
       costUsd: 0.004,
       runCount: 1,
     });

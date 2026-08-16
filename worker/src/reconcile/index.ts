@@ -50,10 +50,13 @@
 
 import { randomUUID } from "node:crypto";
 
+import { promoteArcs } from "../arcs/promote-store.js";
 import { arcEpisodeIds, readArcs } from "../arcs/provisional.js";
 import { reconcile, type ReconcileResult } from "../arcs/reconcile.js";
 import { getDb } from "../db/connection.js";
 import { appStateGet, appStateSet } from "../db/ingest.js";
+import { sweepGoalEmergence } from "../goals/emerge.js";
+import { bindLoopArcs } from "../scheduler/arc-pass.js";
 import { type TransitionResult } from "../scheduler/cohorts.js";
 import { type SchedulerMode } from "../scheduler/horizons.js";
 import { readCoverage, type CoverageRow } from "../scheduler/queue.js";
@@ -108,9 +111,9 @@ export interface ReconcileStep {
 }
 
 /**
- * ① ② ③ ④ ⑤ ⑥ — the arc pass, the only step that ships with the job.
- * Later items register alongside it; §12 step 28 names space status and the
- * goal-emergence pass as the next two.
+ * ① ② ③ ④ ⑤ ⑥ — the arc pass. Provisionals in, committed arcs out.
+ * The two steps below are §12 step 28's "next two", and they run AFTER this
+ * one because both read the arcs it has only just committed.
  */
 export const arcReconcileStep: ReconcileStep = {
   name: "arcs",
@@ -135,7 +138,95 @@ export const arcReconcileStep: ReconcileStep = {
   },
 };
 
-const steps = new Map<string, ReconcileStep>([[arcReconcileStep.name, arcReconcileStep]]);
+/**
+ * SPACE STATUS — §12 step 28's first "next", §11.3's "a space is a promoted
+ * arc". Two writes, in this order and only this order:
+ *
+ *   1. `bindLoopArcs` gives each loop the arc its own evidence already sits in.
+ *      It MUST precede the sweep: `promoteArcs` reads `loops WHERE arc_id = ?`,
+ *      and "≥1 live loop" is the whole promotion test — a sweep run before the
+ *      bind promotes nothing and then records "no promotion route qualifies"
+ *      as if that were a finding.
+ *   2. `promoteArcs` re-derives the eight promotion fields for every arc.
+ *
+ * `promoteArcs` had NO production caller for the whole build despite its own
+ * docstring saying "called at reconcile" — which is why `promoted = 1` was
+ * never written on a live install and the Spaces tab was empty. It is pure over
+ * loops, edges, episodes and the clock, so running it on every reconcile is
+ * safe and converges: a second run writes no `mutations` row, which is exactly
+ * the idempotence the job already measures.
+ *
+ * `[CODE]`, zero calls. The sweep buys nothing and the bind is one join.
+ */
+export const PROMOTION_STEP_MODEL_CALLS = 0;
+
+export const promotionReconcileStep: ReconcileStep = {
+  name: "promotion",
+  modelCalls: PROMOTION_STEP_MODEL_CALLS,
+  run(ctx) {
+    const loopsBound = bindLoopArcs({ runId: ctx.runId });
+    const sweep = promoteArcs({ now: ctx.now, runId: ctx.runId });
+    return {
+      detail: {
+        loopsBound,
+        arcs: sweep.verdicts.length,
+        promoted: sweep.promoted,
+        demoted: sweep.demoted,
+        blockedByParty: sweep.blockedByParty,
+        justified: sweep.justified,
+      },
+    };
+  },
+};
+
+/**
+ * GOAL EMERGENCE — §12 step 28's second "next", §11.6 ⑧.
+ *
+ * PROPOSES, AND DELIBERATELY DOES NOT CONFIRM. §11.6 ⑧ says *propose a life
+ * project*, and `goals/emerge.ts` is explicit that `confirm: true` is "the
+ * caller asserting the confirmation already happened" — which a scheduled
+ * sweep is not entitled to assert. So this step writes no `goals` row; it
+ * reports how many the graph currently supports, which is the number the
+ * Spaces surface needs before it can offer the user the choice.
+ *
+ * Wired anyway, because an unwired builder is the defect this build has spent
+ * itself fixing: with a caller, `proposeGoals` runs against the real graph on
+ * every reconcile and its count is on the report. Without one it was never
+ * evaluated at all.
+ *
+ * `[CODE]`, zero calls — emergence is a shape in the graph, never a model's
+ * opinion, and never scaffolded by extraction.
+ */
+export const GOAL_STEP_MODEL_CALLS = 0;
+
+export const goalEmergenceStep: ReconcileStep = {
+  name: "goals",
+  modelCalls: GOAL_STEP_MODEL_CALLS,
+  run() {
+    const sweep = sweepGoalEmergence();
+    return {
+      detail: {
+        proposals: sweep.proposals.length,
+        confirmed: sweep.confirmed.length,
+        spaces: [...new Set(sweep.proposals.flatMap((p) => p.spaceIds))].length,
+      },
+    };
+  },
+};
+
+/**
+ * The shipped registry, in ladder order: commit arcs, then derive spaces off
+ * them, then look for goals above those spaces. Insertion order IS run order
+ * (`reconcileSteps` walks the Map), and each step reads what the one before it
+ * wrote — so the order is load-bearing, not cosmetic.
+ */
+const SHIPPED_STEPS: readonly ReconcileStep[] = [
+  arcReconcileStep,
+  promotionReconcileStep,
+  goalEmergenceStep,
+];
+
+const steps = new Map<string, ReconcileStep>(SHIPPED_STEPS.map((s) => [s.name, s] as const));
 
 /** Register (or replace) a step. Later items hook in here, in insertion order. */
 export function registerReconcileStep(step: ReconcileStep): void {
@@ -149,7 +240,7 @@ export function reconcileSteps(): ReconcileStep[] {
 /** Back to the shipped registry. For tests and for `reset source`. */
 export function resetReconcileSteps(): void {
   steps.clear();
-  steps.set(arcReconcileStep.name, arcReconcileStep);
+  for (const step of SHIPPED_STEPS) steps.set(step.name, step);
 }
 
 // ---------------------------------------------------------------------------

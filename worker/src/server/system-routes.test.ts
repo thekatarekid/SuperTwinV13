@@ -183,13 +183,27 @@ describe("GET /api/usage", () => {
     return (await res.json()) as UsagePayload;
   }
 
+  // The 130 runs seeded through db.logRun above are in here too, and that is
+  // the point: logRun dual-writes into `runs`, so the two paths that actually
+  // spend money on an installed build — chat and background media reading —
+  // reach this payload. Before that they wrote `extraction_runs` only, and the
+  // Usage board rendered empty over spend that had genuinely happened.
+  const LOGGED_RUNS = SEEDED;
+  /** sum(0..129) — the input tokens those seeded runs carry. */
+  const LOGGED_INPUT = (SEEDED * (SEEDED - 1)) / 2;
+
   it("returns the token table, the totals, the cache reality and the cost", async () => {
     const u = await usage();
     expect(u.window).toBe("7d");
-    expect(u.byRole.length).toBe(2);
-    expect(u.totals.totalInputTokens).toBe(18 + 10_651 + 48_000 + 1200);
+    // extract/sonnet-5, media/haiku-4.5, and the logged media/haiku-4-5 rows.
+    expect(u.byRole.length).toBe(3);
+    expect(u.totals.totalInputTokens).toBe(
+      18 + 10_651 + 48_000 + 1200 + LOGGED_INPUT,
+    );
+    // The logged runs reported no cost, which is 0 recorded — never a locally
+    // recomputed price — so the CLI's own $0.69 still stands alone.
     expect(u.totals.costUsd).toBeCloseTo(0.69, 10);
-    expect(u.runs.total).toBe(2);
+    expect(u.runs.total).toBe(2 + LOGGED_RUNS);
   });
 
   it("the per-role rows sum to the totals — same filter, same row set", async () => {
@@ -210,7 +224,10 @@ describe("GET /api/usage", () => {
 
   it("flags the haiku rows whose zero cache is expected, not broken", async () => {
     const u = await usage();
-    expect(u.cache.belowMinimumModels).toEqual(["claude-haiku-4.5"]);
+    expect(u.cache.belowMinimumModels).toEqual([
+      "claude-haiku-4-5-20251001",
+      "claude-haiku-4.5",
+    ]);
     expect(u.cache.hitRate).toBeCloseTo(48_000 / u.totals.totalInputTokens, 10);
   });
 

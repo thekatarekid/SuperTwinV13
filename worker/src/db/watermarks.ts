@@ -43,6 +43,8 @@ interface WatermarkStatements {
   noteLive: Database.Statement;
   noteBackfill: Database.Statement;
   complete: Database.Statement;
+  unsealed: Database.Statement;
+  countStreams: Database.Statement;
   reset: Database.Statement;
 }
 
@@ -84,6 +86,17 @@ function statements(): WatermarkStatements {
         backfill_complete = 1,
         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
     `),
+    // The streams of a source that are NOT sealed yet — including the ones with
+    // no watermark row at all (a lane that produced no event), which is why this
+    // is a LEFT JOIN and not a read of `watermarks` alone.
+    unsealed: db.prepare(`
+      SELECT s.id AS id
+        FROM streams s
+        LEFT JOIN watermarks w ON w.stream_id = s.id
+       WHERE s.source_id = ?
+         AND COALESCE(w.backfill_complete, 0) = 0
+    `),
+    countStreams: db.prepare(`SELECT COUNT(*) AS n FROM streams WHERE source_id = ?`),
     reset: db.prepare(`DELETE FROM watermarks WHERE stream_id IN (SELECT id FROM streams WHERE source_id = ?)`),
   };
   return stmts;
@@ -134,20 +147,37 @@ export function markBackfillComplete(streamId: string): void {
   statements().complete.run({ streamId });
 }
 
+/** What one seal pass found and did. */
+export interface BackfillSealReport {
+  /** Streams the source owns at the moment the pass ran. */
+  streams: number;
+  /** How many of those were still unsealed and have now been marked. */
+  sealed: number;
+}
+
 /**
  * History for every stream of a source is exhausted — what the daemon's
  * `backfill_complete` means. Streams with no watermark row yet get one, so a
  * lane that never produced an event still records that its import ran.
+ *
+ * Deliberately RE-RUNNABLE, not just idempotent. The daemon announces
+ * `backfill_complete` before its last page has finished landing, so the first
+ * pass sees only the streams that exist so far and every stream created after it
+ * would keep `backfill_complete = 0` forever — `noteBackfillEvent`'s upsert
+ * creates those rows without the flag, and nothing else ever sets it. Callers
+ * therefore run this again once ingest goes quiet (Ingestion's backfill seal)
+ * and again on boot; each re-run reads one indexed list and writes only the
+ * stragglers, so a fully sealed source costs a single SELECT.
  */
-export function markSourceBackfillComplete(sourceId: string): void {
+export function markSourceBackfillComplete(sourceId: string): BackfillSealReport {
   const s = statements();
-  const ids = s.db
-    .prepare(`SELECT id FROM streams WHERE source_id = ?`)
-    .all(sourceId) as { id: string }[];
+  const ids = s.unsealed.all(sourceId) as { id: string }[];
   const tx = s.db.transaction(() => {
     for (const { id } of ids) s.complete.run({ streamId: id });
   });
   tx();
+  const { n } = s.countStreams.get(sourceId) as { n: number };
+  return { streams: n, sealed: ids.length };
 }
 
 /** Drop every watermark belonging to a source (used by the source reset). */

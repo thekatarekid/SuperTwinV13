@@ -47,6 +47,7 @@ import {
 import type { MediaMeta } from "../db/ingest.js";
 import { markSourceBackfillComplete, noteIngestedEvent } from "../db/watermarks.js";
 import { enqueueLiveMedia } from "../media/queue.js";
+import { ensureTiers } from "../tiers/ensure.js";
 
 /** Live-ingest nudge debounce (Rev 2 §R2.2): coalesce bursts into one frame. */
 const NUDGE_DEBOUNCE_MS = 750;
@@ -60,6 +61,20 @@ const NUDGE_MAX_STREAMS = 50;
  * gap flushes it.
  */
 const BACKFILL_FLUSH_MS = 250;
+
+/**
+ * How long ingest must be quiet before the import is SEALED — i.e. before every
+ * stream of the source is marked `backfill_complete` (db/watermarks).
+ *
+ * The daemon's `backfill_complete` frame is not the end of the import, only the
+ * end of the *push*: on a real 30-day WhatsApp sync the last rows landed up to
+ * 96s after that frame, so sealing on the frame alone left every stream created
+ * afterwards at `backfill_complete = 0` — and `modeAfterBackfill`
+ * (scheduler/horizons) then reports "bootstrap" for ever. The seal is therefore
+ * re-armed by every row that inserts and only fires once nothing has landed for
+ * this long.
+ */
+const BACKFILL_SEAL_MS = 5_000;
 
 /**
  * Pack the low-traffic media fields into `events.media_meta_json` (media spec
@@ -140,6 +155,10 @@ export class Ingestion {
   private readonly backfillBuffer: DescendingCohortBuffer<SourceEvent> | null;
   private backfillTimer: NodeJS.Timeout | null = null;
 
+  // Post-import seal (see BACKFILL_SEAL_MS). Armed by the daemon's
+  // `backfill_complete`, re-armed by every row that inserts after it.
+  private backfillSealTimer: NodeJS.Timeout | null = null;
+
   readonly stats: IngestionStats = {
     streamsUpserted: 0,
     actorsUpserted: 0,
@@ -187,6 +206,14 @@ export class Ingestion {
     this.importDone = appStateGet(importDoneKey(this.sourceId)) === "true";
     const savedRange = appStateGet(importRangeKey(this.sourceId));
     this.importRangeValue = isRange(savedRange) ? savedRange : undefined;
+
+    // Self-heal an install whose import finished but whose watermarks never got
+    // the flag — either an older build that sealed before the streams existed,
+    // or a crash between the daemon's `backfill_complete` and this run's seal.
+    // `import_done` is the authority on "history was pushed"; the watermarks are
+    // just its per-stream record, so re-deriving them from it is safe. Costs one
+    // SELECT when there is nothing to repair.
+    if (this.importDone) markSourceBackfillComplete(this.sourceId);
     if (
       "setPaused" in this.adapter &&
       typeof (this.adapter as { setPaused?: unknown }).setPaused === "function"
@@ -232,17 +259,21 @@ export class Ingestion {
     this.lastStatus = this.adapter.getStatus();
 
     // History is exhausted: flush whatever the re-order buffer still holds, so
-    // the tail of an ascending import is not left waiting on a timer.
+    // the tail of an ascending import is not left waiting on a timer, persist
+    // the import state (Rev 2 §R2.1 — the first completed backfill pins
+    // import_done=true + the range so a relaunch skips the range picker), then
+    // seal.
+    //
+    // The seal runs TWICE on purpose: optimistically now, for the streams that
+    // already exist, and again once ingest has been quiet for BACKFILL_SEAL_MS,
+    // for the tail that is still landing. `import_done` is written BEFORE the
+    // first seal so a crash in the window between them is repaired by the boot
+    // pass in start().
     if (s.type === "backfill_complete") {
       this.flushBackfill();
-      markSourceBackfillComplete(this.sourceId);
-    }
-
-    // Persist import state on the daemon's backfill_complete (Rev 2 §R2.1). The
-    // first completed backfill pins import_done=true + the range so a relaunch
-    // skips the range picker.
-    if (s.type === "backfill_complete") {
       this.markImportDone(s.range);
+      markSourceBackfillComplete(this.sourceId);
+      this.scheduleBackfillSeal();
     }
 
     for (const cb of this.statusSubs) {
@@ -314,6 +345,9 @@ export class Ingestion {
       isBusiness: s.is_business,
     });
     this.stats.streamsUpserted += 1;
+    // A stream announced after `backfill_complete` is exactly what the seal is
+    // waiting for, even when it never carries an event of its own.
+    this.touchBackfillSeal();
   }
 
   private onActor(a: Actor): void {
@@ -377,6 +411,57 @@ export class Ingestion {
   flushBackfill(): void {
     if (!this.backfillBuffer) return;
     for (const cohort of this.backfillBuffer.flush()) this.writeCohort(cohort);
+  }
+
+  // ---- Post-import seal ----------------------------------------------------
+
+  /**
+   * (Re)arm the seal. Unlike the nudge debounce this one RESETS on every call:
+   * the window has to be measured from the last row that landed, not from the
+   * first, or a 96s tail seals 91s too early.
+   */
+  private scheduleBackfillSeal(): void {
+    if (this.backfillSealTimer) clearTimeout(this.backfillSealTimer);
+    this.backfillSealTimer = setTimeout(() => this.sealBackfill(), BACKFILL_SEAL_MS);
+    this.backfillSealTimer.unref?.();
+  }
+
+  /**
+   * Extend an ALREADY-ARMED seal. A row landing before the daemon said
+   * `backfill_complete` is just the import running; it must not arm a seal of
+   * its own, so this is a no-op until that frame has been seen.
+   */
+  private touchBackfillSeal(): void {
+    if (this.backfillSealTimer) this.scheduleBackfillSeal();
+  }
+
+  /**
+   * Ingest has been quiet since the daemon finished pushing: every stream the
+   * import produced exists now, so mark the ones the optimistic first pass could
+   * not see. Sticky and re-runnable, so this costs one SELECT when the first
+   * pass already caught everything.
+   */
+  private sealBackfill(): void {
+    this.backfillSealTimer = null;
+    const seal = markSourceBackfillComplete(this.sourceId);
+
+    // Tiering (item 1.2, arch §9.3 rule 4) hangs off THIS edge, not off the
+    // daemon's `backfill_complete` frame: the boot pass in ../index.ts runs
+    // before a single stream exists on a cold install, and the frame itself
+    // lands 10-96s before the last stream does. This is the first moment every
+    // imported stream is in the DB, so it is the first moment a tier backfill
+    // is not vacuous. `streams.tier` NULL is what makes a channel unreachable
+    // by every scheduler lane, so this is the precondition for all of it.
+    //
+    // Fire-and-forget on purpose — ingest must never block on a tier pass — and
+    // `ensureTiers` never throws (it reports `ok:false`), so the `.catch` is
+    // belt-and-braces. Zero LLM calls unless SUPERTWIN_TIER_MODEL is opted in.
+    void ensureTiers({ reason: "backfill_complete" }).catch((err: unknown) => {
+      console.error(
+        `[ingest] tier backfill after seal failed (${seal.sealed}/${seal.streams} streams sealed):`,
+        err,
+      );
+    });
   }
 
   private writeEvent(e: SourceEvent): void {
@@ -488,6 +573,9 @@ export class Ingestion {
       // through this same callback, and an import IS the backlog, not something
       // entitled to jump it.
       if (e.media?.path) enqueueLiveMedia(res.id, e.is_historical === true);
+      // A row that lands after `backfill_complete` pushes the seal out: it may
+      // have created the stream this write just upserted.
+      this.touchBackfillSeal();
       this.nudge(streamId);
     } else {
       this.stats.eventsDeduped += 1;

@@ -16,6 +16,8 @@
 import { V2_CORE } from "./migrations/0020_v2_core.js";
 import { STREAM_TIERS } from "./migrations/0023_stream_tiers.js";
 import { LATENCY_MARKS } from "./migrations/0024_latency_marks.js";
+import { CACHE_WRITE_SPLIT } from "./migrations/0025_cache_write_split.js";
+import { RUNS_BACKFILL } from "./migrations/0026_runs_backfill.js";
 
 export interface Migration {
   id: string;
@@ -907,4 +909,11 @@ export const MIGRATIONS: Migration[] = [
   // Persisted TTFT / tokens-per-second marks and the global-acceptance
   // milestones (arch §9.5.3 rule 4, build item 4.2).
   { id: "0024_latency_marks", sql: LATENCY_MARKS },
+  // The cache-write half split by TTL: 5-minute writes bill at 1.25x a fresh
+  // input token, 1-hour writes at 2.0x, and this build writes 1-hour entries.
+  { id: "0025_cache_write_split", sql: CACHE_WRITE_SPLIT },
+  // History from `extraction_runs` copied into `runs` + `latency_marks`, so an
+  // installed build's Usage and Latency panels are not blank over spend that
+  // really happened. After 0025, whose columns it writes.
+  { id: "0026_runs_backfill", sql: RUNS_BACKFILL },
 ];

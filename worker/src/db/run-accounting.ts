@@ -10,8 +10,10 @@
 // Three invariants this section exists to hold:
 //   1. total_input = cache_read + cache_create + input_tokens — computed, never
 //      read off `input_tokens` alone (that field is post-breakpoint only).
-//   2. billable = input + 1.25·create + 0.1·read + output, and the quota gate
-//      sees nothing else.
+//   2. billable = input + 1.25·create_5m + 2.0·create_1h + 0.1·read + output,
+//      and the quota gate sees nothing else. The two cache-write TTLs price
+//      apart; a write the wire never attributed to one bills at the 1-hour
+//      rate, which is what this build's CLI writes (providers/usage.ts).
 //   3. cost_usd is the CLI's own number, stored verbatim. Cost and tokens are
 //      aggregated by ONE query builder over ONE filter, so a real $0.69 can
 //      never render as "—" because the two halves disagreed on the row set.
@@ -26,6 +28,7 @@ import {
   billableTokens,
   cacheBelowMinimum,
   cacheMinimumTokens,
+  cacheWriteParts,
   estimateSpend,
   projectSpend,
   totalInputTokens,
@@ -56,12 +59,32 @@ export function isRunRole(v: unknown): v is RunRole {
   return typeof v === "string" && RUN_ROLE_SET.has(v);
 }
 
+/**
+ * Model recorded when the call ran on the subscription default and no `--model`
+ * was passed. `""` is how the rest of the codebase spells that, but accounting
+ * is per (role, model) and a blank grouping key renders as an unlabelled block,
+ * so the accounting table names it instead.
+ */
+export const DEFAULT_MODEL_LABEL = "(default)";
+
 export interface RecordRunParams {
   /** Optional caller-supplied id; a uuid is minted when absent. */
   id?: string;
   role: RunRole;
   model: string;
-  cohortId: string;
+  /**
+   * The import cohort this call belongs to, or explicitly `null` when it
+   * belongs to none. Chat and on-demand media reading are the null case: they
+   * are background/interactive work that no import planned, and forcing them
+   * into a sentinel cohort would either put a fake row in front of the
+   * scheduler (`pendingCohorts` takes every cohort that is not done) or fold
+   * background spend into the per-event import estimate. `null` keeps them out
+   * of both while leaving them in the unfiltered totals, which is where the
+   * money actually is. Attribution still holds, because `role` stays mandatory
+   * — role is what makes a "Chat" block really chat. A BLANK string is still
+   * refused: an empty cohort id is a dropped value, not a decision.
+   */
+  cohortId: string | null;
   kind?: string | null;
   status?: string;
   startedAt?: string;
@@ -80,8 +103,9 @@ export interface RecordRunParams {
 
 /**
  * Write one model call. Throws rather than writing an unattributable row: a run
- * with no role or no cohort cannot be aggregated honestly later, and a silent
- * NULL here is exactly how "Chat: $2.10" ends up being background extraction.
+ * with no role cannot be aggregated honestly later, and a silent NULL there is
+ * exactly how "Chat: $2.10" ends up being background extraction. A null
+ * `cohortId` is a stated decision and is allowed — see RecordRunParams.
  */
 export function recordRun(p: RecordRunParams): string {
   if (!isRunRole(p.role)) {
@@ -89,13 +113,16 @@ export function recordRun(p: RecordRunParams): string {
       `runs.role is required and must be one of ${RUN_ROLES.join("|")} — got ${String(p.role)}`,
     );
   }
-  if (typeof p.cohortId !== "string" || p.cohortId.trim() === "") {
-    throw new Error("runs.cohort_id is required — every run is attributed to a cohort");
+  if (p.cohortId !== null && (typeof p.cohortId !== "string" || p.cohortId.trim() === "")) {
+    throw new Error(
+      "runs.cohort_id is required — pass a cohort id, or an explicit null for a call that belongs to no cohort",
+    );
   }
   if (typeof p.model !== "string" || p.model.trim() === "") {
     throw new Error("runs.model is required — accounting is per (role, model)");
   }
   const id = p.id ?? randomUUID();
+  const write = cacheWriteParts(p.usage);
   a().insertRun.run({
     id,
     kind: p.kind ?? null,
@@ -107,6 +134,11 @@ export function recordRun(p: RecordRunParams): string {
     status: p.status ?? "ok",
     inputTokens: p.usage.inputTokens,
     cacheCreate: p.usage.cacheCreationInputTokens,
+    // The TTL halves are stored beside the total so `billable_tokens` can be
+    // re-derived from the row later. Unattributed writes stay in cache_create
+    // only, and re-derive at the 1-hour rate exactly as they were billed.
+    cacheCreate5m: write.fiveMinute,
+    cacheCreate1h: write.oneHour,
     cacheRead: p.usage.cacheReadInputTokens,
     outputTokens: p.usage.outputTokens,
     // Derived once, here, so the gate and the UI can never disagree about it.
@@ -465,11 +497,13 @@ function a(): AcctStmts {
     insertRun: db.prepare(`
       INSERT INTO runs
         (id, kind, role, model, cohort_id, started_at, ended_at, status,
-         input_tokens, cache_create, cache_read, output_tokens,
+         input_tokens, cache_create, cache_create_5m, cache_create_1h,
+         cache_read, output_tokens,
          billable_tokens, cost_usd, error_code, error_msg)
       VALUES
         (@id, @kind, @role, @model, @cohortId, @startedAt, @endedAt, @status,
-         @inputTokens, @cacheCreate, @cacheRead, @outputTokens,
+         @inputTokens, @cacheCreate, @cacheCreate5m, @cacheCreate1h,
+         @cacheRead, @outputTokens,
          @billableTokens, @costUsd, @errorCode, @errorMsg)
     `),
   };

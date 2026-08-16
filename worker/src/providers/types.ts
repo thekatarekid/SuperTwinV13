@@ -17,6 +17,18 @@ export interface Usage {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   outputTokens: number;
+  /**
+   * The cache-write half broken down by TTL, when the wire carried the
+   * breakdown (`usage.cache_creation.ephemeral_5m_input_tokens` and
+   * `…_1h_input_tokens`). A 5-minute write bills at 1.25x a fresh input token,
+   * a 1-HOUR write at 2.0x, and this build's CLI writes 1-hour entries — so
+   * pricing the undivided `cacheCreationInputTokens` at 1.25 under-counts real
+   * spend by ~31%. Both are ABSENT, not 0, when the line carried no breakdown:
+   * `billableTokens` then prices the unattributed remainder at the 1-hour rate
+   * the stored runs actually measure.
+   */
+  cacheCreation5mInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
   costUsd?: number;
 }
 

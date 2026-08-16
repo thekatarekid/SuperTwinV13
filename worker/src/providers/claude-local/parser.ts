@@ -89,8 +89,20 @@ export interface ParseOutput {
   events: ProviderStreamEvent[];
   sessionId?: string;
   result?: ParsedResult;
-  /** True if this line produced a text delta (adapter dedupes assistant text). */
+  /** True if this CHUNK produced a streamed text delta. Chunk-wide by nature —
+   * `push()` decodes every line in the chunk into one ParseOutput — so it says
+   * nothing about an individual event. Use `fromAssistantLine` for that. */
   emittedDelta?: boolean;
+  /**
+   * The events in `events` that were decoded from a full `assistant` line,
+   * identified by object identity. With partials ON these duplicate text the
+   * caller already streamed, so the adapter drops exactly these rather than
+   * judging the whole chunk: a chunk carrying trailing content_block_deltas
+   * AND the terminal assistant line sets `emittedDelta`, and testing that flag
+   * let the duplicate through — the doubled block then swallowed the marker
+   * that opened it. Absent when the chunk held no assistant line.
+   */
+  fromAssistantLine?: Set<ProviderStreamEvent>;
 }
 
 function toNum(v: unknown): number {
@@ -110,6 +122,19 @@ export function extractUsage(usage: unknown, cost?: unknown): Usage {
     cacheReadInputTokens: toNum(u.cache_read_input_tokens),
     outputTokens: toNum(u.output_tokens),
   };
+  // `cache_creation` splits the write half by TTL, and the two TTLs bill at
+  // different multiples (1.25x vs 2.0x), so the split is the difference between
+  // a correct billable figure and a 31% under-count. It rides on message_start
+  // and message_delta but NOT on the terminal `result` line, whose usage is the
+  // run total — see StreamJsonParser.carryTurnSplit, which carries it across.
+  // Left absent when the line has no breakdown: 0/0 would claim the wire said
+  // the writes were neither.
+  const split = u.cache_creation;
+  if (split !== null && typeof split === "object") {
+    const c = split as Record<string, unknown>;
+    out.cacheCreation5mInputTokens = toNum(c.ephemeral_5m_input_tokens);
+    out.cacheCreation1hInputTokens = toNum(c.ephemeral_1h_input_tokens);
+  }
   if (typeof cost === "number" && Number.isFinite(cost)) out.costUsd = cost;
   return out;
 }
@@ -129,6 +154,15 @@ export class StreamJsonParser {
   private sawTurnStream = false;
   /** Assistant-line ids already billed (partials-off fallback path only). */
   private readonly billedMessages = new Set<string>();
+  /**
+   * `<message id> <text>` for every assistant-line text block already
+   * emitted. The CLI repeats one message id once per content block, so a
+   * re-stated text block is a duplicate of text the caller already has —
+   * appending it twice is what corrupts a marker-delimited answer. Keyed on
+   * the text as well as the id so a message with two GENUINELY different text
+   * blocks still streams both.
+   */
+  private readonly emittedTextBlocks = new Set<string>();
 
   /**
    * Everything accounted for so far, INCLUDING a turn still in flight. The
@@ -213,7 +247,15 @@ export class StreamJsonParser {
         this.currentTurn = extractUsage(msg.usage);
       } else if (evType === "message_delta") {
         // Same turn restated with its real output_tokens; replace, never add.
-        if (ev.usage) this.currentTurn = extractUsage(ev.usage);
+        // The restatement drops the `cache_creation` breakdown that
+        // message_start carried, so it is inherited back — otherwise the split
+        // would vanish on every turn that actually streamed.
+        if (ev.usage) {
+          this.currentTurn = inheritCacheSplit(
+            extractUsage(ev.usage),
+            this.currentTurn,
+          );
+        }
       } else if (evType === "message_stop") {
         this.commitTurn();
       }
@@ -239,13 +281,19 @@ export class StreamJsonParser {
           );
         }
       }
+      const msgId = typeof message.id === "string" ? message.id : "";
       const content = Array.isArray(message.content) ? message.content : [];
       for (const block of content) {
         const b = (block ?? {}) as Record<string, unknown>;
         if (b.type === "text" && typeof b.text === "string" && b.text.length) {
-          out.events.push({ type: "delta", text: b.text });
+          // Second guard against doubled text, independent of the adapter's
+          // suppression: the same block of the same message is emitted once.
+          const key = `${msgId} ${b.text}`;
+          if (this.emittedTextBlocks.has(key)) continue;
+          this.emittedTextBlocks.add(key);
+          this.markFromAssistant(out, { type: "delta", text: b.text });
         } else if (b.type === "tool_use") {
-          out.events.push({
+          this.markFromAssistant(out, {
             type: "tool_use",
             name: typeof b.name === "string" ? b.name : "unknown",
             input: b.input ?? {},
@@ -259,7 +307,9 @@ export class StreamJsonParser {
     if (type === "result") {
       // Already the run total (see the wire-shape note above), so it stands in
       // for the per-turn accumulator rather than adding to it.
-      const usage = extractUsage(obj.usage, obj.total_cost_usd);
+      const usage = this.carryTurnSplit(
+        extractUsage(obj.usage, obj.total_cost_usd),
+      );
       const errors = Array.isArray(obj.errors)
         ? (obj.errors.filter((e) => typeof e === "string") as string[])
         : undefined;
@@ -280,11 +330,62 @@ export class StreamJsonParser {
     // system/init, rate_limit_event, hooks, post_turn_summary, status: ignored.
   }
 
+  /**
+   * The result line states the run's TOTAL cache-write tokens but carries no
+   * `cache_creation` breakdown, while every message_start does. When the turns
+   * we saw add up to exactly the result's write total, they are the same
+   * tokens, so their split describes the total too and is carried across.
+   * When the two disagree (a turn that never streamed) the split is left
+   * absent and `billableTokens` prices the remainder at the 1-hour rate.
+   */
+  private carryTurnSplit(u: Usage): Usage {
+    return inheritCacheSplit(u, this.usageSoFar());
+  }
+
+  /**
+   * Emit an event AND record that it came from a full `assistant` line, so the
+   * caller can drop the duplicate text without judging the whole chunk.
+   */
+  private markFromAssistant(out: ParseOutput, ev: ProviderStreamEvent): void {
+    out.events.push(ev);
+    (out.fromAssistantLine ??= new Set<ProviderStreamEvent>()).add(ev);
+  }
+
   private commitTurn(): void {
     if (!this.currentTurn) return;
     this.completedTurns = sumUsage(this.completedTurns, this.currentTurn);
     this.currentTurn = null;
   }
+}
+
+/**
+ * Carry a `cache_creation` breakdown from `from` onto `onto`, when `onto` has
+ * none of its own and the two agree on the write TOTAL they describe. Equal
+ * totals mean the same tokens, so the same split describes both. Unequal ones
+ * mean `from` describes something else — a turn that never streamed, say — and
+ * the split is left absent rather than guessed at.
+ *
+ * Needed twice, because the CLI drops the breakdown at two different points:
+ * message_delta restates a turn without it, and the terminal result line
+ * carries the run total without it.
+ */
+function inheritCacheSplit(onto: Usage, from: Usage | null): Usage {
+  if (
+    onto.cacheCreation5mInputTokens !== undefined ||
+    onto.cacheCreation1hInputTokens !== undefined
+  ) {
+    return onto;
+  }
+  if (from === null) return onto;
+  const m5 = from.cacheCreation5mInputTokens;
+  const m1h = from.cacheCreation1hInputTokens;
+  if (m5 === undefined && m1h === undefined) return onto;
+  if ((m5 ?? 0) + (m1h ?? 0) !== onto.cacheCreationInputTokens) return onto;
+  return {
+    ...onto,
+    cacheCreation5mInputTokens: m5 ?? 0,
+    cacheCreation1hInputTokens: m1h ?? 0,
+  };
 }
 
 /**

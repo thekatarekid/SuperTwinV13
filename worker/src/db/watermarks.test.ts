@@ -147,9 +147,27 @@ describe("completion + reset", () => {
     const a = seedStream("a@x");
     const quiet = seedStream("quiet@x");
     noteLiveEvent(a, "2026-08-01T10:00:00.000Z", "a@x/1");
-    markSourceBackfillComplete("whatsapp");
+    expect(markSourceBackfillComplete("whatsapp")).toEqual({ streams: 2, sealed: 2 });
     expect(readWatermark(a)!.backfill_complete).toBe(true);
     expect(readWatermark(quiet)!.backfill_complete).toBe(true);
+  });
+
+  it("re-run seals only the streams created since the last pass", () => {
+    const first = seedStream("a@x");
+    markSourceBackfillComplete("whatsapp");
+
+    // The import's tail: a stream that did not exist at the first pass, and
+    // whose watermark row is created by the backfill cursor WITHOUT the flag.
+    const late = seedStream("late@x");
+    noteBackfillEvent(late, "2019-01-01T00:00:00.000Z");
+    expect(readWatermark(late)!.backfill_complete).toBe(false);
+
+    expect(markSourceBackfillComplete("whatsapp")).toEqual({ streams: 2, sealed: 1 });
+    expect(readWatermark(late)!.backfill_complete).toBe(true);
+    expect(readWatermark(first)!.backfill_complete).toBe(true);
+
+    // Nothing left to do: a third pass writes nothing.
+    expect(markSourceBackfillComplete("whatsapp")).toEqual({ streams: 2, sealed: 0 });
   });
 
   it("drops a source's watermarks on reset", () => {

@@ -402,8 +402,8 @@ describe("quota", () => {
     const q = getQuota();
     expect(q.cacheCreationInputTokens).toBe(6_000);
     expect(q.cacheReadInputTokens).toBe(50_000);
-    // 17 + 6000*1.25 + 50000*0.1 + 40
-    expect(q.billableTokens).toBe(12_557);
+    // 17 + 6000*2.0 + 50000*0.1 + 40
+    expect(q.billableTokens).toBe(17_057);
   });
 
   it("sums the window's cost per process instead of leaving it on the run (v4 §1)", () => {

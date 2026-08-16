@@ -158,8 +158,9 @@ describe("mediaSpend", () => {
       cacheCreationInputTokens: 100,
       cacheReadInputTokens: 3000,
       outputTokens: 30,
-      // 15 + 100*1.25 + 3000*0.1 + 30
-      billableTokens: 470,
+      // 15 + 100*2.0 + 3000*0.1 + 30 — an unattributed cache write bills at
+      // the 1-hour rate, which is what this build's CLI charges.
+      billableTokens: 545,
       costUsd: 0.03,
       runCount: 2,
     });

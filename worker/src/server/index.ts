@@ -5,10 +5,13 @@
 //   GET  /api/health          -> { ok, version }
 //   POST /api/chat            -> SSE stream of ProviderStreamEvent frames
 //   POST /api/cancel          -> { ok }
-//   GET  /api/sessions        -> [{ sessionId, title, cwd, status, ... }]
-//   GET  /api/sessions/:id    -> { session, messages }
-//   GET  /api/quota           -> QuotaSnapshot + media (its own, ungated spend)
-//   POST /api/sessions/new    -> { sessionId: null }
+//   GET  /api/chat/sessions      -> [{ sessionId, title, cwd, status, ... }]
+//   GET  /api/chat/sessions/:id  -> { session, messages }
+//   GET  /api/quota              -> QuotaSnapshot + media (its own, ungated spend)
+//   POST /api/chat/sessions/new  -> { sessionId: null }
+//
+// /api/sessions itself belongs to the V2 sessions surface (sessions-routes.ts),
+// which answers with a SessionsPage object rather than this bare array.
 //
 // The server is the persistence + logging layer: it enforces quota, looks up
 // the saved session (to feed cwd/bundle guards to the adapter), persists the
@@ -113,6 +116,17 @@ import {
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleOpsRoute } from "./ops-routes.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
+// V2 product surfaces (§3.2). Each owns its own prefix, takes no deps arg, and
+// returns false for a path it does not claim, exactly like handleOpsRoute.
+import { handleSurfacesRoute } from "./surfaces-routes.js";
+import { handleSessionsV2Route } from "./sessions-routes.js";
+import { handleEntitiesRoute } from "./entities-routes.js";
+import { handleEpisodesRoute } from "./episodes-routes.js";
+import { handleArcsRoute } from "./arcs-routes.js";
+import { handleClaimsRoute } from "./claims-routes.js";
+import { handleSpacesRoute } from "./spaces-routes.js";
+import { handleTasksRoute } from "./tasks-routes.js";
+import { handlePeopleRoute } from "./people-routes.js";
 // Item 2.6 — the reconcile job's manual entry point and its nightly timer.
 import { startNightlyTimer, type ReconcileTimer } from "../reconcile/index.js";
 // The episode stage's scheduled caller — the 14-day aging clock (§11.1 rule 5)
@@ -553,8 +567,12 @@ async function handle(
     return;
   }
 
-  // --- GET /api/sessions
-  if (method === "GET" && path === "/api/sessions") {
+  // --- GET /api/chat/sessions
+  // Phase 0 served this at /api/sessions. V2 took that path for the segmented
+  // sessions surface (a SessionsPage object, not this bare array), so the CLI
+  // chat-session list moved under /api/chat/ where the rest of chat already
+  // lives. Nothing derives the path — the one caller is worker-client.ts.
+  if (method === "GET" && path === "/api/chat/sessions") {
     const sessions = db.listSessions();
     const out = sessions.map((s) => ({
       sessionId: s.sessionId,
@@ -570,9 +588,11 @@ async function handle(
     return;
   }
 
-  // --- GET /api/sessions/:id
-  if (method === "GET" && path.startsWith("/api/sessions/")) {
-    const id = decodeURIComponent(path.slice("/api/sessions/".length));
+  // --- GET /api/chat/sessions/:id
+  // Narrowed off /api/sessions/ deliberately: as a bare prefix it swallowed
+  // every V2 /api/sessions/* subpath before handleSessionsV2Route could see it.
+  if (method === "GET" && path.startsWith("/api/chat/sessions/")) {
+    const id = decodeURIComponent(path.slice("/api/chat/sessions/".length));
     const session = db.getSession(id);
     if (!session) {
       sendJson(res, 404, { error: "session not found" });
@@ -601,8 +621,8 @@ async function handle(
     return;
   }
 
-  // --- POST /api/sessions/new
-  if (method === "POST" && path === "/api/sessions/new") {
+  // --- POST /api/chat/sessions/new (moved with the two reads above)
+  if (method === "POST" && path === "/api/chat/sessions/new") {
     sendJson(res, 200, { sessionId: null });
     return;
   }
@@ -723,6 +743,75 @@ async function handle(
     path.startsWith("/api/evaluations")
   ) {
     const handled = await handleSystemRoute(req, res, system);
+    if (handled) return;
+  }
+
+  // --- V2 product surfaces (§3.2). Ungated: these are the product, not a debug
+  // export. Each handler owns its own prefix and returns false for anything it
+  // does not claim, so the order below is alphabetical rather than significant.
+
+  // Coverage strip — polled by every surface.
+  if (path === "/api/coverage") {
+    const handled = await handleSurfacesRoute(req, res);
+    if (handled) return;
+  }
+
+  // Sessions surface. Claims GET /api/sessions (the segmented sessions page)
+  // and the whole /api/streams/ prefix. The Phase-0 chat list that used to sit
+  // on /api/sessions now answers on /api/chat/sessions, above.
+  if (path === "/api/sessions" || path.startsWith("/api/streams/")) {
+    const handled = await handleSessionsV2Route(req, res);
+    if (handled) return;
+  }
+
+  // Entities + the resolution queue.
+  if (
+    path === "/api/entities" ||
+    path.startsWith("/api/entities/") ||
+    path === "/api/resolution-queue" ||
+    path.startsWith("/api/resolution-queue/")
+  ) {
+    const handled = await handleEntitiesRoute(req, res);
+    if (handled) return;
+  }
+
+  // Episodes.
+  if (path === "/api/episodes" || path.startsWith("/api/episodes/")) {
+    const handled = await handleEpisodesRoute(req, res);
+    if (handled) return;
+  }
+
+  // Arcs (incl. /api/arcs/questions).
+  if (path === "/api/arcs" || path.startsWith("/api/arcs/")) {
+    const handled = await handleArcsRoute(req, res);
+    if (handled) return;
+  }
+
+  // Claims (incl. /api/claims/conflicts).
+  if (path === "/api/claims" || path.startsWith("/api/claims/")) {
+    const handled = await handleClaimsRoute(req, res);
+    if (handled) return;
+  }
+
+  // Spaces + life projects.
+  if (path === "/api/spaces" || path.startsWith("/api/spaces/") || path === "/api/goals") {
+    const handled = await handleSpacesRoute(req, res);
+    if (handled) return;
+  }
+
+  // Tasks + the done-check questions they raise.
+  if (
+    path === "/api/tasks" ||
+    path.startsWith("/api/tasks/") ||
+    path.startsWith("/api/questions/")
+  ) {
+    const handled = await handleTasksRoute(req, res);
+    if (handled) return;
+  }
+
+  // People.
+  if (path === "/api/people" || path.startsWith("/api/people/")) {
+    const handled = await handlePeopleRoute(req, res);
     if (handled) return;
   }
 

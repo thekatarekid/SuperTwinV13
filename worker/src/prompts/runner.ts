@@ -39,6 +39,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
+import { logExtractionRun, type LogRunParams } from "../db/index.js";
 import { recordRun, type RecordRunParams, type RunRole } from "../db/run-accounting.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
 import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
@@ -104,9 +105,20 @@ export interface PromptCallSpec {
   instructions: string;
   /** The packed, variable half — goes on stdin, never in the cached prefix. */
   user: string;
-  /** Accounting attribution. Both are mandatory: `runs` rejects a NULL either. */
+  /** Accounting attribution. `role` is mandatory: `runs` rejects a NULL one. */
   role: RunRole;
-  cohortId: string;
+  /**
+   * The import cohort this call belongs to, or an explicit `null` for a call
+   * that belongs to none.
+   *
+   * NULL is a real answer, not a missing one. `runs.cohort_id` is a FOREIGN KEY
+   * onto `cohorts`, so a made-up id ("steady", "-") does not park the call
+   * outside the import — it throws `FOREIGN KEY constraint failed` inside the
+   * accounting write and loses the very row that was supposed to account for
+   * the money. Steady-state P-EP2 and the boot tier backfill are exactly that
+   * case. `recordRun` documents what NULL means downstream.
+   */
+  cohortId: string | null;
   model: string;
   /** The unit this call is for; quarantine needs it, so it is required to park. */
   unit?: { kind: string; id: string };
@@ -141,7 +153,8 @@ export interface QuarantineRow {
   id: string;
   unitKind: string;
   unitId: string;
-  cohortId: string;
+  /** `quarantine.cohort_id` is the same FK as `runs.cohort_id` — see the spec. */
+  cohortId: string | null;
   runId: string | null;
   errorCode: string;
   lastError: string;
@@ -152,7 +165,15 @@ export interface RunnerDeps {
   provider?: Provider;
   providerId?: string;
   pool?: ResourcePool;
+  /**
+   * The accounting write, WHOLE. Supplying it replaces both halves — the `runs`
+   * row and its `extraction_runs` mirror — so a unit test with no database
+   * still observes every call exactly once, and nothing reaches SQLite behind
+   * its back. Production supplies neither half.
+   */
   recordRun?: (p: RecordRunParams) => string;
+  /** The `extraction_runs` mirror on its own. See {@link recordRun} above. */
+  logExtractionRun?: (p: LogRunParams) => void;
   quarantine?: (row: QuarantineRow) => void;
   newId?: () => string;
   now?: () => Date;
@@ -212,10 +233,25 @@ interface CallOutcome {
   endedAt: string;
   /** Dispatch → first streamed token, ms. null = no token ever arrived (4.2). */
   ttftMs: number | null;
+  /** Who answered, and how big the ask was — the `extraction_runs` columns. */
+  providerId: string;
+  promptChars: number;
 }
 
 /** Run status for the `runs` row this call produces. */
 type RunStatus = "ok" | "retried" | "quarantined" | "error";
+
+/** The mirror's null object — see the constructor's note on `recordRun`. */
+function noMirror(): void {
+  /* the caller replaced the accounting write wholesale */
+}
+
+/** Wall-clock ms for one call, or 0 when the clock gave nothing usable. */
+function durationOf(call: CallOutcome): number {
+  const started = Date.parse(call.startedAt);
+  const ended = Date.parse(call.endedAt);
+  return Number.isFinite(started) && Number.isFinite(ended) && ended >= started ? ended - started : 0;
+}
 
 /** TTFT from a dispatch instant and the first-token instant; null = no token. */
 function ttftFrom(startedMs: number, firstTokenAtMs: number | null): number | null {
@@ -227,6 +263,7 @@ export class PromptRunner {
   private readonly deps: RunnerDeps;
   private readonly pool: ResourcePool;
   private readonly write: (p: RecordRunParams) => string;
+  private readonly mirror: (p: LogRunParams) => void;
   private readonly park: (row: QuarantineRow) => void;
   private readonly newId: () => string;
   private readonly now: () => Date;
@@ -235,6 +272,10 @@ export class PromptRunner {
     this.deps = deps;
     this.pool = deps.pool ?? resourcePool;
     this.write = deps.recordRun ?? recordRun;
+    // `recordRun` stands in for the WHOLE accounting write: a test that swaps
+    // it out has said it has no database, so the mirror must not go looking
+    // for one either. Both halves are real, or neither is.
+    this.mirror = deps.logExtractionRun ?? (deps.recordRun ? noMirror : logExtractionRun);
     this.park = deps.quarantine ?? defaultQuarantine;
     this.newId = deps.newId ?? randomUUID;
     this.now = deps.now ?? (() => new Date());
@@ -248,6 +289,9 @@ export class PromptRunner {
   private async callOnce(spec: PromptCallSpec, userText: string): Promise<CallOutcome> {
     const runId = this.newId();
     const startedAt = this.now().toISOString();
+    const configuredId = this.deps.providerId ?? DEFAULT_PROVIDER_ID;
+    const system = buildSystemPrompt(spec);
+    const promptChars = system.length + userText.length;
     const provider = this.provider();
     if (!provider) {
       return {
@@ -256,14 +300,16 @@ export class PromptRunner {
         text: "",
         usage: { ...ZERO_USAGE },
         errorCode: "SPAWN_FAILED",
-        errorMessage: `provider "${this.deps.providerId ?? DEFAULT_PROVIDER_ID}" is not registered`,
+        errorMessage: `provider "${configuredId}" is not registered`,
         startedAt,
         endedAt: this.now().toISOString(),
         ttftMs: null,
+        providerId: configuredId,
+        promptChars,
       };
     }
 
-    const systemFile = systemPromptPath(spec.callType, buildSystemPrompt(spec));
+    const systemFile = systemPromptPath(spec.callType, system);
     let text = "";
     let usage: Usage = { ...ZERO_USAGE };
     let failure = "";
@@ -319,6 +365,8 @@ export class PromptRunner {
         startedAt,
         endedAt: this.now().toISOString(),
         ttftMs: ttftFrom(startedMs, firstTokenAtMs),
+        providerId: provider.id,
+        promptChars,
       };
     } catch (err) {
       return {
@@ -333,13 +381,31 @@ export class PromptRunner {
         endedAt: this.now().toISOString(),
         // Whatever streamed before the throw still has an honest TTFT.
         ttftMs: ttftFrom(startedMs, firstTokenAtMs),
+        providerId: provider.id,
+        promptChars,
       };
     }
   }
 
-  /** The `runs` row for one call. Called for every call, ok or not. */
+  /**
+   * The accounting rows for one call — BOTH of them. Called for every call, ok
+   * or not.
+   *
+   * THE DUAL-WRITE INVARIANT (the other half is db/index.ts `logRun`): one
+   * provider call is one `runs` row and one `extraction_runs` row, joined on
+   * the run id, and the table it is written to FIRST says where it came from.
+   * The pipeline enters HERE, `runs` first, because this is the only path that
+   * knows the call's role AND its cohort; `logExtractionRun` then adds the §11
+   * log row and deliberately does NOT mirror back. db/index.ts `logRun` is the
+   * opposite direction for chat and on-demand media, and the two must never
+   * meet — either one reaching the other would double-count every call.
+   *
+   * The mirror is what puts derivation spend in Settings → Recent runs, which
+   * reads `extraction_runs`: without it the whole pipeline rendered as $0
+   * there while `runs` held the real money.
+   */
   private logRun(spec: PromptCallSpec, call: CallOutcome, status: RunStatus): string {
-    return this.write({
+    const id = this.write({
       id: call.runId,
       role: spec.role,
       model: spec.model,
@@ -355,6 +421,35 @@ export class PromptRunner {
       // TTFT and tokens/sec are recorded per model per call type (§9.5.3 r4).
       ttftMs: call.ttftMs,
     });
+    this.mirror({
+      provider: call.providerId,
+      // No chat session is involved: this is background derivation, and
+      // claiming a session id would put it in someone's conversation.
+      sessionId: null,
+      runId: call.runId,
+      kind: spec.callType,
+      promptChars: call.promptChars,
+      inputTokens: call.usage.inputTokens,
+      cacheCreationInputTokens: call.usage.cacheCreationInputTokens,
+      cacheReadInputTokens: call.usage.cacheReadInputTokens,
+      ...(call.usage.cacheCreation5mInputTokens === undefined
+        ? {}
+        : { cacheCreation5mInputTokens: call.usage.cacheCreation5mInputTokens }),
+      ...(call.usage.cacheCreation1hInputTokens === undefined
+        ? {}
+        : { cacheCreation1hInputTokens: call.usage.cacheCreation1hInputTokens }),
+      outputTokens: call.usage.outputTokens,
+      // Verbatim or null — never a locally recomputed price.
+      costUsd: call.usage.costUsd ?? null,
+      durationMs: durationOf(call),
+      // `extraction_runs.status` is the two-way one. The finer grade (retried,
+      // quarantined) lives on the `runs` row this mirrors.
+      status: call.ok ? "ok" : "error",
+      errorCode: call.errorCode ? String(call.errorCode) : null,
+      model: spec.model,
+      role: spec.role,
+    });
+    return id;
   }
 
   /**

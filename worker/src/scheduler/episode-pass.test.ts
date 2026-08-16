@@ -14,15 +14,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { insertEvent, upsertActor, upsertSource, upsertStream } from "../db/ingest.js";
+import { ResourcePool } from "../providers/pool.js";
+import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
+import type { RunnerDeps } from "../prompts/runner.js";
 import {
   drainEpisodeQueue,
   engineSessionOf,
   enqueueEpisodePasses,
+  ep2RunnerInvoke,
   episodeAgingDue,
   episodePassAfterSeal,
   runEpisodeAging,
   runSessionEpisodePass,
   unjudgedSealedSessions,
+  type Ep2CallOutcome,
 } from "./episode-pass.js";
 
 const NOW = Date.parse("2026-08-15T12:00:00.000Z");
@@ -201,6 +206,103 @@ describe("the queue path", () => {
     expect(report.skipped).toBe(1);
     const row = getDb().prepare(`SELECT state FROM work_queue WHERE unit_id = 's1'`).get() as { state: string };
     expect(row.state).toBe("ready");
+  });
+});
+
+// ===========================================================================
+// What `ep2RunnerInvoke` tells the SCHEDULER — the two facts a null answer
+// destroys on its way to the engine.
+//
+// The engine may only be told `null` (its 1:1 fallback is the safe direction),
+// which is precisely why the caller cannot otherwise tell a cheap pass from a
+// total outage, or one billed call from a call that retried and billed twice.
+// ===========================================================================
+describe("ep2RunnerInvoke's outcome channel", () => {
+  /** One `send` per turn, in order. */
+  function fakeProvider(turns: { text?: string; code?: ProviderErrorCode }[]): Provider {
+    let n = 0;
+    return {
+      id: "fake",
+      cancel: () => true,
+      async send(opts) {
+        const turn = turns[n++] ?? { text: "" };
+        const usage: Usage = {
+          inputTokens: 10,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          outputTokens: 5,
+          costUsd: 0.1,
+        };
+        if (turn.text !== undefined) opts.onEvent({ type: "delta", text: turn.text });
+        if (turn.code) {
+          opts.onEvent({ type: "error", code: turn.code, message: "boom" });
+          opts.onEvent({ type: "done", sessionId: "s", usage });
+          return { sessionId: "s", usage, freshFallback: false, status: "error", errorCode: turn.code };
+        }
+        opts.onEvent({ type: "done", sessionId: "s", usage });
+        return { sessionId: "s", usage, freshFallback: false, status: "ok" };
+      },
+    };
+  }
+
+  function runnerDeps(turns: { text?: string; code?: ProviderErrorCode }[]): RunnerDeps {
+    let t = 0;
+    return {
+      provider: fakeProvider(turns),
+      pool: new ResourcePool({
+        now: () => t,
+        sleep: async (ms) => {
+          t += ms;
+        },
+      }),
+    };
+  }
+
+  const PROMPT = { system: "sys", user: "#S s1 | c1 | 1 events", model: "sonnet-5" };
+
+  it("counts the RETRY: one invocation, two billed provider calls, two runs rows", async () => {
+    const seen: Ep2CallOutcome[] = [];
+    const invoke = ep2RunnerInvoke({
+      cohortId: null,
+      observe: (o) => seen.push(o),
+      deps: runnerDeps([{ code: "TIMEOUT" }, { text: "G|s1|1|new|-|0.9|a topic" }]),
+    });
+
+    const answer = await invoke(PROMPT);
+
+    expect(answer).not.toBeNull();
+    expect(seen).toHaveLength(1);
+    // A wallet that charges 1 here caps at half of what it pays.
+    expect(seen[0]!.providerCalls).toBe(2);
+    expect(seen[0]!.error).toBeNull();
+    // And the billed count is exactly what `runs` recorded, per call.
+    const rows = getDb().prepare(`SELECT status FROM runs`).all() as { status: string }[];
+    expect(rows).toHaveLength(2);
+  });
+
+  it("surfaces the failure a null answer hides, and writes the run under a NULL cohort", async () => {
+    const seen: Ep2CallOutcome[] = [];
+    const invoke = ep2RunnerInvoke({
+      cohortId: null,
+      observe: (o) => seen.push(o),
+      // Four failures walks the ladder out and quarantines.
+      deps: runnerDeps(Array.from({ length: 4 }, () => ({ code: "TIMEOUT" as ProviderErrorCode }))),
+    });
+
+    const answer = await invoke(PROMPT);
+
+    // The ENGINE still only hears null — that part is deliberate.
+    expect(answer).toBeNull();
+    // The SCHEDULER hears what actually happened.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.error?.code).toBe("TIMEOUT");
+    expect(seen[0]!.status).toBe("quarantined");
+    expect(seen[0]!.providerCalls).toBeGreaterThan(1);
+    // `runs.cohort_id` is a FK: the old "steady" sentinel threw here and the
+    // rows were never written at all.
+    const rows = getDb().prepare(`SELECT cohort_id FROM runs`).all() as { cohort_id: string | null }[];
+    expect(rows.length).toBe(seen[0]!.providerCalls);
+    for (const r of rows) expect(r.cohort_id).toBeNull();
   });
 });
 

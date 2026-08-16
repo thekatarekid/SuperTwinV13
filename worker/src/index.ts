@@ -7,13 +7,37 @@
 //      there, and an invalid manifest stops the boot (arch §2.2).
 //   3. start the HTTP/SSE server, which prints exactly
 //      `WORKER_READY port=<port>` to stdout so Tauri + tests detect readiness.
-//   4. on SIGINT/SIGTERM: close the server and kill any in-flight `claude`
-//      children, then exit clean (kill-switch foundation — no orphans).
+//   4. backfill stream tiers (§9.3 rule 4) — off the ready path, best-effort,
+//      and re-run by ingest once the backfill has actually created streams.
+//   5. start the bootstrap derivation driver (§9.1-§9.7) — the scheduled caller
+//      for tier -> segment -> seal -> cohort -> episodes -> reconcile. It is
+//      OFF unless opted in; see the cost note at the call site.
+//   6. on SIGINT/SIGTERM: stop the driver, close the server and kill any
+//      in-flight `claude` children, then exit clean (kill-switch foundation —
+//      no orphans).
 //
-// V8 scope: Phase 0 (provider + chat) + Phase 1 (WhatsApp ingestion) + grounded
-// chat retrieval. There is no extraction engine, executor, scheduler or nightly
-// runner — messages are ingested and served, and chat grounds itself with FTS
-// over those events at query time.
+// What actually boots (this comment used to say "there is no extraction engine,
+// executor, scheduler or nightly runner", and that was accurate — the whole
+// derivation layer existed but had ZERO production callers and was therefore
+// absent from the esbuild bundle entirely):
+//
+//   - provider + chat (Phase 0) and WhatsApp ingestion (Phase 1);
+//   - grounded chat retrieval — FTS over events at query time;
+//   - four timers owned by the server: the media queue, the semantic indexer,
+//     the nightly arc reconcile and the 15-minute episode clock;
+//   - tiering, wired here and at the ingest seal;
+//   - the bootstrap derivation driver, wired below — and with it the P-CL1
+//     claims/loops stage, which this comment used to name as missing. It is
+//     not: `scheduler/cl1-runner.ts` is the runner that was absent, and
+//     `startBootstrapDriver` fills the driver's `deps.extract` seam with it, so
+//     a bootstrap run now reaches claim_versions / claims_active / evidence.
+//
+// Still genuinely absent, and named here so the next reader does not have to
+// re-derive it: there is no P-EP1 runner, so nothing writes graph EDGES;
+// nothing writes `claim_embeddings`, so the [ML] near-hit rung stays blocked and
+// P-AG3 is never bought; identity binding is unwired at ingest, so session
+// participants are actor ids, not entity ids; and nothing flips `sources.mode`
+// to 'steady' or starts `scheduler/live.ts` — that loop still has no caller.
 
 import { runMigrations } from "./db/index.js";
 import { runStartupCalibration } from "./retrieval/calibration.js";
@@ -25,6 +49,8 @@ import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
 import { Ingestion } from "./ingest/index.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
+import { ensureTiers } from "./tiers/ensure.js";
+import { startBootstrapDriver, type BootstrapDriver } from "./scheduler/bootstrap.js";
 
 async function main(): Promise<void> {
   runMigrations();
@@ -87,12 +113,59 @@ async function main(): Promise<void> {
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? 8011);
   const server: ServerHandle = await startServer({ port, ingestion });
 
+  // ---- Tiers (item 1.2, arch §9.3 rule 4). Every stream gets a tier, and the
+  // scheduler's primary sort key is that tier — a NULL one is a channel no lane
+  // can reach. The prior build shipped `tier NULL` on all 97 channels because
+  // `backfillTiers` had no caller at all; this is that caller.
+  //
+  // Deliberately AFTER startServer: tiering is never on the first-paint path
+  // (§9.5.1) and must not delay `WORKER_READY`. It is also NOT sufficient on
+  // its own — on a cold install boot happens before a single stream exists, so
+  // this pass is vacuous and ingest re-runs `ensureTiers()` when the backfill
+  // completes. `ensureTiers` never throws; a coverage failure is logged loudly
+  // and the worker keeps serving.
+  void ensureTiers({ reason: "boot" }).catch((err) => {
+    console.error("[worker] tier backfill failed (continuing):", err);
+  });
+
+  // ---- The bootstrap derivation driver (item 1.8, arch §9.1-§9.7). This is
+  // the caller `segment`, `sealStream`, `candidateSessions`, `sealCohort`,
+  // `advanceCohort` and `reconcileAfterTransition` never had: all of them were
+  // reachable only from tests and from the frozen-corpus harness in
+  // `confluence/pipeline.ts`, which is why a live install ships zero sessions,
+  // episodes and claims. The claims half arrives with it — the driver defaults
+  // its `deps.extract` seam to `cl1ExtractStage()`, so no argument is needed
+  // here and no other entry point can forget to pass one.
+  //
+  // COST: `resolveBootstrapMode()` is opts -> app_state('bootstrap.mode') ->
+  // env(SUPERTWIN_BOOTSTRAP) -> **off**, and we deliberately pass no mode here.
+  // So on an un-opted-in install this timer performs the free watermark repair
+  // and logs one projection line saying what a run WOULD cost — it does NOT
+  // start an unbounded full-corpus LLM run on boot. `dry` adds reporting with
+  // zero calls and zero writes; `slice` is capped at 40 model calls; `full` at
+  // 400. Every model call in every stage passes one shared `spend()` gate.
+  //
+  // Started here rather than beside the other four timers at
+  // server/index.ts:351-356 only because that file is being edited
+  // concurrently; `start`/`stop` are clean, so relocating it there is a move,
+  // not a rewrite.
+  let bootstrap: BootstrapDriver | null = null;
+  try {
+    bootstrap = startBootstrapDriver();
+  } catch (err) {
+    console.error("[worker] bootstrap driver failed to start (continuing):", err);
+  }
+
   let shuttingDown = false;
   const shutdown = async (sig: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.error(`[worker] ${sig} received — shutting down`);
     try {
+      // Stop scheduling new work FIRST: `stop()` clears the interval and sets
+      // the latch `runBootstrapTick` polls via `shouldStop`, so an in-flight
+      // tick stops between stages instead of being killed mid-cohort.
+      bootstrap?.stop();
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
       if (adapter) await adapter.disconnect();

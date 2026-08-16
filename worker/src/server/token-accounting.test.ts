@@ -43,8 +43,8 @@ const CACHE_HEAVY: Usage = {
   costUsd: 0.02715,
 };
 
-/** 18 + 10651*1.25 + 48000*0.1 + 206 */
-const CACHE_HEAVY_BILLABLE = 18_338;
+/** 18 + 10651*2.0 + 48000*0.1 + 206 — unattributed writes bill at the 1h rate. */
+const CACHE_HEAVY_BILLABLE = 26_326;
 
 interface RunRow {
   input_tokens: number;
@@ -168,7 +168,7 @@ describe("a cache-heavy run, provider to storage", () => {
       billableTokens: CACHE_HEAVY_BILLABLE,
     });
     // Billing on the raw sum is what would trip the gate ~10x early.
-    expect(quota.billableTokens).toBeLessThan(58_875 / 3);
+    expect(quota.billableTokens).toBeLessThan(58_875 / 2);
   });
 
   it("streams the usage frame the UI reads, with cache included", async () => {
@@ -204,11 +204,11 @@ describe("a run the user cancelled", () => {
       cost_usd: null,
       status: "error",
     });
-    // 4 + 9000*1.25 + 20000*0.1 + 11
+    // 4 + 9000*2.0 + 20000*0.1 + 11
     expect(usageRows().at(-1)).toMatchObject({
       cache_creation_input_tokens: 9_000,
       cache_read_input_tokens: 20_000,
-      billable_tokens: 13_265,
+      billable_tokens: 20_015,
     });
   });
 });

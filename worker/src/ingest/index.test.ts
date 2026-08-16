@@ -8,7 +8,7 @@
 // unique temp DB (SUPERTWIN_DB_PATH).
 // ===========================================================================
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,8 +23,10 @@ import type {
 } from "../adapters/types.js";
 import { closeDb, getDb } from "../db/connection.js";
 import {
+  appStateSet,
   claimPendingMedia,
   getStreamMessages,
+  importDoneKey,
   type InboxMessageRow,
   type MediaClaimFilter,
 } from "../db/ingest.js";
@@ -60,6 +62,8 @@ class StubAdapter implements SourceAdapter {
   readonly sourceType = "whatsapp";
   emitEvent: (e: SourceEvent) => void = () => {};
   emitActor: (a: Actor) => void = () => {};
+  emitStream: (s: Stream) => void = () => {};
+  emitStatus: (s: StatusUpdate) => void = () => {};
 
   async connect(): Promise<void> {}
   async startPairing(): Promise<void> {}
@@ -72,11 +76,15 @@ class StubAdapter implements SourceAdapter {
   onEvent(cb: (e: SourceEvent) => void): void {
     this.emitEvent = cb;
   }
-  onStream(_cb: (s: Stream) => void): void {}
+  onStream(cb: (s: Stream) => void): void {
+    this.emitStream = cb;
+  }
   onActor(cb: (a: Actor) => void): void {
     this.emitActor = cb;
   }
-  onStatus(_cb: (s: StatusUpdate) => void): void {}
+  onStatus(cb: (s: StatusUpdate) => void): void {
+    this.emitStatus = cb;
+  }
 
   getStatus(): AdapterStatus {
     return { state: "online", paired: true, paused: false };
@@ -391,5 +399,101 @@ describe("history is written newest-first (arch §2.2 note 1)", () => {
     expect(w.live_high_ts).toBe("2026-08-15T09:00:00.000Z");
     expect(w.live_high_external_id).toBe("alice@x/LIVE");
     expect(w.backfill_complete).toBe(false);
+  });
+});
+
+// ===========================================================================
+// The import seal. The daemon announces `backfill_complete` when it has finished
+// PUSHING, not when the last row has landed — on the real 30d import the frame
+// arrived at 14:43:44 and streams kept being created until 14:45:20. Sealing on
+// the frame alone therefore left 93 streams at backfill_complete=0 for ever,
+// and `modeAfterBackfill` (scheduler/horizons) reports "bootstrap" until they
+// flip. These are the regression tests for that ordering.
+// ===========================================================================
+
+describe("import seal ordering (build item 1.1)", () => {
+  /** No manifest ⇒ no re-order buffer, so a historical event writes straight through. */
+  const DONE: StatusUpdate = {
+    type: "backfill_complete",
+    range: "30d",
+    chats: 2,
+    messages: 2,
+  };
+  /** Mirrors BACKFILL_SEAL_MS in ingest/index.ts (not exported — it is internal). */
+  const SEAL_MS = 5_000;
+
+  const sealed = (ext: string): boolean =>
+    readWatermark(`whatsapp:st:${ext}`)?.backfill_complete === true;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("seals a stream that only lands AFTER the daemon said backfill_complete", () => {
+    const adapter = startIngestion();
+    adapter.emitEvent(message({ is_historical: true }));
+    adapter.emitStatus(DONE);
+    // Everything that exists at the edge is sealed optimistically...
+    expect(sealed("alice@x")).toBe(true);
+
+    // ...and then the tail of the import arrives, creating a stream the first
+    // pass could not have seen. This is the row that used to stay at 0 for ever.
+    adapter.emitEvent(
+      message({
+        external_id: "bob@x/H1",
+        stream_ext_id: "bob@x",
+        actor_ext_id: "bob@x",
+        is_historical: true,
+      }),
+    );
+    expect(sealed("bob@x")).toBe(false);
+
+    vi.advanceTimersByTime(SEAL_MS);
+    expect(sealed("bob@x")).toBe(true);
+    expect(sealed("alice@x")).toBe(true);
+  });
+
+  it("measures the quiet window from the LAST row, not the first", () => {
+    const adapter = startIngestion();
+    adapter.emitStatus(DONE);
+
+    vi.advanceTimersByTime(SEAL_MS - 1_000);
+    adapter.emitEvent(message({ is_historical: true }));
+    // 4s later the seal would have fired had the window not been re-armed.
+    vi.advanceTimersByTime(SEAL_MS - 1_000);
+    expect(sealed("alice@x")).toBe(false);
+
+    vi.advanceTimersByTime(1_000);
+    expect(sealed("alice@x")).toBe(true);
+  });
+
+  it("seals a stream announced with no events of its own", () => {
+    const adapter = startIngestion();
+    adapter.emitStatus(DONE);
+    adapter.emitStream({
+      source_ext_id: "quiet@x",
+      name: "Quiet",
+      kind: "dm",
+      is_business: false,
+    });
+
+    vi.advanceTimersByTime(SEAL_MS);
+    expect(sealed("quiet@x")).toBe(true);
+  });
+
+  it("repairs an existing install on boot: import_done=true but nothing sealed", () => {
+    const adapter = startIngestion();
+    adapter.emitEvent(message({ is_historical: true }));
+    // Exactly the state the previous build left behind: the import is recorded
+    // as done, but the per-stream flags were written before the stream existed.
+    appStateSet(importDoneKey("whatsapp"), "true");
+    expect(sealed("alice@x")).toBe(false);
+
+    new Ingestion(new StubAdapter()).start(); // relaunch
+    expect(sealed("alice@x")).toBe(true);
   });
 });

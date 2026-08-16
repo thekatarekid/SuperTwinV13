@@ -13,7 +13,7 @@
 //     prompt file on fresh sessions,
 //   - citations: trailing `CITATIONS: [...]` line parsed, stripped from the
 //     persisted text, emitted as a final `{type:"citations"}` SSE frame, and
-//     persisted with the message (visible via GET /api/sessions/:id),
+//     persisted with the message (visible via GET /api/chat/sessions/:id),
 //   - backward compat: old ungrounded sessions resume with the Phase-0 config
 //     (sandbox cwd, no tools, no injection, no citations frame),
 //   - unit coverage for parseCitationsFromText / buildContextBlock.
@@ -255,7 +255,7 @@ describe("grounded chat (server, mock provider)", () => {
     // ---- Session flagged grounded; detail endpoint exposes citations.
     const session = db.getSession(sessionId);
     expect(session?.grounded).toBe(true);
-    const detail = (await (await fetch(`${base}/api/sessions/${sessionId}`)).json()) as {
+    const detail = (await (await fetch(`${base}/api/chat/sessions/${sessionId}`)).json()) as {
       session: { grounded: boolean };
       messages: Array<{ role: string; citations: unknown[] | null }>;
     };

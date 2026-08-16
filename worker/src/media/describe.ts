@@ -315,26 +315,42 @@ export function buildBatchPrompt(
     `Read each of these ${items.length} files — every one is ${SUBJECT.image}.`,
     "",
   ];
+  // The id goes on its own line, above the path it stands for. Rendered as
+  // `#01 /very/long/path` the two read as ONE token, and the model echoes the
+  // pair back — `@@ID: #01 /very/long/path` — which used to be taken whole as
+  // the id and cost the batch every description in it.
   items.forEach(({ row, path }, i) => {
     const notes: string[] = [];
     if (row.filename) notes.push(`filename "${row.filename}"`);
     if (row.caption) notes.push(`the sender's caption was "${row.caption}"`);
-    lines.push(notes.length ? `${ids[i]} ${path} — ${notes.join("; ")}` : `${ids[i]} ${path}`);
+    lines.push(`id ${ids[i]}`);
+    lines.push(`    file: ${path}`);
+    if (notes.length) lines.push(`    ${notes.join("; ")}`);
+    lines.push("");
   });
   lines.push(
+    "Reply with one block per file and NOTHING else. Do not write anything at",
+    "all before the first block — no preamble, no plan, no \"I'll read the",
+    "files\", no headings, no mention of having read anything.",
     "",
-    "Reply with one block per file and nothing else. Begin every block with a",
-    "line of exactly:",
+    "Begin every block with a marker line that is EXACTLY:",
     "",
-    `${BATCH_MARKER} <that file's id, copied character for character from the`,
-    "list above>",
+    `${BATCH_MARKER} #NN`,
     "",
-    "and put the description on the lines after it. Every id above must appear",
-    `exactly once — all ${items.length} of them, in any order. If a file cannot`,
-    `be described, still give it its block and write the single word ${UNREADABLE}:`,
-    "an id that goes missing invalidates the whole answer, because every",
-    "description after it would belong to a different file than it appears to.",
-    "No preamble, no headings, no mention of having read anything.",
+    "where #NN is that file's two-digit id from the list above and NOTHING",
+    "follows it on that line — no path, no filename, no quotes, no colon.",
+    "",
+    "So a block for id #01 looks exactly like this:",
+    "",
+    `${BATCH_MARKER} #01`,
+    "A crowded street market at dusk, a red awning over a stall whose sign",
+    "reads \"FRESH FRUIT 24/7\", crates of mangoes in the foreground.",
+    "",
+    `Every id above must appear exactly once — all ${items.length} of them, in`,
+    "any order. If a file cannot be described, still give it its block and",
+    `write the single word ${UNREADABLE}: an id that goes missing invalidates`,
+    "the whole answer, because every description after it would belong to a",
+    "different file than it appears to.",
     "",
     ...describeRules("image"),
   );
@@ -342,7 +358,42 @@ export function buildBatchPrompt(
 }
 
 /**
+ * What a batch sent for one id, so a marker that names the FILE instead of the
+ * id can still be tied back to it. `paths` is everything the model could
+ * plausibly echo for that item: the path as it went into the prompt, the row's
+ * own media path (which differs whenever the image was downscaled for vision),
+ * and its filename.
+ */
+export interface BatchItemRef {
+  id: string;
+  paths: readonly (string | null | undefined)[];
+}
+
+/** One `@@ID:` marker found in the answer, and where its block runs from. */
+interface MarkerHit {
+  id: string;
+  /** Offset of the `@@ID:` itself — the previous block ends here. */
+  from: number;
+  /** Offset just past the marker line's payload — this block starts here. */
+  to: number;
+}
+
+/** `@@ID:` and the rest of ITS line, found anywhere in the text. See below. */
+function markerRegex(): RegExp {
+  const lit = BATCH_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${lit}[ \\t]*([^\\n]*)`, "g");
+}
+
+/**
  * Split a batch answer into id → description, and report every id it named.
+ *
+ * Markers are found ANYWHERE in the text, not only at the start of a line, and
+ * each block is the text between one marker and the next. Line-anchored
+ * matching used to lose a whole block whenever something was glued onto the
+ * front of the first marker — a preamble turn ("I'll read all 16 image files
+ * for you.") or a duplicated assistant block concatenated with no separator —
+ * and a lost block is a correct description silently thrown away plus a batch
+ * rejected and paid for twice.
  *
  * Nothing is dropped, repaired or lined up by position here: an id the prompt
  * never issued and an id named twice both stay in `returned`, because it is the
@@ -352,35 +403,123 @@ export function buildBatchPrompt(
 export function parseBatchAnswer(
   raw: string,
   ids: readonly string[],
-): { blocks: Map<string, string | null>; returned: string[] } {
+  items: readonly BatchItemRef[] = [],
+): { blocks: Map<string, string | null>; returned: string[]; markers: string[] } {
   const known = new Set(ids.map(normalizeId));
+  const byBasename = basenameIndex(items);
+  const text = unfence(raw);
+
+  const hits: MarkerHit[] = [];
+  const markers: string[] = [];
+  const re = markerRegex();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const payload = m[1] ?? "";
+    markers.push(m[0].trim());
+    hits.push({
+      id: markerId(payload, byBasename),
+      from: m.index,
+      to: m.index + m[0].length,
+    });
+  }
+
   const returned: string[] = [];
   const blocks = new Map<string, string | null>();
-  let current: string | null = null;
-  let buffer: string[] = [];
-
-  const flush = (): void => {
-    if (current !== null && !blocks.has(current)) {
-      const text = cleanDescription(buffer.join("\n"));
-      blocks.set(current, text && text.toUpperCase() !== UNREADABLE ? text : null);
-    }
-    buffer = [];
-  };
-
-  for (const line of unfence(raw).split("\n")) {
-    const marker = line.trimStart();
-    if (marker.startsWith(BATCH_MARKER)) {
-      flush();
-      current = normalizeId(markerToken(marker.slice(BATCH_MARKER.length)));
-      returned.push(current);
-      continue;
-    }
-    if (current !== null) buffer.push(line);
+  for (let i = 0; i < hits.length; i += 1) {
+    const hit = hits[i]!;
+    returned.push(hit.id);
+    if (blocks.has(hit.id)) continue;
+    const end = i + 1 < hits.length ? hits[i + 1]!.from : text.length;
+    const body = cleanDescription(text.slice(hit.to, end));
+    blocks.set(hit.id, body && body.toUpperCase() !== UNREADABLE ? body : null);
   }
-  flush();
 
   for (const id of [...blocks.keys()]) if (!known.has(id)) blocks.delete(id);
-  return { blocks, returned };
+  return { blocks, returned, markers };
+}
+
+/**
+ * The id a marker payload names.
+ *
+ * Only the LEADING token is the id: the model is told to write `@@ID: #01` and
+ * nothing else, but it sometimes helpfully appends the file it is about —
+ * `@@ID: #01 /Users/…/3AAF….jpg` — and the whole line used to become the id,
+ * which cost the batch one missing id AND one invented one. A trailing path is
+ * discarded here. A marker that carries NO number at all (`@@ID: 3AAF….jpg`,
+ * the bare filename) is matched back by basename against what was sent; that is
+ * unambiguous, because a batch never sends two files of the same name.
+ *
+ * An UNHASHED number must end the token or be followed by a separator, so the
+ * bare filename `12.jpg` is read as a name rather than as id #12 — filing a
+ * caption under the wrong id is the one outcome worse than rejecting a batch.
+ */
+function markerId(payload: string, byBasename: ReadonlyMap<string, string>): string {
+  const token = markerToken(payload);
+  const hashed = /^#[ \t]*(\d{1,3})(?![0-9])/.exec(token);
+  const bare = hashed ? null : /^(\d{1,3})(?=$|[\s:,;\]\)—-])/.exec(token);
+  const numeric = hashed ?? bare;
+  if (numeric) return `#${String(Number(numeric[1])).padStart(2, "0")}`;
+  if (byBasename.size > 0) {
+    for (const candidate of basenameCandidates(token)) {
+      const id = byBasename.get(candidate);
+      if (id) return id;
+    }
+  }
+  return normalizeId(token);
+}
+
+/**
+ * basename → id, for everything a batch sent. A name that would map to two ids
+ * maps to none: guessing between them is exactly the mis-filed caption the
+ * whole-batch rule exists to prevent.
+ */
+function basenameIndex(items: readonly BatchItemRef[]): ReadonlyMap<string, string> {
+  const index = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const item of items) {
+    for (const path of item.paths) {
+      const name = basenameOf(path);
+      if (!name) continue;
+      const owner = index.get(name);
+      if (owner && owner !== item.id) ambiguous.add(name);
+      else index.set(name, item.id);
+    }
+  }
+  for (const name of ambiguous) index.delete(name);
+  return index;
+}
+
+function basenameOf(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const trimmed = path.trim().replace(/^["'`]+|["'`]+$/g, "");
+  if (!trimmed) return null;
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  const name = cut >= 0 ? trimmed.slice(cut + 1) : trimmed;
+  return name ? name.toLowerCase() : null;
+}
+
+/** Every word of a marker payload, as a basename. Usually there is only one. */
+function basenameCandidates(token: string): string[] {
+  const out: string[] = [];
+  const whole = basenameOf(token);
+  if (whole) out.push(whole);
+  for (const word of token.split(/\s+/)) {
+    const name = basenameOf(word);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/**
+ * A short, safe sample of what the model actually stamped, for the run log.
+ * Without it this class of bug is only diagnosable by reading the raw CLI
+ * transcript out of ~/.claude/projects.
+ */
+export function markerSample(markers: readonly string[], limit = 4): string {
+  if (markers.length === 0) return "no @@ID markers at all";
+  const shown = markers.slice(0, limit).map((m) => (m.length > 80 ? `${m.slice(0, 79)}…` : m));
+  const more = markers.length > limit ? ` (+${markers.length - limit} more)` : "";
+  return `${shown.join(" | ")}${more}`;
 }
 
 /**
@@ -597,7 +736,13 @@ export async function describeMediaBatch(
   }
 
   const sent = items.map((i) => i.id);
-  const { blocks, returned } = parseBatchAnswer(text, sent);
+  const { blocks, returned, markers } = parseBatchAnswer(
+    text,
+    sent,
+    // What the model could name a file by: the path it was given, the original
+    // (a downscaled copy is sent under a different name), and the filename.
+    items.map((i) => ({ id: i.id, paths: [i.path, i.row.mediaPath, i.row.filename] })),
+  );
   const echo = verifyEcho(sent, returned);
 
   // THE WHOLE-BATCH RULE. One id short, one id invented, one id twice — the
@@ -617,7 +762,11 @@ export async function describeMediaBatch(
       call: {
         ...noCall,
         status: "error",
-        error: `the answer echoed ${returned.length} of ${sent.length} ids (${why})`,
+        // The marker sample is what makes this diagnosable from the run log
+        // alone: which ids came back malformed, not merely how many.
+        error:
+          `the answer echoed ${returned.length} of ${sent.length} ids (${why}) — ` +
+          `markers: ${markerSample(markers)}`,
         ...spend,
       },
     };

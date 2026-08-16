@@ -23,25 +23,74 @@ export function sumUsage(a: Usage, b: Usage): Usage {
     outputTokens: a.outputTokens + b.outputTokens,
   };
   // Absent cost stays absent: a run that never reported one must not look like
-  // it cost $0.
+  // it cost $0. The TTL split follows the same rule — a side whose wire carried
+  // no breakdown must not be recorded as having written 0 five-minute tokens.
   if (a.costUsd !== undefined || b.costUsd !== undefined) {
     out.costUsd = (a.costUsd ?? 0) + (b.costUsd ?? 0);
+  }
+  if (
+    a.cacheCreation5mInputTokens !== undefined ||
+    b.cacheCreation5mInputTokens !== undefined
+  ) {
+    out.cacheCreation5mInputTokens =
+      (a.cacheCreation5mInputTokens ?? 0) + (b.cacheCreation5mInputTokens ?? 0);
+  }
+  if (
+    a.cacheCreation1hInputTokens !== undefined ||
+    b.cacheCreation1hInputTokens !== undefined
+  ) {
+    out.cacheCreation1hInputTokens =
+      (a.cacheCreation1hInputTokens ?? 0) + (b.cacheCreation1hInputTokens ?? 0);
   }
   return out;
 }
 
+/** The write half by TTL, plus whatever the wire never attributed to one. */
+export interface CacheWriteParts {
+  fiveMinute: number;
+  oneHour: number;
+  /** cacheCreation − the two above. Priced at `cacheCreationUnsplit`. */
+  unsplit: number;
+}
+
+export function cacheWriteParts(u: Usage): CacheWriteParts {
+  const fiveMinute = u.cacheCreation5mInputTokens ?? 0;
+  const oneHour = u.cacheCreation1hInputTokens ?? 0;
+  return {
+    fiveMinute,
+    oneHour,
+    // Never negative: a wire that reports parts exceeding the total is broken,
+    // and clamping keeps a broken line from crediting the bill.
+    unsplit: Math.max(0, u.cacheCreationInputTokens - fiveMinute - oneHour),
+  };
+}
+
 /**
  * Input-token equivalent actually billed. A cache read costs ~10% of a fresh
- * input token and a cache write ~125%, and the bulk of every run is cache, so
- * the quota gate counts this instead of the raw sum — raw would trip the window
- * roughly ten times sooner than real spend and lock the user out of chat.
+ * input token; a cache WRITE costs 125% at the 5-minute TTL and 200% at the
+ * 1-hour TTL. The bulk of every run is cache, so the quota gate counts this
+ * instead of the raw sum — raw would trip the window roughly ten times sooner
+ * than real spend and lock the user out of chat.
+ *
+ * The two write TTLs are weighted apart because this build's CLI writes 1-HOUR
+ * entries and flat-1.25 billing therefore under-counted by 31.5%. Two
+ * independent measurements say so: the wire fixture in
+ * claude-local/parser.test.ts carries `ephemeral_1h_input_tokens: 10472` with
+ * `ephemeral_5m` at 0, and a least-squares fit of the stored real runs recovers
+ * $2.04/MTok for the write against a $2.00 list price. Anything the wire did
+ * not break out is therefore priced at the 1-hour rate too — see
+ * BILLABLE_WEIGHTS.cacheCreationUnsplit.
  */
 export function billableTokens(u: Usage): number {
+  const w = BILLABLE_WEIGHTS;
+  const c = cacheWriteParts(u);
   return Math.round(
-    u.inputTokens +
-      u.cacheCreationInputTokens * 1.25 +
-      u.cacheReadInputTokens * 0.1 +
-      u.outputTokens,
+    u.inputTokens * w.input +
+      c.fiveMinute * w.cacheCreation5m +
+      c.oneHour * w.cacheCreation1h +
+      c.unsplit * w.cacheCreationUnsplit +
+      u.cacheReadInputTokens * w.cacheRead +
+      u.outputTokens * w.output,
   );
 }
 
@@ -70,7 +119,16 @@ export function hasSpend(u: Usage): boolean {
 /** The weights `billableTokens` applies. Exported so the UI can state them. */
 export const BILLABLE_WEIGHTS = {
   input: 1,
-  cacheCreation: 1.25,
+  /** 5-minute cache write. */
+  cacheCreation5m: 1.25,
+  /** 1-hour cache write — what this build's CLI actually writes. */
+  cacheCreation1h: 2,
+  /**
+   * Cache writes the wire never attributed to a TTL. Priced at the 1-hour rate
+   * because that is what the stored runs measure: a flat 1.25 here reads
+   * 734,513 billable tokens over a dataset whose real figure is 1,072,001.
+   */
+  cacheCreationUnsplit: 2,
   cacheRead: 0.1,
   output: 1,
 } as const;

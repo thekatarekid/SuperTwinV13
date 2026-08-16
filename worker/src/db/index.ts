@@ -16,8 +16,14 @@
 
 import type Database from "better-sqlite3";
 
+import type { Usage } from "../providers/types.js";
 import { billableTokens } from "../providers/usage.js";
 import { getDb, runMigrations } from "./connection.js";
+import {
+  DEFAULT_MODEL_LABEL,
+  isRunRole,
+  recordRun,
+} from "./run-accounting.js";
 
 export { getDb, runMigrations };
 
@@ -113,6 +119,15 @@ export interface LogRunParams {
    */
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  /**
+   * The cache-write half split by TTL, when the provider reported it. A
+   * 1-hour write bills at 2.0x a fresh input token against a 5-minute write's
+   * 1.25x. Optional: a caller that omits them leaves the whole write
+   * unattributed, which `billableTokens` prices at the 1-hour rate — the rate
+   * this build's CLI actually charges (providers/usage.ts).
+   */
+  cacheCreation5mInputTokens?: number;
+  cacheCreation1hInputTokens?: number;
   /**
    * Phase 3/4: selected model id ("" = subscription default) and the process
    * role (chat|extraction|triage|done_detection|planning|execution). Both
@@ -244,12 +259,16 @@ function statements(): Statements {
     insertRun: db.prepare(`
       INSERT INTO extraction_runs
         (provider, session_id, run_id, kind, prompt_chars,
-         input_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+         input_tokens, cache_creation_input_tokens,
+         cache_creation_5m_input_tokens, cache_creation_1h_input_tokens,
+         cache_read_input_tokens,
          output_tokens, cost_usd, duration_ms, status, error_code,
          model, role)
       VALUES
         (@provider, @sessionId, @runId, @kind, @promptChars,
-         @inputTokens, @cacheCreationInputTokens, @cacheReadInputTokens,
+         @inputTokens, @cacheCreationInputTokens,
+         @cacheCreation5mInputTokens, @cacheCreation1hInputTokens,
+         @cacheReadInputTokens,
          @outputTokens, @costUsd, @durationMs, @status, @errorCode,
          @model, @role)
     `),
@@ -324,9 +343,48 @@ function statements(): Statements {
 
 // ---- Data-access API ------------------------------------------------------
 
-/** Log a single provider run into `extraction_runs` (§11: every call logged). */
+/**
+ * Log a single provider run into `extraction_runs` (§11: every call logged) AND
+ * mirror it into `runs`, the V2 accounting table (see {@link mirrorRun}).
+ *
+ * THE DUAL-WRITE INVARIANT, stated once, for both directions:
+ *
+ *   ONE provider call = ONE `extraction_runs` row + ONE `runs` row, joined on
+ *   the run id, and WHICH TABLE IS WRITTEN FIRST is decided by where the call
+ *   entered the system:
+ *
+ *     chat / on-demand media  ->  HERE. extraction_runs first (it is the §11
+ *                                 log), then mirrored into `runs` with a NULL
+ *                                 cohort and the id `er:<rowid>`.
+ *     the derivation pipeline ->  prompts/runner.ts. `runs` first (it is the
+ *                                 only path that knows the call's role AND its
+ *                                 cohort), then mirrored into extraction_runs
+ *                                 via {@link logExtractionRun}.
+ *
+ * The two directions must never meet. `logExtractionRun` deliberately does NOT
+ * mirror, and the runner deliberately does NOT call `logRun` — either would
+ * double-count every call in both tables.
+ */
 export function logRun(params: LogRunParams): void {
-  statements().insertRun.run({
+  mirrorRun(params, insertExtractionRun(params));
+}
+
+/**
+ * The `extraction_runs` half ALONE — no `runs` mirror.
+ *
+ * This is the pipeline's side of the invariant above: prompts/runner.ts has
+ * already written the `runs` row (with the role and cohort only it knows), and
+ * needs the §11 log row so Settings → Recent runs, which reads
+ * `extraction_runs`, stops rendering the entire derivation pipeline as $0.
+ *
+ * Returns the log's rowid, the same way `logRun` gets it.
+ */
+export function logExtractionRun(params: LogRunParams): number | bigint {
+  return insertExtractionRun(params);
+}
+
+function insertExtractionRun(params: LogRunParams): number | bigint {
+  const info = statements().insertRun.run({
     provider: params.provider,
     sessionId: params.sessionId,
     runId: params.runId,
@@ -334,6 +392,8 @@ export function logRun(params: LogRunParams): void {
     promptChars: params.promptChars,
     inputTokens: params.inputTokens,
     cacheCreationInputTokens: params.cacheCreationInputTokens ?? 0,
+    cacheCreation5mInputTokens: params.cacheCreation5mInputTokens ?? 0,
+    cacheCreation1hInputTokens: params.cacheCreation1hInputTokens ?? 0,
     cacheReadInputTokens: params.cacheReadInputTokens ?? 0,
     outputTokens: params.outputTokens,
     costUsd: params.costUsd,
@@ -342,6 +402,82 @@ export function logRun(params: LogRunParams): void {
     errorCode: params.errorCode,
     model: params.model ?? null,
     role: params.role ?? null,
+  });
+  return info.lastInsertRowid;
+}
+
+/**
+ * Dual-write the run into `runs` — the V2 accounting table that Settings →
+ * Usage, its cache hit rate, cohort pacing, estimateImportSpend and (via the
+ * latency mark recordRun writes beside it) the Latency panel all read.
+ *
+ * It goes HERE, in the one function chat and media runs pass through, rather
+ * than at the call sites: `runs` previously had a single writer,
+ * prompts/runner.ts, so an installed build whose real spend is chat plus
+ * background media reading rendered an empty Usage board over money that had
+ * genuinely been spent. The pipeline's calls come the OTHER way round — see the
+ * invariant on {@link logRun} — and reach extraction_runs via
+ * {@link logExtractionRun}, which is why this must never be reached from there.
+ *
+ * Two decisions this write has to make, pinned here so they are made once:
+ *
+ *   * COHORT — NULL. Chat and on-demand media reading belong to no import
+ *     cohort. A sentinel cohort row would be worse in both directions: the
+ *     scheduler's `pendingCohorts` takes every cohort that is not done, and
+ *     estimateImportSpend divides done cohorts' spend by their event counts.
+ *     NULL keeps these runs out of both while leaving them in the unfiltered
+ *     totals, which is where the money is. See RecordRunParams.cohortId.
+ *
+ *   * ID — `er:<extraction_runs rowid>`. `runs.id` is a primary key, but a
+ *     provider run id is NOT unique: a retried media row reuses
+ *     `media-<event id>`, and a second attempt would collide and throw inside
+ *     chat's streaming path. The log's rowid is unique by construction and
+ *     names the exact row this mirrors.
+ */
+function mirrorRun(p: LogRunParams, extractionRunRowId: number | bigint): void {
+  const role = p.role ?? p.kind;
+  // A run whose role is outside RUN_ROLES is deliberately NOT mirrored. `runs`
+  // exists so a block labelled "Chat" really is chat; guessing a role would
+  // undo exactly that. Every production caller passes one of them.
+  if (!isRunRole(role)) return;
+
+  const usage: Usage = {
+    inputTokens: p.inputTokens,
+    cacheCreationInputTokens: p.cacheCreationInputTokens ?? 0,
+    cacheReadInputTokens: p.cacheReadInputTokens ?? 0,
+    outputTokens: p.outputTokens,
+  };
+  // Absent stays absent: an unattributed write bills at the 1-hour rate, and
+  // writing 0/0 would claim the wire said the writes were neither TTL.
+  if (p.cacheCreation5mInputTokens !== undefined) {
+    usage.cacheCreation5mInputTokens = p.cacheCreation5mInputTokens;
+  }
+  if (p.cacheCreation1hInputTokens !== undefined) {
+    usage.cacheCreation1hInputTokens = p.cacheCreation1hInputTokens;
+  }
+  // Cost stays absent when the run reported none, so recordRun records 0 spend
+  // rather than a locally recomputed price.
+  if (p.costUsd !== null) usage.costUsd = p.costUsd;
+
+  // extraction_runs stamps only completion, so the start is walked back by the
+  // measured duration — that is what gives the latency mark a real total_ms.
+  const endedMs = Date.now();
+  const startedMs = endedMs - Math.max(0, p.durationMs);
+
+  recordRun({
+    id: `er:${String(extractionRunRowId)}`,
+    role,
+    model: p.model?.trim() || DEFAULT_MODEL_LABEL,
+    cohortId: null,
+    kind: p.kind,
+    status: p.status,
+    startedAt: new Date(startedMs).toISOString(),
+    endedAt: new Date(endedMs).toISOString(),
+    usage,
+    errorCode: p.errorCode,
+    // These callers never measure a first-token time. NULL says so; a 0 would
+    // claim the call was instantaneous, and `ttftCoverage` counts the gap.
+    ttftMs: null,
   });
 }
 

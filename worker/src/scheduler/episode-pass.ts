@@ -51,7 +51,7 @@ import { driftWantsModel, preflagDrift, type DriftEvent, type PreflagResult } fr
 import { MAX_EPISODE_CANDIDATES, readOpenEpisodes } from "../episodes/store.js";
 import { ep2InputFor, ep2Judge } from "../prompts/p-ep2-judge.js";
 import { P_EP2, P_EP2_SESSION_MARKER, P_EP2_SYSTEM, buildEp2Prompt, ep2Legend } from "../prompts/p-ep2.js";
-import { runPrompt, type RunnerDeps } from "../prompts/runner.js";
+import { runPrompt, type PromptRunStatus, type RunnerDeps } from "../prompts/runner.js";
 import { decodeVector } from "../db/embeddings.js";
 import { activeEmbeddingModel } from "../retrieval/model-registry.js";
 import { computePriority, horizonFor, isTier, type Tier } from "../tiers/priority.js";
@@ -176,17 +176,52 @@ export type AsyncEp2Invoke = (prompt: {
 }) => Promise<string | null>;
 
 /**
+ * What ONE P-EP2 attempt actually did — the two facts a null answer destroys.
+ *
+ * `null` is all the engine is allowed to be told (its 1:1 fallback is the safe
+ * direction), and that is precisely why a caller who only sees the null cannot
+ * tell a cheap pass from a total provider outage: four SPAWN_FAILEDs and four
+ * genuinely-uneventful sessions look identical in the report. This is the side
+ * channel that keeps them apart.
+ *
+ *   * `providerCalls` — provider calls actually made, RETRIES INCLUDED. One
+ *     logical invocation routinely bills two (status `retried`, then `ok`), so
+ *     a wallet that counts invocations caps at half of what it pays.
+ *   * `error` — non-null whenever the model never produced a usable answer.
+ *     The verdict that follows is MODEL-FREE, and a caller must be able to
+ *     refuse to bless it.
+ */
+export interface Ep2CallOutcome {
+  providerCalls: number;
+  /** The runner's terminal status, or `disabled` when the process is off. */
+  status: PromptRunStatus | "disabled";
+  error: { code: string; message: string } | null;
+}
+
+/** Told about every attempt, before its answer reaches the engine. */
+export type Ep2Observer = (outcome: Ep2CallOutcome) => void;
+
+/**
  * The production transport: P-EP2 through the shared prompt runner (item 1.9),
  * which owns the `runs` accounting row, the lane slot, the bounded repair
  * round and quarantine. Returns the model's words verbatim (every round's,
  * §5.8 keeps them all) or null — and null is all a transport failure is
- * allowed to say, because the engine's 1:1 fallback is the safe direction.
+ * allowed to say to the ENGINE, because the 1:1 fallback is the safe
+ * direction. `observe` is how the SCHEDULER hears about it anyway.
  */
 export function ep2RunnerInvoke(
-  opts: { cohortId?: string; sessionId?: string; deps?: RunnerDeps } = {},
+  opts: {
+    cohortId?: string | null;
+    sessionId?: string;
+    deps?: RunnerDeps;
+    observe?: Ep2Observer;
+  } = {},
 ): AsyncEp2Invoke {
   return async (prompt) => {
-    if (!getProcessEnabled("episode")) return null;
+    if (!getProcessEnabled("episode")) {
+      opts.observe?.({ providerCalls: 0, status: "disabled", error: null });
+      return null;
+    }
     const result = await runPrompt(
       {
         callType: P_EP2.id,
@@ -194,7 +229,10 @@ export function ep2RunnerInvoke(
         instructions: `${P_EP2_SYSTEM}\n\n${P_EP2_SESSION_MARKER}`,
         user: prompt.user,
         role: "episode",
-        cohortId: opts.cohortId ?? "steady",
+        // Steady state belongs to no import cohort, and `runs.cohort_id` is a
+        // FK onto `cohorts`: the old "steady" sentinel threw inside the
+        // accounting write and lost the row (see PromptCallSpec.cohortId).
+        cohortId: opts.cohortId ?? null,
         model: getSelectedModel("episode"),
         unit: { kind: "session", id: opts.sessionId ?? "-" },
         lane: "understanding",
@@ -202,9 +240,21 @@ export function ep2RunnerInvoke(
       },
       opts.deps ?? {},
     );
-    if (result.status === "failed" || result.status === "quarantined") return null;
-    if (result.responses.length === 0) return null;
-    return result.responses.join("\n");
+    const answered = result.status !== "failed" && result.status !== "quarantined";
+    const usable = answered && result.responses.length > 0;
+    opts.observe?.({
+      // Every provider call pushes its run id, retries included — so this is
+      // the billed count, not the invocation count.
+      providerCalls: result.runIds.length,
+      status: result.status,
+      error: usable
+        ? null
+        : {
+            code: result.error?.code ?? (answered ? "EMPTY_RESPONSE" : "NO_ANSWER"),
+            message: result.error?.message ?? "the P-EP2 call produced no usable answer",
+          },
+    });
+    return usable ? result.responses.join("\n") : null;
   };
 }
 
@@ -336,6 +386,15 @@ export interface EpisodeDrainReport {
   /** Sessions the pass could not read (missing/open) — parked as retries. */
   skipped: number;
   decisions: { sessionId: string; decision: string }[];
+  /**
+   * Verdicts the engine reached WITHOUT a model (`one_to_one_fallback`): the
+   * pass warranted P-EP2 and got nothing usable back. Distinct from
+   * `one_to_one`, which is the free "nothing to judge" default and costs
+   * nothing — the DB keeps the same distinction in `episode_verdicts.decision`.
+   * A non-zero count here is a model-free result wearing a normal verdict's
+   * clothes, and a caller that marks work `done` on it is lying about it.
+   */
+  fallbacks: number;
 }
 
 /**
@@ -353,7 +412,13 @@ export async function drainEpisodeQueue(
     limit: Math.max(1, Math.floor(opts.limit ?? 8)),
     nowIso: new Date(now).toISOString(),
   });
-  const report: EpisodeDrainReport = { claimed: items.length, ran: 0, skipped: 0, decisions: [] };
+  const report: EpisodeDrainReport = {
+    claimed: items.length,
+    ran: 0,
+    skipped: 0,
+    decisions: [],
+    fallbacks: 0,
+  };
   for (const item of items) {
     try {
       const result = await runSessionEpisodePass(item.unitId, { ...opts, runId: opts.runId ?? item.cohortId });
@@ -363,6 +428,7 @@ export async function drainEpisodeQueue(
         continue;
       }
       report.ran += 1;
+      if (result.decision === "one_to_one_fallback") report.fallbacks += 1;
       report.decisions.push({ sessionId: item.unitId, decision: result.decision });
       completeWork(item.id);
     } catch {

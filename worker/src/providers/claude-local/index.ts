@@ -369,15 +369,7 @@ class ClaudeLocalProvider implements Provider {
         if (parsed.emittedDelta) emittedAnyDelta = true;
         for (const ev of parsed.events) {
           if (ev.type === "session") finalSessionId = ev.sessionId;
-          // With partials ON, the terminal `assistant` block duplicates text
-          // already streamed as deltas. Suppress that duplicate; keep tool_use.
-          if (
-            ev.type === "delta" &&
-            emittedAnyDelta &&
-            !parsed.emittedDelta
-          ) {
-            continue;
-          }
+          if (this.isDuplicateText(ev, parsed, emittedAnyDelta)) continue;
           if (emitEvents) onEvent(ev);
         }
         if (parsed.result) {
@@ -413,7 +405,8 @@ class ClaudeLocalProvider implements Provider {
         const tail = parser.flush();
         for (const ev of tail.events) {
           if (ev.type === "session") finalSessionId = ev.sessionId;
-          if (emitEvents && ev.type !== "delta") onEvent(ev);
+          if (this.isDuplicateText(ev, tail, emittedAnyDelta)) continue;
+          if (emitEvents) onEvent(ev);
         }
         if (tail.result) {
           result = tail.result;
@@ -477,6 +470,36 @@ class ClaudeLocalProvider implements Provider {
         // EPIPE etc.: the close handler will report the real failure.
       }
     });
+  }
+
+  /**
+   * With `--include-partial-messages` (always on) the terminal `assistant`
+   * line restates text the caller has already been streamed token by token, so
+   * that copy is dropped. The test is PER EVENT — "did the parser decode this
+   * one from an assistant line?" — not per chunk.
+   *
+   * It used to be per chunk (`!parsed.emittedDelta`), and `parser.push()`
+   * decodes every NDJSON line of a chunk into a single ParseOutput. Whenever
+   * the CLI's last `content_block_delta` lines and its terminal `assistant`
+   * line landed in ONE stdout chunk, the chunk-wide flag was true and the
+   * duplicate escaped — the whole answer emitted twice, glued together. On a
+   * marker-delimited media answer the seam ate the copy's opening `@@ID:`,
+   * leaving one stray marker: 3 ids read where 2 were sent, a correct answer
+   * rejected, split and re-run at real token cost.
+   *
+   * tool_use from an assistant line is never a duplicate (partials carry it as
+   * content_block_start only when streaming), so only text is dropped.
+   */
+  private isDuplicateText(
+    ev: ProviderStreamEvent,
+    parsed: { fromAssistantLine?: Set<ProviderStreamEvent> },
+    emittedAnyDelta: boolean,
+  ): boolean {
+    return (
+      ev.type === "delta" &&
+      emittedAnyDelta &&
+      parsed.fromAssistantLine?.has(ev) === true
+    );
   }
 
   // -------------------------------------------------------------------------

@@ -57,7 +57,7 @@ import {
   type LadderResult,
 } from "../../arcs/ladder.js";
 import { reconcile, type ReconcileResult } from "../../arcs/reconcile.js";
-import { persistBridges } from "../../bridges/extract.js";
+import { bridgeId, persistBridges } from "../../bridges/extract.js";
 import { putCalib } from "../../db/calib.js";
 import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { logMutation } from "../../entities/merge.js";
@@ -283,20 +283,26 @@ function runScenario(response: string): Produced {
         break;
       }
 
-      case "bridge":
+      case "bridge": {
+        const kind = (fields.kind ?? "url") as never;
+        const valueNorm = fields.value ?? "v";
+        const from = fields.from ?? "";
+        const to = fields.to ?? "";
         persistBridges([
           {
-            kind: (fields.kind ?? "url") as never,
-            value_norm: fields.value ?? "v",
+            id: bridgeId(kind, valueNorm, from, to),
+            kind,
+            value_norm: valueNorm,
             left_kind: "episode",
-            left_id: fields.from ?? "",
+            left_id: from,
             right_kind: "episode",
-            right_id: fields.to ?? "",
+            right_id: to,
             confidence: num(fields.conf) ?? 1,
             decided_by: "code",
           },
         ]);
         break;
+      }
 
       case "split":
       case "move":

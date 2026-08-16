@@ -49,6 +49,20 @@ export interface Gate {
   reported?: boolean;
   /** Metric key read off case metrics when `measure` is "value". */
   metricKey?: string;
+  /**
+   * Measured ONLY from run observations — a case's own pass/fail bit never
+   * feeds it, even when its `assert.gate` names this gate.
+   *
+   * Some §14.2 rows are rates over a population the CASES are not: "1:1
+   * default rate" is a fraction of SESSIONS, and a run of one case routes
+   * however many sessions its scenario poses. Folding "case J-001 passed" into
+   * that denominator alongside "session s1 routed 1:1" counts one fact twice
+   * and lets the fixture set choose the denominator — which is exactly how
+   * this gate came to read 1.00 over fourteen hand-picked positives. The
+   * fixtures keep naming the gate (that is what the evals doc's Assert column
+   * says they assert); the NUMBER comes from the observations alone.
+   */
+  perObservation?: boolean;
 }
 
 type GateSeed = [
@@ -161,7 +175,14 @@ const SEEDS: readonly GateSeed[] = [
   ["entities_edge_precision", "entities", "edge precision", "< 0.90", "pass_rate", "lt", 0.9],
   ["entities_metadata_edges", "entities", "metadata edges captured", "< 100%", "pass_rate", "lt", 1],
   // -- episodes -------------------------------------------------------------
-  ["episodes_one_to_one_rate", "episodes", "1:1 default rate", "< 60%", "value", "lt", 0.6, { metricKey: "one_to_one_rate" }],
+  // A RATE, so its denominator has to be every session the engine ROUTED —
+  // not the subset of cases that chose to name this gate. As a `value` gate
+  // read off `assert.gate` it was fed by 14 fixtures that are all the same
+  // 1:1 scenario, so it read 1.00 by construction and could only ever have
+  // fallen if the 1:1 branch broke outright. `pass_rate` folds one observation
+  // per routed session across the WHOLE category (the `entities_recall`
+  // pattern), which is the population the ≥60% bar is about.
+  ["episodes_one_to_one_rate", "episodes", "1:1 default rate", "< 60%", "pass_rate", "lt", 0.6, { perObservation: true }],
   ["episodes_split_attach_accuracy", "episodes", "split / attach accuracy", "< 0.85", "pass_rate", "lt", 0.85],
   ["episodes_wrong_attach_rate", "episodes", "wrong-attach rate", "> 2%", "value", "gt", 0.02, { metricKey: "wrong_attach_rate" }],
   ["episodes_verdict_replay", "episodes", "verdict replay determinism", "any drift", "violations", "gt", 0],
@@ -238,6 +259,14 @@ export interface GateInput {
   /** Ran at all — a pending/stub case feeds nothing. */
   counted: boolean;
   metrics?: Record<string, number>;
+  /**
+   * A number measured FOR THIS GATE, for a `value` gate. Read in preference to
+   * `metrics[metricKey]` so a run can feed a value gate from an observation it
+   * made on any case, not only from the cases whose `assert.gate` named it.
+   */
+  value?: number;
+  /** True when this input is a run OBSERVATION rather than a case's verdict. */
+  observation?: boolean;
 }
 
 /**
@@ -252,12 +281,14 @@ export function measureGates(inputs: readonly GateInput[]): GateReading[] {
     if (!input.counted || !input.gateId) continue;
     const gate = BY_ID.get(input.gateId);
     if (!gate) continue;
+    // A per-observation gate counts measurements, not verdicts on cases.
+    if (gate.perObservation && input.observation !== true) continue;
     const b = buckets.get(gate.id);
     if (!b) continue;
     b.cases += 1;
     if (input.passed) b.passed += 1;
-    if (gate.measure === "value" && gate.metricKey) {
-      const v = input.metrics?.[gate.metricKey];
+    if (gate.measure === "value") {
+      const v = input.value ?? (gate.metricKey ? input.metrics?.[gate.metricKey] : undefined);
       if (typeof v === "number" && Number.isFinite(v)) b.values.push(v);
     }
   }

@@ -5,9 +5,28 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +37,19 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "arc|id=n1|label=Sunday cooking|last=2026-08-15T12:00:00.000Z\nepisode|arc=n1|id=e1|at=2026-07-05T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e2|at=2026-07-12T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e3|at=2026-07-19T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e4|at=2026-07-26T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e5|at=2026-08-02T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e6|at=2026-08-09T12:00:00.000Z|entities=self,a1\nepisode|arc=n1|id=e7|at=2026-08-16T12:00:00.000Z|entities=self,a1\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "promoted": true,
+    "promotion_reason": "rec",
+    "status": "active",
+    "lives_on": "space",
+    "reason_recorded": true
+  },
   "assert": {
     "mode": "state",
     "gate": "promotion_route_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "arc: 7 episodes over 6 weeks, 7 distinct days, user participated",
     "expect": "promoted, promotion_reason=rec",

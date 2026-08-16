@@ -18,13 +18,29 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=en1|type=person|name=Rahul Arora\nentity|id=en2|type=person|name=Pranjali\nevent|id=ev1|ts=2026-03-02T10:00:00Z\nevent|id=ev2|ts=2026-05-04T10:00:00Z\nevent|id=ev3|ts=2026-08-11T10:00:00Z\nevent|id=ev4|ts=2026-08-12T10:00:00Z\nevent|id=ev5|ts=2026-08-13T10:00:00Z\nclaim|kind=belief|tag=B|subject=en1|text=Believes the lease ends in March.|said=2026-08-11T10:00:00Z|conf=0.8|event=ev3|quote=Believes the lease ends in March.|run=r1\nclaim|kind=belief|tag=B|subject=en1|text=Believes the lease ends in June.|said=2026-03-02T10:00:00Z|conf=0.8|event=ev1|quote=Believes the lease ends in June.|sim=0.9|run=r1\n#AG3\nV|A|B|ctr|a|2026-09-01|0.9|B was said five months before A and describes the earlier state",
+  "expect": {
+    "state": {
+      "claims": 2,
+      "active": [
+        "Believes the lease ends in March."
+      ],
+      "closed": [
+        {
+          "text": "Believes the lease ends in June.",
+          "reason": "contradiction",
+          "valid_to": "2026-09-01"
+        }
+      ],
+      "late_dislodges": 0,
+      "stated_at_precedence": true
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "claims_out_of_order_supersession"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "older claim (stated_at earlier) arrives AFTER a newer one (5)",
     "expect": "stored as predecessor with closed window; newer stays active",

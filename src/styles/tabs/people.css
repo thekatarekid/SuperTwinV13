@@ -1,0 +1,172 @@
+/* ==========================================================================
+   People surface — arch §14.1 / §14.8.
+
+   One rule with teeth: THE TIER NEVER APPEARS WITHOUT ITS ARITHMETIC. The
+   badge and the "both ways in 9 of the last 12 weeks" line are one flex row
+   and share a baseline, so there is no layout in which the badge survives and
+   the explanation is cropped away.
+
+   The open-loops block is styled as prose, not as a checklist, because a
+   person's loops are context in both directions — never your task list.
+   ========================================================================== */
+
+.person-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.person {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.person--inner_circle { border-left-color: var(--accent); }
+.person--active       { border-left-color: var(--success); }
+.person--dormant      { border-left-color: var(--border-strong); }
+.person--archived     { border-left-color: var(--border); opacity: 0.85; }
+
+.person--provisional {
+  border-left-color: var(--accent);
+}
+
+.person--retracted {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.person--retracted .person__name {
+  text-decoration: line-through;
+}
+
+.person__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.person__name {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--text-display);
+}
+
+.person__tier {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border-radius: var(--radius-chip);
+  padding: 2px var(--space-2);
+}
+
+/* The arithmetic. Same row, same baseline — see the header. */
+.person__tier-why {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-warm-label);
+}
+
+.person__relationship {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.person__disagreement {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.person__relationship-quote,
+.person__rhythm,
+.person__provisional,
+.person__retracted,
+.person__threads-note,
+.person__loops-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.person__provisional {
+  color: var(--accent);
+}
+
+.person__detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-3);
+  border-top: 1px dashed var(--border);
+  padding-top: var(--space-3);
+}
+
+.person__detail h3 {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.person__detail ul,
+.person__detail ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.person__claim {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.person__claim-kind,
+.person__claim-prov,
+.person__identity-kind,
+.person__identity-src,
+.person__thread-state,
+.person__space-archetype,
+.person__timeline-at {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-warm-label);
+}
+
+.person__claim-quote {
+  color: var(--text-ink);
+}
+
+/* Prose, not a checklist. */
+.person__loops-you,
+.person__loops-them {
+  color: var(--text-muted);
+}
+
+.person__gestures,
+.person__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

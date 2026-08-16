@@ -5,9 +5,28 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +37,19 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=account|type=thing\nedge|kind=has|to=account\narc|id=n1|label=Savings account|anchors=account|last=2026-08-12T12:00:00.000Z\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "promoted": true,
+    "promotion_reason": "ref",
+    "status": "active",
+    "lives_on": "space",
+    "reason_recorded": true
+  },
   "assert": {
     "mode": "state",
     "gate": "promotion_route_accuracy"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "arc anchored on account with a has/loc relation, NO loops",
     "expect": "promoted, promotion_reason=ref",

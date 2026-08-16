@@ -24,10 +24,12 @@ import { enrichmentExecutor } from "./enrichment.js";
 import { ingestExecutor } from "./ingest.js";
 import { mentionsExecutor } from "./mentions.js";
 import { partyExecutor } from "./party.js";
+import { promotionExecutor } from "./promotion.js";
 import { schedulerExecutor } from "./scheduler.js";
 import { sessionsExecutor } from "./sessions.js";
 import { tiersExecutor } from "./tiers.js";
 import { wireExecutor } from "./wire.js";
+import { writeExecutor } from "./write.js";
 
 export {
   accountingExecutor,
@@ -40,10 +42,12 @@ export {
   ingestExecutor,
   mentionsExecutor,
   partyExecutor,
+  promotionExecutor,
   schedulerExecutor,
   sessionsExecutor,
   tiersExecutor,
   wireExecutor,
+  writeExecutor,
 };
 
 /** Layer → executor, for the layers that have product code behind them today. */
@@ -52,6 +56,7 @@ export const PRODUCT_EXECUTORS = {
   enrichment: enrichmentExecutor,
   tiers: tiersExecutor,
   party: partyExecutor,
+  promotion: promotionExecutor,
   sessions: sessionsExecutor,
   scheduler: schedulerExecutor,
   entities: entitiesExecutor,
@@ -63,6 +68,7 @@ export const PRODUCT_EXECUTORS = {
   wire: wireExecutor,
   accounting: accountingExecutor,
   calib: calibExecutor,
+  write: writeExecutor,
 } as const;
 
 for (const [layer, executor] of Object.entries(PRODUCT_EXECUTORS)) {

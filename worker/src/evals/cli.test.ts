@@ -66,13 +66,33 @@ describe("npm run eval", () => {
     const sink = capture();
     const code = await main([], sink.out);
     const text = sink.text();
-    expect(code).toBe(0);
     expect(text).toContain("fixtures: 1000 loaded");
     expect(text).toContain("no network calls");
     expect(text).toContain("GATES (architecture §14.2)");
-    // A–K, O, S, T, U and V are authored and run; the other 6 are stubs.
-    expect(text).toContain("PENDING (290)");
-    expect(text).toContain("cases:    1000 · pass 710 · fail 0 · pending 290");
+    // A–L, O, P, R, S, T, U and V are authored and run; the rest are stubs.
+    expect(text).toContain("PENDING (200)");
+    expect(text).toContain("cases:    1000 · pass 800 · fail 0 · pending 200");
+
+    // EVERY CASE PASSES; ONE GATE DOES NOT — and that is the honest state of
+    // the build, not a flake to be waited out.
+    //
+    // `episodes_one_to_one_rate` is §14.2's "1:1 default rate ≥ 60%". It used
+    // to read 1.00 because it was fed only by the fourteen J fixtures whose
+    // `assert.gate` named it, and all fourteen are the same one-topic
+    // scenario — a denominator of hand-picked positives. Measured over every
+    // session the engine actually ROUTES it reads 41.2% (21 of 51), because
+    // the J corpus is a COVERAGE MATRIX (12 pivots, 12 resumes, 5 cross-stream,
+    // 4 drift) and not a sample of traffic. The engine itself is not at fault:
+    // it takes the zero-call default on 21 of the 21 sessions where the
+    // precondition holds and calls on 30 of the 30 where it does not.
+    //
+    // So this breach says the BAR HAS NO REPRESENTATIVE CORPUS TO BE MEASURED
+    // ON yet, and it stays red until one exists. Do not silence it by
+    // narrowing the denominator or moving the threshold — that is exactly the
+    // shape of the bug this pinning replaced. When a representative episode
+    // corpus lands, this expectation flips back to `code === 0`.
+    expect(text).toContain("breached: episodes_one_to_one_rate");
+    expect(code).toBe(1);
   });
 
   it("goes green on the self-test directory", async () => {

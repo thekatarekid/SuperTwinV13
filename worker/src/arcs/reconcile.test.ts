@@ -342,6 +342,65 @@ describe("⑤ merged-entity redirects are compacted before the key is computed",
     expect(anchors[0]?.entityId).toBe("a_ghost");
     expect(redirects).toEqual([]);
   });
+
+  it("re-keys an ALREADY COMMITTED arc, so a later merge does not mint a twin", () => {
+    seedEntity("a_dupe");
+    seedEpisode("ep_1", { entityIds: ["a_dupe"] });
+    writeProvisionalArc({ arcKeyCandidate: "x", episodeIds: ["ep_1"], now: NOW });
+    const first = reconcile({ now: NOW });
+    const arcId = first.groups[0]!.arcId;
+
+    // The merge lands AFTER the arc is committed and surfaced.
+    seedEntity("a_survivor");
+    seedEntity("a_dupe", "person", "a_survivor");
+    seedEpisode("ep_2", { entityIds: ["a_dupe"] });
+    writeProvisionalArc({ arcKeyCandidate: "y", episodeIds: ["ep_2"], now: NOW + 1 });
+
+    const second = reconcile({ now: NOW + 1 });
+    expect(second.rekeyed).toBe(1);
+    expect(second.minted).toBe(0);
+    expect(second.rebound).toBe(1);
+    expect(readArcs()).toHaveLength(1);
+    // The id survives the re-key — that is the whole promise of §11.2.
+    expect(readArc(arcId)?.anchorEntityIds).toEqual(["a_survivor"]);
+    expect(arcEpisodeIds(arcId).sort()).toEqual(["ep_1", "ep_2"]);
+  });
+
+  it("is a no-op on a second pass — a compacted anchor set has nothing left to redirect", () => {
+    seedEntity("a_survivor");
+    seedEntity("a_dupe", "person", "a_survivor");
+    seedEpisode("ep_1", { entityIds: ["a_dupe"] });
+    writeProvisionalArc({ arcKeyCandidate: "x", episodeIds: ["ep_1"], now: NOW });
+    reconcile({ now: NOW });
+    expect(reconcile({ now: NOW + 1 }).rekeyed).toBe(0);
+  });
+
+  it("reports a key collision instead of merging two surfaced arcs behind the user's back", () => {
+    seedEntity("a_survivor");
+    seedEntity("a_dupe", "person", "a_survivor");
+    // Two committed arcs that the merge has just made identical.
+    const survivor = commitArc({
+      arcKey: arcKey([{ entityId: "a_survivor", type: "person" }], "Goa trip"),
+      label: "Goa trip",
+      anchorEntityIds: ["a_survivor"],
+      sourceIds: [],
+      now: NOW,
+    });
+    const dupe = commitArc({
+      arcKey: arcKey([{ entityId: "a_dupe", type: "person" }], "Goa trip"),
+      label: "Goa trip",
+      anchorEntityIds: ["a_dupe"],
+      sourceIds: [],
+      now: NOW,
+    });
+
+    const result = reconcile({ now: NOW });
+    expect(result.keyCollisions).toEqual([dupe.id]);
+    expect(result.rekeyed).toBe(0);
+    // Nothing was destroyed: both arcs are still there, untouched.
+    expect(readArc(dupe.id)?.anchorEntityIds).toEqual(["a_dupe"]);
+    expect(readArc(survivor.id)?.anchorEntityIds).toEqual(["a_survivor"]);
+  });
 });
 
 describe("⑥ every change is one undoable run", () => {
@@ -355,6 +414,21 @@ describe("⑥ every change is one undoable run", () => {
     );
     expect(runIds).toEqual([result.runId]);
     expect(result.mutations).toBeGreaterThan(0);
+  });
+
+  it("records the membership the arc had BEFORE the pass, or the undo is a no-op", () => {
+    seedEntity("a1");
+    seedEpisode("ep_1", { entityIds: ["a1"] });
+    seedEpisode("ep_2", { entityIds: ["a1"] });
+    writeProvisionalArc({ arcKeyCandidate: "x", episodeIds: ["ep_1"], now: NOW });
+    reconcile({ now: NOW });
+    writeProvisionalArc({ arcKeyCandidate: "x", episodeIds: ["ep_2"], now: NOW + 1 });
+    reconcile({ now: NOW + 1 });
+
+    const row = getDb().prepare(`SELECT old_json FROM mutations WHERE field = 'rebind'`).get() as {
+      old_json: string;
+    };
+    expect(JSON.parse(row.old_json)).toEqual({ episodeIds: ["ep_1"] });
   });
 
   it("accepts a caller's run id so several passes undo together", () => {

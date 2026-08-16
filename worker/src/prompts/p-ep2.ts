@@ -209,7 +209,7 @@ export function buildEp2Prompt(input: Ep2Input): Ep2Prompt | null {
   let events = 0;
   let offered = 0;
 
-  for (const [i, session] of input.sessions.entries()) {
+  for (const session of input.sessions) {
     const stream = input.streams.find((s) => s.id === session.streamId);
     if (!stream) continue;
     const token = `s${sessions.size + 1}`;
@@ -217,9 +217,12 @@ export function buildEp2Prompt(input: Ep2Input): Ep2Prompt | null {
     const open = (input.episodes ?? []).filter((ep) => ep.streamId === session.streamId);
     const own = session.events.filter((e) => e.streamId === session.streamId);
 
+    // Roster on the first block ACTUALLY EMITTED — keying off the loop index
+    // drops `#R` whenever session[0] is skipped, leaving `#C` speaking in
+    // aliases the model was never given (§5.9.3).
     const packed = packPrompt({
       tz: input.tz,
-      entities: i === 0 ? [...(input.entities ?? [])] : [],
+      entities: blocks.length === 0 ? [...(input.entities ?? [])] : [],
       streams: [stream],
       episodes: [...open],
       events: [...own],
@@ -454,6 +457,22 @@ export function checkPartition(
 }
 
 // ---- verdicts: persist once, replay forever --------------------------------
+//
+// ONE ROW PER SESSION, `output_json = { segments: [...] }`.
+//
+// This shape is not a choice — it is the shape `episodes/engine.ts` reads.
+// `storedSegments()` there requires `output_json` to be an object carrying a
+// `segments` ARRAY, and `readVerdictForHash()` takes the newest row for a
+// content hash. An earlier version of this file wrote ONE ROW PER SEGMENT with
+// `output_json` set to a bare `Ep2Segment`, which made `storedSegments()`
+// return null: the hash gate would miss, the session would be silently
+// RE-JUDGED, and the one rule this call exists to keep ("verdicts are
+// persisted, never re-judged") would break in exactly the case it is for.
+// Two writers, one table, one readable shape.
+//
+// Nothing is lost by nesting: the whole `Ep2Segment` rides inside the array,
+// so `statedDecision`, `demoted` and the model's verbatim `raw` line all still
+// survive the round trip, and the engine reads the fields it knows about.
 
 function verdictId(): string {
   return `epv_${randomBytes(12).toString("hex")}`;
@@ -466,7 +485,8 @@ export interface Ep2VerdictRow {
   runId: string | null;
   decision: string;
   candidates: string[];
-  segment: Ep2Segment | null;
+  /** Every segment of this session's verdict, in the order it was judged. */
+  segments: Ep2Segment[];
   model: string | null;
   createdAt: string;
 }
@@ -513,17 +533,21 @@ export function readEpisodeVerdicts(sessionId: string): Ep2VerdictRow[] {
          FROM episode_verdicts WHERE session_id = ? ORDER BY rowid`,
     )
     .all(sessionId) as RawVerdictRow[];
-  return rows.map((r) => ({
-    id: r.id,
-    episodeId: r.episode_id,
-    sessionId: r.session_id,
-    runId: r.run_id,
-    decision: r.decision ?? "new",
-    candidates: parseJson<string[]>(r.candidates_json) ?? [],
-    segment: parseJson<Ep2Segment>(r.output_json),
-    model: r.model,
-    createdAt: r.created_at,
-  }));
+  return rows.map((r) => {
+    const output = parseJson<{ segments?: unknown }>(r.output_json);
+    const list = output !== null && Array.isArray(output.segments) ? (output.segments as Ep2Segment[]) : [];
+    return {
+      id: r.id,
+      episodeId: r.episode_id,
+      sessionId: r.session_id,
+      runId: r.run_id,
+      decision: r.decision ?? "new",
+      candidates: parseJson<string[]>(r.candidates_json) ?? [],
+      segments: list,
+      model: r.model,
+      createdAt: r.created_at,
+    };
+  });
 }
 
 /**
@@ -532,9 +556,7 @@ export function readEpisodeVerdicts(sessionId: string): Ep2VerdictRow[] {
  * sealed sessions produce identical episodes (evals J-048..J-051).
  */
 export function replayVerdicts(sessionId: string): Ep2Segment[] {
-  return readEpisodeVerdicts(sessionId)
-    .map((row) => row.segment)
-    .filter((s): s is Ep2Segment => s !== null);
+  return readEpisodeVerdicts(sessionId).flatMap((row) => row.segments);
 }
 
 export interface PersistEp2Params {
@@ -553,41 +575,38 @@ export interface PersistEp2Result {
 }
 
 /**
- * One row per segment — the acted decision, the candidates it chose from, and
- * the WHOLE segment in `output_json` so the stated decision, the demotion and
- * the model's own line all survive the round trip. Idempotent: a session that
- * already carries a verdict is NOT re-judged and NOT re-written.
+ * One row for the session — the acted decision, the candidates it chose from,
+ * and every segment under `output_json.segments` so the stated decision, the
+ * demotion and the model's own line all survive the round trip IN THE SHAPE
+ * `episodes/engine.ts` reads back. Idempotent: a session that already carries
+ * a verdict is NOT re-judged and NOT re-written.
  */
 export function persistEp2Verdicts(params: PersistEp2Params): PersistEp2Result {
   const existing = readEpisodeVerdicts(params.sessionId);
   if (existing.length > 0) return { ids: existing.map((r) => r.id), reused: true };
 
-  const db = getDb();
-  const stmt = db.prepare(
-    `INSERT INTO episode_verdicts
-       (id, episode_id, session_id, run_id, decision, candidates_json, output_json, model)
-     VALUES (@id, @episodeId, @sessionId, @runId, @decision, @candidatesJson, @outputJson, @model)`,
-  );
-  const candidatesJson = JSON.stringify([...(params.candidates ?? [])]);
-  const ids: string[] = [];
-  const write = db.transaction((segments: readonly Ep2Segment[]) => {
-    for (const segment of segments) {
-      const id = verdictId();
-      stmt.run({
-        id,
-        episodeId: segment.episodeId,
-        sessionId: params.sessionId,
-        runId: params.runId ?? null,
-        decision: segment.decision,
-        candidatesJson,
-        outputJson: JSON.stringify(segment),
-        model: params.model ?? P_EP2.model,
-      });
-      ids.push(id);
-    }
-  });
-  write(params.segments);
-  return { ids, reused: false };
+  const segments = [...params.segments];
+  const id = verdictId();
+  // The row's own `decision` summarises the session: `new` unless something
+  // attached. The per-segment decisions are all inside `segments`.
+  const decision = segments.some((s) => s.decision === "attach") ? "attach" : "new";
+  getDb()
+    .prepare(
+      `INSERT INTO episode_verdicts
+         (id, episode_id, session_id, run_id, decision, candidates_json, output_json, model)
+       VALUES (@id, @episodeId, @sessionId, @runId, @decision, @candidatesJson, @outputJson, @model)`,
+    )
+    .run({
+      id,
+      episodeId: segments.find((s) => s.episodeId !== null)?.episodeId ?? null,
+      sessionId: params.sessionId,
+      runId: params.runId ?? null,
+      decision,
+      candidatesJson: JSON.stringify([...(params.candidates ?? [])]),
+      outputJson: JSON.stringify({ segments }),
+      model: params.model ?? P_EP2.model,
+    });
+  return { ids: [id], reused: false };
 }
 
 /** The share of sessions that came out 1:1 — one segment, `new` (evals J-001+). */

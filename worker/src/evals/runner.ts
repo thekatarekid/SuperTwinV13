@@ -49,6 +49,17 @@ export interface GateObservation {
   passed: boolean;
   /** Why, for the failure line. */
   note?: string;
+  /**
+   * The number this observation measured, for a `value` gate.
+   *
+   * A `value` gate used to be readable only off the case's own metric bag,
+   * which meant it could only ever be fed by the cases whose `assert.gate`
+   * named it — a denominator the fixtures self-select. Carrying the number on
+   * the observation lets a run measure a value gate on EVERY case it ran, the
+   * way `passed` already lets it measure a rate gate that way. Ignored for
+   * gates that are not `measure: "value"`.
+   */
+  value?: number;
 }
 
 /** What a run produced. `output` holds buckets (`claims`, `loops`, …). */
@@ -436,13 +447,16 @@ export async function runSuite(fixtures: readonly Fixture[], options: SuiteOptio
       metrics: r.metrics,
     });
     for (const observation of r.gateObservations) {
-      // No metrics: an observation is a pass/fail fact, and letting the case's
-      // metric bag ride along would feed a `value` gate a number nobody
-      // measured for it.
+      // No `metrics` bag: the case's metrics were measured for the CASE, and
+      // letting them ride along would feed a `value` gate a number nobody
+      // measured for it. An observation that did measure such a number says so
+      // explicitly, in `value`.
       gateInputs.push({
         gateId: observation.gate,
         passed: observation.passed,
         counted: r.status !== "pending",
+        observation: true,
+        ...(observation.value === undefined ? {} : { value: observation.value }),
       });
     }
   }

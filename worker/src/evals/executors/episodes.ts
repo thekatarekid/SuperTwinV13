@@ -39,6 +39,7 @@ import { putCalib } from "../../db/calib.js";
 import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { insertEvent, upsertActor, upsertSource, upsertStream } from "../../db/ingest.js";
 import { ageEpisodes } from "../../episodes/aging.js";
+import { auditAttaches } from "../../episodes/audit.js";
 import { partitions, runEpisodePass, type EngineSession, type EpisodeJudge } from "../../episodes/engine.js";
 import { preflagDrift, type DriftEvent, type PreflagResult } from "../../episodes/preflag.js";
 import { MIN_CALIB_PAIRS } from "../../retrieval/calibration-floor.js";
@@ -323,6 +324,18 @@ export const episodesExecutor: Executor = (ctx): Produced => {
       if (result.decision !== "hash_reuse") {
         decided += 1;
         if (result.decision === "one_to_one") oneToOne += 1;
+        // §14.2's `1:1 default rate`, one observation per session the engine
+        // ROUTED. Emitted on every case, not only on the fourteen that name
+        // the gate — a rate whose denominator is chosen by the fixtures is a
+        // rate about the fixtures. `hash_reuse` never routed, so it is not in
+        // the denominator; `one_to_one_fallback` routed to the model and only
+        // landed on 1:1 because no judge answered, so it is not in the
+        // numerator either.
+        acc.gates.push({
+          gate: "episodes_one_to_one_rate",
+          passed: result.decision === "one_to_one",
+          note: `${spec.id}: ${result.decision} — ${result.reason}`,
+        });
       }
       // The partition invariant is measured on EVERY run, not only on the
       // cases that spent their one `assert.gate` on it (§11.1 rule 1).
@@ -341,12 +354,6 @@ export const episodesExecutor: Executor = (ctx): Produced => {
         }
       }
       for (const segment of result.segments) {
-        if (segment.decision === "attach") {
-          attaches += 1;
-          // The only wrongness code can judge on its own: an attach that landed
-          // outside the open episodes of THIS session's stream.
-          if (!result.candidates.some((c) => c.id === segment.episodeId)) wrongAttaches += 1;
-        }
         if (!replay) {
           bucket(acc, "segments").push({
             session: spec.id,
@@ -455,7 +462,26 @@ export const episodesExecutor: Executor = (ctx): Produced => {
     // `episodes_one_to_one_rate` a perfect score it never earned; gates.ts's
     // rule is that an unmeasured gate reads `no data`, never `pass`.
     if (decided > 0) acc.metrics.one_to_one_rate = oneToOne / decided;
-    acc.metrics.wrong_attach_rate = attaches === 0 ? 0 : wrongAttaches / attaches;
+
+    // §14.2's `wrong-attach rate`, measured off the ROWS by `episodes/audit.ts`
+    // — stream scope, the 0.6 floor and attribution — rather than by asking
+    // whether the engine's own candidate list contains the target it picked
+    // out of that same list. Emitted as an observation so every case that
+    // attached anything feeds the gate, not only the twelve that name it.
+    const attachAudit = auditAttaches();
+    attaches = attachAudit.length;
+    wrongAttaches = attachAudit.filter((a) => !a.ok).length;
+    if (attaches > 0) {
+      acc.metrics.wrong_attach_rate = wrongAttaches / attaches;
+      acc.gates.push({
+        gate: "episodes_wrong_attach_rate",
+        passed: wrongAttaches === 0,
+        value: wrongAttaches / attaches,
+        note: attachAudit.find((a) => !a.ok)?.reason,
+      });
+    }
+    acc.state.attaches = attaches;
+    acc.state.wrong_attaches = wrongAttaches;
   } finally {
     world.close();
   }

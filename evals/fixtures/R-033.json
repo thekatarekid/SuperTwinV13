@@ -18,13 +18,20 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=en1|type=person|name=Rahul Arora\nentity|id=en2|type=person|name=Pranjali\nevent|id=ev1|ts=2026-03-02T10:00:00Z\nevent|id=ev2|ts=2026-05-04T10:00:00Z\nevent|id=ev3|ts=2026-08-11T10:00:00Z\nevent|id=ev4|ts=2026-08-12T10:00:00Z\nevent|id=ev5|ts=2026-08-13T10:00:00Z\nloop|owner=en2|counterparty=en1|intent=send the rent receipt",
+  "expect": {
+    "state": {
+      "loop_keys": [
+        "d192614fb4295646a077ed44de9b20193c630ea0"
+      ],
+      "loop_key_ignores_space_arc": true
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "claims_out_of_order_supersession"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "loop_key computed (2)",
     "expect": "sha1(owner/counterparty/normalize(intent)) — NO space_id or arc_id",

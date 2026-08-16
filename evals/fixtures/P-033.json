@@ -5,9 +5,28 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +37,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "promotion_route_accuracy"
+  "frozen_response": "arc|id=n1|label=Sister's wedding|cadence=one_time|ends_at=2026-09-12T00:00:00Z\nloop|arc=n1|id=l1|state=open|owner=self|counterparty=a1\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "promoted": true,
+    "archetype": "evt",
+    "archetype_name": "event",
+    "archetype_source": "code"
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "archetype_accuracy"
+  },
+  "stub": false,
   "doc": {
     "given": "thread shaped as: a single date approaching (variant 1)",
     "expect": "D/.../event/...",

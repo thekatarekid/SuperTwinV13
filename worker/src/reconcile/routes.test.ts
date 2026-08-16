@@ -58,16 +58,18 @@ function seedTwins(): void {
 }
 
 describe("POST /api/reconcile/run", () => {
-  function fakeReq(method: string, url: string, body?: unknown): never[] & Record<string, unknown> {
+  // Every call site casts `as never` into the route's node-http parameter, so
+  // the helper's own return type only has to describe what it actually builds:
+  // a method/url pair that streams the body chunks.
+  function fakeReq(method: string, url: string, body?: unknown): unknown {
     const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))];
-    const req = {
+    return {
       method,
       url,
       async *[Symbol.asyncIterator]() {
         for (const c of chunks) yield c;
       },
     };
-    return req as never[] & Record<string, unknown>;
   }
 
   function fakeRes(): { status: number; body: unknown; res: unknown } {

@@ -5,9 +5,28 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "whatsapp_dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-16T12:00:00.000Z",
+        "who": "self",
+        "text": "the clock for this case"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +37,26 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "arc|id=n1|label=Move to the new flat\nloop|arc=n1|id=l1|state=open|owner=self|counterparty=a1\nsweep\nreport|arc=n1\n",
+  "expect": {
+    "spaces": [
+      {
+        "id": "n1",
+        "promotion_reason": "cmt",
+        "status": "active"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": "promotion_route_accuracy"
+    "on": [
+      "id",
+      "promotion_reason",
+      "status"
+    ],
+    "gate": "promotion_reason_recorded"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "promoted thread",
     "expect": "promotion_reason recorded and renderable",

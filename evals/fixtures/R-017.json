@@ -18,13 +18,28 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=en1|type=person|name=Rahul Arora\nentity|id=en2|type=person|name=Pranjali\nevent|id=ev1|ts=2026-03-02T10:00:00Z\nevent|id=ev2|ts=2026-05-04T10:00:00Z\nevent|id=ev3|ts=2026-08-11T10:00:00Z\nevent|id=ev4|ts=2026-08-12T10:00:00Z\nevent|id=ev5|ts=2026-08-13T10:00:00Z\nclaim|kind=fact|tag=F|subject=en1|text=Lives in Koramangala.|said=2026-03-02T10:00:00Z|conf=0.8|event=ev1|quote=Lives in Koramangala.|run=r1\nclaim|kind=fact|tag=F|subject=en1|text=Lives in a 2BHK in Koramangala.|said=2026-08-11T10:00:00Z|conf=0.8|event=ev3|quote=Lives in a 2BHK in Koramangala.|sim=0.93|run=r1\n#AG3\nV|A|B|rfn|b|-|0.9|the incoming claim is the more precise one",
+  "expect": {
+    "state": {
+      "claims": 2,
+      "active": [
+        "Lives in a 2BHK in Koramangala."
+      ],
+      "closed": [
+        {
+          "text": "Lives in Koramangala.",
+          "reason": "refinement",
+          "valid_to": "2026-08-11T10:00:00Z"
+        }
+      ],
+      "model_calls": 1
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "claims_out_of_order_supersession"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "P-AG3 returns rfn",
     "expect": "supersede 'refined by better evidence'",

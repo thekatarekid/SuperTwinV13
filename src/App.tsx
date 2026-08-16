@@ -6,6 +6,10 @@ import { EntitiesTab } from "./tabs/EntitiesTab";
 import { SessionsTab } from "./tabs/SessionsTab";
 import { EpisodesTab } from "./tabs/EpisodesTab";
 import { ThreadsTab } from "./tabs/ThreadsTab";
+import { ClaimsTab } from "./tabs/ClaimsTab";
+import { SpacesTab } from "./tabs/SpacesTab";
+import { TasksTab } from "./tabs/TasksTab";
+import { PeopleTab } from "./tabs/PeopleTab";
 
 type TabId =
   | "inbox"
@@ -14,6 +18,10 @@ type TabId =
   | "sessions"
   | "episodes"
   | "threads"
+  | "claims"
+  | "spaces"
+  | "tasks"
+  | "people"
   | "settings";
 
 interface TabDef {
@@ -77,6 +85,35 @@ const ICONS: Record<TabId, JSX.Element> = {
       <circle cx="3" cy="18" r="1.4" />
     </svg>
   ),
+  claims: (
+    <svg {...ICON_PROPS}>
+      {/* A statement with a mark against it — a claim carries its evidence. */}
+      <path d="M4 5h16v11H8l-4 4z" />
+      <path d="M8 10h8" />
+    </svg>
+  ),
+  spaces: (
+    <svg {...ICON_PROPS}>
+      {/* A promoted arc: a container the threads were lifted into. */}
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M3 11h18" />
+      <path d="M8 7V4h8v3" />
+    </svg>
+  ),
+  tasks: (
+    <svg {...ICON_PROPS}>
+      <path d="M4 6.5 6 8.5 10 4.5" />
+      <path d="M4 16.5 6 18.5 10 14.5" />
+      <path d="M13 6.5h7" />
+      <path d="M13 16.5h7" />
+    </svg>
+  ),
+  people: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="8" r="3.4" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </svg>
+  ),
   settings: (
     <svg {...ICON_PROPS}>
       <circle cx="12" cy="12" r="3" />
@@ -92,6 +129,10 @@ const TABS: TabDef[] = [
   { id: "sessions", label: "Sessions", icon: ICONS.sessions },
   { id: "episodes", label: "Episodes", icon: ICONS.episodes },
   { id: "threads", label: "Threads", icon: ICONS.threads },
+  { id: "claims", label: "Claims", icon: ICONS.claims },
+  { id: "spaces", label: "Spaces", icon: ICONS.spaces },
+  { id: "tasks", label: "Tasks", icon: ICONS.tasks },
+  { id: "people", label: "People", icon: ICONS.people },
   { id: "settings", label: "Settings", icon: ICONS.settings },
 ];
 
@@ -147,6 +188,10 @@ export function App() {
         {active === "sessions" && <SessionsTab />}
         {active === "episodes" && <EpisodesTab />}
         {active === "threads" && <ThreadsTab />}
+        {active === "claims" && <ClaimsTab />}
+        {active === "spaces" && <SpacesTab onOpenThreads={() => setActive("threads")} />}
+        {active === "tasks" && <TasksTab onOpenSpace={() => setActive("spaces")} />}
+        {active === "people" && <PeopleTab />}
         {active === "settings" && <SettingsTab />}
       </main>
     </div>

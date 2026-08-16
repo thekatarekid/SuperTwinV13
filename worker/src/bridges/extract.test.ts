@@ -4,9 +4,10 @@
 // duplicating.
 // ===========================================================================
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { clearRegistry, registerSource } from "../adapters/registry.js";
@@ -236,5 +237,39 @@ describe("persistence", () => {
     runBridgePass(items);
     expect(bridgesByValue("url", "site0.com/x")).toHaveLength(2);
     expect(bridgesByValue("url", "nowhere.com")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The invariant the §14.2 arcs rows rest on: rung ① is [CODE].
+// ---------------------------------------------------------------------------
+
+describe("bridges are deterministic [CODE] with zero model calls", () => {
+  it("imports no provider, no prompt and no embedder — structurally, not by promise", () => {
+    // The eval executor reports `model_calls: 0` for K. That is a DECLARATION.
+    // This is the proof: a module that cannot reach a model cannot spend one,
+    // and the day somebody adds `import { runPrompt }` here, this fails.
+    const dir = dirname(fileURLToPath(import.meta.url));
+    for (const file of ["extract.ts", "normalise.ts"]) {
+      const source = readFileSync(join(dir, file), "utf8");
+      const imports = [...source.matchAll(/^import[\s\S]*?from\s+"([^"]+)";/gm)].map((m) => m[1]);
+      for (const spec of imports) {
+        expect(spec, `${file} imports ${spec}`).not.toMatch(/\/providers\//);
+        expect(spec, `${file} imports ${spec}`).not.toMatch(/\/prompts\//);
+        expect(spec, `${file} imports ${spec}`).not.toMatch(/\/retrieval\/(embed|calibration)/);
+      }
+    }
+  });
+
+  it("produces byte-identical output for the same input, run after run", () => {
+    const same: BridgeItem[] = [
+      { id: "e1", source_id: "whatsapp", object_kind: "event", text: "https://site0.com/x?utm_source=wa" },
+      { id: "b1", source_id: "browser", object_kind: "event", urls: ["https://site0.com/x"] },
+    ];
+    const once = extractBridges(same);
+    const twice = extractBridges(same);
+    expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+    // Ids are content hashes, so determinism survives a process boundary too.
+    expect(once.map((b) => b.id)).toEqual(twice.map((b) => b.id));
   });
 });

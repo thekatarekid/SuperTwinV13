@@ -18,13 +18,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=en1|type=person|name=Rahul Arora\nentity|id=en2|type=person|name=Pranjali\nevent|id=ev1|ts=2026-03-02T10:00:00Z\nevent|id=ev2|ts=2026-05-04T10:00:00Z\nevent|id=ev3|ts=2026-08-11T10:00:00Z\nevent|id=ev4|ts=2026-08-12T10:00:00Z\nevent|id=ev5|ts=2026-08-13T10:00:00Z\nclaim|kind=fact|tag=F|subject=en1|text=Lives in Koramangala.|said=2026-03-02T10:00:00Z|conf=0.8|event=ev1|quote=Lives in Koramangala.|run=r1",
+  "expect": {
+    "state": {
+      "mutations": 2,
+      "claims": 1
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "claims_out_of_order_supersession"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "any write performed",
     "expect": "a mutations row is emitted",

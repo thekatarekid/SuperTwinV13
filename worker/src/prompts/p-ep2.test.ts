@@ -147,6 +147,30 @@ describe("the call is built exactly as §12.3 specifies", () => {
     expect(prompt.context.candidates.get("sess-1")).toEqual([]);
   });
 
+  it("carries the roster even when the first session's stream is missing", () => {
+    const input = docInput();
+    // A session the caller passed whose stream did not come with it. It is
+    // skipped — but `a1` still appears in the surviving block's `#C` line, so
+    // the prompt without `#R` would be asking the model to read an alias that
+    // was never defined.
+    input.sessions = [{ id: "ghost", streamId: "str-gone", events: [] }, ...input.sessions];
+    const prompt = built(input);
+    expect(prompt.user).toContain("#R a1=Rohan");
+    expect(prompt.user).toContain("#S s1 | c1 | 4 events");
+    expect(prompt.stats.sessions).toBe(1);
+    expect(prompt.context.sessions.get("s1")).toBe("sess-1");
+  });
+
+  it("mints the roster once, on the first block only", () => {
+    const input = docInput();
+    input.sessions = [
+      ...input.sessions,
+      { id: "sess-2", streamId: "str-1", events: [ev("e9", "str-1", "2026-08-13T16:00:00Z", "self", "hi")] },
+    ];
+    const prompt = built(input);
+    expect(prompt.user.split("#R ").length - 1).toBe(1);
+  });
+
   it("chunks at six sessions per call", () => {
     const sessions = Array.from({ length: 13 }, (_, i) => ({
       id: `s${i}`,
@@ -372,7 +396,7 @@ describe("verdicts are persisted once and replayed forever", () => {
     return parseEp2Response(DOC_ANSWER, prompt.context).segments;
   }
 
-  it("writes one row per segment, with the whole segment recoverable", () => {
+  it("writes one row per SESSION, with every segment recoverable", () => {
     const segments = docSegments();
     const result = persistEp2Verdicts({
       sessionId: "sess-1",
@@ -381,15 +405,35 @@ describe("verdicts are persisted once and replayed forever", () => {
       candidates: ["ep-villa"],
     });
     expect(result.reused).toBe(false);
-    expect(result.ids).toHaveLength(2);
+    expect(result.ids).toHaveLength(1);
 
     const rows = readEpisodeVerdicts("sess-1");
-    expect(rows.map((r) => r.decision)).toEqual(["attach", "new"]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].segments.map((s) => s.decision)).toEqual(["attach", "new"]);
+    expect(rows[0].segments[0].episodeId).toBe("ep-villa");
+    expect(rows[0].segments[1].episodeId).toBeNull();
     expect(rows[0].episodeId).toBe("ep-villa");
-    expect(rows[1].episodeId).toBeNull();
     expect(rows[0].candidates).toEqual(["ep-villa"]);
     expect(rows[0].model).toBe("sonnet-5");
     expect(rows[0].runId).toBe("run-1");
+  });
+
+  it("writes the shape the ENGINE reads back — `{ segments: [...] }`, not a bare segment", () => {
+    // The regression this guards: one row per SEGMENT with `output_json` set to
+    // a bare `Ep2Segment` parses fine here and is invisible to
+    // `episodes/engine.ts`'s `storedSegments()`, which needs a `segments`
+    // ARRAY. The hash gate would then miss and the session would be silently
+    // re-judged — breaking the one rule this call exists to keep.
+    persistEp2Verdicts({ sessionId: "sess-1", segments: docSegments(), candidates: ["ep-villa"] });
+    const raw = getDb().prepare(`SELECT output_json FROM episode_verdicts`).all() as {
+      output_json: string;
+    }[];
+    expect(raw).toHaveLength(1);
+    const parsed = JSON.parse(raw[0].output_json) as { segments?: unknown };
+    expect(Array.isArray(parsed.segments)).toBe(true);
+    for (const seg of parsed.segments as { eventIds?: unknown }[]) {
+      expect(Array.isArray(seg.eventIds) && (seg.eventIds as unknown[]).length > 0).toBe(true);
+    }
   });
 
   it("replays byte-identical segments with no call at all", () => {
@@ -416,7 +460,8 @@ describe("verdicts are persisted once and replayed forever", () => {
     const second = persistEp2Verdicts({ sessionId: "sess-1", segments });
     expect(second.reused).toBe(true);
     expect(second.ids).toEqual(first.ids);
-    expect(readEpisodeVerdicts("sess-1")).toHaveLength(2);
+    expect(readEpisodeVerdicts("sess-1")).toHaveLength(1);
+    expect(replayVerdicts("sess-1")).toHaveLength(2);
   });
 
   it("reports which sessions still need a call", () => {

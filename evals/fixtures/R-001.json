@@ -18,13 +18,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "entity|id=en1|type=person|name=Rahul Arora\nentity|id=en2|type=person|name=Pranjali\nevent|id=ev1|ts=2026-03-02T10:00:00Z\nevent|id=ev2|ts=2026-05-04T10:00:00Z\nevent|id=ev3|ts=2026-08-11T10:00:00Z\nevent|id=ev4|ts=2026-08-12T10:00:00Z\nevent|id=ev5|ts=2026-08-13T10:00:00Z\nclaim|kind=fact|tag=F|subject=en1|text=Lives in Koramangala.|said=2026-03-02T10:00:00Z|conf=0.7|event=ev1|quote=Lives in Koramangala.|run=r1\nclaim|kind=fact|tag=F|subject=en1|text=Lives in Koramangala.|said=2026-03-02T10:00:00Z|conf=0.9|event=ev2|quote=said it again|run=r1",
+  "expect": {
+    "state": {
+      "routes": [
+        "insert",
+        "reinforce"
+      ],
+      "claims": 1,
+      "evidence": 2,
+      "active": [
+        "Lives in Koramangala."
+      ],
+      "model_calls": 0,
+      "duplicate_rate": 0
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "claims_out_of_order_supersession"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "identical claim re-extracted (1)",
     "expect": "REINFORCE: union evidence, max confidence, NO new row",

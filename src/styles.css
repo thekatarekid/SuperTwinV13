@@ -13,3 +13,7 @@
 @import "./styles/tabs/sessions.css";
 @import "./styles/tabs/episodes.css";
 @import "./styles/tabs/threads.css";
+@import "./styles/tabs/claims.css";
+@import "./styles/tabs/spaces.css";
+@import "./styles/tabs/tasks.css";
+@import "./styles/tabs/people.css";

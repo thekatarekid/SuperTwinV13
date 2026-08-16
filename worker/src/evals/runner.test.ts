@@ -202,10 +202,10 @@ describe("contains against the real codec (S-903)", () => {
 describe("the executor seam", () => {
   it("reports PENDING — never pass — for a layer nobody has implemented", async () => {
     const f = fixture("A-901");
-    f.layer = "promotion";
+    f.layer = "goals";
     const result = await run(f);
     expect(result.status).toBe("pending");
-    expect(result.reason).toContain("no executor registered for layer 'promotion'");
+    expect(result.reason).toContain("no executor registered for layer 'goals'");
   });
 
   it("reports PENDING for a doc-generated stub", async () => {

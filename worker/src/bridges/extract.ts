@@ -89,6 +89,13 @@ export interface BridgeCandidate {
 
 /** One bridge, canonically ordered (`left_id <= right_id`). */
 export interface BridgeEdge {
+  /**
+   * Content hash of `(kind, value_norm, left_id, right_id)` — see `bridgeId`.
+   * Carried on the edge, not just on the stored row, so determinism is
+   * observable before anything touches the db (a replay in a fresh process
+   * produces the same ids).
+   */
+  id: string;
   kind: BridgeKey;
   value_norm: string;
   left_kind: string;
@@ -308,6 +315,7 @@ function edge(
 ): BridgeEdge {
   const [left, right] = a.id <= b.id ? [a, b] : [b, a];
   return {
+    id: bridgeId(kind, valueNorm, left!.id, right!.id),
     kind,
     value_norm: valueNorm,
     left_kind: left.object_kind,
@@ -413,7 +421,6 @@ export function extractBridges(items: readonly BridgeItem[], opts?: ExtractOptio
 // ---- persistence -----------------------------------------------------------
 
 export interface BridgeRow extends BridgeEdge {
-  id: string;
   created_at: string;
 }
 

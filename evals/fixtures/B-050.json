@@ -1,0 +1,33 @@
+{
+  "id": "B-050",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "T4 channel contains a real bill with a real due date",
+    "expect": "loop extracted in full, just later",
+    "assert": "tiering orders, never filters"
+  }
+}

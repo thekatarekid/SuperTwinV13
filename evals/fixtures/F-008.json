@@ -1,0 +1,33 @@
+{
+  "id": "F-008",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "edit to a msg in an OPEN session",
+    "expect": "mutate in place; hash unaffected until seal",
+    "assert": "edit in open session"
+  }
+}

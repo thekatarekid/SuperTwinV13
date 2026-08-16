@@ -1,0 +1,33 @@
+{
+  "id": "K-005",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": true,
+  "doc": {
+    "given": "link site4.com/x shared in WhatsApp; same canonical url visited in browser",
+    "expect": "bridge(url) [CODE]; episodes JOIN one arc",
+    "assert": "url bridge, precision 1.0"
+  }
+}

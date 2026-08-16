@@ -15,6 +15,12 @@ import type Database from "better-sqlite3";
 import { getDb } from "./connection.js";
 import { billableTokens } from "../providers/usage.js";
 
+// V2 token accounting over the `runs` table lives in ./run-accounting.ts and is
+// re-exported here so `db/runs` stays the one import site for run data. It is a
+// separate file only because the two together are past the size where either is
+// findable — the phase-0 log above and the V2 accounting are different tables.
+export * from "./run-accounting.js";
+
 // ---- Row shapes -------------------------------------------------------------
 
 /** One row of the runs viewer (Settings → Runs). */

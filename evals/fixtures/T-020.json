@@ -1,0 +1,33 @@
+{
+  "id": "T-020",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "chatty stream, 50 msgs in 10min",
+    "expect": "backpressure lengthens effective interval; shown in UI",
+    "assert": "visible backpressure"
+  }
+}

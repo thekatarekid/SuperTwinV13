@@ -1,0 +1,33 @@
+{
+  "id": "P-050",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "promoted thread",
+    "expect": "promotion_reason recorded and renderable",
+    "assert": "'why is this a space' always answers"
+  }
+}

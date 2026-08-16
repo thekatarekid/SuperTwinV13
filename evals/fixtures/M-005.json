@@ -1,0 +1,33 @@
+{
+  "id": "M-005",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "self says: 'you should try Kalpaney'",
+    "expect": "R/<ev>/self/1p/conf/-/Recommends Kalpaney",
+    "assert": "kind = tag; third person resolved"
+  }
+}

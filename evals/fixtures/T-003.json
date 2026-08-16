@@ -1,0 +1,33 @@
+{
+  "id": "T-003",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "P-CL1",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "first-paint path inspected",
+    "expect": "exactly ONE LLM call (P-CL1)",
+    "assert": "one-call critical path"
+  }
+}

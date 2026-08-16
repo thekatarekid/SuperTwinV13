@@ -1,0 +1,33 @@
+{
+  "id": "R-017",
+  "category": "R",
+  "layer": "write",
+  "call": "P-AG3",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "P-AG3 returns rfn",
+    "expect": "supersede 'refined by better evidence'",
+    "assert": "adjudication outcomes"
+  }
+}

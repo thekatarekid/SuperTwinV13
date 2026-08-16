@@ -1,0 +1,33 @@
+{
+  "id": "E-037",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "30-min meeting transcript, 80 utterances",
+    "expect": "ONE session; caps do NOT apply",
+    "assert": "bounded exempt from caps"
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "id": "S-049",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "N|a2|Priya Nair|per\nF|1|a2|ao|0.8|2026-08-09|Priya prefers morning calls\nT|2|self|a2|ex|i2t|m|w|2026-08-20|-|0.9|Send Priya the deck\nM|1|Pri|a2|0.75",
+  "expect": {
+    "entities": [
+      {
+        "entity": "a2",
+        "name": "Priya Nair",
+        "type": "person",
+        "subtype": null
+      }
+    ],
+    "claims": [
+      {
+        "kind": "fact",
+        "events": [
+          1
+        ],
+        "subject": "a2",
+        "attribution": "about_other",
+        "confidence": 0.8,
+        "valid_from": "2026-08-09",
+        "text": "Priya prefers morning calls"
+      }
+    ],
+    "loops": [
+      {
+        "events": [
+          2
+        ],
+        "owner": "self",
+        "counterparty": "a2",
+        "origin": "explicit",
+        "direction": "i_owe_them",
+        "stake": "medium",
+        "horizon": "week",
+        "due": "2026-08-20",
+        "recurrence": null,
+        "confidence": 0.9,
+        "intent": "Send Priya the deck"
+      }
+    ],
+    "mentions": [
+      {
+        "events": [
+          1
+        ],
+        "surface": "Pri",
+        "entity": "a2",
+        "confidence": 0.75,
+        "hint": null
+      }
+    ]
+  },
+  "assert": {
+    "mode": "exact",
+    "gate": "wire_ab_equality"
+  },
+  "stub": false,
+  "doc": {
+    "given": "wire vs JSON path on the gold set",
+    "expect": "EQUAL parsed results",
+    "assert": "A/B correctness gate"
+  }
+}

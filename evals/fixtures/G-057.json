@@ -1,0 +1,33 @@
+{
+  "id": "G-057",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "read entity B after merge B->A with 3 refs",
+    "expect": "redirect via merged_into O(1); nightly compaction",
+    "assert": "tombstone merges"
+  }
+}

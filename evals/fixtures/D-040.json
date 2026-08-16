@@ -1,0 +1,33 @@
+{
+  "id": "D-040",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "long pastes totalling 9000 tokens",
+    "expect": "CUT at 6000-token cap",
+    "assert": "token cap fires first"
+  }
+}

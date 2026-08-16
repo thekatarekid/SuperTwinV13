@@ -1,0 +1,38 @@
+{
+  "id": "B-036",
+  "category": "B",
+  "layer": "tiers",
+  "call": "P-TI1",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "min": 0.7
+      }
+    },
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "Amazon ambiguous sample -> P-TI1",
+    "expect": "J/c4/tx/>=0.7/reason",
+    "assert": "P-TI1 verdict, cached on stream"
+  }
+}

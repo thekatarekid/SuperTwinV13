@@ -1,0 +1,33 @@
+{
+  "id": "K-021",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": true,
+  "doc": {
+    "given": "media_work entity referenced in chat and in watch history (1)",
+    "expect": "bridge(media_work_id)",
+    "assert": "media bridge"
+  }
+}

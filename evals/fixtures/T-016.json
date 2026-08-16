@@ -1,0 +1,33 @@
+{
+  "id": "T-016",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "cohort seq 1",
+    "expect": "budget = min(MAX, BASE x 2^1)",
+    "assert": "adaptive ramp"
+  }
+}

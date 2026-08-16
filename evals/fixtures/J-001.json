@@ -1,0 +1,33 @@
+{
+  "id": "J-001",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "sealed session solely about Goa trip, no drift, no open episodes",
+    "expect": "episode := session, NO MODEL CALL",
+    "assert": "1:1 default"
+  }
+}

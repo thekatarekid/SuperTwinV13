@@ -1,0 +1,33 @@
+{
+  "id": "O-045",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "state",
+    "gate": "party_pairs_correct"
+  },
+  "stub": true,
+  "doc": {
+    "given": "query: everything Rahul said about Ana",
+    "expect": "filter party_pair=ot AND speaker=Rahul AND subject=Ana",
+    "assert": "pairs are queryable"
+  }
+}

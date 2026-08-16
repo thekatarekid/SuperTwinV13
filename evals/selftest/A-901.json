@@ -1,0 +1,22 @@
+{
+  "id": "A-901",
+  "category": "A",
+  "layer": "harness",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": ["a1=Pranjali Sachdeva"],
+    "streams": [{ "alias": "c1", "name": "Pranjali", "kind": "dm", "participants": ["self", "a1"] }],
+    "events": [{ "n": 1, "ts": "2026-08-12T21:10+05:30", "who": "a1", "text": "i've started bhangra classes on saturdays" }],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "P|claims|kind=habit,subject=a1,confidence=0.95",
+  "expect": { "claims": [{ "kind": "habit", "subject": "a1", "confidence": 0.95 }] },
+  "assert": { "mode": "exact", "gate": null },
+  "doc": {
+    "given": "harness self-test — exact mode",
+    "expect": "the produced output is byte-identical to expect, key order irrelevant",
+    "assert": "exact"
+  }
+}

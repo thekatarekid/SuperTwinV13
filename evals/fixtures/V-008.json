@@ -1,0 +1,39 @@
+{
+  "id": "V-008",
+  "category": "V",
+  "layer": "calib",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "score|cos=0.89|floor=0.83",
+  "expect": {
+    "state": {
+      "cosine": 0.89,
+      "floor": 0.83,
+      "normalised": 0.353
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "raw cosine 0.89, floor 0.83",
+    "expect": "normalised ~0.41",
+    "assert": "score=(cos-floor)/(1-floor)"
+  }
+}

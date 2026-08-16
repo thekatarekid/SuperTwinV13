@@ -1,0 +1,33 @@
+{
+  "id": "E-007",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "document: Rashmi edits 10m after my last revision",
+    "expect": "CUT author_shift",
+    "assert": "per-author sitting"
+  }
+}

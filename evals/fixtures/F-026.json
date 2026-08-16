@@ -1,0 +1,33 @@
+{
+  "id": "F-026",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "worker restart with 5 open sessions",
+    "expect": "timers recomputed from last event ts; overdue seal immediately",
+    "assert": "restart safety"
+  }
+}

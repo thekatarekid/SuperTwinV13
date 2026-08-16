@@ -1,0 +1,33 @@
+{
+  "id": "O-041",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "party_pairs_correct"
+  },
+  "stub": true,
+  "doc": {
+    "given": "oo loop reaches the task list (1)",
+    "expect": "FAIL",
+    "assert": "oo must never be a task"
+  }
+}

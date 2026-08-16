@@ -1,0 +1,38 @@
+{
+  "id": "L-016",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "min": 0.5
+      }
+    },
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "weighted Jaccard on anchors = 0.70",
+    "expect": "JOIN if >=0.5",
+    "assert": "entity overlap threshold"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "Q-028",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "any loop in state possibly_done",
+    "expect": "FAIL — the state does not exist",
+    "assert": "evidence or a question, never a parking lot"
+  }
+}

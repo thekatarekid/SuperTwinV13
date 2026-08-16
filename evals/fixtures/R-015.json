@@ -1,0 +1,33 @@
+{
+  "id": "R-015",
+  "category": "R",
+  "layer": "write",
+  "call": "P-AG3",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "near-hit claim, calibrated 0.98, same subject+kind",
+    "expect": "-> P-AG3",
+    "assert": "near hit routes to adjudicator"
+  }
+}

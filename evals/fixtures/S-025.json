@@ -1,0 +1,39 @@
+{
+  "id": "S-025",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "D|a1|prj|one_off|-|0.9|Berlin move",
+  "expect": {
+    "state": {
+      "round_trip": "D|a1|prj|one|-|0.9|Berlin move",
+      "round_trip_stable": true,
+      "accepted": 1
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "enum written as one_off",
+    "expect": "decodes to the stored long form",
+    "assert": "enum drift tolerated"
+  }
+}

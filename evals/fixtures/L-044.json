@@ -1,0 +1,33 @@
+{
+  "id": "L-044",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "cross-source: WhatsApp thread + Calendar block, same trip, attendee bridge (4)",
+    "expect": "ONE arc spanning both sources",
+    "assert": "THE THESIS ROW — cross-source binding"
+  }
+}

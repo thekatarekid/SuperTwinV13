@@ -1,0 +1,33 @@
+{
+  "id": "K-030",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": true,
+  "doc": {
+    "given": "Drive file shared in chat; file_change events on same id",
+    "expect": "bridge(file_id)",
+    "assert": "file bridge"
+  }
+}

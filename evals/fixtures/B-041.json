@@ -1,0 +1,33 @@
+{
+  "id": "B-041",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "backfill: T2 cohort queued while T1 h7d still pending",
+    "expect": "T2 does NOT run; T1 exhausts first",
+    "assert": "tier is primary sort key"
+  }
+}

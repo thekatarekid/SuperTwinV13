@@ -1,0 +1,33 @@
+{
+  "id": "P-028",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "state",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "all loops in a promoted arc reach done/lapsed",
+    "expect": "status=archived; still retrievable; id unchanged",
+    "assert": "demotion is a field flip"
+  }
+}

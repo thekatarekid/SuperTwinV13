@@ -1,0 +1,33 @@
+{
+  "id": "L-032",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "full re-derivation run #2",
+    "expect": "same arc_keys -> same ids; labels and pins survive",
+    "assert": "arc-id stability"
+  }
+}

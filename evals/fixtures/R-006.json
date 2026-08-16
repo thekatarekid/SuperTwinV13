@@ -1,0 +1,33 @@
+{
+  "id": "R-006",
+  "category": "R",
+  "layer": "write",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "habit claim seen a 2nd time",
+    "expect": "reinforced; graduates by evidence count, no MIN_EVIDENCE constant",
+    "assert": "no code judging"
+  }
+}

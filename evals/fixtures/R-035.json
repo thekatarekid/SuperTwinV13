@@ -1,0 +1,33 @@
+{
+  "id": "R-035",
+  "category": "R",
+  "layer": "write",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "loop_key computed (4)",
+    "expect": "sha1(owner/counterparty/normalize(intent)) — NO space_id or arc_id",
+    "assert": "no circular key"
+  }
+}

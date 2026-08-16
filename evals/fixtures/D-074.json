@@ -1,0 +1,33 @@
+{
+  "id": "D-074",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "Zomato broadcast, 5 msgs over 3 days, no reply",
+    "expect": "cut by gap only; no participant_shift (single sender)",
+    "assert": "business stream segmentation"
+  }
+}

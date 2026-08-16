@@ -1,0 +1,33 @@
+{
+  "id": "L-040",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "user split an arc; reconcile re-runs",
+    "expect": "split PERSISTS; reconcile plans around it",
+    "assert": "user rows are hard walls"
+  }
+}

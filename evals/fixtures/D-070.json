@@ -1,0 +1,33 @@
+{
+  "id": "D-070",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "burst of 5 photos only, 2m apart",
+    "expect": "ONE session; caption tokens counted in cap",
+    "assert": "media events are events"
+  }
+}

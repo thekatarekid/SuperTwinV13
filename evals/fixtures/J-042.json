@@ -1,0 +1,33 @@
+{
+  "id": "J-042",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'therapy' appears in two DIFFERENT streams",
+    "expect": "TWO separate episodes; joining is arc work",
+    "assert": "episode matching is stream-scoped"
+  }
+}

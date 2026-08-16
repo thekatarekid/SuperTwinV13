@@ -1,0 +1,33 @@
+{
+  "id": "T-026",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "quota pause occurs",
+    "expect": "countdown rendered; retry budget NOT spent",
+    "assert": "pause is not a stall"
+  }
+}

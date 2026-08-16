@@ -1,0 +1,33 @@
+{
+  "id": "H-017",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "msg mentions 'M2 MacBook'",
+    "expect": "M -> thing or document (NOT product/service/app_site)",
+    "assert": "9-type discipline"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "F-031",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "backfilled event ts falls inside an already-sealed session range",
+    "expect": "NEW session flagged late_arrival, overlap_of set; sealed session untouched",
+    "assert": "never reopen a sealed session"
+  }
+}

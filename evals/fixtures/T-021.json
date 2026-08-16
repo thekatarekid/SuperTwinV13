@@ -1,0 +1,38 @@
+{
+  "id": "T-021",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "live",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "max": 20
+      }
+    },
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "live passes on one stream in an hour",
+    "expect": "<= 20",
+    "assert": "hard cap"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "C-024",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": true,
+  "doc": {
+    "given": "8min voice note",
+    "expect": "whisper.cpp on-device [ML], no LLM",
+    "assert": "transcription is local ML"
+  }
+}

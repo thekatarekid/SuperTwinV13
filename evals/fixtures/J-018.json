@@ -1,0 +1,33 @@
+{
+  "id": "J-018",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "session pivots therapy -> Rahul's wedding, >=2 events each",
+    "expect": "G lines split into 2 segments partitioning all event ids",
+    "assert": "split + partition invariant"
+  }
+}

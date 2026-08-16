@@ -1,0 +1,33 @@
+{
+  "id": "T-006",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "P-SP1",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "P-SP1 on the first-paint path",
+    "expect": "FAIL — must be deferred",
+    "assert": "deferred stages"
+  }
+}

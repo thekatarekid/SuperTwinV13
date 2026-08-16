@@ -1,0 +1,33 @@
+{
+  "id": "M-043",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "forwarded article/quote pasted by Pranjali",
+    "expect": "attribution=q3; NOT the forwarder's belief",
+    "assert": "quoted_third_party"
+  }
+}

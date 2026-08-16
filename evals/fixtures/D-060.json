@@ -1,0 +1,33 @@
+{
+  "id": "D-060",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "bootstrap: gap 7h known from the next stored row",
+    "expect": "SEAL IMMEDIATELY, seal_mode=immediate",
+    "assert": "bootstrap no-debounce"
+  }
+}

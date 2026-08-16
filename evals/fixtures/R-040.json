@@ -1,0 +1,33 @@
+{
+  "id": "R-040",
+  "category": "R",
+  "layer": "write",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "model output dropped by code anywhere in the path",
+    "expect": "FAIL — must stay 0",
+    "assert": "THE ROW THAT KILLED FOUR SYSTEMS"
+  }
+}

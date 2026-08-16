@@ -1,0 +1,33 @@
+{
+  "id": "M-018",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "self says: 'every sunday i do groceries'",
+    "expect": "H/<ev>/self/1p/conf/-/Does groceries every Sunday",
+    "assert": "kind = tag; third person resolved"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "H-025",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "[Pranjali]: 'she said the reports are clear'; only Rahul (F) discussed in THIS session",
+    "expect": "'she' -> Rahul",
+    "assert": "pronoun resolved within session only"
+  }
+}

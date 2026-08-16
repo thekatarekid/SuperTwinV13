@@ -422,6 +422,15 @@ describe("per-role selected-model store", () => {
     expect(getAllSelectedModels()).toEqual({
       chat: "opus",
       media: "claude-haiku-4-5-20251001",
+      // Judgment steps default to Sonnet, mechanical steps to Haiku (§4.2).
+      entity: "claude-sonnet-5",
+      episode: "claude-sonnet-5",
+      arc: "claude-sonnet-5",
+      extract: "claude-sonnet-5",
+      adjudicate: "claude-sonnet-5",
+      triage: "claude-haiku-4-5-20251001",
+      done_detect: "claude-haiku-4-5-20251001",
+      classify: "claude-haiku-4-5-20251001",
     });
   });
 
@@ -444,10 +453,13 @@ describe("per-role selected-model store", () => {
 
     it("getAllSelectedModels reflects the legacy fallback", () => {
       setRawState(MODEL_KEY, "opus");
-      expect(getAllSelectedModels()).toEqual({
-        chat: "opus",
-        media: "claude-haiku-4-5-20251001",
-      });
+      const all = getAllSelectedModels();
+      // The legacy value belongs to chat alone; every other role keeps its own
+      // §4.2 default.
+      expect(all.chat).toBe("opus");
+      expect(all.media).toBe("claude-haiku-4-5-20251001");
+      expect(all.extract).toBe("claude-sonnet-5");
+      expect(all.triage).toBe("claude-haiku-4-5-20251001");
     });
   });
 });

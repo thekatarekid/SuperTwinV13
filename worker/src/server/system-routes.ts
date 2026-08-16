@@ -115,6 +115,30 @@ export async function handleSystemRoute(
     return true;
   }
 
+  // ======================= Usage (arch §4.4.4) =============================
+
+  // ---- GET /api/usage?window=today|7d|30d|import → the whole Settings → Usage
+  // payload. ONE call, because the token table and the cost line must be built
+  // from the same filter over the same row set — summing them from two reads is
+  // exactly how a real $0.69 came to render as "—".
+  if (method === "GET" && path === "/api/usage") {
+    const win = url.searchParams.get("window") ?? "7d";
+    const days = win === "today" ? 1 : win === "30d" ? 30 : 7;
+    const filter =
+      win === "import"
+        ? { importMode: "bootstrap" }
+        : { since: new Date(Date.now() - days * 86_400_000).toISOString() };
+    sendJson(res, 200, { window: win, ...runs.usageSummary(filter) });
+    return true;
+  }
+
+  // ---- GET /api/usage/estimate?events=N → projected cost before a bootstrap.
+  if (method === "GET" && path === "/api/usage/estimate") {
+    const events = clamp(url.searchParams.get("events"), 0, 0, 100_000_000);
+    sendJson(res, 200, runs.estimateImportSpend(events));
+    return true;
+  }
+
   // ======================= Logs ============================================
 
   // ---- GET /api/logs/info → { dir, files }

@@ -1,0 +1,33 @@
+{
+  "id": "P-039",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "thread shaped as: a durable thing owned/inhabited (variant 1)",
+    "expect": "D/.../holding/...",
+    "assert": "archetype by shape not subject"
+  }
+}

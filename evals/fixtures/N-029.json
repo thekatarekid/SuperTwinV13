@@ -1,0 +1,33 @@
+{
+  "id": "N-029",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "agent COULD help with Goa trip",
+    "expect": "NO loop — capability guess, not intent",
+    "assert": "hypothetical is not latent"
+  }
+}

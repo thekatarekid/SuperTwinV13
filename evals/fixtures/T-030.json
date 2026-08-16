@@ -1,0 +1,38 @@
+{
+  "id": "T-030",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "max": 3
+      }
+    },
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "reprocess count per episode",
+    "expect": "<= 3",
+    "assert": "bounded"
+  }
+}

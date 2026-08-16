@@ -1,0 +1,33 @@
+{
+  "id": "R-026",
+  "category": "R",
+  "layer": "write",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "older claim (stated_at earlier) arrives AFTER a newer one (6)",
+    "expect": "stored as predecessor with closed window; newer stays active",
+    "assert": "precedence by stated_at NOT arrival"
+  }
+}

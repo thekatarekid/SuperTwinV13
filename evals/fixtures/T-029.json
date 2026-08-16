@@ -1,0 +1,33 @@
+{
+  "id": "T-029",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "late transcript arrives",
+    "expect": "re-read in the SAME session/episode/roster",
+    "assert": "context preserved"
+  }
+}

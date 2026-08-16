@@ -1,0 +1,33 @@
+{
+  "id": "N-057",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "past due, no recurrence, no resolving evidence",
+    "expect": "state=lapsed; not a task",
+    "assert": "dead loop stays history"
+  }
+}

@@ -1321,14 +1321,20 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
     seed0018Db(dbPath);
     const db = getDb();
 
+    // 0022_v2_core rebuilds events: idx_events_channel/_channel_ts come back as
+    // idx_events_stream/_stream_ts on the renamed column (plus the bridge index
+    // that dies with channel_id in item 1.1), and the V2 columns get their own.
     expect(indexNames(db, "events")).toEqual([
       "idx_events_actor",
-      "idx_events_channel",
-      "idx_events_channel_ts",
+      "idx_events_actor_entity",
+      "idx_events_channel_compat",
       "idx_events_desc_status",
+      "idx_events_enrichment",
       "idx_events_link_status",
       "idx_events_reply_to",
       "idx_events_source_external",
+      "idx_events_stream",
+      "idx_events_stream_ts",
       "idx_events_transcript_status",
       "idx_events_ts",
     ]);
@@ -1338,7 +1344,7 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
           .prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name`)
           .all() as { name: string }[]
       ).map((r) => r.name),
-    ).toEqual(["events_ad", "events_ai", "events_au"]);
+    ).toEqual(["events_ad", "events_ai", "events_au", "events_stream_compat_ai"]);
     expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
@@ -1348,16 +1354,21 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
     const db = getDb();
 
     // A hand-rolled rebuild drops `events` for a moment, and with foreign_keys
-    // ON that implicit delete cascades into both of these.
-    expect(db.prepare(`SELECT event_id FROM space_events`).all()).toEqual([
-      { event_id: "e-text" },
-    ]);
+    // ON that implicit delete cascades into this one. 0022_v2_core rebuilds the
+    // table for real (to shed the stale channels FK on the renamed column) and
+    // stages these rows out and back; space_events, the other child, went with
+    // the legacy ontology that migration drops.
     expect(db.prepare(`SELECT event_id FROM event_embeddings`).all()).toEqual([
       { event_id: "e-text" },
     ]);
     // Still enforced afterwards, in both directions.
     expect(() =>
-      db.prepare(`INSERT INTO space_events (space_id, event_id) VALUES ('s1', 'nope')`).run(),
+      db
+        .prepare(
+          `INSERT INTO event_embeddings (event_id, model, dim, vector)
+           VALUES ('nope', 'm', 1, x'00')`,
+        )
+        .run(),
     ).toThrow(/FOREIGN KEY/);
     db.prepare(`DELETE FROM events WHERE id = 'e-text'`).run();
     expect(db.prepare(`SELECT event_id FROM event_embeddings`).all()).toEqual([]);

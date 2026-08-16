@@ -1,0 +1,33 @@
+{
+  "id": "B-047",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "user replies in a T3 group for the first time",
+    "expect": "stream promotes T3->T1 AND its unprocessed events are re-enqueued at T1 priority",
+    "assert": "tier-change RE-SCAN"
+  }
+}

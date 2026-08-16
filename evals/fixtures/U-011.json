@@ -1,0 +1,45 @@
+{
+  "id": "U-011",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=100|mode=bootstrap|state=done\nrun|role=extract|model=claude-haiku-4-20260101|cohort=c1|input=1200|create=0|read=0|output=200|cost=0.001",
+  "expect": {
+    "state": {
+      "cache_expected_zero_roles": [
+        "extract"
+      ],
+      "cache_below_minimum_models": [
+        "claude-haiku-4-20260101"
+      ],
+      "cache_minimum_tokens": 4096,
+      "cache_hit_rate_measured": true,
+      "cache_hit_rate": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "caching_hit_rate_reported"
+  },
+  "stub": false,
+  "doc": {
+    "given": "haiku call with a 1.2k-token prompt",
+    "expect": "cache fields both 0 — expected, below the 4096 minimum",
+    "assert": "documented, not a bug"
+  }
+}

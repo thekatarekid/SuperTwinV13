@@ -1,0 +1,33 @@
+{
+  "id": "J-032",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "session resumes rabies shots; open episode last active 6d ago, SAME stream",
+    "expect": "G/.../att/e<k>/conf/label; verdict persisted",
+    "assert": "attach"
+  }
+}

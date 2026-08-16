@@ -1,0 +1,33 @@
+{
+  "id": "D-053",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "reply quoting a msg 4 days old",
+    "expect": "NEW session (reply_break); old stays sealed",
+    "assert": "reply-chain break"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "M-060",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'she is doing better' where only Hrishikesh is in scope",
+    "expect": "subject resolved to Hrishikesh",
+    "assert": "no stray 'she' in stored text"
+  }
+}

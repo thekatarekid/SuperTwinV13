@@ -1,0 +1,33 @@
+{
+  "id": "G-059",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "user splits a wrongly-merged entity",
+    "expect": "two entities restored; evidence re-points by source identity; mutation logged",
+    "assert": "reversible merge"
+  }
+}

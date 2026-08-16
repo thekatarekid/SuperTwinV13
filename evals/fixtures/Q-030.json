@@ -1,0 +1,33 @@
+{
+  "id": "Q-030",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "approval attaches to a blanket queue",
+    "expect": "FAIL",
+    "assert": "approval attaches to action class"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "B-039",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "boot completes",
+    "expect": "100% of streams have a non-null tier",
+    "assert": "tier backfill coverage assertion"
+  }
+}

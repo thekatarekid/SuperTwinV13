@@ -1,0 +1,33 @@
+{
+  "id": "R-038",
+  "category": "R",
+  "layer": "write",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "any write performed",
+    "expect": "a mutations row is emitted",
+    "assert": "undo is reverse-replay"
+  }
+}

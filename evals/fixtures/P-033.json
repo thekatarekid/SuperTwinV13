@@ -1,0 +1,33 @@
+{
+  "id": "P-033",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "thread shaped as: a single date approaching (variant 1)",
+    "expect": "D/.../event/...",
+    "assert": "archetype by shape not subject"
+  }
+}

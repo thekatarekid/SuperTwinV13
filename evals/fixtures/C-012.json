@@ -1,0 +1,33 @@
+{
+  "id": "C-012",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": true,
+  "doc": {
+    "given": "screenshot",
+    "expect": "captioned by default",
+    "assert": "enrichment.read_all_media=on"
+  }
+}

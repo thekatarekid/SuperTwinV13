@@ -1,0 +1,33 @@
+{
+  "id": "I-027",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'the villa is booked for Sep'",
+    "expect": "NO has/owns edge — a booking is not ownership",
+    "assert": "edge discipline"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "D-041",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "gap 90m (>= shift_min_gap 1h) then Pranjali silent-all-burst initiates new subject",
+    "expect": "CUT participant_shift",
+    "assert": "conjunction: gap AND flip"
+  }
+}

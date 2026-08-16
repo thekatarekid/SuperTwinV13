@@ -158,8 +158,12 @@ describe("GET /api/settings/models (enabledByRole)", () => {
       enabledByRole: Record<string, boolean>;
     }>("/api/settings/models");
     expect(status).toBe(200);
-    // V8 serves two roles — chat and media reading.
-    expect(Object.keys(body.enabledByRole).sort()).toEqual(["chat", "media"]);
+    // One picker per step (§4.2): every served role carries its own flag.
+    expect(Object.keys(body.enabledByRole).sort()).toEqual(
+      body.roles.map((r) => r.key).sort(),
+    );
+    expect(Object.keys(body.enabledByRole)).toContain("chat");
+    expect(Object.keys(body.enabledByRole)).toContain("extract");
     for (const r of body.roles) expect(body.enabledByRole[r.key]).toBe(true);
   });
 });

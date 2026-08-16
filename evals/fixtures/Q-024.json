@@ -1,0 +1,33 @@
+{
+  "id": "Q-024",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "user taps 'not useful' on an implicit loop (4)",
+    "expect": "writes a user-sourced preference claim that enters future rosters",
+    "assert": "rejection teaches, not deletes"
+  }
+}

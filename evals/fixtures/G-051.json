@@ -1,0 +1,33 @@
+{
+  "id": "G-051",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "user answered 'different' on pair #1; automation later scores 0.93",
+    "expect": "NO merge; negative pair permanent",
+    "assert": "actor:user outranks automation"
+  }
+}

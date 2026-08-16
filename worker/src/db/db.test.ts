@@ -82,11 +82,11 @@ describe("migrations", () => {
       "people",
       "actors",
       "events",
-      "spaces",
+      // 0022_v2_core dropped spaces/space_events/tasks/milestones outright (a
+      // "space" is now an arc with promoted = 1) and re-created goals with its
+      // §6 shape. The V2 tables have their own suite in db/migrations/.
       "goals",
-      "milestones",
-      "tasks",
-      "space_events",
+      "arcs",
       "extraction_runs",
       // 0021_v2_prep (what the retired 0004 carried that is still read)
       "evaluations",
@@ -120,9 +120,10 @@ describe("migrations", () => {
     expect(cols("chat_messages")).toContain("citations_json");
     expect(cols("extraction_runs")).toEqual(expect.arrayContaining(["model", "role"]));
 
-    // The ontology columns and tables are NOT recreated.
-    expect(cols("spaces")).not.toContain("slug");
-    expect(cols("tasks")).not.toContain("title");
+    // The ontology columns and tables are NOT recreated — and since
+    // 0022_v2_core the tables themselves are gone, not merely un-columned.
+    expect(tableNames().has("spaces")).toBe(false);
+    expect(tableNames().has("tasks")).toBe(false);
     expect(tableNames().has("patterns")).toBe(false);
     expect(tableNames().has("space_people")).toBe(false);
     expect(tableNames().has("task_runs")).toBe(false);

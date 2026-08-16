@@ -1,0 +1,33 @@
+{
+  "id": "P-011",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "state",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "arc anchored on account with a has/loc relation, NO loops",
+    "expect": "promoted, promotion_reason=ref",
+    "assert": "REFERENCE route — the failure case loop-only misses"
+  }
+}

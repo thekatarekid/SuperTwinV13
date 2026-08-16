@@ -60,7 +60,7 @@
    - [x] `npm run typecheck` clean both sides — `tsc -b --force` exits 0
    - [x] app boots with an empty DB
 
-### ⛓ 0.2 Schema — migration `0020_v2_core.sql`
+### ⛓ 0.2 Schema — migration `0020_v2_core.sql` — ✅ DONE
 
 1. **Files** `worker/src/db/migrations/0020_v2_core.sql`, `worker/src/db/schema.ts`
 2. **Description.** Create every table in §6 of the architecture doc.
@@ -77,7 +77,7 @@
    - [ ] `claims_active` returns exactly one row per `claim_key`
    - [ ] no `spaces` table exists
 
-### ⇉A 0.3 STW-2 wire codec
+### ⇉A 0.3 STW-2 wire codec — ✅ DONE
 
 1. **Files** `worker/src/wire/{aliases,pack,codec,tolerance,index}.ts` + tests
 2. **Description.** Line-oriented pipe format used in both directions. Port the approach from V10's `worker/src/wire/`, retargeted to this ontology.
@@ -98,7 +98,7 @@
    - [ ] no input can throw
    - [ ] accounting invariant holds
 
-### ⇉A 0.4 CLI bare-call contract
+### ⇉A 0.4 CLI bare-call contract — ✅ DONE
 
 1. **Files** `worker/src/providers/claude-local/index.ts`, `models.ts`, `worker/src/providers/pool.ts` (new)
 2. **Description.** Make every call a bare instrument, add roles, add per-resource concurrency.
@@ -118,7 +118,7 @@
    - [ ] evals **U** cache/parallel rows pass
    - [ ] concurrency caps observed per class
 
-### ⇉A 0.5 Token accounting and Usage surface
+### ⇉A 0.5 Token accounting and Usage surface — ✅ DONE
 
 1. **Files** `worker/src/providers/usage.ts`, `worker/src/db/runs.ts`, `src/tabs/SettingsTab.tsx`
 2. **Description.** Correct 4-way accounting, honest labels, real cost.
@@ -135,7 +135,7 @@
    - [ ] no screen shows input and cache as separate spend
    - [ ] cost never renders `—` while spend exists
 
-### ⇉A 0.6 Eval harness
+### ⇉A 0.6 Eval harness — ✅ DONE
 
 1. **Files** `evals/` (new), `worker/src/evals/{runner,fixtures,report}.ts`, `npm run eval`
 2. **Description.** Offline, deterministic runner over the 1,000 gold cases.
@@ -151,7 +151,7 @@
    - [ ] all 1,000 fixture stubs load and validate
    - [ ] gate report renders
 
-### ⇉A 0.7 Embedder calibration
+### ⇉A 0.7 Embedder calibration — ✅ DONE
 
 1. **Files** `worker/src/retrieval/calibration.ts`, `worker/src/db/calib.ts`
 2. **Description.** Measure the unrelated-pair floor per model per use case.
@@ -166,11 +166,13 @@
    - [ ] evals **V** passes (15 cases)
    - [ ] cold install does not run similarity before calibration
 
-### ✅ PHASE 0 GATE
+### ✅ PHASE 0 GATE — PASSED
 
-- [ ] typecheck clean, app boots on empty DB
-- [ ] evals **S**, **U**, **V** green
-- [ ] `npm run eval` runs offline
+- [x] typecheck clean, app boots on empty DB — `tsc -b` exit 0; worker booted against a fresh empty DB, migrations applied, `/api/health` 200
+- [x] evals **S**, **U**, **V** green — 80/80 implemented cases pass (S 50 + U 15 + V 15), 0 gates breached
+- [x] `npm run eval` runs offline — frozen mode, no network; 1,000 fixtures load and validate (920 still stubs)
+
+**Measured at gate:** typecheck clean · worker 1322/1322 · root 252/252 · scripts 67/67 = 1,641 tests.
 
 ---
 

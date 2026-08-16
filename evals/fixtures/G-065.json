@@ -1,0 +1,33 @@
+{
+  "id": "G-065",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "WhatsApp self_jid / gmail account / device id / contacts-me card (1)",
+    "expect": "bind to the ONE canonical me entity",
+    "assert": "self_identity funnels to me"
+  }
+}

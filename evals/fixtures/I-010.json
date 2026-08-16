@@ -1,0 +1,33 @@
+{
+  "id": "I-010",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "evidence Rajat works at Domlur office",
+    "expect": "L ... aff/employee ...",
+    "assert": "affiliated_with"
+  }
+}

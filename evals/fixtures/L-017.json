@@ -1,0 +1,33 @@
+{
+  "id": "L-017",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "overlap driven purely by shared topic entities",
+    "expect": "weight 0.4 — insufficient alone",
+    "assert": "topics drift, people anchor"
+  }
+}

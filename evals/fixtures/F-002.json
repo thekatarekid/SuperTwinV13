@@ -1,0 +1,33 @@
+{
+  "id": "F-002",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "reaction arrives 4h after parent, parent session sealed",
+    "expect": "attach to parent's sealed session; NO new session; NO debounce reset",
+    "assert": "reactions are not conversation"
+  }
+}

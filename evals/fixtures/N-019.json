@@ -1,0 +1,33 @@
+{
+  "id": "N-019",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'we should get dinner sometime' (1)",
+    "expect": "NO loop — no unresolved end state",
+    "assert": "vague wish is not a loop"
+  }
+}

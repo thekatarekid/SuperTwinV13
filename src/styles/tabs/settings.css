@@ -253,6 +253,80 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The identity line: the three input parts are components of one number, so the
+   sum sits directly under them rather than being left for the reader to add. */
+.settings__spend-total {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Usage board (arch §4.4.4) ------------------------------------------- */
+.settings__usage {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.settings__usage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings__usage-windows {
+  display: flex;
+  gap: 6px;
+}
+
+.settings__chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings__chip[aria-pressed="true"] {
+  color: var(--text-ink);
+  border-color: var(--text-ink);
+}
+
+.settings__usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 10px;
+}
+
+.settings__usage-table th,
+.settings__usage-table td {
+  text-align: right;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__usage-table th[scope="row"],
+.settings__usage-table thead th:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+
+.settings__usage-cache,
+.settings__usage-cost,
+.settings__usage-runs,
+.settings__usage-import {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- Model role rows ----------------------------------------------------- */
 .settings__model-roles {
   display: flex;
@@ -618,6 +692,20 @@
 
 .settings__media-queue {
   margin-top: 22px;
+}
+
+/* ---- Processing: the parallel-calls slider (arch §4.4.1) ----------------- */
+.settings__slider {
+  width: 100%;
+  accent-color: var(--accent-cta, currentColor);
+  cursor: pointer;
+}
+
+/* The live value, so the handle's position is never the only readout. */
+.settings__slider-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-faint);
 }
 
 /* ---- Transcription: bundled binaries + the whisper model catalogue ------- */

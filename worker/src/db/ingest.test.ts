@@ -197,6 +197,14 @@ describe("migration 0003_phase1_threads", () => {
       );
       -- 0001 tables that later migrations (0004_phase2) ALTER / reference.
       CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT, handle TEXT, created_at TEXT);
+      -- 0001 tables that 0022_v2_core ALTERs (sources) / references (actors).
+      CREATE TABLE sources (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, config_json TEXT, created_at TEXT
+      );
+      CREATE TABLE actors (
+        id TEXT PRIMARY KEY, source_id TEXT, person_id TEXT, display_name TEXT,
+        handle TEXT, created_at TEXT
+      );
       CREATE TABLE spaces (
         id TEXT PRIMARY KEY, name TEXT, type TEXT, permanence TEXT, status TEXT,
         latest_update TEXT, latest_update_ts TEXT, ends_at TEXT, created_at TEXT
@@ -261,6 +269,14 @@ describe("migration 0003_phase1_threads", () => {
       );
       -- 0001 tables that later migrations (0004_phase2) ALTER / reference.
       CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT, handle TEXT, created_at TEXT);
+      -- 0001 tables that 0022_v2_core ALTERs (sources) / references (actors).
+      CREATE TABLE sources (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, config_json TEXT, created_at TEXT
+      );
+      CREATE TABLE actors (
+        id TEXT PRIMARY KEY, source_id TEXT, person_id TEXT, display_name TEXT,
+        handle TEXT, created_at TEXT
+      );
       CREATE TABLE spaces (
         id TEXT PRIMARY KEY, name TEXT, type TEXT, permanence TEXT, status TEXT,
         latest_update TEXT, latest_update_ts TEXT, ends_at TEXT, created_at TEXT
@@ -1364,7 +1380,14 @@ describe("migration 0008_media", () => {
         .prepare(`SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name`)
         .all() as { name: string }[]
     ).map((t) => t.name);
-    expect(triggers).toEqual(["events_ad", "events_ai", "events_au"]);
+    // events_stream_compat_ai is 0022_v2_core's channel_id -> stream_id bridge,
+    // which lives on events beside the three FTS triggers until item 1.1.
+    expect(triggers).toEqual([
+      "events_ad",
+      "events_ai",
+      "events_au",
+      "events_stream_compat_ai",
+    ]);
   });
 
   it("upgrades a pre-media DB: only the media migrations apply and FTS still returns pre-existing hits", () => {

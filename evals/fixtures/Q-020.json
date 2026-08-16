@@ -1,0 +1,33 @@
+{
+  "id": "Q-020",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "explicit vs implicit loops rendered (4)",
+    "expect": "TWO separate lists, different verbs, never interleaved",
+    "assert": "different products"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "Q-014",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "loop reaches state=done",
+    "expect": "leaves every surface immediately",
+    "assert": "never nag about finished things"
+  }
+}

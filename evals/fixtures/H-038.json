@@ -1,0 +1,33 @@
+{
+  "id": "H-038",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'tell Amit' with TWO roster Amits, both plausible",
+    "expect": "entity '-' + hint + Q line",
+    "assert": "two live candidates -> question"
+  }
+}

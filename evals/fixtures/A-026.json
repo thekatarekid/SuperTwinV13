@@ -1,0 +1,33 @@
+{
+  "id": "A-026",
+  "category": "A",
+  "layer": "ingest",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "msg with ts +3min vs now",
+    "expect": "clamp+flag if > now+5min, else accept",
+    "assert": "clock skew tolerance"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "T-001",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "latency_s": {
+        "max": 30
+      }
+    },
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "cold connect with existing history",
+    "expect": "first claim rendered <=30s",
+    "assert": "LATENCY GATE"
+  }
+}

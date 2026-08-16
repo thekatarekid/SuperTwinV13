@@ -1,0 +1,33 @@
+{
+  "id": "I-032",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "contradiction: Rashmi left the office",
+    "expect": "old edge valid_to + status=superseded with evidence",
+    "assert": "contradictions close, never delete"
+  }
+}

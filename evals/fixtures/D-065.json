@@ -1,0 +1,33 @@
+{
+  "id": "D-065",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "backfill chunk 3 on 24-month history",
+    "expect": "same boundaries as live; ordered by ts not rowid",
+    "assert": "one segmenter, ts order"
+  }
+}

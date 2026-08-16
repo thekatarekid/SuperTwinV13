@@ -1,0 +1,33 @@
+{
+  "id": "J-051",
+  "category": "J",
+  "layer": "episodes",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "re-run pipeline over same sealed sessions (run #5)",
+    "expect": "identical episodes; verdicts reused; ZERO new calls",
+    "assert": "verdict replay determinism"
+  }
+}

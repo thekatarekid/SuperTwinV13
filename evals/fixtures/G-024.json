@@ -1,0 +1,33 @@
+{
+  "id": "G-024",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'Praj' used consistently where Pranjali is counterparty",
+    "expect": "alias identity row on Pranjali, evidence quoted",
+    "assert": "alias not a new entity"
+  }
+}

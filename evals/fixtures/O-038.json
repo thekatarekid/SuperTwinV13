@@ -1,0 +1,33 @@
+{
+  "id": "O-038",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "party_pairs_correct"
+  },
+  "stub": true,
+  "doc": {
+    "given": "model emits a party_pair field on the wire",
+    "expect": "REJECT — party_pair is never model-emitted",
+    "assert": "zero model burden"
+  }
+}

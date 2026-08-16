@@ -1,0 +1,33 @@
+{
+  "id": "K-011",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": true,
+  "doc": {
+    "given": "tracking params / shortlink variant of the same url (3)",
+    "expect": "normalised to the same value_norm; bridge fires",
+    "assert": "url normalisation"
+  }
+}

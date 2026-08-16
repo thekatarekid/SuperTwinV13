@@ -1,0 +1,33 @@
+{
+  "id": "N-011",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'my subscription renews/expires on <date>'",
+    "expect": "T with due + recurrence where applicable",
+    "assert": "TEMPORAL BOUNDARY loop — highest value in old data"
+  }
+}

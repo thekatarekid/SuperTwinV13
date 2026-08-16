@@ -1,0 +1,33 @@
+{
+  "id": "I-030",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "evidence Didi lives at America",
+    "expect": "L ... loc/current ...; prior loc gets valid_to + superseded",
+    "assert": "moves supersede"
+  }
+}

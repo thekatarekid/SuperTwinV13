@@ -1,0 +1,33 @@
+{
+  "id": "N-056",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "state",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "past due + recurrence annual, next occurrence in the future",
+    "expect": "state=open — LIVE",
+    "assert": "recurrence projection beats age"
+  }
+}

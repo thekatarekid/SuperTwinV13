@@ -1,0 +1,33 @@
+{
+  "id": "H-040",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "[voice note, transcription pending] event",
+    "expect": "NOTHING extracted from it",
+    "assert": "placeholder is unknown not empty"
+  }
+}

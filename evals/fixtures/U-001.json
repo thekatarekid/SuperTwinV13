@@ -1,0 +1,43 @@
+{
+  "id": "U-001",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=100|mode=bootstrap|state=done\nrun|role=extract|model=claude-haiku-4|cohort=c1|input=1200|create=800|read=21846|output=300|cost=0.0412\nrun|role=entity|model=claude-haiku-4|cohort=c1|input=17|create=0|read=59700|output=120|cost=0.0201",
+  "expect": {
+    "state": {
+      "identity_holds": true,
+      "input_tokens": 1217,
+      "cache_creation_tokens": 800,
+      "cache_read_tokens": 81546,
+      "total_input_tokens": 83563,
+      "output_tokens": 420,
+      "run_count": 2
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "acct_total_input_identity"
+  },
+  "stub": false,
+  "doc": {
+    "given": "any run row",
+    "expect": "total_input == cache_read + cache_creation + input_tokens",
+    "assert": "the identity must hold"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "K-025",
+  "category": "K",
+  "layer": "bridges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_bridge_recall"
+  },
+  "stub": true,
+  "doc": {
+    "given": "Uber drop and restaurant order 150m/30min apart",
+    "expect": "fires",
+    "assert": "geo_time within 200m AND 45min"
+  }
+}

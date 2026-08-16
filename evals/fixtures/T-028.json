@@ -1,0 +1,33 @@
+{
+  "id": "T-028",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "episode with media",
+    "expect": "exactly 2 passes: text-only, then complete",
+    "assert": "two-pass model"
+  }
+}

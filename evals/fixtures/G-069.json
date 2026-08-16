@@ -1,0 +1,33 @@
+{
+  "id": "G-069",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "calibration absent at boot",
+    "expect": "similarity rung DISABLED; pairs route to agent or queue",
+    "assert": "stale calib blocks ML rung"
+  }
+}

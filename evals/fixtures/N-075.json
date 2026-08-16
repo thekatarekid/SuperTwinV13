@@ -1,0 +1,33 @@
+{
+  "id": "N-075",
+  "category": "N",
+  "layer": "loops",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "loops_explicit_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "implicit, no due, no recurrence, evidence >30d old, never reinforced",
+    "expect": "default state=latent not open",
+    "assert": "the one surviving age rule"
+  }
+}

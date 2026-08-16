@@ -1,0 +1,33 @@
+{
+  "id": "D-035",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "msgs at 23:52 and 00:03 next day, tz Asia/Kolkata",
+    "expect": "CUT day_boundary",
+    "assert": "midnight in STREAM tz not UTC"
+  }
+}

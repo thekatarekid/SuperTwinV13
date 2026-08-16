@@ -1,0 +1,33 @@
+{
+  "id": "L-021",
+  "category": "L",
+  "layer": "arcs",
+  "call": "P-AG2",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "cross-source candidate, no bridge, overlap 0.3, calibrated sim 0.80",
+    "expect": "P-AG2 one call -> jn/nw/un; un -> user question",
+    "assert": "adjudication only at ladder step 4"
+  }
+}

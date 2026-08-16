@@ -8,7 +8,7 @@ import {
   fireEvent,
 } from "@testing-library/react";
 import { act } from "react";
-import { SettingsTab } from "./SettingsTab";
+import { SettingsTab, LLM_PARALLEL_NOTE } from "./SettingsTab";
 import type {
   LogsInfo,
   MediaQueue,
@@ -19,6 +19,8 @@ import type {
   RoleInfo,
   RunListItem,
   SemanticState,
+  UsageSummary,
+  UsageWindow,
   WhisperModelState,
   WorkerClient,
 } from "../lib/worker-client";
@@ -438,6 +440,20 @@ describe("SettingsTab runs viewer", () => {
     expect(within(table).queryByText("$0.00")).toBeNull();
     // The cache the call paid for sits beside fresh input (8,000 + 12,000).
     expect(within(table).getByText("20,000")).toBeTruthy();
+  });
+
+  it("U-003: carries the total input beside the parts, never the parts alone", async () => {
+    const client: ExtrasClient = {
+      ...offlineHealth,
+      listRuns: vi.fn(async () => RUNS),
+    };
+    render(<SettingsTab client={client} />);
+
+    await screen.findByTestId("runs-table");
+    // 1,200 fresh + 8,000 written + 12,000 read is ONE 21,200-token input.
+    expect(screen.getByTestId("run-total-input-1").textContent).toBe("21,200");
+    // A call that genuinely cached nothing still states its total.
+    expect(screen.getByTestId("run-total-input-2").textContent).toBe("5,000");
   });
 
   it("re-fetches when Refresh is clicked", async () => {
@@ -2063,5 +2079,333 @@ describe("SettingsTab encoder catalogue", () => {
       "embedding-select-onnx-community/embeddinggemma-300m-ONNX",
     ) as HTMLInputElement;
     expect(radio.disabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Processing → parallel calls (arch §4.4.1).
+//
+// One number, LLM calls only, and the copy has to say what it costs in RAM and
+// in rate limit — a user who drags it to 16 on an 8 GB Mac needs to be told
+// that it will run SLOWER, before they do it.
+// ---------------------------------------------------------------------------
+describe("SettingsTab processing — parallel calls", () => {
+  function makeClient() {
+    return {
+      getHealth: vi.fn(async () => ({ ok: true, version: "0.0.1" })),
+      getQuota: vi.fn(async () => QUOTA),
+    };
+  }
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("is a 1–16 slider that defaults to 8", async () => {
+    render(<SettingsTab client={makeClient()} />);
+    const slider = (await screen.findByTestId("llm-parallel")) as HTMLInputElement;
+    expect(slider.type).toBe("range");
+    expect(slider.min).toBe("1");
+    expect(slider.max).toBe("16");
+    expect(slider.value).toBe("8");
+    expect(screen.getByTestId("llm-parallel-value").textContent).toBe("8");
+  });
+
+  it("carries the RAM / rate-limit note verbatim", async () => {
+    render(<SettingsTab client={makeClient()} />);
+    const note = await screen.findByTestId("llm-parallel-note");
+    expect(note.textContent).toBe(LLM_PARALLEL_NOTE);
+    // The three facts a user acts on must be in there, not paraphrased away.
+    expect(note.textContent).toContain("250–350 MB");
+    expect(note.textContent).toContain("8 parallel ≈ 2–3 GB · 16 parallel ≈ 4–6 GB.");
+    expect(note.textContent).toContain("slower");
+    expect(note.textContent).toContain("rate limit sooner");
+    expect(note.textContent).toContain(
+      "Local transcription and embeddings have their own limits",
+    );
+  });
+
+  it("moves, shows the new value, and survives a remount", async () => {
+    const { unmount } = render(<SettingsTab client={makeClient()} />);
+    const slider = (await screen.findByTestId("llm-parallel")) as HTMLInputElement;
+    fireEvent.change(slider, { target: { value: "16" } });
+    expect(screen.getByTestId("llm-parallel-value").textContent).toBe("16");
+
+    unmount();
+    render(<SettingsTab client={makeClient()} />);
+    const again = (await screen.findByTestId("llm-parallel")) as HTMLInputElement;
+    expect(again.value).toBe("16");
+  });
+
+  it("clamps a stored value that is out of range rather than trusting it", async () => {
+    window.localStorage.setItem("supertwin.concurrency.llm", "99");
+    render(<SettingsTab client={makeClient()} />);
+    const slider = (await screen.findByTestId("llm-parallel")) as HTMLInputElement;
+    expect(slider.value).toBe("16");
+  });
+});
+
+// ===========================================================================
+// Settings → Usage (arch §4.4.4, evals U). The panel exists because the prior
+// build shipped three accounting lies on screen: input_tokens shown as the
+// total input, input and cache read as two separate spends, and a cost of "—"
+// next to real tokens because cost and tokens were summed over different rows.
+// ===========================================================================
+
+const USAGE: UsageSummary = {
+  window: "7d",
+  byRole: [
+    {
+      role: "extract",
+      model: "claude-sonnet-5",
+      inputTokens: 412_880,
+      cacheCreationTokens: 128_400,
+      cacheReadTokens: 96_200,
+      totalInputTokens: 637_480,
+      outputTokens: 84_110,
+      billableTokens: 566_890,
+      costUsd: 1.82,
+      runCount: 900,
+      cacheMinimumTokens: 1024,
+      cacheExpectedZero: false,
+    },
+    {
+      role: "media",
+      model: "claude-haiku-4.5",
+      inputTokens: 980_200,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      totalInputTokens: 980_200,
+      outputTokens: 41_300,
+      billableTokens: 1_021_500,
+      costUsd: 0.98,
+      runCount: 384,
+      cacheMinimumTokens: 4096,
+      cacheExpectedZero: true,
+    },
+  ],
+  totals: {
+    inputTokens: 1_393_080,
+    cacheCreationTokens: 128_400,
+    cacheReadTokens: 96_200,
+    totalInputTokens: 1_617_680,
+    outputTokens: 125_410,
+    billableTokens: 1_588_390,
+    costUsd: 2.8,
+    runCount: 1284,
+  },
+  cache: {
+    hitRate: 0.12,
+    belowMinimumModels: ["claude-haiku-4.5"],
+    minimumTokens: 4096,
+  },
+  runs: { ok: 1284, retried: 6, quarantined: 2, error: 0, other: 0, total: 1292 },
+  thisImport: {
+    mode: "bootstrap",
+    cohorts: 12,
+    cohortsDone: 8,
+    events: 3028,
+    eventsDone: 2150,
+    runCount: 1100,
+    spend: {
+      spentUsd: 2.21,
+      fractionComplete: 0.71,
+      projectedTotalUsd: 3.11,
+      remainingUsd: 0.9,
+    },
+  },
+};
+
+describe("SettingsTab usage board", () => {
+  function usageClient(summary: UsageSummary = USAGE) {
+    return {
+      getHealth: vi.fn(async () => ({ ok: true, version: "0.0.1" })),
+      getQuota: vi.fn(async () => QUOTA),
+      getUsage: vi.fn(async (_window?: UsageWindow) => summary),
+    };
+  }
+
+  it("U-001: every role row renders total input, and it is the sum of its parts", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-row-extract-total-input").textContent).toBe(
+        "637,480",
+      ),
+    );
+    expect(screen.getByTestId("usage-row-media-total-input").textContent).toBe(
+      "980,200",
+    );
+    // The 412,880 fresh figure is present, but never on its own as "input".
+    const row = screen.getByTestId("usage-row-extract");
+    expect(row.textContent).toContain("412,880");
+    expect(row.textContent).toContain("637,480");
+  });
+
+  it("U-002/U-003: the three parts are shown WITH their sum, not as separate spend", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-total-input").textContent).toBe("1,617,680"),
+    );
+    const line = screen.getByTestId("usage-total-input").parentElement!;
+    expect(line.textContent).toContain("fresh 1,393,080");
+    expect(line.textContent).toContain("write 128,400");
+    expect(line.textContent).toContain("read 96,200");
+    // And the chat/media grids carry the same identity line.
+    expect(screen.getByTestId("quota-total-input").textContent).toBe("59,885");
+    expect(screen.getByTestId("media-spend-total-input").textContent).toBe(
+      "59,757",
+    );
+  });
+
+  it("U-002: the chat grid never labels post-breakpoint input as the total", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("quota-input").textContent).toBe("1,234"),
+    );
+    const cell = screen.getByTestId("quota-input").parentElement!;
+    expect(cell.textContent).toContain("Fresh input");
+    expect(cell.textContent).not.toContain("Total");
+  });
+
+  it("U-004/U-007: cost renders from the same aggregate, never a dash beside spend", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-cost-total").textContent).toBe("$2.80"),
+    );
+    expect(screen.getByTestId("usage-cost-by-role").textContent).toContain(
+      "extract $1.82",
+    );
+    expect(screen.getByTestId("usage-cost-by-role").textContent).toContain(
+      "media $0.98",
+    );
+    expect(screen.getByTestId("usage-cost-total").textContent).not.toBe("—");
+    expect(
+      screen.getByTestId("usage-cost-total").parentElement?.textContent,
+    ).toContain("reported by the Claude CLI, not estimated");
+  });
+
+  it("U-008: the blocks are labelled by the role they actually contain", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-row-extract").textContent).toContain(
+        "extract (claude-sonnet-5)",
+      ),
+    );
+    expect(screen.getByTestId("usage-row-media").textContent).toContain(
+      "media (claude-haiku-4.5)",
+    );
+    expect(screen.queryByTestId("usage-row-chat")).toBeNull();
+  });
+
+  it("U-011/U-012: shows the measured hit rate with the haiku-minimum note", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-cache-hit-rate").textContent).toBe("12%"),
+    );
+    const note = screen.getByTestId("usage-cache-note").textContent ?? "";
+    expect(note).toContain("claude-haiku-4.5");
+    expect(note).toContain("4,096-token minimum");
+    expect(note).toContain("this is expected");
+  });
+
+  it("drops the note when nothing is below its minimum", async () => {
+    const summary: UsageSummary = {
+      ...USAGE,
+      cache: { hitRate: 0.44, belowMinimumModels: [], minimumTokens: null },
+    };
+    render(<SettingsTab client={usageClient(summary)} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-cache-hit-rate").textContent).toBe("44%"),
+    );
+    expect(screen.queryByTestId("usage-cache-note")).toBeNull();
+  });
+
+  it("dashes an unmeasured hit rate rather than calling it 0%", async () => {
+    const summary: UsageSummary = {
+      ...USAGE,
+      cache: { hitRate: null, belowMinimumModels: [], minimumTokens: null },
+    };
+    render(<SettingsTab client={usageClient(summary)} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-cache-hit-rate").textContent).toBe("—"),
+    );
+  });
+
+  it("shows run counts by outcome", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() => {
+      const t = screen.getByTestId("usage-run-counts").textContent ?? "";
+      expect(t).toContain("1,284 ok");
+      expect(t).toContain("6 retried");
+      expect(t).toContain("2 quarantined");
+    });
+  });
+
+  it("U-010: this import shows progress, spend-to-date and a projection", async () => {
+    render(<SettingsTab client={usageClient()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-import-spent").textContent).toBe("$2.21"),
+    );
+    expect(screen.getByTestId("usage-import-complete").textContent).toBe("71%");
+    expect(screen.getByTestId("usage-import-remaining").textContent).toBe(
+      "~$0.90 to go",
+    );
+    expect(screen.getByTestId("usage-this-import").textContent).toContain(
+      "3,028 events",
+    );
+  });
+
+  it("says the projection is pending rather than inventing one", async () => {
+    const summary: UsageSummary = {
+      ...USAGE,
+      thisImport: {
+        ...USAGE.thisImport,
+        spend: {
+          spentUsd: 0.2,
+          fractionComplete: 0,
+          projectedTotalUsd: null,
+          remainingUsd: null,
+        },
+      },
+    };
+    render(<SettingsTab client={usageClient(summary)} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-import-remaining").textContent).toBe(
+        "projection pending",
+      ),
+    );
+  });
+
+  it("re-reads the whole aggregate when the window changes — never half of it", async () => {
+    const client = usageClient();
+    render(<SettingsTab client={client} />);
+    await waitFor(() => expect(client.getUsage).toHaveBeenCalled());
+    expect(client.getUsage.mock.calls[0][0]).toBe("7d");
+
+    fireEvent.click(screen.getByTestId("usage-window-import"));
+    await waitFor(() =>
+      expect(
+        client.getUsage.mock.calls.some((c) => c[0] === "import"),
+      ).toBe(true),
+    );
+    expect(
+      (screen.getByTestId("usage-window-import") as HTMLButtonElement).getAttribute(
+        "aria-pressed",
+      ),
+    ).toBe("true");
+  });
+
+  it("dashes the board while the worker is offline instead of showing stale money", async () => {
+    const client = {
+      ...offlineHealth,
+      getUsage: vi.fn(async () => USAGE),
+    };
+    render(<SettingsTab client={client} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("worker-status").textContent).toBe("Offline"),
+    );
+    expect(screen.getByTestId("usage-cost-total").textContent).toBe("—");
+    expect(screen.getByTestId("usage-total-input").textContent).toBe("—");
+    expect(screen.getByTestId("usage-tokens-empty")).toBeTruthy();
   });
 });

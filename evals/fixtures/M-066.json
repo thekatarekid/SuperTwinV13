@@ -1,0 +1,33 @@
+{
+  "id": "M-066",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'k'",
+    "expect": "NO claim emitted",
+    "assert": "logistics chatter is not a claim"
+  }
+}

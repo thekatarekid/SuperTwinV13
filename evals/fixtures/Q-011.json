@@ -1,0 +1,33 @@
+{
+  "id": "Q-011",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "loop owner=Hrishikesh",
+    "expect": "does NOT appear in Tasks; shows under Waiting on others / People",
+    "assert": "others' loops are context"
+  }
+}

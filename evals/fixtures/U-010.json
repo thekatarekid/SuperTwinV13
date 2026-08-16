@@ -1,0 +1,43 @@
+{
+  "id": "U-010",
+  "category": "U",
+  "layer": "accounting",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "cohort|id=c1|events=1000|mode=bootstrap|state=done\ncohort|id=c2|events=1000|mode=bootstrap|state=running\nrun|role=extract|model=claude-haiku-4|cohort=c1|input=100000|create=0|read=0|output=20000|cost=2\nprogress|mode=bootstrap",
+  "expect": {
+    "state": {
+      "progress": {
+        "events": 2000,
+        "events_done": 1000,
+        "spent_usd": 2,
+        "fraction_complete": 0.5,
+        "projected_total_usd": 4
+      }
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "during a bootstrap",
+    "expect": "spend-to-date and projection shown",
+    "assert": "live cost visibility"
+  }
+}

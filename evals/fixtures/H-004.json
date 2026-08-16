@@ -1,0 +1,38 @@
+{
+  "id": "H-004",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "min": 0.9
+      }
+    },
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "msg: 'ask Sudhir about the therapy'",
+    "expect": "M/<ev>/Sudhir/a<k>/>=0.9",
+    "assert": "roster hit"
+  }
+}

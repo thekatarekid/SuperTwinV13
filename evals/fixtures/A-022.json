@@ -1,0 +1,33 @@
+{
+  "id": "A-022",
+  "category": "A",
+  "layer": "ingest",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "delivery ack event from daemon",
+    "expect": "dropped at adapter",
+    "assert": "non-content filtering"
+  }
+}

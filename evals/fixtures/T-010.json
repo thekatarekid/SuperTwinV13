@@ -1,0 +1,33 @@
+{
+  "id": "T-010",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "P-AG3",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "P-AG3 executed before first paint",
+    "expect": "FAIL — barred by rule",
+    "assert": "adjudicators never on the path"
+  }
+}

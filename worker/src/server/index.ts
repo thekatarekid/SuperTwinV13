@@ -669,6 +669,8 @@ async function handle(
   // which returns false for /api/brain/(info|reveal) so they land here.
   if (
     path === "/api/runs" ||
+    path === "/api/usage" ||
+    path === "/api/usage/estimate" ||
     path.startsWith("/api/logs/") ||
     path === "/api/brain/info" ||
     path === "/api/brain/reveal" ||

@@ -1,0 +1,33 @@
+{
+  "id": "E-033",
+  "category": "E",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "ambient: 50m idle scroll below salience threshold",
+    "expect": "ONE coarse session, zero LLM",
+    "assert": "low-salience collapse"
+  }
+}

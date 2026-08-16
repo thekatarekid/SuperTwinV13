@@ -1,0 +1,33 @@
+{
+  "id": "I-018",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "recurring evidence establishes Prabhat as cook",
+    "expect": "L ... rel/cook ... (NOT a separate provides_care edge)",
+    "assert": "7-edge discipline"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "S-045",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "```\nT|1|self|a1|ex|i2t|h|w|2026-08-20|-|0.9|Send the deck\nT|2|self|a1|ex|nonsense|h|w|-|-|0.9|Broken line\n```\n- some trailing prose",
+  "expect": {
+    "state": {
+      "accepted": 1,
+      "line_violations": 1,
+      "skipped": 3,
+      "non_blank_lines": 5,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_accounting_holds"
+  },
+  "stub": false,
+  "doc": {
+    "given": "parse of a mixed batch (#2)",
+    "expect": "accepted + violations + skipped == non_blank_lines",
+    "assert": "accounting invariant"
+  }
+}

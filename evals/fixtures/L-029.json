@@ -1,0 +1,33 @@
+{
+  "id": "L-029",
+  "category": "L",
+  "layer": "arcs",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": "arcs_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "arc quiet 4w",
+    "expect": "live->dormant at 3w; ->archived at 12w [CODE]",
+    "assert": "arc aging"
+  }
+}

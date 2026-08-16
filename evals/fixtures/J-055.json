@@ -1,0 +1,33 @@
+{
+  "id": "J-055",
+  "category": "J",
+  "layer": "episodes",
+  "call": "P-EP2",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "episodes_split_attach_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "session with high intra-session drift",
+    "expect": "P-EP2 runs",
+    "assert": "[ML] pre-flag gates the [LLM-M] call"
+  }
+}

@@ -1175,6 +1175,87 @@ export async function listRuns(
   return res.runs;
 }
 
+// ---------------------------------------------------------------------------
+// Settings → Usage (arch §4.4.4). One request, one filter, one row set: the
+// token table and the cost line come back from the same aggregate so they can
+// never describe different rows.
+// ---------------------------------------------------------------------------
+
+export type UsageWindow = "today" | "7d" | "30d" | "import";
+
+export interface UsageTotals {
+  /** Post-breakpoint tokens ONLY. Never render this as "total input". */
+  inputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  /** cacheRead + cacheCreation + input — the honest total, rendered with them. */
+  totalInputTokens: number;
+  outputTokens: number;
+  billableTokens: number;
+  /** The Claude CLI's own figure, summed. Never recomputed here. */
+  costUsd: number;
+  runCount: number;
+}
+
+export interface UsageRoleRow extends UsageTotals {
+  role: string;
+  model: string;
+  cacheMinimumTokens: number | null;
+  /** 0 cache because the prompt is under the model's floor — expected. */
+  cacheExpectedZero: boolean;
+}
+
+export interface UsageCache {
+  /** Measured, never assumed. null when nothing ran in the window. */
+  hitRate: number | null;
+  belowMinimumModels: string[];
+  minimumTokens: number | null;
+}
+
+export interface UsageRunCounts {
+  ok: number;
+  retried: number;
+  quarantined: number;
+  error: number;
+  other: number;
+  total: number;
+}
+
+export interface UsageImportProgress {
+  mode: string;
+  cohorts: number;
+  cohortsDone: number;
+  events: number;
+  eventsDone: number;
+  runCount: number;
+  spend: {
+    spentUsd: number;
+    fractionComplete: number;
+    projectedTotalUsd: number | null;
+    remainingUsd: number | null;
+  };
+}
+
+export interface UsageSummary {
+  window: UsageWindow;
+  byRole: UsageRoleRow[];
+  totals: UsageTotals;
+  cache: UsageCache;
+  runs: UsageRunCounts;
+  thisImport: UsageImportProgress;
+}
+
+/** GET /api/usage?window= — the whole Usage surface in one aggregate. */
+export async function getUsage(
+  window: UsageWindow = "7d",
+  signal?: AbortSignal,
+): Promise<UsageSummary> {
+  return getJson<UsageSummary>(
+    `/api/usage?window=${encodeURIComponent(window)}`,
+    signal,
+  );
+}
+
 /** GET /api/logs/info — logs directory + a stat of the files inside it. */
 export async function getLogsInfo(signal?: AbortSignal): Promise<LogsInfo> {
   return getJson<LogsInfo>("/api/logs/info", signal);
@@ -1231,8 +1312,9 @@ export const workerClient = {
   postEvaluation,
   getEvaluationSummary,
   getBrainFile,
-  // Settings: runs viewer + logs
+  // Settings: runs viewer + logs + token accounting
   listRuns,
+  getUsage,
   getLogsInfo,
   revealLogs,
 };

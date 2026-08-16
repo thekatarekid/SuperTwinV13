@@ -1,0 +1,41 @@
+{
+  "id": "V-013",
+  "category": "V",
+  "layer": "calib",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "bars|use_case=claim_text",
+  "expect": {
+    "state": {
+      "use_case": "claim_text",
+      "bind": 0.66,
+      "band": 0.4,
+      "has_own_row": true,
+      "arc_above_episode": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": null
+  },
+  "stub": false,
+  "doc": {
+    "given": "use_case claim_text",
+    "expect": "its own threshold row; arc_topic bar > episode_topic",
+    "assert": "per-use-case thresholds"
+  }
+}

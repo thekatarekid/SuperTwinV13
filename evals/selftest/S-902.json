@@ -1,0 +1,22 @@
+{
+  "id": "S-902",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": { "episodes": [], "loops": [] },
+    "db": { "entities": [], "claims": [], "arcs": [] }
+  },
+  "frozen_response": "~~ random |bytes|   ÿ\nnot a record at all\nH|1|",
+  "expect": {},
+  "assert": { "mode": "no_throw", "gate": "wire_parser_never_throws" },
+  "doc": {
+    "given": "harness self-test — random bytes and a truncated record fed to the real parser",
+    "expect": "the parser records violations and returns; it never throws",
+    "assert": "no_throw"
+  }
+}

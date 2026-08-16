@@ -31,15 +31,33 @@ export const MODEL_KEY = "selected_model";
 export const MODEL_KEY_BY_ROLE: Record<ModelRole, string> = {
   chat: "selected_model_chat",
   media: "selected_model_media",
+  entity: "selected_model_entity",
+  episode: "selected_model_episode",
+  arc: "selected_model_arc",
+  extract: "selected_model_extract",
+  triage: "selected_model_triage",
+  done_detect: "selected_model_done_detect",
+  classify: "selected_model_classify",
+  adjudicate: "selected_model_adjudicate",
 };
 /**
- * What a role falls back to when the user has not picked anything. Chat inherits
- * the subscription default (""); media reading is a high-volume background job,
- * so it pins the cheapest vision-capable model instead.
+ * What a role falls back to when the user has not picked anything (arch §4.2).
+ * Chat inherits the subscription default (""); the mechanical, high-volume jobs
+ * pin the cheapest capable model; the judgment steps pin Sonnet, where accuracy
+ * beats economy — a small model over-emits on entity/claims work and loses
+ * roster discipline.
  */
 export const MODEL_DEFAULT_BY_ROLE: Record<ModelRole, string> = {
   chat: "",
   media: "claude-haiku-4-5-20251001",
+  entity: "claude-sonnet-5",
+  episode: "claude-sonnet-5",
+  arc: "claude-sonnet-5",
+  extract: "claude-sonnet-5",
+  triage: "claude-haiku-4-5-20251001",
+  done_detect: "claude-haiku-4-5-20251001",
+  classify: "claude-haiku-4-5-20251001",
+  adjudicate: "claude-sonnet-5",
 };
 /** Per-process on/off toggle key prefix (app_state 'process_enabled_<role>'). */
 export const PROCESS_ENABLED_KEY_PREFIX = "process_enabled_";

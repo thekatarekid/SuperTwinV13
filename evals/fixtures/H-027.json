@@ -1,0 +1,33 @@
+{
+  "id": "H-027",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "[Rashmi]: 'she said the reports are clear'; only Sudhir (F) discussed in THIS session",
+    "expect": "'she' -> Sudhir",
+    "assert": "pronoun resolved within session only"
+  }
+}

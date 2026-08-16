@@ -1,0 +1,33 @@
+{
+  "id": "R-004",
+  "category": "R",
+  "layer": "write",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "claims_out_of_order_supersession"
+  },
+  "stub": true,
+  "doc": {
+    "given": "identical claim re-extracted (4)",
+    "expect": "REINFORCE: union evidence, max confidence, NO new row",
+    "assert": "exact claim_key hit"
+  }
+}

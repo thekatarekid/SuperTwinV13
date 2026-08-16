@@ -1,0 +1,33 @@
+{
+  "id": "M-011",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "self says: 'i've started bhangra on saturdays'",
+    "expect": "H/<ev>/self/1p/conf/-/Attends bhangra classes on Saturdays",
+    "assert": "kind = tag; third person resolved"
+  }
+}

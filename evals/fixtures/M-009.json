@@ -1,0 +1,33 @@
+{
+  "id": "M-009",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "self says: 'i always draft first then send'",
+    "expect": "W/<ev>/self/1p/conf/-/Drafts before sending",
+    "assert": "kind = tag; third person resolved"
+  }
+}

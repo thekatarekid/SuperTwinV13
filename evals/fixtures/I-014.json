@@ -1,0 +1,33 @@
+{
+  "id": "I-014",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "group Office Frandss participant list includes Sudhir",
+    "expect": "L ... aff/member ... [CODE] conf 1.0, ZERO model calls",
+    "assert": "metadata edge is free"
+  }
+}

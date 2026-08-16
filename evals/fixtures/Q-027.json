@@ -1,0 +1,33 @@
+{
+  "id": "Q-027",
+  "category": "Q",
+  "layer": "tasks",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "loop born lapsed from backfill",
+    "expect": "shows LAPSED with reason 'born lapsed'",
+    "assert": "honest about backfill"
+  }
+}

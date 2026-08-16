@@ -1,0 +1,33 @@
+{
+  "id": "A-012",
+  "category": "A",
+  "layer": "ingest",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "history page 2 requested with backfill_order=desc",
+    "expect": "adapter returns newest-first; watermarks.backfill_low_ts moves DOWN",
+    "assert": "ordering + watermark direction"
+  }
+}

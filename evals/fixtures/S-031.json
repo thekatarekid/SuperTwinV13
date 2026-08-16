@@ -1,0 +1,51 @@
+{
+  "id": "S-031",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|a1|ex|i2t|h|w|{due}|-|0.9|Send the deck",
+  "expect": {
+    "loops": [
+      {
+        "events": [
+          1
+        ],
+        "owner": "self",
+        "counterparty": "a1",
+        "origin": "explicit",
+        "direction": "i_owe_them",
+        "stake": "high",
+        "horizon": "week",
+        "due": null,
+        "recurrence": null,
+        "confidence": 0.9,
+        "intent": "Send the deck"
+      }
+    ]
+  },
+  "assert": {
+    "mode": "exact",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "bare {due}",
+    "expect": "'' meaning not stated; no date invented",
+    "assert": "never invent"
+  }
+}

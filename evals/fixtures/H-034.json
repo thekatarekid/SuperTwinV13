@@ -1,0 +1,33 @@
+{
+  "id": "H-034",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "msg mentions 'the landlord', no roster candidate",
+    "expect": "M/<ev>/the landlord/-/conf/hint",
+    "assert": "UNKNOWN BEATS WRONG"
+  }
+}

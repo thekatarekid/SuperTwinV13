@@ -1,0 +1,38 @@
+{
+  "id": "H-006",
+  "category": "H",
+  "layer": "mentions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "min": 0.9
+      }
+    },
+    "gate": "entities_mention_linking"
+  },
+  "stub": true,
+  "doc": {
+    "given": "msg: 'ask Gargi about the rabies shots'",
+    "expect": "M/<ev>/Gargi/a<k>/>=0.9",
+    "assert": "roster hit"
+  }
+}

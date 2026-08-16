@@ -1,0 +1,33 @@
+{
+  "id": "C-016",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": true,
+  "doc": {
+    "given": "batch of 17 images submitted",
+    "expect": "one call; ids echoed and matched exactly",
+    "assert": "batch size 16 default, 1-32"
+  }
+}

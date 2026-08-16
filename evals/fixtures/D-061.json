@@ -1,0 +1,33 @@
+{
+  "id": "D-061",
+  "category": "D",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "bootstrap",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "no_throw",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "bootstrap: newest session of a stream, no next row",
+    "expect": "stays OPEN, handed to steady rules",
+    "assert": "bootstrap open-tail exception"
+  }
+}

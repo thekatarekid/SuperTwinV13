@@ -1,0 +1,33 @@
+{
+  "id": "B-045",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "live",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "live msg from bank (T2) during T1 backfill",
+    "expect": "pre-empts at next cohort boundary",
+    "assert": "T2 live pre-emption"
+  }
+}

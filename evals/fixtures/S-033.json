@@ -1,0 +1,40 @@
+{
+  "id": "S-033",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "L|1|a1|rel|colleague|a2|0.9|she said \"ship it | then rest\"",
+  "expect": {
+    "state": {
+      "round_trip": "L|1|a1|rel|colleague|a2|0.9|she said \"ship it | then rest\"",
+      "round_trip_stable": true,
+      "accepted": 1,
+      "line_violations": 0
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "prose field containing a / character (#2)",
+    "expect": "tail re-joined, kept whole",
+    "assert": "prose is always last"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "B-038",
+  "category": "B",
+  "layer": "tiers",
+  "call": "P-TI1",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "business channel sends both offers and one delivery notice",
+    "expect": "tx (under-prioritising a real bill is the costlier error)",
+    "assert": "P-TI1 tie-break rule"
+  }
+}

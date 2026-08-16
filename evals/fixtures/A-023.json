@@ -1,0 +1,33 @@
+{
+  "id": "A-023",
+  "category": "A",
+  "layer": "ingest",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "typing indicator event from daemon",
+    "expect": "dropped at adapter",
+    "assert": "non-content filtering"
+  }
+}

@@ -14,6 +14,7 @@
 // over those events at query time.
 
 import { runMigrations } from "./db/index.js";
+import { runStartupCalibration } from "./retrieval/calibration.js";
 import { startServer, type ServerHandle } from "./server/index.js";
 import { register } from "./providers/index.js";
 import { claudeLocalProvider } from "./providers/claude-local/index.js";
@@ -29,6 +30,24 @@ async function main(): Promise<void> {
   // durable file next to the per-run transcripts (both best-effort; §9).
   ensureLogsDir();
   teeConsole();
+
+  // ---- Embedder calibration (item 0.7, arch §10.3). Measures the
+  // unrelated-pair floor per (model, use_case) from the vectors already
+  // stored. On a cold install every use case reports "insufficient-vectors"
+  // and the [ML] similarity rung stays DISABLED — which is the correct boot
+  // state, not a failure. Best-effort: a calibration error must not stop the
+  // worker from serving.
+  try {
+    const calib = runStartupCalibration();
+    console.error(
+      `[worker] embedder calibration (${calib.model}): ` +
+        (calib.enabled.length > 0
+          ? `[ML] similarity enabled for ${calib.enabled.join(", ")}`
+          : "no use case calibrated yet — [ML] similarity disabled"),
+    );
+  } catch (err) {
+    console.error("[worker] embedder calibration failed (similarity stays disabled):", err);
+  }
 
   // ---- WhatsApp ingestion. Resilient: if the daemon binary is missing (dev),
   // the adapter surfaces an error status but the worker still boots + serves the

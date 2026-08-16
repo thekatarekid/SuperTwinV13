@@ -7,7 +7,15 @@
 // read from disk at runtime because the shipped worker is a single esbuild
 // bundle with no .sql files beside it, and a migration that only applies in the
 // repo is worse than no migration at all. 0020_v2_core.test.ts fails the moment
-// the two drift, so the copy cannot rot silently.
+// the two drift, so the copy cannot rot silently. To re-sync after editing the
+// .sql (from worker/):
+//
+//   node -e 'const f=require("fs"),p="src/db/migrations/0020_v2_core";\
+//     const s=f.readFileSync(p+".sql","utf8"),t=f.readFileSync(p+".ts","utf8");\
+//     f.writeFileSync(p+".ts", t.split("export const V2_CORE = /* sql */ `")[0]\
+//       + "export const V2_CORE = /* sql */ `\\n" + s.replace(/\\n+$/,"\\n") + "`;\\n")'
+//
+// The .sql must contain no backtick and no ${ — it lives in a template literal.
 // ===========================================================================
 
 /** The 0020_v2_core migration body — byte-for-byte ./0020_v2_core.sql. */
@@ -15,13 +23,18 @@ export const V2_CORE = /* sql */ `
 -- ===========================================================================
 -- 0020_v2_core — the V2 ontology, complete (arch doc §6 "Data model").
 --
+-- The file keeps the name the build doc gives it. The id it is REGISTERED under
+-- in schema.ts is '0022_v2_core': 0020 and 0021 already shipped, and the
+-- recorded ids have to sort in the order they apply.
+--
 -- [CODE] Fresh install only. There is NO data migration and no upgrade path:
 -- the old DB is deleted on first run, so nothing here copies, backfills or
 -- reshapes existing rows. What it does do is grow every table §6 names, on top
--- of what 0001–0021 already built (events + its FTS index and media/link/
--- transcript lifecycle columns are kept as-is and extended, never rebuilt —
--- events_fts is external-content over events.rowid and a rebuild would silently
--- repoint every indexed row).
+-- of what 0001–0021 already built. 'events' keeps its V11 media/link/transcript
+-- lifecycle columns and its FTS index; it is rebuilt once (see L1 below) only
+-- because a renamed column drags its old FOREIGN KEY along, and the rebuild
+-- carries the rowids across by hand — events_fts is external-content over
+-- events.rowid, so renumbering them would silently repoint every indexed row.
 --
 -- ⚠ TEMPORAL PRECEDENCE — read before touching anything with a timestamp:
 --     events.ts               = when it was SAID
@@ -162,7 +175,7 @@ CREATE INDEX IF NOT EXISTS idx_entity_edges_dst ON entity_edges(dst_entity_id, k
 CREATE TABLE IF NOT EXISTS edge_evidence (
   edge_id  TEXT NOT NULL REFERENCES entity_edges(id) ON DELETE CASCADE,
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-  quote    TEXT NOT NULL,                     -- verbatim; no evidence, no write
+  quote    TEXT NOT NULL,                     -- verbatim. no evidence, no write
   PRIMARY KEY (edge_id, event_id)
 );
 
@@ -212,36 +225,195 @@ CREATE TABLE IF NOT EXISTS embedder_calib (
 );
 
 -- ═══ L1 events ═════════════════════════════════════════════════════════════
--- channel_id → stream_id. SQLite carries the rename into every index and
--- trigger that names the column, so events_fts and the rowids under it are
--- untouched.
-ALTER TABLE events RENAME COLUMN channel_id TO stream_id;
-
+-- channel_id → stream_id, plus every §6 column, done as a REBUILD instead of
+-- ALTER TABLE RENAME COLUMN. The rename on its own drags the old FOREIGN KEY
+-- along with the name: stream_id would still reference channels(id), so the
+-- first V2 writer to file an event against a real streams row gets
+-- "FOREIGN KEY constraint failed" and nothing in a schema diff says why.
+-- SQLite has no ALTER for a constraint, so the table is rebuilt once, here,
+-- while it is empty on every install that matters (fresh DB, no upgrade path).
+--
+-- stream_id deliberately carries NO REFERENCES yet: until item 1.1 folds
+-- 'channels' into 'streams', what lands in it is still a legacy channel id.
+-- Item 1.1 adds REFERENCES streams(id) when there is one id space left.
+--
+-- Two things the rebuild must not lose, neither of them visible in a schema
+-- diff:
+--   1. rowids — events_fts is external-content over events.rowid, so renumbered
+--      rows would point every indexed row at a different message, silently.
+--      They are copied across explicitly.
+--   2. the rows of every child table that holds ON DELETE CASCADE on events.
+--      DROP TABLE runs an implicit DELETE FROM, and PRAGMA foreign_keys = OFF
+--      is a no-op inside the runner's transaction, so event_embeddings is
+--      staged out and put back. (space_events, the only other such child, went
+--      with the legacy ontology above; every V2 table that references events is
+--      created below this point and is empty.)
 -- kind: message|post|comment|reaction|edit|revoke|view|play|save|order
 --     | visit|frame|utterance|appointment|file_change|reminder|clip
 -- enrichment_state: none_needed | pending | ready | failed | skipped
-ALTER TABLE events ADD COLUMN tz               TEXT;
-ALTER TABLE events ADD COLUMN ts_end           TEXT;
-ALTER TABLE events ADD COLUMN ingested_at      TEXT;    -- ⚠ audit/debug ONLY
-ALTER TABLE events ADD COLUMN salience         REAL;
-ALTER TABLE events ADD COLUMN enrichment_state TEXT NOT NULL DEFAULT 'none_needed';
-ALTER TABLE events ADD COLUMN enriched_at      TEXT;
-ALTER TABLE events ADD COLUMN enrich_salient   INTEGER;
-ALTER TABLE events ADD COLUMN actor_entity_id  TEXT REFERENCES entities(id) ON DELETE SET NULL;
-ALTER TABLE events ADD COLUMN actor_raw        TEXT;
-ALTER TABLE events ADD COLUMN is_self          INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE events ADD COLUMN is_business      INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE events ADD COLUMN structured_json  TEXT;
-ALTER TABLE events ADD COLUMN revision_of      TEXT;
+-- ⚠ ts = when it was SAID → the ONLY basis for precedence.
+--   ingested_at = when the row was written → audit/debug ONLY, never precedence.
+CREATE TABLE events_v2_rebuild (
+  id                   TEXT PRIMARY KEY,
+  source_id            TEXT REFERENCES sources(id) ON DELETE CASCADE,
+  source_type          TEXT,
+  stream_id            TEXT,                  -- was channel_id
+  actor_id             TEXT REFERENCES actors(id) ON DELETE SET NULL,
+  ts                   TEXT,                  -- when it was SAID
+  kind                 TEXT,
+  text                 TEXT,
+  media_path           TEXT,
+  raw_json             TEXT,
+  created_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  external_id          TEXT,
+  reply_to_external_id TEXT,
+  reply_to_text        TEXT,
+  -- V11 media lifecycle
+  media_mime           TEXT,
+  media_filename       TEXT,
+  media_size           INTEGER,
+  media_sha256         TEXT,
+  media_thumb_path     TEXT,
+  media_seconds        INTEGER,
+  media_meta_json      TEXT,
+  media_description    TEXT,
+  media_desc_status    TEXT,
+  media_desc_model     TEXT,
+  media_desc_ts        TEXT,
+  media_desc_error     TEXT,
+  edited_at            TEXT,
+  revoked_at           TEXT,
+  is_forwarded         INTEGER NOT NULL DEFAULT 0,
+  -- V11 link lifecycle
+  link_url             TEXT,
+  link_title           TEXT,
+  link_description     TEXT,
+  link_thumb_path      TEXT,
+  link_preview_type    TEXT,
+  link_scraped_text    TEXT,
+  link_scrape_status   TEXT,
+  link_scrape_error    TEXT,
+  is_historical        INTEGER NOT NULL DEFAULT 0,
+  media_frames_json    TEXT,
+  -- V11 transcript lifecycle
+  transcript           TEXT,
+  transcript_status    TEXT,
+  transcript_model     TEXT,
+  transcript_ts        TEXT,
+  transcript_error     TEXT,
+  -- V2 (§6)
+  tz                   TEXT,
+  ts_end               TEXT,
+  ingested_at          TEXT,                  -- ⚠ audit/debug ONLY
+  salience             REAL,
+  enrichment_state     TEXT NOT NULL DEFAULT 'none_needed',
+  enriched_at          TEXT,
+  enrich_salient       INTEGER,
+  actor_entity_id      TEXT REFERENCES entities(id) ON DELETE SET NULL,
+  actor_raw            TEXT,                  -- a name string is NEVER an id
+  is_self              INTEGER NOT NULL DEFAULT 0,
+  is_business          INTEGER NOT NULL DEFAULT 0,
+  structured_json      TEXT,
+  revision_of          TEXT,
+  -- TEMPORARY BRIDGE — owned by item 1.1 ('channels' → 'streams'), dies with it.
+  -- The rename is real: stream_id is the column V2 writes and reads. But every
+  -- V11 reader still says channel_id and this item may not edit them, so the
+  -- old name survives as a mirror kept equal to stream_id on insert. Nothing
+  -- new may read it. It carries no REFERENCES for the same reason stream_id
+  -- carries none: the two id spaces are not one yet, and a mirror that enforced
+  -- channels(id) would reject every V2 stream id written to stream_id. The one
+  -- caller that deleted channels out from under events (resetWhatsappData)
+  -- deletes the events first, so nothing relied on the ON DELETE SET NULL.
+  channel_id           TEXT
+);
 
--- TEMPORARY BRIDGE — owned by item 1.1 ('channels' → 'streams'), delete with it.
--- The rename above is real: stream_id is the column V2 writes and reads. But
--- every V11 reader still says channel_id, and this item may not edit them, so
--- the old name survives as a mirror column kept equal to stream_id on insert.
--- Nothing may read channel_id in new code.
-ALTER TABLE events ADD COLUMN channel_id TEXT REFERENCES channels(id) ON DELETE SET NULL;
+INSERT INTO events_v2_rebuild (
+  rowid, id, source_id, source_type, stream_id, actor_id, ts, kind, text,
+  media_path, raw_json, created_at, external_id, reply_to_external_id,
+  reply_to_text, media_mime, media_filename, media_size, media_sha256,
+  media_thumb_path, media_seconds, media_meta_json, media_description,
+  media_desc_status, media_desc_model, media_desc_ts, media_desc_error,
+  edited_at, revoked_at, is_forwarded, link_url, link_title, link_description,
+  link_thumb_path, link_preview_type, link_scraped_text, link_scrape_status,
+  link_scrape_error, is_historical, media_frames_json, transcript,
+  transcript_status, transcript_model, transcript_ts, transcript_error,
+  channel_id
+)
+SELECT
+  rowid, id, source_id, source_type, channel_id, actor_id, ts, kind, text,
+  media_path, raw_json, created_at, external_id, reply_to_external_id,
+  reply_to_text, media_mime, media_filename, media_size, media_sha256,
+  media_thumb_path, media_seconds, media_meta_json, media_description,
+  media_desc_status, media_desc_model, media_desc_ts, media_desc_error,
+  edited_at, revoked_at, is_forwarded, link_url, link_title, link_description,
+  link_thumb_path, link_preview_type, link_scraped_text, link_scrape_status,
+  link_scrape_error, is_historical, media_frames_json, transcript,
+  transcript_status, transcript_model, transcript_ts, transcript_error,
+  channel_id
+FROM events;
 
-CREATE TRIGGER IF NOT EXISTS events_stream_compat_ai
+CREATE TABLE event_embeddings_rebuild_stash AS SELECT * FROM event_embeddings;
+
+DROP TABLE events;
+ALTER TABLE events_v2_rebuild RENAME TO events;
+
+INSERT INTO event_embeddings SELECT * FROM event_embeddings_rebuild_stash;
+DROP TABLE event_embeddings_rebuild_stash;
+
+-- Every index the old table carried, re-cut on the new one. The two channel
+-- indices come back under the column's real name; the bridge column keeps one
+-- of its own so the V11 readers keep their query plan until item 1.1.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source_external   ON events(source_id, external_id);
+CREATE INDEX IF NOT EXISTS idx_events_stream                   ON events(stream_id);
+CREATE INDEX IF NOT EXISTS idx_events_stream_ts                ON events(stream_id, ts);
+CREATE INDEX IF NOT EXISTS idx_events_channel_compat           ON events(channel_id, ts);
+CREATE INDEX IF NOT EXISTS idx_events_actor                    ON events(actor_id);
+CREATE INDEX IF NOT EXISTS idx_events_ts                       ON events(ts);
+CREATE INDEX IF NOT EXISTS idx_events_reply_to                 ON events(reply_to_external_id);
+CREATE INDEX IF NOT EXISTS idx_events_desc_status              ON events(media_desc_status, ts);
+CREATE INDEX IF NOT EXISTS idx_events_link_status              ON events(link_scrape_status, ts);
+CREATE INDEX IF NOT EXISTS idx_events_transcript_status        ON events(transcript_status, ts);
+CREATE INDEX IF NOT EXISTS idx_events_actor_entity             ON events(actor_entity_id);
+CREATE INDEX IF NOT EXISTS idx_events_enrichment               ON events(enrichment_state, ts);
+
+-- DROP TABLE took the FTS triggers with it. events_ai and events_ad come back
+-- verbatim from 0017_reply_fts; events_au comes back with a WHEN clause, for
+-- two reasons. It reindexes on EVERY update today, including the media / link /
+-- transcript status updates that touch no indexed column — wasted work — and
+-- unguarded it is unsafe next to the compat trigger below: two AFTER INSERT
+-- triggers fire in an order SQLite does not define, so the 'delete' command can
+-- reach events_fts before the row was ever indexed, which corrupts the index
+-- (SQLITE_CORRUPT_VTAB). Same name, same body, fired only when an indexed
+-- column actually changed.
+CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
+  INSERT INTO events_fts(rowid, text, media_description, link_title, link_description, link_scraped_text, transcript, reply_to_text)
+  VALUES (new.rowid, new.text, new.media_description, new.link_title, new.link_description, new.link_scraped_text, new.transcript, new.reply_to_text);
+END;
+
+CREATE TRIGGER events_ad AFTER DELETE ON events BEGIN
+  INSERT INTO events_fts(events_fts, rowid, text, media_description, link_title, link_description, link_scraped_text, transcript, reply_to_text)
+  VALUES ('delete', old.rowid, old.text, old.media_description, old.link_title, old.link_description, old.link_scraped_text, old.transcript, old.reply_to_text);
+END;
+
+CREATE TRIGGER events_au AFTER UPDATE ON events
+WHEN old.text              IS NOT new.text
+  OR old.media_description IS NOT new.media_description
+  OR old.link_title        IS NOT new.link_title
+  OR old.link_description  IS NOT new.link_description
+  OR old.link_scraped_text IS NOT new.link_scraped_text
+  OR old.transcript        IS NOT new.transcript
+  OR old.reply_to_text     IS NOT new.reply_to_text
+BEGIN
+  INSERT INTO events_fts(events_fts, rowid, text, media_description, link_title, link_description, link_scraped_text, transcript, reply_to_text)
+  VALUES ('delete', old.rowid, old.text, old.media_description, old.link_title, old.link_description, old.link_scraped_text, old.transcript, old.reply_to_text);
+  INSERT INTO events_fts(rowid, text, media_description, link_title, link_description, link_scraped_text, transcript, reply_to_text)
+  VALUES (new.rowid, new.text, new.media_description, new.link_title, new.link_description, new.link_scraped_text, new.transcript, new.reply_to_text);
+END;
+
+-- The bridge, in both directions: a V11 writer files channel_id and V2 reads
+-- stream_id; a V2 writer files stream_id and the V11 readers still find it.
+-- Dies with the channel_id column in item 1.1.
+CREATE TRIGGER events_stream_compat_ai
 AFTER INSERT ON events
 WHEN (NEW.stream_id IS NULL AND NEW.channel_id IS NOT NULL)
   OR (NEW.channel_id IS NULL AND NEW.stream_id IS NOT NULL)
@@ -251,17 +423,6 @@ BEGIN
          channel_id = COALESCE(NEW.channel_id, NEW.stream_id)
    WHERE id = NEW.id;
 END;
-
--- The two channel indices were carried over the rename and now describe
--- stream_id under a stale name; re-cut them, and index the bridge column so
--- the V11 readers keep their plan until item 1.1 removes it.
-DROP INDEX IF EXISTS idx_events_channel;
-DROP INDEX IF EXISTS idx_events_channel_ts;
-CREATE INDEX IF NOT EXISTS idx_events_stream         ON events(stream_id);
-CREATE INDEX IF NOT EXISTS idx_events_stream_ts      ON events(stream_id, ts);
-CREATE INDEX IF NOT EXISTS idx_events_channel_compat ON events(channel_id, ts);
-CREATE INDEX IF NOT EXISTS idx_events_actor_entity   ON events(actor_entity_id);
-CREATE INDEX IF NOT EXISTS idx_events_enrichment     ON events(enrichment_state, ts);
 
 -- event_embeddings already exists (0018_semantic_index) as
 -- (event_id PK, model, dim, vector BLOB, indexed_at) — §6's (vec, model, dim)

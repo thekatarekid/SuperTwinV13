@@ -1,0 +1,33 @@
+{
+  "id": "G-070",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "any bind performed",
+    "expect": "decided_by and confidence recorded",
+    "assert": "provenance on every bind"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "M-004",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "self says: 'i think therapy actually helps'",
+    "expect": "B/<ev>/self/1p/conf/-/Believes therapy helps",
+    "assert": "kind = tag; third person resolved"
+  }
+}

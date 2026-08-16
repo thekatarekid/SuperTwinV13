@@ -1,0 +1,33 @@
+{
+  "id": "I-001",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "quote 'meri didi' about Rashmi",
+    "expect": "L/<ev>/<src>/rel/sibling/<dst>/conf/'meri didi'",
+    "assert": "related_to with verbatim quote"
+  }
+}

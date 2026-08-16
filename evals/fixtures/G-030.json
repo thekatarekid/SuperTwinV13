@@ -1,0 +1,33 @@
+{
+  "id": "G-030",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'Amit (gym)' vs 'Amit (office)': no shared phone/email/groups",
+    "expect": "DIFFERENT; store negative pair; never re-propose",
+    "assert": "name similarity must not merge"
+  }
+}

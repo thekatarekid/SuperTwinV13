@@ -7,8 +7,23 @@
 
 import { describe, it, expect } from "vitest";
 
-import { buildCliArgs, buildChildEnv } from "./index.js";
-import { isValidModelId, MODEL_CATALOG, DEFAULT_MODEL_ID } from "./models.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
+  buildCliArgs,
+  buildChildEnv,
+  composeStdinMessage,
+  safeCwd,
+  THINKING_BUDGET_TOKENS,
+} from "./index.js";
+import {
+  isValidModelId,
+  isValidRole,
+  MODEL_CATALOG,
+  MODEL_ROLES,
+  DEFAULT_MODEL_ID,
+} from "./models.js";
 
 /** Read the single value that follows `flag` in an argv array. */
 function argValue(args: string[], flag: string): string | undefined {
@@ -87,6 +102,160 @@ describe("buildCliArgs — plain completion mode", () => {
     expect(args).toContain("--print");
     expect(args).toContain("--include-partial-messages");
     expect(argValue(args, "--output-format")).toBe("stream-json");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The bare-call contract (arch §4.1). Every EXTRACTION call is a bare
+// instrument: no user settings, no tools, one turn, no thinking, tmpdir.
+// ---------------------------------------------------------------------------
+describe("buildCliArgs — the bare-call contract", () => {
+  const ALL_THIRTEEN = [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "WebSearch",
+    "WebFetch",
+    "Task",
+    "NotebookEdit",
+    "TodoWrite",
+    "BashOutput",
+    "KillShell",
+  ];
+
+  it("denies all THIRTEEN built-in tools, not just the famous ones", () => {
+    const args = buildCliArgs({ allowedTools: [], plainCompletion: true });
+    const disallowed = (argValue(args, "--disallowedTools") ?? "").split(",");
+    expect(disallowed).toEqual(ALL_THIRTEEN);
+  });
+
+  it("grants nothing even when the caller passes a tool whitelist", () => {
+    // A leaked whitelist is how a bare extraction call turns agentic.
+    const args = buildCliArgs({
+      allowedTools: ["Read", "Bash"],
+      plainCompletion: true,
+    });
+    expect(argValue(args, "--allowedTools")).toBe("");
+  });
+
+  it("never emits a --system-prompt flag — the CLI has no such flag", () => {
+    const args = buildCliArgs({
+      allowedTools: [],
+      plainCompletion: true,
+      appendSystemPrompt: "INSTRUCTIONS",
+    });
+    expect(args).not.toContain("--system-prompt");
+    expect(argValue(args, "--append-system-prompt")).toBe("INSTRUCTIONS");
+  });
+
+  it("carries every lever together — one missing lever is the runaway", () => {
+    const args = buildCliArgs({ allowedTools: [], plainCompletion: true });
+    expect(argValue(args, "--setting-sources")).toBe("");
+    expect(argValue(args, "--allowedTools")).toBe("");
+    expect(argValue(args, "--max-turns")).toBe("1");
+    expect(args).toContain("--disallowedTools");
+    withEnv({ MAX_THINKING_TOKENS: undefined }, () => {
+      expect(buildChildEnv("claude", true).MAX_THINKING_TOKENS).toBe("0");
+    });
+  });
+});
+
+describe("thinkingBudget ladder (§4.3)", () => {
+  it("maps the six rungs to the documented token counts", () => {
+    expect(THINKING_BUDGET_TOKENS).toEqual({
+      off: 0,
+      low: 2048,
+      medium: 8192,
+      high: 24576,
+      xhigh: 49152,
+      max: 65536,
+    });
+  });
+
+  it("puts the chosen rung on the child env", () => {
+    withEnv({ MAX_THINKING_TOKENS: undefined }, () => {
+      expect(buildChildEnv("claude", false, undefined, "off").MAX_THINKING_TOKENS).toBe("0");
+      expect(buildChildEnv("claude", false, undefined, "low").MAX_THINKING_TOKENS).toBe("2048");
+      expect(buildChildEnv("claude", false, undefined, "medium").MAX_THINKING_TOKENS).toBe("8192");
+      expect(buildChildEnv("claude", false, undefined, "high").MAX_THINKING_TOKENS).toBe("24576");
+      expect(buildChildEnv("claude", false, undefined, "xhigh").MAX_THINKING_TOKENS).toBe("49152");
+      expect(buildChildEnv("claude", false, undefined, "max").MAX_THINKING_TOKENS).toBe("65536");
+    });
+  });
+
+  it("an explicit budget wins over an inherited value in either mode", () => {
+    withEnv({ MAX_THINKING_TOKENS: "31999" }, () => {
+      expect(buildChildEnv("claude", false, undefined, "off").MAX_THINKING_TOKENS).toBe("0");
+      expect(buildChildEnv("claude", true, undefined, "high").MAX_THINKING_TOKENS).toBe("24576");
+    });
+  });
+});
+
+describe("safeCwd — never a TCC-protected directory (§4.1.4)", () => {
+  it("falls back to tmpdir for ~/Documents, ~/Desktop and ~/Downloads", () => {
+    withEnv({ HOME: "/Users/someone" }, () => {
+      expect(safeCwd("/Users/someone/Documents")).toBe(tmpdir());
+      expect(safeCwd("/Users/someone/Documents/repo/worker")).toBe(tmpdir());
+      expect(safeCwd("/Users/someone/Desktop")).toBe(tmpdir());
+      expect(safeCwd("/Users/someone/Downloads/x")).toBe(tmpdir());
+    });
+  });
+
+  it("defaults to tmpdir when no cwd is given", () => {
+    expect(safeCwd()).toBe(tmpdir());
+    expect(safeCwd("")).toBe(tmpdir());
+    expect(safeCwd(null)).toBe(tmpdir());
+  });
+
+  it("keeps an ordinary directory, and is not fooled by a prefix match", () => {
+    withEnv({ HOME: "/Users/someone" }, () => {
+      const ok = join(tmpdir(), "st-run");
+      expect(safeCwd(ok)).toBe(ok);
+      // "DocumentsArchive" is NOT inside "Documents".
+      expect(safeCwd("/Users/someone/DocumentsArchive")).toBe(
+        "/Users/someone/DocumentsArchive",
+      );
+    });
+  });
+});
+
+describe("composeStdinMessage — the instruction block goes in twice", () => {
+  it("puts the instructions at the HEAD of stdin, above the payload", () => {
+    const out = composeStdinMessage("INSTRUCTIONS", "PAYLOAD");
+    expect(out.startsWith("INSTRUCTIONS")).toBe(true);
+    expect(out).toContain("PAYLOAD");
+    expect(out.indexOf("INSTRUCTIONS")).toBeLessThan(out.indexOf("PAYLOAD"));
+  });
+
+  it("passes the message through untouched when there is no block", () => {
+    expect(composeStdinMessage(undefined, "PAYLOAD")).toBe("PAYLOAD");
+    expect(composeStdinMessage("   ", "PAYLOAD")).toBe("PAYLOAD");
+  });
+});
+
+describe("MODEL_ROLES — one picker per step (§4.2)", () => {
+  it("carries every role this build calls", () => {
+    expect(MODEL_ROLES.map((r) => r.key)).toEqual([
+      "chat",
+      "media",
+      "entity",
+      "episode",
+      "arc",
+      "extract",
+      "triage",
+      "done_detect",
+      "classify",
+      "adjudicate",
+    ]);
+  });
+
+  it("validates its own keys and rejects unknown ones", () => {
+    for (const r of MODEL_ROLES) expect(isValidRole(r.key)).toBe(true);
+    expect(isValidRole("execution")).toBe(false);
+    expect(isValidRole("")).toBe(false);
   });
 });
 

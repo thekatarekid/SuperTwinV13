@@ -1,0 +1,33 @@
+{
+  "id": "O-022",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "state",
+    "gate": "party_pairs_correct"
+  },
+  "stub": true,
+  "doc": {
+    "given": "claim: absent person's words about the present person (variant 1)",
+    "expect": "party_pair=to",
+    "assert": "derived by CODE from roles"
+  }
+}

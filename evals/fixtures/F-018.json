@@ -1,0 +1,33 @@
+{
+  "id": "F-018",
+  "category": "F",
+  "layer": "sessions",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "sessions_boundary_f1"
+  },
+  "stub": true,
+  "doc": {
+    "given": "msgs 23:50 and 00:10 in stream tz Asia/Kolkata",
+    "expect": "CUT day_boundary computed in stream tz",
+    "assert": "per-stream tz"
+  }
+}

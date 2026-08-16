@@ -1,0 +1,33 @@
+{
+  "id": "A-003",
+  "category": "A",
+  "layer": "ingest",
+  "call": "[CODE]",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "whatsmeow delivers msg external_id wa:2A twice (resync)",
+    "expect": "one events row; second insert is a no-op",
+    "assert": "UNIQUE(source_id,external_id) upsert"
+  }
+}

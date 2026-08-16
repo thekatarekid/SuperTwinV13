@@ -1,0 +1,33 @@
+{
+  "id": "G-050",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "pair with calibrated ML score 0.70, two plausible candidates",
+    "expect": "resolution queue question; NO bind",
+    "assert": "in-band ambiguity is a question"
+  }
+}

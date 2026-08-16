@@ -1,0 +1,33 @@
+{
+  "id": "M-017",
+  "category": "M",
+  "layer": "claims",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "claim_subject_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "self says: 'my lease ends in Nov 2027'",
+    "expect": "F/<ev>/self/1p/conf/-/Lease ends in November 2027",
+    "assert": "kind = tag; third person resolved"
+  }
+}

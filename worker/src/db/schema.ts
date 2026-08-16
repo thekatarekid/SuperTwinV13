@@ -892,13 +892,11 @@ export const MIGRATIONS: Migration[] = [
   { id: "0019_drop_albums", sql: DROP_ALBUMS },
   { id: "0020_video_posters", sql: VIDEO_POSTERS },
   { id: "0021_v2_prep", sql: V2_PREP },
-  // 0020_v2_core is the V2 ontology (arch §6) and lives in
-  // ./migrations/0020_v2_core.sql, mirrored by ./migrations/0020_v2_core.ts.
-  // It is LAST because this array's order is the apply order and its body
-  // ALTERs `events` and drops the legacy spaces/tasks ontology the ids above
-  // created. Its numeric prefix collides with the already-shipped
-  // `0020_video_posters`; the two ids are distinct strings and
-  // `schema_migrations` records both, so neither is ever skipped. The name is
-  // the one the build doc assigns to the file.
-  { id: "0020_v2_core", sql: V2_CORE },
+  // The V2 ontology (arch §6). Body: ./migrations/0020_v2_core.sql, the name the
+  // build doc gives the file, mirrored into ./migrations/0020_v2_core.ts for the
+  // bundle. The recorded id is `0022_v2_core`, not `0020_...`: 0020 and 0021
+  // were already shipped, and these ids must sort in the order they apply (the
+  // array is the apply order, and this one has to be LAST — it rebuilds `events`
+  // and drops the legacy ontology the ids above created).
+  { id: "0022_v2_core", sql: V2_CORE },
 ];

@@ -1,0 +1,40 @@
+{
+  "id": "S-003",
+  "category": "S",
+  "layer": "wire",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "T|1|self|a1|ex|i2t|h|w|2026-08-20|-|0.9|Send the deck\nS|t1|dn|3|0.95|done, sent it\nZ|cl-14|cmp|4|marked complete",
+  "expect": {
+    "state": {
+      "round_trip": "T|1|self|a1|ex|i2t|h|w|2026-08-20|-|0.9|Send the deck\nS|t1|dn|3|0.95|done, sent it\nZ|cl-14|cmp|4|marked complete",
+      "round_trip_stable": true,
+      "line_violations": 0,
+      "accounting_holds": true
+    }
+  },
+  "assert": {
+    "mode": "state",
+    "gate": "wire_round_trip"
+  },
+  "stub": false,
+  "doc": {
+    "given": "round trip on generated line set #3",
+    "expect": "serialize(parse(serialize(x))) byte-identical",
+    "assert": "round-trip gate"
+  }
+}

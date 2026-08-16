@@ -1,0 +1,33 @@
+{
+  "id": "C-027",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "exact",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": true,
+  "doc": {
+    "given": "3min video",
+    "expect": "[CODE] ffmpeg frames -> ONE [LLM-S] call for all frames",
+    "assert": "one call per video"
+  }
+}

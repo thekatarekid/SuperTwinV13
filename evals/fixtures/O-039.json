@@ -1,0 +1,33 @@
+{
+  "id": "O-039",
+  "category": "O",
+  "layer": "party",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "party_pairs_correct"
+  },
+  "stub": true,
+  "doc": {
+    "given": "arc whose loops are all oo/ot/tt",
+    "expect": "NOT promoted to a space; lives on the People record",
+    "assert": "the 'not your space' rule"
+  }
+}

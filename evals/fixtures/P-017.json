@@ -1,0 +1,33 @@
+{
+  "id": "P-017",
+  "category": "P",
+  "layer": "promotion",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "state",
+    "gate": "promotion_route_accuracy"
+  },
+  "stub": true,
+  "doc": {
+    "given": "arc: 7 episodes over 6 weeks, 7 distinct days, user participated",
+    "expect": "promoted, promotion_reason=rec",
+    "assert": "recurrence route"
+  }
+}

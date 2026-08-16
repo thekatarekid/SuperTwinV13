@@ -1,0 +1,33 @@
+{
+  "id": "C-034",
+  "category": "C",
+  "layer": "enrichment",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "enrich_executor_routing"
+  },
+  "stub": true,
+  "doc": {
+    "given": "photo from 1h ago and photo from 2023 both queued",
+    "expect": "1h-ago photo captioned first",
+    "assert": "media queue priority = cohort priority"
+  }
+}

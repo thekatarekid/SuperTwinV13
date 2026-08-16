@@ -106,3 +106,127 @@ describe("GET /api/runs", () => {
     expect(rows[0].process).toBe("media");
   });
 });
+
+// ===========================================================================
+// GET /api/usage — the Settings → Usage payload (arch §4.4.4). One request,
+// because the token table and the cost line must be two views of one aggregate:
+// summing them from two reads with two WHEREs is what made a real $0.69 render
+// as "—".
+// ===========================================================================
+
+describe("GET /api/usage", () => {
+  interface UsagePayload {
+    window: string;
+    byRole: {
+      role: string;
+      model: string;
+      inputTokens: number;
+      cacheCreationTokens: number;
+      cacheReadTokens: number;
+      totalInputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+      cacheExpectedZero: boolean;
+    }[];
+    totals: {
+      inputTokens: number;
+      cacheCreationTokens: number;
+      cacheReadTokens: number;
+      totalInputTokens: number;
+      costUsd: number;
+      runCount: number;
+    };
+    cache: { hitRate: number | null; belowMinimumModels: string[] };
+    runs: { ok: number; total: number };
+    thisImport: { events: number; spend: { spentUsd: number } };
+  }
+
+  beforeAll(async () => {
+    const acct = await import("../db/runs.js");
+    const conn = await import("../db/connection.js");
+    conn
+      .getDb()
+      .prepare(
+        `INSERT INTO cohorts (id, mode, horizon, event_count, state)
+         VALUES ('usage-c1', 'bootstrap', 'live', 400, 'done')`,
+      )
+      .run();
+    acct.recordRun({
+      role: "extract",
+      model: "claude-sonnet-5",
+      cohortId: "usage-c1",
+      usage: {
+        inputTokens: 18,
+        cacheCreationInputTokens: 10_651,
+        cacheReadInputTokens: 48_000,
+        outputTokens: 206,
+        costUsd: 0.5,
+      },
+    });
+    acct.recordRun({
+      role: "media",
+      model: "claude-haiku-4.5",
+      cohortId: "usage-c1",
+      usage: {
+        inputTokens: 1200,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        outputTokens: 90,
+        costUsd: 0.19,
+      },
+    });
+  });
+
+  async function usage(query = ""): Promise<UsagePayload> {
+    const res = await fetch(`${base}/api/usage${query}`);
+    expect(res.status).toBe(200);
+    return (await res.json()) as UsagePayload;
+  }
+
+  it("returns the token table, the totals, the cache reality and the cost", async () => {
+    const u = await usage();
+    expect(u.window).toBe("7d");
+    expect(u.byRole.length).toBe(2);
+    expect(u.totals.totalInputTokens).toBe(18 + 10_651 + 48_000 + 1200);
+    expect(u.totals.costUsd).toBeCloseTo(0.69, 10);
+    expect(u.runs.total).toBe(2);
+  });
+
+  it("the per-role rows sum to the totals — same filter, same row set", async () => {
+    const u = await usage();
+    const sum = (f: (r: UsagePayload["byRole"][number]) => number) =>
+      u.byRole.reduce((n, r) => n + f(r), 0);
+    expect(sum((r) => r.totalInputTokens)).toBe(u.totals.totalInputTokens);
+    expect(sum((r) => r.costUsd)).toBeCloseTo(u.totals.costUsd, 10);
+  });
+
+  it("every row satisfies total_input = read + create + input", async () => {
+    for (const r of (await usage()).byRole) {
+      expect(r.totalInputTokens).toBe(
+        r.cacheReadTokens + r.cacheCreationTokens + r.inputTokens,
+      );
+    }
+  });
+
+  it("flags the haiku rows whose zero cache is expected, not broken", async () => {
+    const u = await usage();
+    expect(u.cache.belowMinimumModels).toEqual(["claude-haiku-4.5"]);
+    expect(u.cache.hitRate).toBeCloseTo(48_000 / u.totals.totalInputTokens, 10);
+  });
+
+  it("scopes to the running import when asked, and reports its spend", async () => {
+    const u = await usage("?window=import");
+    expect(u.window).toBe("import");
+    expect(u.totals.costUsd).toBeCloseTo(0.69, 10);
+    expect(u.thisImport.events).toBe(400);
+    expect(u.thisImport.spend.spentUsd).toBeCloseTo(0.69, 10);
+  });
+
+  it("estimates a bootstrap from measured history", async () => {
+    const res = await fetch(`${base}/api/usage/estimate?events=800`);
+    const e = (await res.json()) as { basis: string; projectedUsd: number };
+    expect(e.basis).toBe("measured");
+    // 400 done events cost $0.69 → $0.001725/event → ~$1.38 for 800.
+    expect(e.projectedUsd).toBeCloseTo(1.38, 6);
+  });
+});

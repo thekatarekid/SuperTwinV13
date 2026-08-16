@@ -1,0 +1,38 @@
+{
+  "id": "T-023",
+  "category": "T",
+  "layer": "scheduler",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "latency_s": {
+        "max": 90
+      }
+    },
+    "gate": null
+  },
+  "stub": true,
+  "doc": {
+    "given": "silent gap during import (#1)",
+    "expect": "<= 90s while cohorts remain (excl. quota pause)",
+    "assert": "no-stall gate"
+  }
+}

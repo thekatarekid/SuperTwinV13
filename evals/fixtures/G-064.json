@@ -1,0 +1,33 @@
+{
+  "id": "G-064",
+  "category": "G",
+  "layer": "entities",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "@pran on slack vs @pran on instagram",
+    "expect": "NO cross-source bind on handle string alone",
+    "assert": "handles collide; only phone/email bind at CODE"
+  }
+}

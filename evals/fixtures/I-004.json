@@ -1,0 +1,33 @@
+{
+  "id": "I-004",
+  "category": "I",
+  "layer": "edges",
+  "call": "[CODE]",
+  "mode": "steady",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "set_equal",
+    "gate": "entities_edge_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "quote 'cousin Gargi' about Gargi",
+    "expect": "L/<ev>/<src>/rel/cousin/<dst>/conf/'cousin Gargi'",
+    "assert": "related_to with verbatim quote"
+  }
+}

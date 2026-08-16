@@ -1,0 +1,33 @@
+{
+  "id": "B-046",
+  "category": "B",
+  "layer": "tiers",
+  "call": "[CODE]",
+  "mode": "live",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "absent",
+    "gate": "tiers_all_assigned"
+  },
+  "stub": true,
+  "doc": {
+    "given": "live promotional blast (T4) during T1 backfill",
+    "expect": "does NOT pre-empt; joins tier order",
+    "assert": "T3/T4 no pre-emption"
+  }
+}

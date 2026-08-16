@@ -1,0 +1,38 @@
+{
+  "id": "G-040",
+  "category": "G",
+  "layer": "entities",
+  "call": "P-AG1",
+  "mode": "backfill",
+  "given": {
+    "roster": [],
+    "streams": [],
+    "events": [],
+    "open": {
+      "episodes": [],
+      "loops": []
+    },
+    "db": {
+      "entities": [],
+      "claims": [],
+      "arcs": []
+    }
+  },
+  "frozen_response": "",
+  "expect": {},
+  "assert": {
+    "mode": "budget",
+    "bound": {
+      "value": {
+        "min": 0.8
+      }
+    },
+    "gate": "entities_precision"
+  },
+  "stub": true,
+  "doc": {
+    "given": "'Papa (new number Jio)' vs 'Papa'; old jid silent 2w; same group",
+    "expect": "-> P-AG1; expect same conf>=0.8; below bar -> resolution queue",
+    "assert": "agent adjudication"
+  }
+}

@@ -49,13 +49,28 @@ export function isValidModelId(id: string): boolean {
 // Per-role model selection. The worker OWNS this list and serves it over
 // GET /api/settings/models; the frontend renders whatever it receives.
 //
-// V8 has two LLM processes — chat and the media reader. The extraction engine,
-// task engine (triage / done_detection / planning / execution) and the nightly
-// self-update are all out of scope, so their roles are gone with them. The
-// picker is data-driven, so re-adding a role here is all the UI needs.
+// Every step has its own picker (arch §4.2): the defaults below are a starting
+// point and the gold set decides. Judgment steps (entity, episode, arc, extract,
+// adjudicate) default to Sonnet 5 — the entity pass and the claims+loops pass
+// stay SEPARATE calls because one merged call loses roster discipline. The
+// mechanical steps (media, triage, done_detect, classify) default to Haiku 4.5.
+// Chat keeps "" — the subscription default.
+//
+// The picker is data-driven, so adding a role here is all the UI needs; the
+// per-role app_state keys and defaults live in db/settings.ts.
 // ===========================================================================
 
-export type ModelRole = "chat" | "media";
+export type ModelRole =
+  | "chat"
+  | "media"
+  | "entity"
+  | "episode"
+  | "arc"
+  | "extract"
+  | "triage"
+  | "done_detect"
+  | "classify"
+  | "adjudicate";
 
 export interface RoleOption {
   key: ModelRole;
@@ -70,6 +85,54 @@ export const MODEL_ROLES: RoleOption[] = [
     key: "media",
     label: "Media reading",
     description: "Reads images and documents attached to your messages",
+    future: false,
+  },
+  {
+    key: "entity",
+    label: "People and things",
+    description: "Names who and what a conversation is about",
+    future: false,
+  },
+  {
+    key: "episode",
+    label: "Episodes",
+    description: "Cuts a stream of messages into episodes",
+    future: false,
+  },
+  {
+    key: "arc",
+    label: "Arcs",
+    description: "Decides which running thread an episode belongs to",
+    future: false,
+  },
+  {
+    key: "extract",
+    label: "Claims and loops",
+    description: "Reads claims and open loops out of an episode",
+    future: false,
+  },
+  {
+    key: "triage",
+    label: "Triage",
+    description: "Sorts open loops by what needs you first",
+    future: false,
+  },
+  {
+    key: "done_detect",
+    label: "Done detection",
+    description: "Notices when an open loop has already been closed",
+    future: false,
+  },
+  {
+    key: "classify",
+    label: "Labels",
+    description: "Names arcs and spaces and gives them an archetype",
+    future: false,
+  },
+  {
+    key: "adjudicate",
+    label: "Adjudication",
+    description: "Settles identity matches and contradictory claims",
     future: false,
   },
 ];

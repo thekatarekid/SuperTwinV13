@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "live|interval_ms=21600000|quiet_ms=18000000|new_events=40|mode=steady",
+  "expect": {
+    "live_passes": []
+  },
   "assert": {
     "mode": "absent",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "live_interval set to 6h",
     "expect": "live trigger effectively never fires; pure seal-time behaviour",

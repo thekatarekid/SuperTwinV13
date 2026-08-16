@@ -18,13 +18,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "dedupe|external_id=wa:7A|times=2",
+  "expect": {
+    "state": {
+      "deliveries": 2,
+      "first_inserted": true,
+      "later_inserts": [
+        false
+      ],
+      "event_id": "whatsapp:wa:7A",
+      "rows": 1
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "whatsmeow delivers msg external_id wa:7A twice (resync)",
     "expect": "one events row; second insert is a no-op",

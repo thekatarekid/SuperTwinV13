@@ -18,13 +18,20 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "bind|as=a|src=whatsapp|kind=jid|v=919425000007@s.whatsapp.net|name=Papa\nbind|as=b|src=contacts|kind=phone|v=+919812000021|name=Papa (new number Jio)\nmerge|loser=b|winner=a|by=agent:p-ag1\nsplit|e=b|by=user|reason=wrong merge",
+  "expect": {
+    "state": {
+      "split": true,
+      "entity_count": 2,
+      "distinct_entities": 2,
+      "mutations": 2
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "user splits a wrongly-merged entity",
     "expect": "two entities restored; evidence re-points by source identity; mutation logged",

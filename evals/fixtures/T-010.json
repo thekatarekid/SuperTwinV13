@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "request|call=P-AG3",
+  "expect": {
+    "executed": []
+  },
   "assert": {
     "mode": "absent",
-    "gate": null
+    "gate": "latency_adjudicator_before_paint"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "P-AG3 executed before first paint",
     "expect": "FAIL — barred by rule",

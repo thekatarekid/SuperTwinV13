@@ -165,13 +165,16 @@ describe("the gold fixture set", () => {
   });
 
   it("reports a stub as a stub and an authored payload as authored", () => {
-    // S, U and V are filled in (items 0.4–0.7); every other category is still
-    // a stub and must keep saying so, because a stub is what makes the runner
-    // report PENDING instead of a pass it did not earn.
+    // A, B, C, D, E, F, G, H, I, O, S, T, U and V are filled in (items 0.4–0.7,
+    // 1.1–1.8); every other category is still a stub and must keep saying so,
+    // because a stub is what makes the runner report PENDING instead of a pass
+    // it did not earn.
     const authored = loaded.fixtures.filter((f) => f.stub === false);
     const stubs = loaded.fixtures.filter((f) => f.stub === true);
     expect(authored.length + stubs.length).toBe(loaded.fixtures.length);
-    expect(new Set(authored.map((f) => f.category))).toEqual(new Set(["S", "U", "V"]));
+    expect(new Set(authored.map((f) => f.category))).toEqual(
+      new Set(["A", "B", "C", "D", "E", "F", "G", "H", "I", "O", "S", "T", "U", "V"]),
+    );
     for (const fixture of authored) {
       // An authored fixture asserts something: either it has a body to run, or
       // its assertion needs no `expect` (the degenerate-input rows freeze the
@@ -203,7 +206,7 @@ describe("the gold fixture set", () => {
       encoding: "utf8",
     });
     expect(`${check.stdout}${check.stderr}`.trim()).toBe(
-      "generate-fixtures --check: 1000 fixtures match the doc (80 authored)",
+      "generate-fixtures --check: 1000 fixtures match the doc (580 authored)",
     );
     expect(check.status).toBe(0);
   });

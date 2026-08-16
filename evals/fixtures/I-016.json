@@ -5,9 +5,30 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=me",
+      "a1=Dr Shreedhar"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Dr Shreedhar",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "Dr Shreedhar has been our doctor for years",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +39,29 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nL|1|a1|rel|doctor|self|0.85|Dr Shreedhar has been our doctor for years",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "related_to",
+        "subtype": "doctor",
+        "dst": "self",
+        "confidence": 0.85,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "Dr Shreedhar has been our doctor for years"
+        ]
+      }
+    ]
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "set_equal",
     "gate": "entities_edge_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "recurring evidence establishes Dr Shreedhar as doctor",
     "expect": "L ... rel/doctor ... (NOT a separate provides_care edge)",

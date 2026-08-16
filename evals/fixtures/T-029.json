@@ -18,13 +18,17 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "late_media|session=s1|pending=1",
+  "expect": {
+    "reprocess_target": [
+      "s1"
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": null
+    "gate": "enrich_late_original_session"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "late transcript arrives",
     "expect": "re-read in the SAME session/episode/roster",

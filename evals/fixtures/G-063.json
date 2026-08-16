@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "bind|as=l|src=slack|kind=handle|v=@rahul|name=@rahul on slack\nbind|as=r|src=x|kind=handle|v=@rahul|name=@rahul on x",
+  "expect": {
+    "state": {
+      "last_rung": "mint",
+      "entity_count": 2,
+      "distinct_entities": 2,
+      "person_count": 2,
+      "model_calls": 0
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "@rahul on slack vs @rahul on x",
     "expect": "NO cross-source bind on handle string alone",

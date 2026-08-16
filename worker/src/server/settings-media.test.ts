@@ -98,6 +98,8 @@ type MediaSettings = {
   video_frames_enabled: boolean;
   video_audio_enabled: boolean;
   voice_notes_enabled: boolean;
+  read_all_media: boolean;
+  salience_gate: boolean;
   rate_per_min: number;
   concurrency: number;
   image_batch: number;
@@ -118,9 +120,13 @@ const DEFAULTS: MediaSettings = {
   video_frames_enabled: false,
   video_audio_enabled: true,
   voice_notes_enabled: true,
+  // arch §8.4 table: read everything; gate nothing.
+  read_all_media: true,
+  salience_gate: false,
   rate_per_min: 20,
   concurrency: 5,
-  image_batch: 20,
+  // arch §10.1: 16 images per vision call, configurable 1–32.
+  image_batch: 16,
   video_frame_interval_sec: 5,
   video_frame_max: 8,
   video_max_height: 480,
@@ -329,7 +335,7 @@ describe("POST /api/settings/media", () => {
     expect(low.body.image_batch).toBe(1);
 
     // Leave it where a fresh install has it — the whole file shares one DB.
-    await postJson<MediaSettings>("/api/settings/media", { image_batch: 20 });
+    await postJson<MediaSettings>("/api/settings/media", { image_batch: 16 });
   });
 
   it("rejects wrong types with 400", async () => {
@@ -378,7 +384,7 @@ describe("POST /api/settings/media", () => {
 
     const after = await getJson<MediaSettings>("/api/settings/media");
     expect(after.body.images_enabled).toBe(true);
-    expect(after.body.image_batch).toBe(20);
+    expect(after.body.image_batch).toBe(16);
   });
 });
 

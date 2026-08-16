@@ -18,13 +18,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "batch|images=16|echo=short:1",
+  "expect": {
+    "state": {
+      "batch_sizes": [
+        16,
+        8,
+        8
+      ],
+      "mismatches": 1,
+      "first_call_applied": 0
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "model returns 15 captions for a 16-image batch",
     "expect": "REJECT; split into 8+8 and retry",

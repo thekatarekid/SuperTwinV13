@@ -5,9 +5,1827 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "s1",
+        "name": "Screen",
+        "kind": "sensor",
+        "participants": [
+          "self"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:00:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T04:00:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-10T04:00:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 5,
+        "ts": "2026-08-10T04:00:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 6,
+        "ts": "2026-08-10T04:00:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 7,
+        "ts": "2026-08-10T04:00:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 8,
+        "ts": "2026-08-10T04:00:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 9,
+        "ts": "2026-08-10T04:00:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 10,
+        "ts": "2026-08-10T04:00:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 11,
+        "ts": "2026-08-10T04:00:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 12,
+        "ts": "2026-08-10T04:00:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 13,
+        "ts": "2026-08-10T04:00:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 14,
+        "ts": "2026-08-10T04:00:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 15,
+        "ts": "2026-08-10T04:00:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 16,
+        "ts": "2026-08-10T04:00:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 17,
+        "ts": "2026-08-10T04:00:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 18,
+        "ts": "2026-08-10T04:00:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 19,
+        "ts": "2026-08-10T04:00:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 20,
+        "ts": "2026-08-10T04:00:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 21,
+        "ts": "2026-08-10T04:00:40.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 22,
+        "ts": "2026-08-10T04:00:42.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 23,
+        "ts": "2026-08-10T04:00:44.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 24,
+        "ts": "2026-08-10T04:00:46.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 25,
+        "ts": "2026-08-10T04:00:48.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 26,
+        "ts": "2026-08-10T04:00:50.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 27,
+        "ts": "2026-08-10T04:00:52.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 28,
+        "ts": "2026-08-10T04:00:54.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 29,
+        "ts": "2026-08-10T04:00:56.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 30,
+        "ts": "2026-08-10T04:00:58.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 31,
+        "ts": "2026-08-10T04:01:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 32,
+        "ts": "2026-08-10T04:01:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 33,
+        "ts": "2026-08-10T04:01:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 34,
+        "ts": "2026-08-10T04:01:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 35,
+        "ts": "2026-08-10T04:01:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 36,
+        "ts": "2026-08-10T04:01:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 37,
+        "ts": "2026-08-10T04:01:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 38,
+        "ts": "2026-08-10T04:01:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 39,
+        "ts": "2026-08-10T04:01:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 40,
+        "ts": "2026-08-10T04:01:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 41,
+        "ts": "2026-08-10T04:01:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 42,
+        "ts": "2026-08-10T04:01:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 43,
+        "ts": "2026-08-10T04:01:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 44,
+        "ts": "2026-08-10T04:01:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 45,
+        "ts": "2026-08-10T04:01:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 46,
+        "ts": "2026-08-10T04:01:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 47,
+        "ts": "2026-08-10T04:01:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 48,
+        "ts": "2026-08-10T04:01:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 49,
+        "ts": "2026-08-10T04:01:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 50,
+        "ts": "2026-08-10T04:01:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 51,
+        "ts": "2026-08-10T04:01:40.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 52,
+        "ts": "2026-08-10T04:01:42.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 53,
+        "ts": "2026-08-10T04:01:44.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 54,
+        "ts": "2026-08-10T04:01:46.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 55,
+        "ts": "2026-08-10T04:01:48.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 56,
+        "ts": "2026-08-10T04:01:50.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 57,
+        "ts": "2026-08-10T04:01:52.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 58,
+        "ts": "2026-08-10T04:01:54.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 59,
+        "ts": "2026-08-10T04:01:56.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 60,
+        "ts": "2026-08-10T04:01:58.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 61,
+        "ts": "2026-08-10T04:02:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 62,
+        "ts": "2026-08-10T04:02:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 63,
+        "ts": "2026-08-10T04:02:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 64,
+        "ts": "2026-08-10T04:02:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 65,
+        "ts": "2026-08-10T04:02:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 66,
+        "ts": "2026-08-10T04:02:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 67,
+        "ts": "2026-08-10T04:02:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 68,
+        "ts": "2026-08-10T04:02:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 69,
+        "ts": "2026-08-10T04:02:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 70,
+        "ts": "2026-08-10T04:02:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 71,
+        "ts": "2026-08-10T04:02:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 72,
+        "ts": "2026-08-10T04:02:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 73,
+        "ts": "2026-08-10T04:02:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 74,
+        "ts": "2026-08-10T04:02:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 75,
+        "ts": "2026-08-10T04:02:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 76,
+        "ts": "2026-08-10T04:02:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 77,
+        "ts": "2026-08-10T04:02:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 78,
+        "ts": "2026-08-10T04:02:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 79,
+        "ts": "2026-08-10T04:02:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 80,
+        "ts": "2026-08-10T04:02:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 81,
+        "ts": "2026-08-10T04:02:40.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 82,
+        "ts": "2026-08-10T04:02:42.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 83,
+        "ts": "2026-08-10T04:02:44.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 84,
+        "ts": "2026-08-10T04:02:46.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 85,
+        "ts": "2026-08-10T04:02:48.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 86,
+        "ts": "2026-08-10T04:02:50.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 87,
+        "ts": "2026-08-10T04:02:52.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 88,
+        "ts": "2026-08-10T04:02:54.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 89,
+        "ts": "2026-08-10T04:02:56.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 90,
+        "ts": "2026-08-10T04:02:58.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 91,
+        "ts": "2026-08-10T04:03:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 92,
+        "ts": "2026-08-10T04:03:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 93,
+        "ts": "2026-08-10T04:03:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 94,
+        "ts": "2026-08-10T04:03:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 95,
+        "ts": "2026-08-10T04:03:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 96,
+        "ts": "2026-08-10T04:03:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 97,
+        "ts": "2026-08-10T04:03:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 98,
+        "ts": "2026-08-10T04:03:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 99,
+        "ts": "2026-08-10T04:03:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 100,
+        "ts": "2026-08-10T04:03:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 101,
+        "ts": "2026-08-10T04:03:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 102,
+        "ts": "2026-08-10T04:03:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 103,
+        "ts": "2026-08-10T04:03:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 104,
+        "ts": "2026-08-10T04:03:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 105,
+        "ts": "2026-08-10T04:03:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 106,
+        "ts": "2026-08-10T04:03:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 107,
+        "ts": "2026-08-10T04:03:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 108,
+        "ts": "2026-08-10T04:03:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 109,
+        "ts": "2026-08-10T04:03:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 110,
+        "ts": "2026-08-10T04:03:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 111,
+        "ts": "2026-08-10T04:03:40.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 112,
+        "ts": "2026-08-10T04:03:42.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 113,
+        "ts": "2026-08-10T04:03:44.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 114,
+        "ts": "2026-08-10T04:03:46.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 115,
+        "ts": "2026-08-10T04:03:48.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 116,
+        "ts": "2026-08-10T04:03:50.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 117,
+        "ts": "2026-08-10T04:03:52.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 118,
+        "ts": "2026-08-10T04:03:54.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 119,
+        "ts": "2026-08-10T04:03:56.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 120,
+        "ts": "2026-08-10T04:03:58.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 121,
+        "ts": "2026-08-10T04:04:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 122,
+        "ts": "2026-08-10T04:04:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 123,
+        "ts": "2026-08-10T04:04:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 124,
+        "ts": "2026-08-10T04:04:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 125,
+        "ts": "2026-08-10T04:04:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 126,
+        "ts": "2026-08-10T04:04:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 127,
+        "ts": "2026-08-10T04:04:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 128,
+        "ts": "2026-08-10T04:04:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 129,
+        "ts": "2026-08-10T04:04:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 130,
+        "ts": "2026-08-10T04:04:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 131,
+        "ts": "2026-08-10T04:04:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 132,
+        "ts": "2026-08-10T04:04:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 133,
+        "ts": "2026-08-10T04:04:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 134,
+        "ts": "2026-08-10T04:04:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 135,
+        "ts": "2026-08-10T04:04:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 136,
+        "ts": "2026-08-10T04:04:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 137,
+        "ts": "2026-08-10T04:04:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 138,
+        "ts": "2026-08-10T04:04:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 139,
+        "ts": "2026-08-10T04:04:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 140,
+        "ts": "2026-08-10T04:04:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 141,
+        "ts": "2026-08-10T04:04:40.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 142,
+        "ts": "2026-08-10T04:04:42.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 143,
+        "ts": "2026-08-10T04:04:44.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 144,
+        "ts": "2026-08-10T04:04:46.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 145,
+        "ts": "2026-08-10T04:04:48.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 146,
+        "ts": "2026-08-10T04:04:50.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 147,
+        "ts": "2026-08-10T04:04:52.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 148,
+        "ts": "2026-08-10T04:04:54.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 149,
+        "ts": "2026-08-10T04:04:56.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 150,
+        "ts": "2026-08-10T04:04:58.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 151,
+        "ts": "2026-08-10T04:05:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 152,
+        "ts": "2026-08-10T04:05:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 153,
+        "ts": "2026-08-10T04:05:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 154,
+        "ts": "2026-08-10T04:05:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 155,
+        "ts": "2026-08-10T04:05:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 156,
+        "ts": "2026-08-10T04:05:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 157,
+        "ts": "2026-08-10T04:05:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 158,
+        "ts": "2026-08-10T04:05:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 159,
+        "ts": "2026-08-10T04:05:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 160,
+        "ts": "2026-08-10T04:05:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 161,
+        "ts": "2026-08-10T04:05:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 162,
+        "ts": "2026-08-10T04:05:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 163,
+        "ts": "2026-08-10T04:05:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 164,
+        "ts": "2026-08-10T04:05:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 165,
+        "ts": "2026-08-10T04:05:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 166,
+        "ts": "2026-08-10T04:05:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 167,
+        "ts": "2026-08-10T04:05:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 168,
+        "ts": "2026-08-10T04:05:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 169,
+        "ts": "2026-08-10T04:05:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 170,
+        "ts": "2026-08-10T04:05:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 171,
+        "ts": "2026-08-10T04:05:40.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 172,
+        "ts": "2026-08-10T04:05:42.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 173,
+        "ts": "2026-08-10T04:05:44.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 174,
+        "ts": "2026-08-10T04:05:46.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 175,
+        "ts": "2026-08-10T04:05:48.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 176,
+        "ts": "2026-08-10T04:05:50.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 177,
+        "ts": "2026-08-10T04:05:52.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 178,
+        "ts": "2026-08-10T04:05:54.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 179,
+        "ts": "2026-08-10T04:05:56.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 180,
+        "ts": "2026-08-10T04:05:58.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 181,
+        "ts": "2026-08-10T04:06:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 182,
+        "ts": "2026-08-10T04:06:02.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 183,
+        "ts": "2026-08-10T04:06:04.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 184,
+        "ts": "2026-08-10T04:06:06.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 185,
+        "ts": "2026-08-10T04:06:08.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 186,
+        "ts": "2026-08-10T04:06:10.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 187,
+        "ts": "2026-08-10T04:06:12.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 188,
+        "ts": "2026-08-10T04:06:14.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 189,
+        "ts": "2026-08-10T04:06:16.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 190,
+        "ts": "2026-08-10T04:06:18.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 191,
+        "ts": "2026-08-10T04:06:20.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 192,
+        "ts": "2026-08-10T04:06:22.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 193,
+        "ts": "2026-08-10T04:06:24.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 194,
+        "ts": "2026-08-10T04:06:26.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 195,
+        "ts": "2026-08-10T04:06:28.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 196,
+        "ts": "2026-08-10T04:06:30.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 197,
+        "ts": "2026-08-10T04:06:32.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 198,
+        "ts": "2026-08-10T04:06:34.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 199,
+        "ts": "2026-08-10T04:06:36.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 200,
+        "ts": "2026-08-10T04:06:38.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +1836,28 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=ambient|silence_ms=90000|ceiling_ms=900000|active_cap_ms=600000\nstream|key=s1|tz=Asia/Kolkata\ndedupe|distance=6",
+  "expect": {
+    "state": {
+      "collapsed": 199,
+      "considered": 1,
+      "sessions": 1,
+      "collapsed_counts": [
+        199
+      ],
+      "started_at": [
+        "2026-08-10T04:00:00.000Z"
+      ],
+      "ended_at": [
+        "2026-08-10T04:06:38.000Z"
+      ]
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "ambient: 200 near-identical frames",
     "expect": "phash collapse to 1 + duration",

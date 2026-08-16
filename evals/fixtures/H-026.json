@@ -5,9 +5,38 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul",
+      "a2=Rashmi"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a2",
+        "text": "Rashmi got the results today",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "she said the reports are clear",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +47,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nM|2|she|a2|0.85",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 2,
+        "surface": "she",
+        "entity": "a2",
+        "confidence": 0.85,
+        "hint": null,
+        "decided_by": "llm:p-ep1"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "entities_mention_linking"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "[Rahul]: 'she said the reports are clear'; only Rashmi (F) discussed in THIS session",
     "expect": "'she' -> Rashmi",

@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "bind|as=l|src=slack|kind=handle|v=@pran|name=@pran on slack\nbind|as=r|src=instagram|kind=handle|v=@pran|name=@pran on instagram",
+  "expect": {
+    "state": {
+      "last_rung": "mint",
+      "entity_count": 2,
+      "distinct_entities": 2,
+      "person_count": 2,
+      "model_calls": 0
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "@pran on slack vs @pran on instagram",
     "expect": "NO cross-source bind on handle string alone",

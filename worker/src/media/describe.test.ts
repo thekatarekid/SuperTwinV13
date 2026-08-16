@@ -18,8 +18,10 @@ import type { PendingMediaRow } from "../db/ingest.js";
 import type { Provider, ProviderResult, SendOptions } from "../providers/index.js";
 import { setSelectedModel } from "../db/settings.js";
 import { emptyUsage } from "../providers/usage.js";
+import { verifyEcho } from "./batch.js";
 import {
   BATCH_MARKER,
+  batchImageId,
   buildBatchPrompt,
   buildFramesPrompt,
   buildPrompt,
@@ -324,9 +326,10 @@ function images(n: number): PendingMediaRow[] {
 }
 
 /** The answer a well-behaved model gives for `rows`. */
-function batchAnswer(rows: PendingMediaRow[]): string {
+/** A well-formed answer: every id the prompt issued, echoed back exactly once. */
+function batchAnswer(rows: PendingMediaRow[], ids?: string[]): string {
   return rows
-    .map((r) => `${BATCH_MARKER} ${r.mediaPath}\nA photo of ${r.id}.`)
+    .map((r, i) => `${BATCH_MARKER} ${ids?.[i] ?? batchImageId(i)}\nA photo of ${r.id}.`)
     .join("\n\n");
 }
 
@@ -390,84 +393,84 @@ describe("describeMedia with sampled frames", () => {
 });
 
 describe("buildBatchPrompt", () => {
-  it("lists every path and demands each block be stamped with one", () => {
+  it("lists every path with an explicit id and demands each block be stamped with one", () => {
     const rows = images(3);
     const p = buildBatchPrompt(
       rows.map((r) => ({ row: r, path: r.mediaPath as string })),
     );
     for (const r of rows) expect(p).toContain(r.mediaPath);
+    for (const id of ["#01", "#02", "#03"]) expect(p).toContain(id);
     expect(p).toContain("Read each of these 3 files");
     expect(p).toContain(BATCH_MARKER);
     expect(p).toContain("character for character");
+    // The whole-set rule is stated to the model, not only enforced after it.
+    expect(p).toContain("exactly once — all 3 of them");
+    expect(p).toContain("UNREADABLE");
   });
 });
 
 describe("parseBatchAnswer", () => {
-  it("keys descriptions by path, never by position", () => {
-    const paths = ["/m/a.jpg", "/m/b.jpg"];
+  it("keys descriptions by id, never by position", () => {
     const parsed = parseBatchAnswer(
-      `${BATCH_MARKER} /m/b.jpg\nThe second one.\n\n${BATCH_MARKER} /m/a.jpg\nThe first one.`,
-      paths,
+      `${BATCH_MARKER} #02\nThe second one.\n\n${BATCH_MARKER} #01\nThe first one.`,
+      ["#01", "#02"],
     );
-    expect(parsed.get("/m/a.jpg")).toBe("The first one.");
-    expect(parsed.get("/m/b.jpg")).toBe("The second one.");
+    expect(parsed.blocks.get("#01")).toBe("The first one.");
+    expect(parsed.blocks.get("#02")).toBe("The second one.");
+    expect(parsed.returned).toEqual(["#02", "#01"]);
   });
 
-  it("tolerates a backticked or colon-trailed path and a fenced answer", () => {
+  it("tolerates a backticked or colon-trailed id and a fenced answer", () => {
     const parsed = parseBatchAnswer(
-      "```\n" + `${BATCH_MARKER} \`/m/a.jpg\`:\nSeen.\n` + "```",
-      ["/m/a.jpg"],
+      "```\n" + `${BATCH_MARKER} \`#01\`:\nSeen.\n` + "```",
+      ["#01"],
     );
-    expect(parsed.get("/m/a.jpg")).toBe("Seen.");
+    expect(parsed.blocks.get("#01")).toBe("Seen.");
   });
 
-  it("drops a path the answer named twice — neither block can be trusted", () => {
-    const parsed = parseBatchAnswer(
-      `${BATCH_MARKER} /m/a.jpg\nOne.\n${BATCH_MARKER} /m/a.jpg\nTwo.`,
-      ["/m/a.jpg"],
-    );
-    expect(parsed.size).toBe(0);
-  });
-
-  it("ignores a path nobody asked about, and an empty block", () => {
-    const parsed = parseBatchAnswer(
-      `Sure, here you go.\n${BATCH_MARKER} /m/elsewhere.jpg\nNot ours.\n` +
-        `${BATCH_MARKER} /m/a.jpg\n   \n${BATCH_MARKER} /m/b.jpg\nReal.`,
-      ["/m/a.jpg", "/m/b.jpg"],
-    );
-    expect([...parsed.keys()]).toEqual(["/m/b.jpg"]);
-  });
-
-  it("maps a block stamped with the basename alone", () => {
-    const parsed = parseBatchAnswer(
-      `${BATCH_MARKER} IMG_1.jpg\nSeen.`,
-      ["/m/alice/IMG_1.jpg", "/m/alice/IMG_2.jpg"],
-    );
-    expect(parsed.get("/m/alice/IMG_1.jpg")).toBe("Seen.");
-  });
-
-  it("maps a block stamped with a path rooted somewhere else", () => {
-    const parsed = parseBatchAnswer(
-      `${BATCH_MARKER} **/Users/x/media/alice/IMG_1.jpg**\nSeen.`,
-      ["/media/alice/IMG_1.jpg"],
-    );
-    expect(parsed.get("/media/alice/IMG_1.jpg")).toBe("Seen.");
-  });
-
-  it("refuses a basename two of the files share rather than picking one", () => {
-    const parsed = parseBatchAnswer(`${BATCH_MARKER} IMG.jpg\nSeen.`, [
-      "/m/alice/IMG.jpg",
-      "/m/bob/IMG.jpg",
+  it("normalises a missing hash or leading zero — the ids are ours and none collide", () => {
+    const parsed = parseBatchAnswer(`${BATCH_MARKER} 1\nSeen.\n${BATCH_MARKER} #2\nAlso.`, [
+      "#01",
+      "#02",
     ]);
-    expect(parsed.size).toBe(0);
+    expect(parsed.blocks.get("#01")).toBe("Seen.");
+    expect(parsed.blocks.get("#02")).toBe("Also.");
+    expect(parsed.returned).toEqual(["#01", "#02"]);
   });
 
-  it("a path asked for in full beats a tail it collides with", () => {
+  it("reports an id named twice rather than merging or dropping it silently", () => {
     const parsed = parseBatchAnswer(
-      `${BATCH_MARKER} a/IMG.jpg\nThe relative one.`,
-      ["a/IMG.jpg", "/m/a/IMG.jpg"],
+      `${BATCH_MARKER} #01\nOne.\n${BATCH_MARKER} #01\nTwo.`,
+      ["#01"],
     );
-    expect(parsed.get("a/IMG.jpg")).toBe("The relative one.");
+    // The caller is what rejects it: `returned` is what the echo check reads.
+    expect(parsed.returned).toEqual(["#01", "#01"]);
+    expect(verifyEcho(["#01"], parsed.returned).matched).toBe(false);
+  });
+
+  it("reports an id nobody asked about, and carries no block for it", () => {
+    const parsed = parseBatchAnswer(
+      `Sure, here you go.\n${BATCH_MARKER} #09\nNot ours.\n` +
+        `${BATCH_MARKER} #01\nReal.`,
+      ["#01", "#02"],
+    );
+    expect([...parsed.blocks.keys()]).toEqual(["#01"]);
+    expect(parsed.returned).toEqual(["#09", "#01"]);
+    expect(verifyEcho(["#01", "#02"], parsed.returned)).toMatchObject({
+      matched: false,
+      missing: ["#02"],
+      unexpected: ["#09"],
+    });
+  });
+
+  it("an UNREADABLE block echoes its id but carries no description", () => {
+    const parsed = parseBatchAnswer(
+      `${BATCH_MARKER} #01\nA photo.\n${BATCH_MARKER} #02\nUNREADABLE`,
+      ["#01", "#02"],
+    );
+    expect(parsed.blocks.get("#02")).toBeNull();
+    // The id set is still complete, so the batch is not thrown away over it.
+    expect(verifyEcho(["#01", "#02"], parsed.returned).matched).toBe(true);
   });
 });
 
@@ -493,20 +496,34 @@ describe("describeMediaBatch", () => {
     });
   });
 
-  it("an answer missing a block leaves that image out rather than sliding the rest up", async () => {
+  it("an answer missing one block is rejected WHOLE — the two that did line up are not applied", async () => {
     const rows = images(3);
+    // The middle id is never echoed, so every block after it is suspect.
     const provider = stubProvider(
-      batchAnswer([rows[0], rows[2]]), // the middle image is never named
+      `${BATCH_MARKER} #01\nA photo of ${rows[0].id}.\n\n${BATCH_MARKER} #03\nA photo of ${rows[2].id}.`,
     );
     const batch = await describeMediaBatch(rows, { provider });
 
-    expect(batch.results.has(rows[1].id)).toBe(false);
-    expect(batch.results.get(rows[0].id)?.description).toBe(
-      `A photo of ${rows[0].id}.`,
+    expect(batch.results.size).toBe(0);
+    expect(batch.echo).toMatchObject({ matched: false, missing: ["#02"] });
+    expect(batch.call.status).toBe("error");
+    expect(batch.call.error).toContain("echoed 2 of 3 ids");
+  });
+
+  it("two ids that differ reject the batch rather than being matched up by position", async () => {
+    const rows = images(16);
+    const answer = batchAnswer(
+      rows,
+      rows.map((_, i) => (i < 14 ? batchImageId(i) : `#9${i}`)),
     );
-    expect(batch.results.get(rows[2].id)?.description).toBe(
-      `A photo of ${rows[2].id}.`,
-    );
+    const batch = await describeMediaBatch(rows, { provider: stubProvider(answer) });
+
+    expect(batch.results.size).toBe(0);
+    expect(batch.echo).toMatchObject({
+      matched: false,
+      missing: ["#15", "#16"],
+      unexpected: ["#914", "#915"],
+    });
   });
 
   it("an answer that names nothing we asked about maps no image at all", async () => {
@@ -518,7 +535,21 @@ describe("describeMediaBatch", () => {
 
     expect(batch.results.size).toBe(0);
     expect(batch.call.status).toBe("error");
-    expect(batch.call.error).toContain("none of the 2 files");
+    expect(batch.call.error).toContain("echoed 0 of 2 ids");
+  });
+
+  it("an echoed UNREADABLE is a verdict on that file, and the rest of the batch still lands", async () => {
+    const rows = images(2);
+    const provider = stubProvider(
+      `${BATCH_MARKER} #01\nA photo of ${rows[0].id}.\n\n${BATCH_MARKER} #02\nUNREADABLE`,
+    );
+    const batch = await describeMediaBatch(rows, { provider });
+
+    expect(batch.results.get(rows[0].id)).toMatchObject({ status: "done" });
+    expect(batch.results.get(rows[1].id)).toMatchObject({
+      status: "skipped",
+      description: null,
+    });
   });
 
   it("a failed call is a retryable error against every image in it", async () => {

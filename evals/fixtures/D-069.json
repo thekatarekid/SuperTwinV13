@@ -5,9 +5,60 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "a1",
+        "text": "",
+        "kind": "image",
+        "enrichment": "a photo of the beach at sunset!!"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:02:00.000Z",
+        "who": "a1",
+        "text": "",
+        "kind": "image",
+        "enrichment": "a photo of the beach at sunset!!"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T04:04:00.000Z",
+        "who": "a1",
+        "text": "",
+        "kind": "image",
+        "enrichment": "a photo of the beach at sunset!!"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-10T04:06:00.000Z",
+        "who": "a1",
+        "text": "",
+        "kind": "image",
+        "enrichment": "a photo of the beach at sunset!!"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +69,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 1,
+      "event_counts": [
+        4
+      ],
+      "tokens": [
+        32
+      ],
+      "boundary": null
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "burst of 4 photos only, 2m apart",
     "expect": "ONE session; caption tokens counted in cap",

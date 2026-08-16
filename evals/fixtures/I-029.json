@@ -5,9 +5,38 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=me",
+      "a2=Ratlam [plc]",
+      "a3=Bangalore [plc]"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-01-04T09:10+05:30",
+        "who": "self",
+        "text": "we were in Ratlam till last year",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "we live in Bangalore now",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +47,43 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nL|1|self|loc|current|a2|0.7|we were in Ratlam till last year\nL|2|self|loc|current|a3|0.7|we live in Bangalore now",
+  "expect": {
+    "edges": [
+      {
+        "src": "self",
+        "kind": "located_at",
+        "subtype": "current",
+        "dst": "a2",
+        "confidence": 0.7,
+        "decided_by": "llm:p-ep1",
+        "status": "superseded",
+        "valid_to": "2026-08-14",
+        "quotes": [
+          "we were in Ratlam till last year",
+          "we live in Bangalore now"
+        ]
+      },
+      {
+        "src": "self",
+        "kind": "located_at",
+        "subtype": "current",
+        "dst": "a3",
+        "confidence": 0.7,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "we live in Bangalore now"
+        ]
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "entities_edge_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "evidence me lives at Bangalore",
     "expect": "L ... loc/current ...; prior loc gets valid_to + superseded",

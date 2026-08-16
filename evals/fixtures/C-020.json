@@ -18,13 +18,19 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "batch|images=16|echo=short:1",
+  "expect": {
+    "state": {
+      "calls": 3,
+      "applied": 16,
+      "every_image_captioned": true
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "split retry: 8+8 both pass",
     "expect": "captions applied; 3 calls total, not 16",

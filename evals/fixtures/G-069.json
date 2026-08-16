@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "bind|as=l|src=whatsapp|kind=handle|v=papa-jio|name=Papa (new number Jio)\nbind|as=r|src=whatsapp|kind=handle|v=papa|name=Papa\nml|l=l|r=r|score=0.93|bar=0.8",
+  "expect": {
+    "state": {
+      "similarity_rung": false,
+      "routed_to": "queue",
+      "merged": false,
+      "questions_open": 1,
+      "entity_count": 2
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "calibration absent at boot",
     "expect": "similarity rung DISABLED; pairs route to agent or queue",

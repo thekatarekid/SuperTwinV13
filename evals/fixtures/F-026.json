@@ -5,9 +5,58 @@
   "call": "[CODE]",
   "mode": "bootstrap",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "a1",
+        "text": "note 1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T11:00:00.000Z",
+        "who": "a1",
+        "text": "note 2"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T18:00:00.000Z",
+        "who": "a1",
+        "text": "note 3"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-11T01:00:00.000Z",
+        "who": "a1",
+        "text": "note 4"
+      },
+      {
+        "n": 5,
+        "ts": "2026-08-11T08:00:00.000Z",
+        "who": "a1",
+        "text": "note 5"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +67,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor|day_boundary=0\nstream|key=c1|tz=Asia/Kolkata\nrestart|open=5\nnow|at=2026-08-11T08:46:00.000Z",
+  "expect": {
+    "state": {
+      "open_sessions": 5,
+      "sealed_on_boot": 5,
+      "still_open": 0,
+      "deadlines_from_last_event": true,
+      "timers_recomputed": true
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "worker restart with 5 open sessions",
     "expect": "timers recomputed from last event ts; overdue seal immediately",

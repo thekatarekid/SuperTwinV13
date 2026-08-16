@@ -213,6 +213,17 @@ export interface MediaSettings {
   video_audio_enabled: boolean;
   /** v5 §3: transcribe voice notes and audio attachments. */
   voice_notes_enabled: boolean;
+  /**
+   * arch §8.4 table: caption EVERY image and sticker and transcribe every voice
+   * note. Off skips stickers and sub-2s audio. On by default.
+   */
+  read_all_media: boolean;
+  /**
+   * arch §8.4 table: when on, an enrichment whose text carries no entity, date,
+   * number, price or commitment does not trigger the re-read of its
+   * conversation. Off by default — read everything.
+   */
+  salience_gate: boolean;
   rate_per_min: number;
   /** v6 §5: how many media reads run at once. A batch counts as one. */
   concurrency: number;
@@ -231,10 +242,11 @@ export interface MediaSettings {
 }
 
 /**
- * The worker's clamp ceiling for `image_batch` (MAX_IMAGE_BATCH). Mirrored so
- * the picker cannot offer a number the worker would silently reduce.
+ * The worker's clamp ceiling for `image_batch` (MAX_IMAGE_BATCH_SIZE, arch
+ * §10.1: 16 by default, range 1–32). Mirrored so the picker cannot offer a
+ * number the worker would silently reduce.
  */
-export const MEDIA_IMAGE_BATCH_MAX = 40;
+export const MEDIA_IMAGE_BATCH_MAX = 32;
 
 /** The worker's ceilings for the two frame-sampling numbers, mirrored likewise. */
 export const MEDIA_FRAME_INTERVAL_SEC_MAX = 3600;

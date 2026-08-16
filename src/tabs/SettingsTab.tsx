@@ -348,6 +348,20 @@ const MEDIA_SWITCH_GROUPS: { title?: string; switches: MediaSwitchDef[] }[] = [
         },
       },
       {
+        key: "read_all_media",
+        testId: "media-read-all",
+        label: "Read all images and stickers",
+        caption:
+          "Caption every image and sticker, and transcribe every voice note. Turn it off to skip stickers and very short audio — cheaper, at the cost of the occasional sticker that carried the whole message.",
+      },
+      {
+        key: "salience_gate",
+        testId: "media-salience-gate",
+        label: "Skip low-information media",
+        caption:
+          "When on, a caption with no person, place, date, number or commitment in it will not trigger a re-read of its conversation. Saves cost; risks missing a caption that mattered. Off by default.",
+      },
+      {
         key: "business_enabled",
         testId: "media-business",
         label: "Business and official-account chats",
@@ -1536,10 +1550,10 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
                 />
                 <span className="settings__note settings__note--field">
                   How many photos share one call. Bigger is cheaper per photo —
-                  most of what a call costs is the call itself. A batch that
-                  comes back unreadable is read again one photo at a time, so
-                  the largest sizes cost the most when they go wrong. Up to{" "}
-                  {MEDIA_IMAGE_BATCH_MAX}.
+                  most of what a call costs is the call itself. A batch whose
+                  answer does not account for every photo is split in half and
+                  read again, so a bad answer costs a few extra calls rather
+                  than one per photo. Up to {MEDIA_IMAGE_BATCH_MAX}.
                 </span>
               </label>
               <label className="settings__media-number">

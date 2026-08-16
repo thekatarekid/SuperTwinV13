@@ -17,17 +17,19 @@ import type { SourceAdapter } from "../adapters/source-adapter.js";
 import type {
   Actor,
   AdapterStatus,
-  Channel,
   SourceEvent,
   StatusUpdate,
+  Stream,
 } from "../adapters/types.js";
 import { closeDb, getDb } from "../db/connection.js";
 import {
   claimPendingMedia,
-  getChannelMessages,
+  getStreamMessages,
   type InboxMessageRow,
   type MediaClaimFilter,
 } from "../db/ingest.js";
+import { readWatermark } from "../db/watermarks.js";
+import { WHATSAPP_MANIFEST } from "../adapters/whatsapp/manifest.js";
 import { Ingestion } from "./index.js";
 
 /** Every readable kind switched on, so the claim reflects only what was written. */
@@ -70,7 +72,7 @@ class StubAdapter implements SourceAdapter {
   onEvent(cb: (e: SourceEvent) => void): void {
     this.emitEvent = cb;
   }
-  onChannel(_cb: (c: Channel) => void): void {}
+  onStream(_cb: (s: Stream) => void): void {}
   onActor(cb: (a: Actor) => void): void {
     this.emitActor = cb;
   }
@@ -91,7 +93,7 @@ function startIngestion(): StubAdapter {
 function message(overrides: Partial<SourceEvent> = {}): SourceEvent {
   return {
     external_id: "alice@x/MSG1",
-    channel_ext_id: "alice@x",
+    stream_ext_id: "alice@x",
     actor_ext_id: "alice@x",
     ts: "2026-07-02T10:00:00.000Z",
     kind: "message",
@@ -102,7 +104,7 @@ function message(overrides: Partial<SourceEvent> = {}): SourceEvent {
 }
 
 function messages(): InboxMessageRow[] {
-  return getChannelMessages({ channelId: "whatsapp:ch:alice@x", limit: 50 });
+  return getStreamMessages({ streamId: "whatsapp:st:alice@x", limit: 50 });
 }
 
 describe("onEvent media metadata (media spec §1, §3)", () => {
@@ -146,7 +148,7 @@ describe("onEvent media metadata (media spec §1, §3)", () => {
       ).s,
     ).toBe("deadbeef");
     // Readable per §8 → queued for the media reader.
-    expect(claimPendingMedia(10, CLAIM_ALL).map((p) => p.id)).toEqual(["wa:alice@x/IMG"]);
+    expect(claimPendingMedia(10, CLAIM_ALL).map((p) => p.id)).toEqual(["whatsapp:alice@x/IMG"]);
   });
 
   it("leaves media_meta_json null when the daemon sent no meta fields", () => {
@@ -320,5 +322,74 @@ describe("onEvent reaction removal (media spec §6)", () => {
     expect(messages()[0].reactions).toEqual([
       { emoji: "🎉", fromMe: false, actorName: null },
     ]);
+  });
+});
+
+// ===========================================================================
+// Newest-page-first history + dual watermarks (build item 1.1).
+// ===========================================================================
+
+describe("history is written newest-first (arch §2.2 note 1)", () => {
+  /** Ascending history, exactly as whatsmeow hands it over. */
+  const ASCENDING = [
+    { external_id: "alice@x/H1", ts: "2019-01-01T00:00:00.000Z", text: "oldest" },
+    { external_id: "alice@x/H2", ts: "2023-06-01T00:00:00.000Z", text: "middle" },
+    { external_id: "alice@x/H3", ts: "2026-08-01T00:00:00.000Z", text: "newest" },
+  ];
+
+  function writtenOrder(): string[] {
+    return (
+      getDb()
+        .prepare(`SELECT external_id FROM events ORDER BY rowid`)
+        .all() as { external_id: string }[]
+    ).map((r) => r.external_id);
+  }
+
+  it("re-orders an ascending backfill into descending rows on the way in", () => {
+    const adapter = new StubAdapter();
+    const ingestion = new Ingestion(adapter, { manifest: WHATSAPP_MANIFEST });
+    ingestion.start();
+
+    for (const h of ASCENDING) {
+      adapter.emitEvent(message({ ...h, is_historical: true }));
+    }
+    // Nothing is written until the burst is flushed — that is the buffer.
+    expect(writtenOrder()).toEqual([]);
+
+    ingestion.flushBackfill();
+    expect(writtenOrder()).toEqual(["alice@x/H3", "alice@x/H2", "alice@x/H1"]);
+  });
+
+  it("never delays a live message behind the re-order buffer", () => {
+    const adapter = new StubAdapter();
+    const ingestion = new Ingestion(adapter, { manifest: WHATSAPP_MANIFEST });
+    ingestion.start();
+
+    adapter.emitEvent(message({ ...ASCENDING[0], is_historical: true }));
+    adapter.emitEvent(
+      message({ external_id: "alice@x/LIVE", ts: "2026-08-15T09:00:00.000Z", text: "now" }),
+    );
+    expect(writtenOrder()).toEqual(["alice@x/LIVE"]);
+
+    ingestion.flushBackfill();
+    expect(writtenOrder()).toEqual(["alice@x/LIVE", "alice@x/H1"]);
+  });
+
+  it("moves the two watermarks in opposite directions", () => {
+    const adapter = new StubAdapter();
+    const ingestion = new Ingestion(adapter, { manifest: WHATSAPP_MANIFEST });
+    ingestion.start();
+
+    for (const h of ASCENDING) adapter.emitEvent(message({ ...h, is_historical: true }));
+    adapter.emitEvent(
+      message({ external_id: "alice@x/LIVE", ts: "2026-08-15T09:00:00.000Z", text: "now" }),
+    );
+    ingestion.flushBackfill();
+
+    const w = readWatermark("whatsapp:st:alice@x")!;
+    expect(w.backfill_low_ts).toBe("2019-01-01T00:00:00.000Z");
+    expect(w.live_high_ts).toBe("2026-08-15T09:00:00.000Z");
+    expect(w.live_high_external_id).toBe("alice@x/LIVE");
+    expect(w.backfill_complete).toBe(false);
   });
 });

@@ -5,9 +5,30 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rashmi",
+      "a2=Rashmi's new office [org]"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "Rashmi's new office is in Domlur",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +39,29 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nL|1|a1|aff|employee|a2|0.85|Rashmi's new office is in Domlur",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "affiliated_with",
+        "subtype": "employee",
+        "dst": "a2",
+        "confidence": 0.85,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "Rashmi's new office is in Domlur"
+        ]
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "entities_edge_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "evidence Rashmi works at her new office",
     "expect": "L ... aff/employee ...",

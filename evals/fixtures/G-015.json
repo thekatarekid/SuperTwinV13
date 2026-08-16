@@ -18,13 +18,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "bind|as=g|src=gmail|kind=email|v=pranjali@x.com|name=Pranjali\nbind|as=k|src=calendar|kind=email|v=Pranjali@x.com|name=Pranjali",
+  "expect": {
+    "state": {
+      "last_rung": "cross_source",
+      "last_decided_by": "code:cross_source",
+      "last_confidence": 1,
+      "last_bound_to": "g",
+      "entity_count": 1,
+      "person_count": 1,
+      "model_calls": 0
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "gmail From pranjali@x == calendar attendee email",
     "expect": "BIND same entity [CODE]",

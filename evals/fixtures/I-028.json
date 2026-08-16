@@ -5,9 +5,38 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul",
+      "a2=Koramangala [plc]",
+      "a3=Indiranagar [plc]"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-01-04T09:10+05:30",
+        "who": "self",
+        "text": "we're in Koramangala now",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "shifting to Indiranagar next month",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +47,43 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nL|1|a1|loc|current|a2|0.7|we're in Koramangala now\nL|2|a1|loc|current|a3|0.7|shifting to Indiranagar next month",
+  "expect": {
+    "edges": [
+      {
+        "src": "a1",
+        "kind": "located_at",
+        "subtype": "current",
+        "dst": "a2",
+        "confidence": 0.7,
+        "decided_by": "llm:p-ep1",
+        "status": "superseded",
+        "valid_to": "2026-08-14",
+        "quotes": [
+          "we're in Koramangala now",
+          "shifting to Indiranagar next month"
+        ]
+      },
+      {
+        "src": "a1",
+        "kind": "located_at",
+        "subtype": "current",
+        "dst": "a3",
+        "confidence": 0.7,
+        "decided_by": "llm:p-ep1",
+        "status": "active",
+        "valid_to": null,
+        "quotes": [
+          "shifting to Indiranagar next month"
+        ]
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "entities_edge_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "evidence Rahul lives at Indiranagar",
     "expect": "L ... loc/current ...; prior loc gets valid_to + superseded",

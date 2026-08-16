@@ -18,18 +18,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
+  "frozen_response": "live_hour|interval_ms=30000|ticks=120",
   "expect": {},
   "assert": {
     "mode": "budget",
     "bound": {
-      "value": {
+      "live_passes_per_hour": {
         "max": 20
       }
     },
-    "gate": null
+    "gate": "sched_live_passes_per_hour"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "live passes on one stream in an hour",
     "expect": "<= 20",

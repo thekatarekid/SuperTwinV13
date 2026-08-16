@@ -9,7 +9,7 @@
 | Phase | Items | State |
 |---|---|---|
 | 0 Foundations | 0.1–0.7 | ✅ gate passed |
-| 1 Ingest→Sessions | 1.1–1.11 | pending |
+| 1 Ingest→Sessions | 1.1–1.11 | ✅ gate passed (1 measurement gap) |
 | 2 Episodes/Arcs | 2.1–2.7 | pending |
 | 3 Claims/Loops/Spaces/Tasks | 3.1–3.10 | pending |
 | 4 Hardening | 4.1–4.4 | pending |
@@ -17,6 +17,16 @@
 
 ## Log
 
+- **PHASE 1 GATE PASSED (with one gap).** typecheck clean · worker 2060/2060 · root 327/327 · scripts 67/67 = **2,454 tests** · eval **580/580 cases**, 96 gates defined / 44 measured / **0 breached**.
+  - Session F1 100%, determinism 0 drift, explainable 100%. Entity precision 100%, mention linking 100%, edge precision 100%. All streams tiered, 0 orphans on promotion. First claim 18 s (gate 30 s), first triple 34 s (gate 120 s), no stall 60 s (gate 90 s), first-paint calls 1, adjudicator-before-paint 0.
+  - **Gap:** `entities_no_silent_guess`, `entities_recall` and `entities_metadata_edges` report `no data`. Unmeasured is not passing — being closed before Phase 2's gate.
+- **1.1 Registry** — manifest-driven, exactly one adapter. Source leaks fixed: `wa:` → `${source_id}:`, `resetWhatsappData` → `resetSourceData(source_id)`, `app_state` → `source.<id>.*`, routes → `/api/sources/:source_id/*` with the old ones aliased one release, `channels` → `streams`. History sync driven newest-page-first with a descending cohort buffer.
+- **1.2 Tiers** — `[CODE]` rules first; only ambiguous channels reach P-TI1, batched ≤10/call, verdict cached against a sample fingerprint so a second pass costs 0 calls. Tier is the scheduler's primary sort key. Mutation-checked: breaking the rules fails 18 cases, so the suite isn't vacuous.
+- **1.3–1.4** — salience scaffold built generically (WhatsApp sets `prefilter:none`); enrichment queue never blocks the text path.
+- **1.5–1.6** — entity graph with structural `[CODE]` binding; party model, all nine directions enumerated and tested.
+- **1.7 Segmenters** — mechanical, zero model calls, one per stream kind, parameters from the manifest not constants. 155 cases (D/E/F) green.
+- **1.8–1.9** — cohort scheduler with the two non-blocking lanes and first-paint path; prompt runner + repair loop that re-asks rather than rewriting, so no model output is discarded.
+- **1.10–1.11** — P-EP1 + resolution ladder ([CODE]→[ML]→[AGENT]→question queue, `[ML]` disabled without fresh calibration); Entities and Sessions surfaces with the coverage meter.
 - **PHASE 0 GATE PASSED.** typecheck clean · worker 1322/1322 · root 252/252 · scripts 67/67 = **1,641 tests** · `npm run eval` offline, 80/80 implemented cases (S 50 + U 15 + V 15), 0 gates breached, 920 fixtures loaded as stubs.
 - **0.2 Schema** — `0020_v2_core.sql` + a bundle-safe `.ts` mirror. Every §6 table; **no `spaces` table** — promotion fields live on `arcs`. `claims_active` is a VIEW (latest `stated_at`, `closed_by IS NULL`, id-tiebroken so simultaneous timestamps still yield one row). Migrations 0004/0005/0006 retired the way 0007 was; three things with live readers (`evaluations`, `chat_sessions.grounded` + `chat_messages.citations_json`, `extraction_runs.model`/`role`) moved verbatim into a new `0021_v2_prep`. Next free id is 0022.
 - **0.3 Wire codec** — STW-2 in `worker/src/wire/`. Alias resolution by range check returning `{resolved, unresolved}`, never string match; prose re-joined never split; tolerance pipeline fence→heading→emphasis→bullet→pipe→prose. Totality suite (random soups, byte strings, every truncation prefix) never throws; accounting invariant holds.

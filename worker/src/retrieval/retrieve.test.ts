@@ -49,10 +49,10 @@ const { planQuery } = await import("./query.js");
 // ---------------------------------------------------------------------------
 
 const GROUP = "120363403964397563@g.us";
-const CH_GROUP = `whatsapp:ch:${GROUP}`;
-const CH_PRIYA = "whatsapp:ch:919000000011@s.whatsapp.net";
-const CH_RASHMI = "whatsapp:ch:919000000012@s.whatsapp.net";
-const CH_WHATSAPP = "whatsapp:ch:0@s.whatsapp.net";
+const CH_GROUP = `whatsapp:st:${GROUP}`;
+const CH_PRIYA = "whatsapp:st:919000000011@s.whatsapp.net";
+const CH_RASHMI = "whatsapp:st:919000000012@s.whatsapp.net";
+const CH_WHATSAPP = "whatsapp:st:0@s.whatsapp.net";
 
 const SELF = "whatsapp:ac:919000000001@s.whatsapp.net";
 const RAHUL = "whatsapp:ac:919000000002@s.whatsapp.net";
@@ -348,7 +348,7 @@ function seed(): void {
   const db = getDb();
   db.prepare(`INSERT INTO sources (id, type) VALUES ('whatsapp', 'whatsapp')`).run();
   db.prepare(
-    `INSERT INTO app_state (key, value) VALUES ('whatsapp.self_jid', '919000000001@s.whatsapp.net')`,
+    `INSERT INTO app_state (key, value) VALUES ('source.whatsapp.self_identity', '919000000001@s.whatsapp.net')`,
   ).run();
 
   const channel = db.prepare(
@@ -376,7 +376,7 @@ function seed(): void {
             @externalId, @replyTo, @replyToText, @transcript)
   `);
   for (const row of [...WEEKEND_LUNCHES, ...NOISE]) {
-    const chatJid = row.channel.replace("whatsapp:ch:", "");
+    const chatJid = row.channel.replace("whatsapp:st:", "");
     const externalId = `${chatJid}/${row.stanza}`;
     event.run({
       id: `wa:${externalId}`,

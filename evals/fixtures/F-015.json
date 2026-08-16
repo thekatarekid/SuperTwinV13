@@ -5,9 +5,40 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "wrong chat sorry"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:01:00.000Z",
+        "who": "a1",
+        "text": "haha no worries"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +49,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata\nnow|at=2026-08-10T04:02:00.000Z\nrevoke|on=e1|id=rev1",
+  "expect": {
+    "state": {
+      "was_sealed": false,
+      "membership_changed": false,
+      "superseded": false,
+      "superseded_hash_set": false,
+      "event_counts": [
+        2
+      ]
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "revoke for msg in open session",
     "expect": "mark revoked; membership unchanged; superseded_hash if sealed",

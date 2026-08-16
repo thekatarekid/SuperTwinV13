@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "route|kind=voice|seconds=120",
+  "expect": {
+    "llm_calls": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "2min voice note",
     "expect": "whisper.cpp on-device [ML], no LLM",

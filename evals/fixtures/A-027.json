@@ -18,13 +18,22 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "skew|delta_min=-2",
+  "expect": {
+    "state": {
+      "delta_min": -2,
+      "claimed_ts": "2026-08-15T11:58:00.000Z",
+      "stored_ts": "2026-08-15T11:58:00.000Z",
+      "clamped": false,
+      "clamped_from": null,
+      "accepted_verbatim": true
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "msg with ts -2min vs now",
     "expect": "clamp+flag if > now+5min, else accept",

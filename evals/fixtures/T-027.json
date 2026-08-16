@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "coverage|sessions=4",
+  "expect": {
+    "coverage_regressions": []
+  },
   "assert": {
     "mode": "absent",
-    "gate": null
+    "gate": "sched_coverage_monotonic"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "coverage meter during import",
     "expect": "monotonic, never regresses",

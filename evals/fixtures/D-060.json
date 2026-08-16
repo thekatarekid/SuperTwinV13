@@ -5,9 +5,40 @@
   "call": "[CODE]",
   "mode": "bootstrap",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "sending it over"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T11:00:00.000Z",
+        "who": "a1",
+        "text": "got it, thanks"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +49,33 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata\nseal\nnow|at=2026-08-10T11:02:00.000Z",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "statuses": [
+        "sealed",
+        "open"
+      ],
+      "seal_modes": [
+        "immediate",
+        null
+      ],
+      "boundaries": [
+        "gap",
+        null
+      ],
+      "content_hashes": [
+        true,
+        false
+      ]
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "bootstrap: gap 7h known from the next stored row",
     "expect": "SEAL IMMEDIATELY, seal_mode=immediate",

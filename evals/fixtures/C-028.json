@@ -18,13 +18,16 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "route|kind=link|url=https://www.booking.com/hotel/in/x.html",
+  "expect": {
+    "llm_calls": [],
+    "ml_calls": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "link to booking.com",
     "expect": "[CODE] fetch/yt-dlp; no model",

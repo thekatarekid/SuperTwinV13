@@ -18,13 +18,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "slots|limit=8",
+  "expect": {
+    "lane_slots": [
+      "enrichment=0",
+      "understanding=8"
+    ]
+  },
   "assert": {
     "mode": "set_equal",
-    "gate": null
+    "gate": "latency_lane_e_slots"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "Lane E during first paint",
     "expect": "ZERO LLM slots",

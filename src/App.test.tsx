@@ -5,9 +5,9 @@ import { App } from "./App";
 afterEach(cleanup);
 
 describe("App shell", () => {
-  it("renders all three tabs", () => {
+  it("renders every tab in the rail", () => {
     render(<App />);
-    for (const label of ["Inbox", "Chat", "Settings"]) {
+    for (const label of ["Inbox", "Chat", "Entities", "Sessions", "Settings"]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
   });

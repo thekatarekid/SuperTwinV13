@@ -2,7 +2,7 @@
 // Ingestion data-access (docs/PHASE1_CONTRACT §5, §6).
 //
 // The Node worker is the SINGLE DB writer. These helpers own the source-agnostic
-// ingestion path: upsert sources/channels/actors (+ people), insert events with
+// ingestion path: upsert sources/streams/actors (+ people), insert events with
 // dedupe (INSERT ... ON CONFLICT(source_id, external_id) DO NOTHING), apply the
 // mutations that rewrite an already-stored event (edit / revoke / reaction
 // removal), and the read queries powering the Inbox API (chats list, message
@@ -22,13 +22,46 @@ import {
   invalidateEventEmbeddingByExternalId,
 } from "./embeddings.js";
 
-// ---- app_state keys (Rev 2 §R2.1) -----------------------------------------
-// Shared here so the reset helper and the Ingestion layer use identical keys.
+// ---- app_state keys (Rev 2 §R2.1; arch §3.3 leak 3) -----------------------
+// Every key a source owns is namespaced `source.<id>.*`. The old flat keys
+// (`whatsapp.import_done`) made a second source impossible to add without
+// either colliding or special-casing, which is the same leak as a hardcoded
+// `wa:` prefix wearing different clothes.
 
-/** "true" once the FIRST backfill/import completes. */
-export const IMPORT_DONE_KEY = "whatsapp.import_done";
-/** The chosen <Range> persisted alongside IMPORT_DONE_KEY. */
-export const IMPORT_RANGE_KEY = "whatsapp.import_range";
+/** `source.<id>.<name>` — the only shape a source's app_state key may take. */
+export function sourceStateKey(sourceId: string, name: string): string {
+  return `source.${sourceId}.${name}`;
+}
+
+/** "true" once the FIRST backfill/import completes, per source. */
+export function importDoneKey(sourceId: string): string {
+  return sourceStateKey(sourceId, "import_done");
+}
+/** The chosen <Range> persisted alongside the import-done flag. */
+export function importRangeKey(sourceId: string): string {
+  return sourceStateKey(sourceId, "import_range");
+}
+/** Kill-switch: "1" while this source is paused. */
+export function pausedKey(sourceId: string): string {
+  return sourceStateKey(sourceId, "paused");
+}
+/**
+ * How "me" appears in this source — the value the manifest's
+ * `self_identity.value_getter` reads (a JID for WhatsApp, an address for mail).
+ * The KEY is source-neutral on purpose: the generic layer resolves "is this
+ * event from me" without knowing what kind of identity it is comparing.
+ */
+export function selfIdentityKey(sourceId: string): string {
+  return sourceStateKey(sourceId, "self_identity");
+}
+
+/**
+ * SQL fragment resolving the self identity of the source that owns the joined
+ * event row. Correlated per row, so one query answers `from_me` for every
+ * source at once instead of naming one.
+ */
+const SELF_IDENTITY_SQL =
+  `(SELECT value FROM app_state WHERE key = 'source.' || e.source_id || '.self_identity')`;
 
 // ---- Params + row shapes --------------------------------------------------
 
@@ -38,7 +71,7 @@ export interface UpsertSourceParams {
   name?: string | null;
 }
 
-export interface UpsertChannelParams {
+export interface UpsertStreamParams {
   sourceId: string;
   sourceExtId: string;
   name?: string | null;
@@ -46,6 +79,9 @@ export interface UpsertChannelParams {
   /** Business / official account, as flagged by the daemon (v3 §5). */
   isBusiness?: boolean;
 }
+
+/** @deprecated One release only — the name `channel` is now `stream`. */
+export type UpsertChannelParams = UpsertStreamParams;
 
 export interface UpsertActorParams {
   sourceId: string;
@@ -59,7 +95,8 @@ export interface InsertEventRow {
   externalId: string;
   sourceId: string;
   sourceType: string;
-  channelId: string | null;
+  /** -> streams.id (arch §6). Was `channelId` before the fold. */
+  streamId: string | null;
   actorId: string | null;
   ts: string | null;
   kind: string | null;
@@ -136,7 +173,7 @@ export interface MediaFrame {
 }
 
 export interface InsertEventResult {
-  /** Deterministic events.id ("wa:" + external_id for whatsapp). */
+  /** Deterministic events.id — `"<source_id>:" + external_id`. */
   id: string;
   /** true if a new row was written; false if it deduped against an existing row. */
   inserted: boolean;
@@ -146,7 +183,7 @@ export interface InboxChatRow {
   id: string;
   name: string | null;
   /**
-   * The chat's JID (channels.source_ext_id). Lets the UI recover a display
+   * The chat's JID (streams.external_key). Lets the UI recover a display
    * value when `name` is empty — and lets it recognise WhatsApp's own system
    * JIDs, which never carry a name. Without this the entire JID-recovery
    * branch of displayName() is dead code in production.
@@ -253,6 +290,14 @@ export interface PendingMediaRow {
    * flag.
    */
   isHistorical?: boolean;
+  /**
+   * The event's own instant and the tier of the stream it is in — the two terms
+   * of the enrichment queue key (arch §9.2/§9.3, `media/batch.ts`). Never
+   * `ingested_at`: insertion order is exactly the wrong order.
+   */
+  ts?: string | null;
+  streamId?: string | null;
+  tier?: string | null;
 }
 
 /**
@@ -390,8 +435,8 @@ export interface RescanResult {
 
 export interface SearchHitRow {
   eventId: string;
-  channelId: string | null;
-  channelName: string | null;
+  streamId: string | null;
+  streamName: string | null;
   ts: string | null;
   snippet: string;
   text: string | null;
@@ -455,8 +500,8 @@ interface RawReactionRow {
 
 interface RawSearchRow {
   event_id: string;
-  channel_id: string | null;
-  channel_name: string | null;
+  stream_id: string | null;
+  stream_name: string | null;
   ts: string | null;
   snippet: string;
   text: string | null;
@@ -490,6 +535,9 @@ interface RawPendingMediaRow {
   seconds: number | null;
   caption: string | null;
   is_historical: number | null;
+  ts: string | null;
+  stream_id: string | null;
+  tier: string | null;
 }
 
 interface RawPendingTranscriptRow {
@@ -524,8 +572,9 @@ interface RawPendingLinkRow {
 interface IngestStatements {
   db: Database.Database;
   upsertSource: Database.Statement;
+  upsertStream: Database.Statement;
   upsertChannel: Database.Statement;
-  getChannelId: Database.Statement;
+  getStreamId: Database.Statement;
   upsertPerson: Database.Statement;
   upsertActor: Database.Statement;
   getActorId: Database.Statement;
@@ -534,9 +583,9 @@ interface IngestStatements {
   applyRevoke: Database.Statement;
   deleteReaction: Database.Statement;
   listInboxChats: Database.Statement;
-  channelMessages: Database.Statement;
-  channelMessagesBefore: Database.Statement;
-  channelReactions: Database.Statement;
+  streamMessages: Database.Statement;
+  streamMessagesBefore: Database.Statement;
+  streamReactions: Database.Statement;
   searchEvents: Database.Statement;
   getEventMedia: Database.Statement;
   claimPendingMedia: Database.Statement;
@@ -557,9 +606,10 @@ interface IngestStatements {
   appStateSet: Database.Statement;
   appStateDelete: Database.Statement;
   countSourceEvents: Database.Statement;
-  countSourceChannels: Database.Statement;
+  countSourceStreams: Database.Statement;
   countSourceActors: Database.Statement;
   deleteSourceEvents: Database.Statement;
+  deleteSourceStreams: Database.Statement;
   deleteSourceChannels: Database.Statement;
   deleteSourceActors: Database.Statement;
   deleteOrphanPeople: Database.Statement;
@@ -580,6 +630,37 @@ function statements(): IngestStatements {
         type = excluded.type,
         name = COALESCE(excluded.name, sources.name)
     `),
+    // A stream is one lane inside a source (arch §2, §6) — the V2 table that
+    // replaced `channels`. `label` is upgraded by the same rule the legacy
+    // mirror uses below: take a real name, never overwrite one with a
+    // placeholder or a JID.
+    // `is_business` is written here as well as on the legacy mirror below
+    // (0023_stream_tiers): the tier rules in ../tiers read it, and reading it
+    // off `channels` would be the leak §3.3 note 6 closes. Sticky once set —
+    // one frame that omitted the flag must not un-business a channel.
+    upsertStream: db.prepare(`
+      INSERT INTO streams (id, source_id, external_key, label, stream_kind, is_business)
+      VALUES (@id, @sourceId, @sourceExtId, @name, @kind, @isBusiness)
+      ON CONFLICT(source_id, external_key) DO UPDATE SET
+        label = CASE
+          WHEN NULLIF(TRIM(excluded.label), '') IS NOT NULL
+               AND instr(excluded.label, '@') = 0
+            THEN excluded.label
+          WHEN NULLIF(TRIM(streams.label), '') IS NULL
+               OR instr(streams.label, '@') > 0
+            THEN COALESCE(NULLIF(TRIM(excluded.label), ''), streams.label)
+          ELSE streams.label
+        END,
+        stream_kind = COALESCE(excluded.stream_kind, streams.stream_kind),
+        is_business = MAX(streams.is_business, excluded.is_business)
+    `),
+    // LEGACY MIRROR — `channels` is the V11 table `streams` replaced (arch §3.3
+    // leak 6). Every writer here writes the stream row above; this row is kept
+    // beside it, with the SAME id, only because the V11 readers this item may
+    // not touch (retrieval, focus, chat-grounding, the media queue's business
+    // filter) still join it. It dies with the last of them. Nothing new may
+    // read it.
+    //
     // Upsert on the (source_id, source_ext_id) unique index.
     //
     // Name-update semantics (Rev 2 §R2.4): the daemon re-emits `channel` lines
@@ -609,8 +690,8 @@ function statements(): IngestStatements {
         kind = COALESCE(excluded.kind, channels.kind),
         is_business = MAX(channels.is_business, excluded.is_business)
     `),
-    getChannelId: db.prepare(`
-      SELECT id FROM channels WHERE source_id = ? AND source_ext_id = ?
+    getStreamId: db.prepare(`
+      SELECT id FROM streams WHERE source_id = ? AND external_key = ?
     `),
     upsertPerson: db.prepare(`
       INSERT INTO people (id, name, handle)
@@ -641,14 +722,18 @@ function statements(): IngestStatements {
       SELECT id FROM actors WHERE source_id = ? AND source_ext_id = ?
     `),
     // Dedupe: (source_id, external_id) UNIQUE. DO NOTHING => idempotent.
+    //
+    // `stream_id` is the column V2 reads (arch §6). `channel_id` is written
+    // beside it with the same value for exactly as long as the legacy `channels`
+    // mirror above lives — see 0020_v2_core's note on the bridge.
     insertEvent: db.prepare(`
       INSERT INTO events
-        (id, source_id, source_type, channel_id, actor_id, ts, kind, text, media_path, raw_json, external_id, reply_to_external_id, reply_to_text,
+        (id, source_id, source_type, stream_id, channel_id, actor_id, ts, kind, text, media_path, raw_json, external_id, reply_to_external_id, reply_to_text,
          media_mime, media_filename, media_size, media_sha256, media_thumb_path, media_seconds, media_meta_json, media_desc_status, is_forwarded,
          link_url, link_title, link_description, link_thumb_path, link_preview_type, link_scrape_status,
          is_historical, transcript_status)
       VALUES
-        (@id, @sourceId, @sourceType, @channelId, @actorId, @ts, @kind, @text, @mediaPath, @rawJson, @externalId, @replyToExternalId, @replyToText,
+        (@id, @sourceId, @sourceType, @streamId, @streamId, @actorId, @ts, @kind, @text, @mediaPath, @rawJson, @externalId, @replyToExternalId, @replyToText,
          @mediaMime, @mediaFilename, @mediaSize, @mediaSha256, @mediaThumbPath, @mediaSeconds, @mediaMetaJson, @mediaDescStatus, @isForwarded,
          @linkUrl, @linkTitle, @linkDescription, @linkThumbPath, @linkPreviewType, @linkScrapeStatus,
          @isHistorical, @transcriptStatus)
@@ -711,9 +796,9 @@ function statements(): IngestStatements {
     listInboxChats: db.prepare(`
       SELECT
         c.id              AS id,
-        c.name            AS name,
-        c.source_ext_id   AS source_ext_id,
-        c.kind            AS kind,
+        c.label           AS name,
+        c.external_key    AS source_ext_id,
+        c.stream_kind     AS kind,
         CASE
           WHEN last.revoked_at IS NOT NULL THEN '🚫 Deleted'
           WHEN NULLIF(TRIM(last.text), '') IS NOT NULL
@@ -734,20 +819,20 @@ function statements(): IngestStatements {
         END               AS last_text,
         agg.last_ts       AS last_ts,
         agg.message_count AS message_count
-      FROM channels c
+      FROM streams c
       JOIN (
         SELECT
-          e.channel_id AS channel_id,
+          e.stream_id  AS stream_id,
           COUNT(*)     AS message_count,
           MAX(e.ts)    AS last_ts
         FROM events e
-        WHERE e.channel_id IS NOT NULL
+        WHERE e.stream_id IS NOT NULL
           AND e.kind IS NOT 'reaction'
-        GROUP BY e.channel_id
-      ) agg ON agg.channel_id = c.id
+        GROUP BY e.stream_id
+      ) agg ON agg.stream_id = c.id
       LEFT JOIN events last ON last.id = (
         SELECT e2.id FROM events e2
-        WHERE e2.channel_id = c.id AND e2.ts = agg.last_ts
+        WHERE e2.stream_id = c.id AND e2.ts = agg.last_ts
           AND e2.kind IS NOT 'reaction'
         ORDER BY e2.id DESC LIMIT 1
       )
@@ -765,7 +850,7 @@ function statements(): IngestStatements {
     // the message stream (they attach to their target instead). external_id +
     // reply_to_* are selected so the reader can attach reactions and resolve the
     // quoted-reply block.
-    channelMessages: db.prepare(`
+    streamMessages: db.prepare(`
       SELECT
         e.id           AS id,
         e.external_id  AS external_id,
@@ -795,11 +880,11 @@ function statements(): IngestStatements {
         e.link_preview_type    AS link_preview_type,
         e.link_scraped_text    AS link_scraped_text,
         (a.source_ext_id IS NOT NULL
-           AND a.source_ext_id = (SELECT value FROM app_state WHERE key = 'whatsapp.self_jid'))
+           AND a.source_ext_id = ${SELF_IDENTITY_SQL})
                        AS from_me
       FROM events e
       LEFT JOIN actors a ON a.id = e.actor_id
-      WHERE e.channel_id = @channelId AND e.kind IS NOT 'reaction'
+      WHERE e.stream_id = @streamId AND e.kind IS NOT 'reaction'
       ORDER BY e.ts DESC, e.id DESC
       LIMIT @limit
     `),
@@ -809,7 +894,7 @@ function statements(): IngestStatements {
     // gap/overlap. Same DESC ordering as the latest window; the reader reverses to
     // ascending. A legacy bare-ts cursor arrives as @beforeId="" so the id branch
     // is never satisfied and this degrades to `e.ts < @beforeTs`.
-    channelMessagesBefore: db.prepare(`
+    streamMessagesBefore: db.prepare(`
       SELECT
         e.id           AS id,
         e.external_id  AS external_id,
@@ -839,11 +924,11 @@ function statements(): IngestStatements {
         e.link_preview_type    AS link_preview_type,
         e.link_scraped_text    AS link_scraped_text,
         (a.source_ext_id IS NOT NULL
-           AND a.source_ext_id = (SELECT value FROM app_state WHERE key = 'whatsapp.self_jid'))
+           AND a.source_ext_id = ${SELF_IDENTITY_SQL})
                        AS from_me
       FROM events e
       LEFT JOIN actors a ON a.id = e.actor_id
-      WHERE e.channel_id = @channelId
+      WHERE e.stream_id = @streamId
         AND e.kind IS NOT 'reaction'
         AND (e.ts < @beforeTs OR (e.ts = @beforeTs AND e.id < @beforeId))
       ORDER BY e.ts DESC, e.id DESC
@@ -853,18 +938,18 @@ function statements(): IngestStatements {
     // empty-text reaction from an actor (removal) supersedes their earlier one
     // during collapse. actor_ext_id disambiguates who reacted (used as the
     // collapse key); actor_name resolves the display name; from_me flags self.
-    channelReactions: db.prepare(`
+    streamReactions: db.prepare(`
       SELECT
         e.reply_to_external_id AS target_external_id,
         e.text                 AS emoji,
         a.source_ext_id        AS actor_ext_id,
         a.display_name         AS actor_name,
         (a.source_ext_id IS NOT NULL
-           AND a.source_ext_id = (SELECT value FROM app_state WHERE key = 'whatsapp.self_jid'))
+           AND a.source_ext_id = ${SELF_IDENTITY_SQL})
                        AS from_me
       FROM events e
       LEFT JOIN actors a ON a.id = e.actor_id
-      WHERE e.channel_id = @channelId
+      WHERE e.stream_id = @streamId
         AND e.kind = 'reaction'
         AND e.reply_to_external_id IS NOT NULL
       ORDER BY e.ts ASC, e.id ASC
@@ -877,14 +962,14 @@ function statements(): IngestStatements {
     searchEvents: db.prepare(`
       SELECT
         e.id           AS event_id,
-        e.channel_id   AS channel_id,
-        c.name         AS channel_name,
+        e.stream_id    AS stream_id,
+        c.label        AS stream_name,
         e.ts           AS ts,
         snippet(events_fts, -1, '[', ']', '…', 12) AS snippet,
         e.text         AS text
       FROM events_fts f
       JOIN events e   ON e.rowid = f.rowid
-      LEFT JOIN channels c ON c.id = e.channel_id
+      LEFT JOIN streams c ON c.id = e.stream_id
       WHERE events_fts MATCH @q
         AND e.kind IS NOT 'reaction'
       ORDER BY rank
@@ -919,11 +1004,20 @@ function statements(): IngestStatements {
         e.media_filename    AS filename,
         e.media_seconds     AS seconds,
         e.is_historical     AS is_historical,
+        e.ts                AS ts,
+        e.stream_id         AS stream_id,
+        s.tier              AS tier,
         CASE WHEN json_valid(e.media_meta_json)
           THEN json_extract(e.media_meta_json, '$.caption')
         END                 AS caption
       FROM events e
-      LEFT JOIN channels c ON c.id = e.channel_id
+      -- is_business still lives on the legacy channels mirror (same ids as
+      -- streams) until the flag moves onto streams itself.
+      LEFT JOIN channels c ON c.id = e.stream_id
+      -- The tier is the enrichment queue's PRIMARY key (arch §9.3): a
+      -- promotional blast from an hour ago is worth less than a friend's photo
+      -- from last week, and ordering without it is the FIFO defect.
+      LEFT JOIN streams s ON s.id = e.stream_id
       WHERE e.media_desc_status = 'pending'
         AND e.media_path IS NOT NULL
         AND e.revoked_at IS NULL
@@ -942,7 +1036,15 @@ function statements(): IngestStatements {
         AND (e.kind IS NOT 'video'
           OR e.media_thumb_path IS NOT NULL
           OR e.media_frames_json IS NOT NULL)
-      ORDER BY e.is_historical ASC,
+      -- The queue key, never FIFO (arch §9.2 rule 5): tier first, then the
+      -- kinds that can share a call, then recency. is_historical is NOT a sort
+      -- term — a live arrival pre-empts through the reader's live set, and
+      -- ordering by it here would let a live 2023 photo outrank an hour-old one.
+      ORDER BY CASE s.tier
+                 WHEN 'T1' THEN 4 WHEN 'T2' THEN 3
+                 WHEN 'T3' THEN 2 WHEN 'T4' THEN 1
+                 ELSE 2
+               END DESC,
                (e.kind NOT IN ('image', 'sticker')) ASC,
                e.ts DESC
       LIMIT @limit
@@ -1013,7 +1115,9 @@ function statements(): IngestStatements {
           THEN json_extract(e.media_meta_json, '$.voice')
         END              AS voice
       FROM events e
-      LEFT JOIN channels c ON c.id = e.channel_id
+      -- is_business still lives on the legacy channels mirror (same ids as
+      -- streams) until the flag moves onto streams itself.
+      LEFT JOIN channels c ON c.id = e.stream_id
       WHERE e.transcript_status = 'pending'
         AND e.media_path IS NOT NULL
         AND e.revoked_at IS NULL
@@ -1043,7 +1147,9 @@ function statements(): IngestStatements {
         e.link_url   AS url,
         e.link_title AS title
       FROM events e
-      LEFT JOIN channels c ON c.id = e.channel_id
+      -- is_business still lives on the legacy channels mirror (same ids as
+      -- streams) until the flag moves onto streams itself.
+      LEFT JOIN channels c ON c.id = e.stream_id
       WHERE e.link_scrape_status = 'pending'
         AND e.link_url IS NOT NULL
         AND e.revoked_at IS NULL
@@ -1078,7 +1184,10 @@ function statements(): IngestStatements {
               (@images    = 1 AND kind IN ('image', 'sticker'))
            OR (@video     = 1 AND kind = 'video')
            OR (@documents = 1 AND kind = 'document')
-           OR (@business  = 1 AND channel_id IN (
+           OR (@business  = 1 AND stream_id IN (
+                 -- is_business lives on the legacy channels mirror until the flag
+                 -- moves onto streams (the one column the fold has nowhere to put
+                 -- yet); the ids are identical, so the filter is the same set.
                  SELECT id FROM channels WHERE is_business = 1
                ))
          )
@@ -1133,13 +1242,15 @@ function statements(): IngestStatements {
     countSourceEvents: db.prepare(
       `SELECT COUNT(*) AS n FROM events WHERE source_id = ?`,
     ),
-    countSourceChannels: db.prepare(
-      `SELECT COUNT(*) AS n FROM channels WHERE source_id = ?`,
+    countSourceStreams: db.prepare(
+      `SELECT COUNT(*) AS n FROM streams WHERE source_id = ?`,
     ),
     countSourceActors: db.prepare(
       `SELECT COUNT(*) AS n FROM actors WHERE source_id = ?`,
     ),
     deleteSourceEvents: db.prepare(`DELETE FROM events WHERE source_id = ?`),
+    deleteSourceStreams: db.prepare(`DELETE FROM streams WHERE source_id = ?`),
+    // The legacy mirror goes with it (see upsertStream).
     deleteSourceChannels: db.prepare(`DELETE FROM channels WHERE source_id = ?`),
     deleteSourceActors: db.prepare(`DELETE FROM actors WHERE source_id = ?`),
     // People left with no remaining actors after the actor delete.
@@ -1153,7 +1264,7 @@ function statements(): IngestStatements {
   return stmts;
 }
 
-// ---- Sources / channels / actors ------------------------------------------
+// ---- Sources / streams / actors -------------------------------------------
 
 /** Upsert a source row (idempotent on id). */
 export function upsertSource(params: UpsertSourceParams): void {
@@ -1165,25 +1276,34 @@ export function upsertSource(params: UpsertSourceParams): void {
 }
 
 /**
- * Upsert a channel by (sourceId, sourceExtId) and return its id. Deterministic
- * id "<sourceId>:ch:<sourceExtId>" so re-upserts and lazy upserts converge.
+ * Upsert a stream by (sourceId, sourceExtId) and return its id. Deterministic
+ * id "<sourceId>:st:<sourceExtId>" so re-upserts and lazy upserts converge.
+ *
+ * Writes the canonical `streams` row AND the legacy `channels` mirror under the
+ * same id, in that order — see the statement comments. When the last V11 reader
+ * of `channels` is rewritten, the second write and the table go together.
  */
-export function upsertChannel(params: UpsertChannelParams): string {
+export function upsertStream(params: UpsertStreamParams): string {
   const s = statements();
-  const id = channelId(params.sourceId, params.sourceExtId);
-  s.upsertChannel.run({
+  const id = streamId(params.sourceId, params.sourceExtId);
+  const bind = {
     id,
     sourceId: params.sourceId,
     sourceExtId: params.sourceExtId,
     name: params.name ?? null,
     kind: params.kind ?? null,
     isBusiness: params.isBusiness ? 1 : 0,
-  });
-  const row = s.getChannelId.get(params.sourceId, params.sourceExtId) as
+  };
+  s.upsertStream.run(bind);
+  s.upsertChannel.run(bind);
+  const row = s.getStreamId.get(params.sourceId, params.sourceExtId) as
     | IdRow
     | undefined;
   return row?.id ?? id;
 }
+
+/** @deprecated One release only — the name `channel` is now `stream`. */
+export const upsertChannel = upsertStream;
 
 /**
  * Upsert an actor by (sourceId, sourceExtId), create+link a people row, and
@@ -1220,16 +1340,17 @@ export function upsertActor(params: UpsertActorParams): string {
 
 /**
  * Insert an event, deduping on (source_id, external_id). Returns whether a new
- * row was written. The id is deterministic (caller passes it via InsertEventRow
- * shape below), computed as `"wa:" + external_id` for whatsapp — see eventId().
+ * row was written. The id is deterministic: `"<source_id>:" + external_id` —
+ * see eventId(). Two sources may legitimately mint the same external_id, and
+ * the source id in front of it is what keeps them apart.
  */
 export function insertEvent(row: InsertEventRow): InsertEventResult {
-  const id = eventId(row.sourceType, row.externalId);
+  const id = eventId(row.sourceId, row.externalId);
   const info = statements().insertEvent.run({
     id,
     sourceId: row.sourceId,
     sourceType: row.sourceType,
-    channelId: row.channelId,
+    streamId: row.streamId,
     actorId: row.actorId,
     ts: row.ts,
     kind: row.kind,
@@ -1389,6 +1510,9 @@ export function claimPendingMedia(
     seconds: r.seconds,
     caption: r.caption,
     isHistorical: r.is_historical === 1,
+    ts: r.ts,
+    streamId: r.stream_id,
+    tier: r.tier,
   }));
 }
 
@@ -1741,8 +1865,8 @@ export function listInboxChats(opts?: {
  * builds the next (older) cursor from the FIRST element as `"<ts>|<id>"` and can
  * infer `hasMore` from `rows.length === limit`.
  */
-export function getChannelMessages(opts: {
-  channelId: string;
+export function getStreamMessages(opts: {
+  streamId: string;
   before?: string | null;
   limit?: number;
 }): InboxMessageRow[] {
@@ -1751,15 +1875,15 @@ export function getChannelMessages(opts: {
   let rows: RawInboxMessageRow[];
   if (opts.before) {
     const { beforeTs, beforeId } = parseBeforeCursor(opts.before);
-    rows = s.channelMessagesBefore.all({
-      channelId: opts.channelId,
+    rows = s.streamMessagesBefore.all({
+      streamId: opts.streamId,
       beforeTs,
       beforeId,
       limit,
     }) as RawInboxMessageRow[];
   } else {
-    rows = s.channelMessages.all({
-      channelId: opts.channelId,
+    rows = s.streamMessages.all({
+      streamId: opts.streamId,
       limit,
     }) as RawInboxMessageRow[];
   }
@@ -1771,8 +1895,8 @@ export function getChannelMessages(opts: {
   // Reactions (§R5.3): fetch every reaction row in this channel, collapse to
   // net-current state per (target, actor), and index by target external_id so
   // each message can pick up its own reactions below.
-  const reactionRows = s.channelReactions.all({
-    channelId: opts.channelId,
+  const reactionRows = s.streamReactions.all({
+    streamId: opts.streamId,
   }) as RawReactionRow[];
   const reactionsByTarget = collapseReactions(reactionRows);
 
@@ -1906,8 +2030,8 @@ export function searchEvents(opts: {
   }) as RawSearchRow[];
   return rows.map((r) => ({
     eventId: r.event_id,
-    channelId: r.channel_id,
-    channelName: r.channel_name,
+    streamId: r.stream_id,
+    streamName: r.stream_name,
     ts: r.ts,
     snippet: r.snippet,
     text: r.text,
@@ -1933,67 +2057,96 @@ export function appStateDelete(key: string): void {
 }
 
 /**
- * Clear the persisted import flags (Rev 2 §R2.1) WITHOUT wiping ingested data.
- * Used by standalone `logout` and `relink` (Rev 3 §R3.2) so onboarding restarts
- * from the range picker after the session is dropped.
+ * Read how "me" appears in a source, or null before it is known. This is what
+ * a manifest's `self_identity.value_getter` is built on (arch §2.2 note 4).
  */
-export function clearImportFlags(): void {
+export function selfIdentityValue(sourceId: string): string | null {
+  return appStateGet(selfIdentityKey(sourceId));
+}
+
+/** Record how "me" appears in a source (the daemon learns it at pairing). */
+export function setSelfIdentity(sourceId: string, value: string): void {
+  if (!value) return;
+  appStateSet(selfIdentityKey(sourceId), value);
+}
+
+/**
+ * Clear a source's persisted import flags (Rev 2 §R2.1) WITHOUT wiping ingested
+ * data. Used by standalone `logout` and `relink` (Rev 3 §R3.2) so onboarding
+ * restarts from the range picker after the session is dropped.
+ */
+export function clearImportFlags(sourceId: string): void {
   const s = statements();
-  s.appStateDelete.run(IMPORT_DONE_KEY);
-  s.appStateDelete.run(IMPORT_RANGE_KEY);
+  s.appStateDelete.run(importDoneKey(sourceId));
+  s.appStateDelete.run(importRangeKey(sourceId));
 }
 
 // ---- Reset (Rev 2 §R2.3) --------------------------------------------------
 
-export interface ResetWhatsappResult {
+export interface ResetSourceResult {
   events: number;
-  channels: number;
+  streams: number;
   actors: number;
 }
 
+/** @deprecated One release only — the name `channel` is now `stream`. */
+export type ResetWhatsappResult = ResetSourceResult;
+
 /**
- * Wipe all ingested data for a source (default "whatsapp") in a single
- * transaction and clear the persisted import flags. Deletes events (FTS
- * auto-syncs via the 0017_reply_fts triggers — we never touch events_fts), then
- * channels, then actors, then any people orphaned by the actor delete.
+ * Wipe all ingested data for ONE source in a single transaction and clear that
+ * source's persisted import flags (arch §3.3 leak 2 — the old helper was called
+ * `resetWhatsappData` and defaulted its own source id, so "reset" meant "reset
+ * WhatsApp" no matter who asked).
  *
- * Does NOT touch the whatsmeow session (that lives in the daemon's separate
- * whatsmeow.db). After reset, /status reports importDone:false so the UI
- * returns to the range picker. Returns the deleted-row counts.
+ * Deletes events (FTS auto-syncs via the 0017_reply_fts triggers — we never
+ * touch events_fts), then streams + the legacy channels mirror, then actors,
+ * then any people orphaned by the actor delete. Watermarks go with their
+ * streams (ON DELETE CASCADE).
+ *
+ * Does NOT touch the source's own session store (whatsmeow keeps its own DB).
+ * After reset, /status reports importDone:false so the UI returns to the range
+ * picker. Returns the deleted-row counts.
  */
-export function resetWhatsappData(
-  sourceId = "whatsapp",
-): ResetWhatsappResult {
+export function resetSourceData(sourceId: string): ResetSourceResult {
   const s = statements();
-  const tx = s.db.transaction((): ResetWhatsappResult => {
+  const tx = s.db.transaction((): ResetSourceResult => {
     const events = (s.countSourceEvents.get(sourceId) as { n: number }).n;
-    const channels = (s.countSourceChannels.get(sourceId) as { n: number }).n;
+    const streams = (s.countSourceStreams.get(sourceId) as { n: number }).n;
     const actors = (s.countSourceActors.get(sourceId) as { n: number }).n;
 
     s.deleteSourceEvents.run(sourceId);
+    s.deleteSourceStreams.run(sourceId);
     s.deleteSourceChannels.run(sourceId);
     s.deleteSourceActors.run(sourceId);
     s.deleteOrphanPeople.run();
 
-    s.appStateDelete.run(IMPORT_DONE_KEY);
-    s.appStateDelete.run(IMPORT_RANGE_KEY);
+    s.appStateDelete.run(importDoneKey(sourceId));
+    s.appStateDelete.run(importRangeKey(sourceId));
 
-    return { events, channels, actors };
+    return { events, streams, actors };
   });
   return tx();
 }
 
 // ---- Deterministic id helpers ---------------------------------------------
 
-export function eventId(sourceType: string, externalId: string): string {
-  // Contract §5: whatsapp events use id = "wa:" + external_id.
-  if (sourceType === "whatsapp") return `wa:${externalId}`;
-  return `${sourceType}:${externalId}`;
+/**
+ * `<source_id>:<external_id>` (arch §3.3 leak 1). The old hardcoded `wa:`
+ * prefix was the same leak as the reset helper and the app_state keys: an id
+ * space with one source's nickname baked into it, which the second source can
+ * only join by pretending to be the first.
+ */
+export function eventId(sourceId: string, externalId: string): string {
+  return `${sourceId}:${externalId}`;
 }
 
-export function channelId(sourceId: string, sourceExtId: string): string {
-  return `${sourceId}:ch:${sourceExtId}`;
+/** `<source_id>:st:<external_key>` — one lane inside a source (arch §6). */
+export function streamId(sourceId: string, sourceExtId: string): string {
+  return `${sourceId}:st:${sourceExtId}`;
 }
+
+/** @deprecated One release only — the name `channel` is now `stream`. */
+export const channelId = streamId;
 
 export function actorId(sourceId: string, sourceExtId: string): string {
   return `${sourceId}:ac:${sourceExtId}`;

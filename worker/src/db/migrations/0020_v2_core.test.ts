@@ -97,8 +97,12 @@ describe("0020_v2_core applies", () => {
   it("is registered in MIGRATIONS and recorded once on a fresh db", () => {
     const ids = MIGRATIONS.map((m) => m.id);
     expect(ids).toContain("0022_v2_core");
-    // Last: the body ALTERs events and drops what earlier ids created.
-    expect(ids[ids.length - 1]).toBe("0022_v2_core");
+    // Last of the REBUILDING migrations: the body ALTERs events and drops what
+    // earlier ids created, so nothing that reshapes a table may precede it.
+    // What follows it only ADDS to the schema it leaves behind — today that is
+    // 0023_stream_tiers (build item 1.2), whose columns hang off `streams`,
+    // which this migration is what creates.
+    expect(ids.slice(ids.indexOf("0022_v2_core") + 1)).toEqual(["0023_stream_tiers"]);
 
     expect(
       (

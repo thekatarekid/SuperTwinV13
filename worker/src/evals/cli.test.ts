@@ -70,9 +70,9 @@ describe("npm run eval", () => {
     expect(text).toContain("fixtures: 1000 loaded");
     expect(text).toContain("no network calls");
     expect(text).toContain("GATES (architecture §14.2)");
-    // S, U and V are authored and run; the other 19 categories are still stubs.
-    expect(text).toContain("PENDING (920)");
-    expect(text).toContain("cases:    1000 · pass 80 · fail 0 · pending 920");
+    // A–I, O, S, T, U and V are authored and run; the other 8 are stubs.
+    expect(text).toContain("PENDING (420)");
+    expect(text).toContain("cases:    1000 · pass 580 · fail 0 · pending 420");
   });
 
   it("goes green on the self-test directory", async () => {

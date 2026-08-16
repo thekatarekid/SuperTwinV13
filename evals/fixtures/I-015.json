@@ -18,13 +18,20 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "group|as=g1|src=whatsapp|v=1203630115@g.us|name=Society|sub=community|members=a1=jid:919800000005@s.whatsapp.net",
+  "expect": {
+    "state": {
+      "metadata_edges": 1,
+      "edges_written": 1,
+      "model_calls": 0,
+      "entity_count": 2
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "entities_edge_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "group Society participant list includes Hrishikesh",
     "expect": "L ... aff/member ... [CODE] conf 1.0, ZERO model calls",

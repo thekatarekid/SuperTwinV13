@@ -14,6 +14,7 @@
 // ===========================================================================
 
 import { V2_CORE } from "./migrations/0020_v2_core.js";
+import { STREAM_TIERS } from "./migrations/0023_stream_tiers.js";
 
 export interface Migration {
   id: string;
@@ -899,4 +900,7 @@ export const MIGRATIONS: Migration[] = [
   // array is the apply order, and this one has to be LAST — it rebuilds `events`
   // and drops the legacy ontology the ids above created).
   { id: "0022_v2_core", sql: V2_CORE },
+  // streams.tier + its provenance (arch §9.3, build item 1.2). After
+  // 0022_v2_core because that is the migration that creates `streams`.
+  { id: "0023_stream_tiers", sql: STREAM_TIERS },
 ];

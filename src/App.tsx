@@ -2,8 +2,10 @@ import { useState } from "react";
 import { InboxTab } from "./tabs/InboxTab";
 import { ChatTab } from "./tabs/ChatTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { EntitiesTab } from "./tabs/EntitiesTab";
+import { SessionsTab } from "./tabs/SessionsTab";
 
-type TabId = "inbox" | "chat" | "settings";
+type TabId = "inbox" | "chat" | "entities" | "sessions" | "settings";
 
 interface TabDef {
   id: TabId;
@@ -35,6 +37,20 @@ const ICONS: Record<TabId, JSX.Element> = {
       <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
     </svg>
   ),
+  entities: (
+    <svg {...ICON_PROPS}>
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  sessions: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
   settings: (
     <svg {...ICON_PROPS}>
       <circle cx="12" cy="12" r="3" />
@@ -46,6 +62,8 @@ const ICONS: Record<TabId, JSX.Element> = {
 const TABS: TabDef[] = [
   { id: "inbox", label: "Inbox", icon: ICONS.inbox },
   { id: "chat", label: "Chat", icon: ICONS.chat },
+  { id: "entities", label: "Entities", icon: ICONS.entities },
+  { id: "sessions", label: "Sessions", icon: ICONS.sessions },
   { id: "settings", label: "Settings", icon: ICONS.settings },
 ];
 
@@ -97,6 +115,8 @@ export function App() {
         {active === "chat" && (
           <ChatTab onOpenSettings={() => setActive("settings")} />
         )}
+        {active === "entities" && <EntitiesTab />}
+        {active === "sessions" && <SessionsTab />}
         {active === "settings" && <SettingsTab />}
       </main>
     </div>

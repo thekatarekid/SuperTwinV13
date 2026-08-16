@@ -5,9 +5,43 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a20=HDFC Bank"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "HDFC Bank",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "Rs.3398.23 debited from a/c XX4412 on 11-Aug toward Axis Max Life premium",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Your card ending 8891 was used for Rs.1,499 at ACT FIBERNET",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Statement for Aug is ready. Total due Rs.24,110 by 05-Sep",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +52,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T2",
+      "stored_tier": "T2",
+      "rule": "business_tx_code",
+      "tier_source": "code",
+      "is_business": true,
+      "is_group": false,
+      "model_calls": 0,
+      "ambiguous_channels": 0,
+      "confidence": 0.95,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "tiers_all_assigned"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "HDFC Bank sample: order id + amount + due date, user-specific",
     "expect": "tier=T2",

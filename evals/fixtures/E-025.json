@@ -5,9 +5,45 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "s1",
+        "name": "Screen",
+        "kind": "sensor",
+        "participants": [
+          "self"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:01:31.000Z",
+        "who": "screen",
+        "text": "",
+        "kind": "frame",
+        "phash": "ffffffffffffffff",
+        "context": "app:chrome"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +54,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "set_equal",
-    "gate": "sessions_boundary_f1"
+  "frozen_response": "policy|kind=ambient|silence_ms=90000|ceiling_ms=900000|active_cap_ms=600000\nstream|key=s1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "cut": true,
+      "boundary": "context_shift",
+      "measured": {
+        "silence_ms": 91000,
+        "threshold_ms": 90000
+      }
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
   "doc": {
     "given": "ambient: silence 91s between speech",
     "expect": "CUT context_shift",

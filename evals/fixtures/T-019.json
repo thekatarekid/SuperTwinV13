@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "delta|messages=40",
+  "expect": {
+    "quadratic_growth": []
+  },
   "assert": {
     "mode": "absent",
-    "gate": null
+    "gate": "sched_live_pass_is_delta"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "live pass on a 40-message session",
     "expect": "DELTA only; tokens O(n) not O(n^2)",

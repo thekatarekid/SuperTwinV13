@@ -18,13 +18,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "request|call=enrich",
+  "expect": {
+    "deferred": [
+      "enrich"
+    ],
+    "executed": []
+  },
   "assert": {
     "mode": "set_equal",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "media enrichment on the first-paint path",
     "expect": "FAIL — must be deferred",

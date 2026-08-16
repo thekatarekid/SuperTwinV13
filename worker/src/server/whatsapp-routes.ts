@@ -1,18 +1,27 @@
 // ===========================================================================
-// WhatsApp + Inbox HTTP/SSE routes (docs/PHASE1_CONTRACT §6).
+// Source + Inbox HTTP/SSE routes (docs/PHASE1_CONTRACT §6; arch §3.3 leak 4).
 //
 // Additive route module mounted by server/index.ts. Every handler returns true
 // if it handled the request (so the caller can stop), false otherwise (so the
 // caller falls through to the next router / 404). No Phase-0 route is touched.
 //
+// The control routes are namespaced by SOURCE. `/api/whatsapp/*` named one
+// source in the URL of every client that would ever talk to any source; the
+// path now carries the id instead, and the old spelling survives as an alias
+// for exactly one release so the UI can be rewritten separately.
+//
 // Routes:
-//   GET  /api/whatsapp/status
-//   GET  /api/whatsapp/stream            (SSE: status|qr|progress|paired|error)
-//   POST /api/whatsapp/pair
-//   POST /api/whatsapp/import   { range }
-//   POST /api/whatsapp/extend   { range }
-//   POST /api/whatsapp/pause    { paused }
-//   POST /api/whatsapp/logout
+//   GET  /api/sources                             (registered sources)
+//   GET  /api/sources/:source_id/status
+//   GET  /api/sources/:source_id/stream  (SSE: status|qr|progress|paired|error)
+//   POST /api/sources/:source_id/pair
+//   POST /api/sources/:source_id/import   { range }
+//   POST /api/sources/:source_id/extend   { range }
+//   POST /api/sources/:source_id/pause    { paused }
+//   POST /api/sources/:source_id/logout
+//   POST /api/sources/:source_id/relink
+//   POST /api/sources/:source_id/reset
+//   ALIAS (one release) /api/whatsapp/<action> == /api/sources/whatsapp/<action>
 //   GET  /api/inbox/chats                ?limit&offset
 //   GET  /api/inbox/chats/:id/messages   ?before&limit
 //   GET  /api/inbox/search               ?q&limit
@@ -28,13 +37,14 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
 
+import { registeredSources } from "../adapters/registry.js";
 import { isRange, type StatusUpdate } from "../adapters/types.js";
 import type { Ingestion } from "../ingest/index.js";
 import {
-  getChannelMessages,
   getEventById,
+  getStreamMessages,
   listInboxChats,
-  resetWhatsappData,
+  resetSourceData,
   searchEvents,
   type EventMediaRow,
 } from "../db/ingest.js";
@@ -99,10 +109,35 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
- * Handle a WhatsApp/Inbox/media request. Returns true if handled.
+ * One source control request: `/api/sources/:source_id/<action>`, or the
+ * legacy `/api/whatsapp/<action>` spelling of the same thing.
+ */
+interface SourceRoute {
+  sourceId: string;
+  action: string;
+  /** True when the caller used the old, source-named path. */
+  alias: boolean;
+}
+
+const SOURCE_PATH = /^\/api\/sources\/([^/]+)\/([^/]+)$/;
+/** @deprecated One release only (arch §3.3 leak 4). */
+const LEGACY_WHATSAPP_PATH = /^\/api\/whatsapp\/([^/]+)$/;
+
+export function matchSourceRoute(path: string): SourceRoute | null {
+  const canonical = SOURCE_PATH.exec(path);
+  if (canonical) {
+    return { sourceId: decodeURIComponent(canonical[1]), action: canonical[2], alias: false };
+  }
+  const legacy = LEGACY_WHATSAPP_PATH.exec(path);
+  if (legacy) return { sourceId: "whatsapp", action: legacy[1], alias: true };
+  return null;
+}
+
+/**
+ * Handle a source/Inbox/media request. Returns true if handled.
  * `ingestion` may be null if the adapter failed to init — status still works.
  */
-export async function handleWhatsAppRoute(
+export async function handleSourceRoute(
   req: IncomingMessage,
   res: ServerResponse,
   ingestion: Ingestion | null,
@@ -111,92 +146,123 @@ export async function handleWhatsAppRoute(
   const path = url.pathname;
   const method = req.method ?? "GET";
 
-  // ---- GET /api/whatsapp/status
-  if (method === "GET" && path === "/api/whatsapp/status") {
-    sendJson(res, 200, ingestion ? ingestion.getStatus() : offlineStatus());
+  // ---- GET /api/sources — what is registered (arch §2.2 note 5).
+  if (method === "GET" && path === "/api/sources") {
+    sendJson(
+      res,
+      200,
+      registeredSources().map((entry) => ({
+        source_id: entry.manifest.source_id,
+        display_name: entry.manifest.display_name,
+        actor_model: entry.manifest.actor_model,
+        backfill_order: entry.manifest.capabilities.backfill_order,
+        identities_emitted: entry.manifest.identities_emitted,
+      })),
+    );
     return true;
   }
 
-  // ---- GET /api/whatsapp/stream (SSE)
-  if (method === "GET" && path === "/api/whatsapp/stream") {
-    handleStream(req, res, ingestion);
-    return true;
-  }
-
-  // ---- POST /api/whatsapp/pair
-  if (method === "POST" && path === "/api/whatsapp/pair") {
-    if (!ingestion) return notReady(res);
-    await ingestion.pair();
-    sendJson(res, 200, { ok: true });
-    return true;
-  }
-
-  // ---- POST /api/whatsapp/import { range }
-  if (method === "POST" && path === "/api/whatsapp/import") {
-    if (!ingestion) return notReady(res);
-    const body = (await readJsonBody(req)) as { range?: unknown } | undefined;
-    if (!body || !isRange(body.range)) {
-      sendJson(res, 400, { error: "valid range required" });
+  const route = matchSourceRoute(path);
+  if (route) {
+    // A control route names its source. Serving another source's request under
+    // this adapter would be worse than a 404: it would silently pause, reset or
+    // re-link the wrong one.
+    if (ingestion && route.sourceId !== ingestion.sourceId && route.action !== "status") {
+      sendJson(res, 404, { error: `unknown source ${JSON.stringify(route.sourceId)}` });
       return true;
     }
-    await ingestion.importRange(body.range);
-    sendJson(res, 200, { ok: true });
-    return true;
-  }
 
-  // ---- POST /api/whatsapp/extend { range }
-  if (method === "POST" && path === "/api/whatsapp/extend") {
-    if (!ingestion) return notReady(res);
-    const body = (await readJsonBody(req)) as { range?: unknown } | undefined;
-    if (!body || !isRange(body.range)) {
-      sendJson(res, 400, { error: "valid range required" });
-      return true;
+    switch (`${method} ${route.action}`) {
+      // ---- GET status
+      case "GET status":
+        sendJson(res, 200, ingestion ? ingestion.getStatus() : offlineStatus());
+        return true;
+
+      // ---- GET stream (SSE)
+      case "GET stream":
+        handleStream(req, res, ingestion);
+        return true;
+
+      // ---- POST pair
+      case "POST pair": {
+        if (!ingestion) return notReady(res);
+        await ingestion.pair();
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      // ---- POST import { range }
+      case "POST import": {
+        if (!ingestion) return notReady(res);
+        const body = (await readJsonBody(req)) as { range?: unknown } | undefined;
+        if (!body || !isRange(body.range)) {
+          sendJson(res, 400, { error: "valid range required" });
+          return true;
+        }
+        await ingestion.importRange(body.range);
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      // ---- POST extend { range }
+      case "POST extend": {
+        if (!ingestion) return notReady(res);
+        const body = (await readJsonBody(req)) as { range?: unknown } | undefined;
+        if (!body || !isRange(body.range)) {
+          sendJson(res, 400, { error: "valid range required" });
+          return true;
+        }
+        await ingestion.extend(body.range);
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      // ---- POST pause { paused }
+      case "POST pause": {
+        if (!ingestion) return notReady(res);
+        const body = (await readJsonBody(req)) as { paused?: unknown } | undefined;
+        const paused = Boolean(body && (body as { paused?: unknown }).paused);
+        await ingestion.setPaused(paused);
+        sendJson(res, 200, { ok: true, paused });
+        return true;
+      }
+
+      // ---- POST logout
+      // Standalone unlink. ingestion.logout() also clears the import flags (R3.2)
+      // so onboarding restarts from the range picker once the daemon re-pairs.
+      case "POST logout": {
+        if (!ingestion) return notReady(res);
+        await ingestion.logout();
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      // ---- POST relink (Rev 3 §R3.2)
+      // Full clean re-sync: (1) wipe this source's ingested data, (2) clear the
+      // import flags, (3) send `logout` to the daemon (it clears its session +
+      // exits 0; the adapter restarts it fresh into pairing).
+      case "POST relink": {
+        if (!ingestion) return notReady(res);
+        await ingestion.relink();
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      // ---- POST reset (Rev 2 §R2.3)
+      // Wipe this source's ingested data + import flags. Keeps its session.
+      case "POST reset": {
+        const cleared = resetSourceData(route.sourceId);
+        // Also clear the adapter's in-memory import state so /status immediately
+        // reports importDone:false (the DB flags were cleared inside the tx).
+        ingestion?.clearImportState();
+        // `channels` mirrors `streams` for one release — the UI still reads it.
+        sendJson(res, 200, { ok: true, cleared: { ...cleared, channels: cleared.streams } });
+        return true;
+      }
+
+      default:
+        break;
     }
-    await ingestion.extend(body.range);
-    sendJson(res, 200, { ok: true });
-    return true;
-  }
-
-  // ---- POST /api/whatsapp/pause { paused }
-  if (method === "POST" && path === "/api/whatsapp/pause") {
-    if (!ingestion) return notReady(res);
-    const body = (await readJsonBody(req)) as { paused?: unknown } | undefined;
-    const paused = Boolean(body && (body as { paused?: unknown }).paused);
-    await ingestion.setPaused(paused);
-    sendJson(res, 200, { ok: true, paused });
-    return true;
-  }
-
-  // ---- POST /api/whatsapp/logout
-  // Standalone unlink. ingestion.logout() also clears the import flags (R3.2)
-  // so onboarding restarts from the range picker once the daemon re-pairs.
-  if (method === "POST" && path === "/api/whatsapp/logout") {
-    if (!ingestion) return notReady(res);
-    await ingestion.logout();
-    sendJson(res, 200, { ok: true });
-    return true;
-  }
-
-  // ---- POST /api/whatsapp/relink (Rev 3 §R3.2)
-  // Full clean re-sync: (1) wipe ingested whatsapp data, (2) clear import flags,
-  // (3) send `logout` to the daemon (it clears its session + exits 0; the adapter
-  // restarts it fresh into pairing). Status: logged_out -> need_pairing.
-  if (method === "POST" && path === "/api/whatsapp/relink") {
-    if (!ingestion) return notReady(res);
-    await ingestion.relink();
-    sendJson(res, 200, { ok: true });
-    return true;
-  }
-
-  // ---- POST /api/whatsapp/reset (Rev 2 §R2.3)
-  // Wipe ingested whatsapp data + import flags. Keeps the whatsmeow session.
-  if (method === "POST" && path === "/api/whatsapp/reset") {
-    const cleared = resetWhatsappData("whatsapp");
-    // Also clear the adapter's in-memory import state so /status immediately
-    // reports importDone:false (the DB flags were cleared inside the tx above).
-    ingestion?.clearImportState();
-    sendJson(res, 200, { ok: true, cleared });
-    return true;
   }
 
   // ---- GET /api/inbox/chats
@@ -211,10 +277,10 @@ export async function handleWhatsAppRoute(
   // ---- GET /api/inbox/chats/:id/messages
   const msgMatch = /^\/api\/inbox\/chats\/([^/]+)\/messages$/.exec(path);
   if (method === "GET" && msgMatch) {
-    const channelId = decodeURIComponent(msgMatch[1]);
+    const streamId = decodeURIComponent(msgMatch[1]);
     const before = url.searchParams.get("before");
     const limit = numParam(url, "limit");
-    const page = getChannelMessages({ channelId, before, limit });
+    const page = getStreamMessages({ streamId, before, limit });
     const rows = page.map((m) => ({
       id: m.id,
       ts: m.ts,
@@ -294,7 +360,13 @@ export async function handleWhatsAppRoute(
   if (method === "GET" && path === "/api/inbox/search") {
     const q = url.searchParams.get("q") ?? "";
     const limit = numParam(url, "limit");
-    const rows = searchEvents({ q, limit });
+    // `channelId`/`channelName` mirror the stream fields for one release, so the
+    // UI keeps rendering hits while it is rewritten (arch §3.3 leak 6).
+    const rows = searchEvents({ q, limit }).map((hit) => ({
+      ...hit,
+      channelId: hit.streamId,
+      channelName: hit.streamName,
+    }));
     sendJson(res, 200, rows);
     return true;
   }
@@ -452,12 +524,12 @@ function offlineStatus() {
     state: "error" as const,
     paired: false,
     paused: false,
-    lastError: { code: "NO_ADAPTER", message: "whatsapp adapter not initialized" },
+    lastError: { code: "NO_ADAPTER", message: "source adapter not initialized" },
   };
 }
 
 function notReady(res: ServerResponse): boolean {
-  sendJson(res, 503, { error: "whatsapp adapter not initialized" });
+  sendJson(res, 503, { error: "source adapter not initialized" });
   return true;
 }
 

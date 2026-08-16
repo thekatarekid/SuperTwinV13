@@ -15,12 +15,42 @@
 import { registerExecutor } from "../runner.js";
 import { accountingExecutor } from "./accounting.js";
 import { calibExecutor } from "./calib.js";
+import { edgesExecutor } from "./edges.js";
+import { entitiesExecutor } from "./entities.js";
+import { enrichmentExecutor } from "./enrichment.js";
+import { ingestExecutor } from "./ingest.js";
+import { mentionsExecutor } from "./mentions.js";
+import { partyExecutor } from "./party.js";
+import { schedulerExecutor } from "./scheduler.js";
+import { sessionsExecutor } from "./sessions.js";
+import { tiersExecutor } from "./tiers.js";
 import { wireExecutor } from "./wire.js";
 
-export { accountingExecutor, calibExecutor, wireExecutor };
+export {
+  accountingExecutor,
+  calibExecutor,
+  edgesExecutor,
+  entitiesExecutor,
+  ingestExecutor,
+  mentionsExecutor,
+  partyExecutor,
+  schedulerExecutor,
+  sessionsExecutor,
+  tiersExecutor,
+  wireExecutor,
+};
 
 /** Layer → executor, for the layers that have product code behind them today. */
 export const PRODUCT_EXECUTORS = {
+  ingest: ingestExecutor,
+  enrichment: enrichmentExecutor,
+  tiers: tiersExecutor,
+  party: partyExecutor,
+  sessions: sessionsExecutor,
+  scheduler: schedulerExecutor,
+  entities: entitiesExecutor,
+  mentions: mentionsExecutor,
+  edges: edgesExecutor,
   wire: wireExecutor,
   accounting: accountingExecutor,
   calib: calibExecutor,

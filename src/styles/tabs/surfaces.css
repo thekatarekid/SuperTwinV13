@@ -1,0 +1,309 @@
+/* ==========================================================================
+   Shared surface chrome — arch §14. Every one of the eight surfaces is the
+   same page: a coverage meter, a filter head, a mutation-receipt strip, and a
+   scrolling list of cards. The parts that differ live in entities.css and
+   sessions.css; everything here is deliberately shared so two surfaces cannot
+   drift into looking like two products.
+   ========================================================================== */
+
+.content:has(.surface) {
+  padding: 0;
+}
+
+.surface {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) 0;
+  background: var(--surface);
+  border-radius: inherit;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  color: var(--text);
+}
+
+/* ---- The coverage meter (§14.0) ---------------------------------------
+   Rendered on every surface by SurfaceCoverage. It reads as system chrome,
+   not as content: a single warm band above the page's own title. */
+.coverage-meter {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  background: linear-gradient(180deg, var(--bg-peach) 0%, var(--bg-wash) 100%);
+  border: 1px solid var(--border-peach);
+  border-radius: var(--radius-card);
+  font-size: 12px;
+  color: var(--text-warm-label);
+}
+
+.coverage-meter__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-display);
+}
+
+.coverage-meter__spinner {
+  color: var(--accent);
+}
+
+.coverage-meter__horizons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.coverage-meter__horizon--done {
+  color: var(--success);
+}
+
+.coverage-meter__horizon--partial {
+  color: var(--accent);
+}
+
+.coverage-meter__queued,
+.coverage-meter__foot {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* §14.0 rule 2: a paused lane is LOUD. A mid-run system that looks like a
+   silent failure is itself a shipped defect. */
+.coverage-meter__paused {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-chip);
+  background: var(--error-bg);
+  color: var(--error);
+  font-weight: 600;
+}
+
+/* ---- Head: title, filters, tools -------------------------------------- */
+.surface__head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.surface__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 30px;
+  letter-spacing: -0.01em;
+  color: var(--text-display);
+}
+
+.surface__tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.surface__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px;
+  background: var(--well);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.surface__search input {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  min-width: 180px;
+}
+
+.surface__filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.surface__filter select,
+.surface__filter input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  padding: 5px 8px;
+}
+
+.surface__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.surface__toggle {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-peach);
+  background: var(--surface);
+  color: var(--warn);
+  transition: var(--transition-press);
+}
+
+.surface__toggle:hover {
+  background: var(--accent-tint);
+}
+
+.surface__toggle--on {
+  background: var(--accent-tint-strong);
+  border-color: var(--accent-border);
+  color: var(--text-display);
+  font-weight: 600;
+}
+
+/* ---- Mutation receipts -------------------------------------------------
+   Every gesture writes a `mutations(actor:user)` row; the receipt is printed
+   so a write that did not happen cannot look like one that did. */
+.receipts {
+  flex: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.receipt {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--success);
+  background: var(--success-bg);
+  border-radius: var(--radius-chip);
+  padding: 3px 8px;
+}
+
+.surface__error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+  background: var(--error-bg);
+  color: var(--error);
+  font-size: 13px;
+}
+
+.surface__empty {
+  margin: 0;
+  padding: var(--space-6) 0;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+/* ---- Card list, shared by both surfaces -------------------------------- */
+.entity-list,
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.entity,
+.session {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---- Provisional and retracted (§14.0b) --------------------------------
+   Live output is marked, not hidden; and when it goes away it is struck
+   through and labelled rather than deleted under the reader. */
+.entity--provisional,
+.session--open {
+  border-left: 3px solid var(--accent);
+}
+
+.entity__provisional,
+.session__live {
+  color: var(--accent);
+  font-size: 12px;
+  margin: 0;
+}
+
+.entity--retracted,
+.session--retracted {
+  opacity: 0.72;
+  border-style: dashed;
+  background: var(--well);
+}
+
+.entity--retracted .entity__name,
+.session--retracted .session__where,
+.session--retracted .session__when {
+  text-decoration: line-through;
+}
+
+.entity__retracted,
+.session__retracted {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warn);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+.surface button {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  transition: var(--transition-press);
+}
+
+.surface button:hover:not(:disabled) {
+  background: var(--accent-tint);
+  border-color: var(--accent-border);
+}
+
+.surface button:disabled {
+  cursor: not-allowed;
+  color: var(--text-faint);
+  background: var(--well);
+}

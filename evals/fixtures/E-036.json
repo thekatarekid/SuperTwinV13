@@ -5,9 +5,36 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "k1",
+        "name": "Calendar",
+        "kind": "calendar",
+        "participants": [
+          "self"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T08:35:00.000Z",
+        "who": "self",
+        "text": "Flight 14:05-15:20",
+        "kind": "calendar",
+        "ts_end": "2026-08-10T09:50:00.000Z",
+        "record_id": "rec1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +45,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "sessions_boundary_f1"
+  "frozen_response": "policy|kind=bounded\nstream|key=k1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 1,
+      "starts": [
+        "record_bounded"
+      ],
+      "started_at": [
+        "2026-08-10T08:35:00.000Z"
+      ],
+      "ended_at": [
+        "2026-08-10T09:50:00.000Z"
+      ],
+      "policy_caps_apply": false
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
   "doc": {
     "given": "calendar event 'Flight 14:05-15:20'",
     "expect": "session = the record; boundary=record_bounded",

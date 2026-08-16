@@ -5,9 +5,40 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "the flight lands at 6"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:01:00.000Z",
+        "who": "a1",
+        "text": "perfect, see you then"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +49,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata\nseal\nnow|at=2026-08-10T07:00:00.000Z\nedit|on=e1|id=edit4|text=actually 10",
+  "expect": {
+    "state": {
+      "was_sealed": true,
+      "mutated_in_place": false,
+      "superseded": true,
+      "membership_changed": false,
+      "attached_to_parent": true,
+      "superseded_hash_set": true,
+      "hash_moved": true,
+      "event_counts": [
+        2
+      ],
+      "sessions": 1
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "edit arrives AFTER seal",
     "expect": "store; attach to parent; set superseded_hash; membership unchanged",

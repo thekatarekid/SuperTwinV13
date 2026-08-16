@@ -5,9 +5,29 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Mansi"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Mansi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "ask Mansi about Gargi's 40th",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,18 +38,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "budget",
-    "bound": {
-      "value": {
-        "min": 0.9
+  "frozen_response": "#WIRE\nM|1|Mansi|a1|0.95",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "Mansi",
+        "entity": "a1",
+        "confidence": 0.95,
+        "hint": null,
+        "decided_by": "llm:p-ep1"
       }
-    },
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
     "gate": "entities_mention_linking"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "msg: 'ask Mansi about the Gargi's 40th'",
     "expect": "M/<ev>/Mansi/a<k>/>=0.9",

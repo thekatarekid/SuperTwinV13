@@ -5,9 +5,43 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a20=Amazon"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Amazon",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "Your order 402-8817263-1194728 is out for delivery",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Your order 402-8817263-1194728 has been delivered",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Payment of Rs.2,340 received. Amount due Rs.0 by 20-Aug",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +52,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T2",
+      "stored_tier": "T2",
+      "rule": "business_tx_code",
+      "tier_source": "code",
+      "is_business": true,
+      "is_group": false,
+      "model_calls": 0,
+      "ambiguous_channels": 0,
+      "confidence": 0.95,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "tiers_all_assigned"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "Amazon sample: order id + amount + due date, user-specific",
     "expect": "tier=T2",

@@ -18,13 +18,17 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "prewarm|spawn_ms=0|ready_ms=1400|clock_ms=1500",
+  "expect": {
+    "prewarm": [
+      "paid_before_clock"
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "CLI child at connect time",
     "expect": "pre-warmed before the clock starts",

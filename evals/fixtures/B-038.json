@@ -5,9 +5,50 @@
   "call": "P-TI1",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a20=Swiggy"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Swiggy",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "FLAT 50% OFF on your next 3 orders! Use code SWIGGY50",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Limited time - free delivery on orders above Rs.199. Order now",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Biggest sale of the season is live. Unsubscribe to stop these",
+        "c": "c1"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-14T11:15+05:30",
+        "who": "a20",
+        "text": "Your order 8827361 from Empire has been delivered",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +59,28 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "assign\n#TI1\nJ|c1|tx|0.88|the sender does both; under-prioritising a real bill is the more expensive mistake",
+  "expect": {
+    "state": {
+      "tier": "T2",
+      "stored_tier": "T2",
+      "rule": "business_tx_model",
+      "tier_source": "p-ti1",
+      "verdict": "transactional",
+      "verdict_class": "tx",
+      "confidence": 0.88,
+      "meets_confidence_floor": true,
+      "ambiguous_channels": 1,
+      "model_calls": 1,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "tiers_all_assigned"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "business channel sends both offers and one delivery notice",
     "expect": "tx (under-prioritising a real bill is the costlier error)",

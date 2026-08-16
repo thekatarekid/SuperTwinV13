@@ -8,3 +8,6 @@
 @import "./styles/tabs/inbox.css";
 @import "./styles/tabs/chat.css";
 @import "./styles/tabs/settings.css";
+@import "./styles/tabs/surfaces.css";
+@import "./styles/tabs/entities.css";
+@import "./styles/tabs/sessions.css";

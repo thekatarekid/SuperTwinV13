@@ -5,9 +5,29 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rajat"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rajat",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "match starts at 7:30",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +38,26 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T1",
+      "stored_tier": "T1",
+      "rule": "dm_person",
+      "tier_source": "code",
+      "is_group": false,
+      "is_business": false,
+      "model_calls": 0,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed",
+      "unassigned": []
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "tiers_all_assigned"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "1:1 DM with Rajat, is_business=false",
     "expect": "tier=T1",

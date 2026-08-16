@@ -5,9 +5,66 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul",
+      "a2=Gargi"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Cousins",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "who all are coming",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:12+05:30",
+        "who": "a2",
+        "text": "im in",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T09:14+05:30",
+        "who": "a1",
+        "text": "booking it then",
+        "c": "c1"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-14T10:10+05:30",
+        "who": "self",
+        "text": "yes count me in",
+        "c": "c1"
+      },
+      {
+        "n": 5,
+        "ts": "2026-08-14T10:12+05:30",
+        "who": "self",
+        "text": "ill bring the speaker",
+        "c": "c1"
+      },
+      {
+        "n": 6,
+        "ts": "2026-08-14T10:14+05:30",
+        "who": "self",
+        "text": "reaching by 6",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +75,25 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T1",
+      "stored_tier": "T1",
+      "rule": "group_engaged",
+      "tier_source": "code",
+      "is_group": true,
+      "user_messages": 3,
+      "model_calls": 0,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
   "assert": {
     "mode": "state",
     "gate": "tiers_all_assigned"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "group Cousins, user has 3 messages in it",
     "expect": "tier=T1",

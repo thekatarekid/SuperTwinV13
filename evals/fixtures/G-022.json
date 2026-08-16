@@ -5,9 +5,29 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rashmi"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rashmi",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "Didi lands on the 4th",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +38,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "alias|e=a1|src=whatsapp|a=Didi|ev=1|q=Didi lands on the 4th",
+  "expect": {
+    "state": {
+      "entity_count": 1,
+      "person_count": 1,
+      "alias_rows": 1,
+      "alias_evidence": 1,
+      "model_calls": 0
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "'Didi' used consistently where Rashmi is counterparty",
     "expect": "alias identity row on Rashmi, evidence quoted",

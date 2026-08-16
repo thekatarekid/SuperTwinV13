@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "size|label=quiet|n=4|events=8|chars=55\nsize|label=noisy|n=4|events=40|chars=90",
+  "expect": {
+    "state": {
+      "quiet": 4,
+      "noisy": 1,
+      "sized_by": "output_tokens",
+      "output_budget": 600,
+      "closed_by": "output_tokens"
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "cohort 0 sizing",
     "expect": "by expected OUTPUT TOKENS (~600), not session count",

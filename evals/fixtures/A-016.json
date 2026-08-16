@@ -18,13 +18,26 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "backfill|page=6|events=4",
+  "expect": {
+    "state": {
+      "page": 6,
+      "declared_order": "desc",
+      "delivered_first_ts": "2026-02-16T12:00:00.000Z",
+      "emitted_first_ts": "2026-02-16T15:00:00.000Z",
+      "emitted_newest_first": true,
+      "emitted_descending": true,
+      "backfill_low_before": null,
+      "backfill_low_after": "2026-02-16T12:00:00.000Z",
+      "backfill_low_direction": "set",
+      "live_high_ts": null
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "history page 6 requested with backfill_order=desc",
     "expect": "adapter returns newest-first; watermarks.backfill_low_ts moves DOWN",

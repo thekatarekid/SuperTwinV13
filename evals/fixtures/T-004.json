@@ -18,13 +18,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "request|call=P-EP1",
+  "expect": {
+    "deferred": [
+      "P-EP1"
+    ],
+    "executed": []
+  },
   "assert": {
     "mode": "set_equal",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "P-EP1 on the first-paint path",
     "expect": "FAIL — must be deferred",

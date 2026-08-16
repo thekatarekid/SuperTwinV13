@@ -18,13 +18,19 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "batch|images=16|echo=wrong:2",
+  "expect": {
+    "state": {
+      "mismatches": 1,
+      "first_call_applied": 0,
+      "calls": 3
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "model returns 16 captions but 2 ids differ",
     "expect": "REJECT whole batch; never apply partially",

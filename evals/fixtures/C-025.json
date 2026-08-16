@@ -18,13 +18,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "route|kind=video|seconds=20",
+  "expect": {
+    "llm_calls": [
+      {
+        "step": "caption",
+        "engine": "haiku-cli"
+      }
+    ],
+    "ml_calls": [],
+    "code_steps": [
+      {
+        "step": "frames",
+        "engine": "ffmpeg"
+      }
+    ]
+  },
   "assert": {
     "mode": "exact",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "20s video",
     "expect": "[CODE] ffmpeg frames -> ONE [LLM-S] call for all frames",

@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "seal_hash|hash=h1|last=h1",
+  "expect": {
+    "consolidations": []
+  },
   "assert": {
     "mode": "absent",
-    "gate": null
+    "gate": "sched_seal_hash_skip"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "seal with unchanged content hash",
     "expect": "consolidation pass SKIPPED",

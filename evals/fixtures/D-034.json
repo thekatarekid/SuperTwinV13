@@ -5,9 +5,40 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T18:21:00.000Z",
+        "who": "a1",
+        "text": "goodnight"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T18:32:00.000Z",
+        "who": "a1",
+        "text": "one more thing"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +49,25 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "sessions_boundary_f1"
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "cut": true,
+      "boundary": "day_boundary",
+      "measured": {
+        "tz": "Asia/Kolkata",
+        "from_day": "2026-08-10",
+        "to_day": "2026-08-11"
+      },
+      "policy_day_boundary": true
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
   "doc": {
     "given": "msgs at 23:51 and 00:02 next day, tz Asia/Kolkata",
     "expect": "CUT day_boundary",

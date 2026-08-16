@@ -18,13 +18,29 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "absent",
-    "gate": "tiers_all_assigned"
+  "frozen_response": "cohort|id=k1|tier=T1|horizon=holder|age_min=576000\ncohort|id=k2|tier=T1|horizon=holder|age_min=720000\ncohort|id=k3|tier=T2|horizon=holder|age_min=1\ndrain",
+  "expect": {
+    "state": {
+      "order": [
+        "k1",
+        "k2",
+        "k3"
+      ],
+      "tier_order": [
+        "T1",
+        "T1",
+        "T2"
+      ],
+      "tier_order_violations": 0,
+      "ran_before_t1_exhausted": [],
+      "preempted": []
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "tiers_order_respected"
+  },
+  "stub": false,
   "doc": {
     "given": "backfill: T2 cohort queued while T1 holder still pending",
     "expect": "T2 does NOT run; T1 exhausts first",

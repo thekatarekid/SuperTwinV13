@@ -5,9 +5,40 @@
   "call": "[CODE]",
   "mode": "bootstrap",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "just landed"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:05:00.000Z",
+        "who": "a1",
+        "text": "call me when you can"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +49,26 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata\nseal\nnow|at=2026-08-10T04:10:00.000Z",
+  "expect": {
+    "state": {
+      "sessions": 1,
+      "statuses": [
+        "open"
+      ],
+      "open": true,
+      "handed_to_steady": true,
+      "seal_modes": [
+        null
+      ],
+      "sealed_count": 0
+    }
+  },
   "assert": {
-    "mode": "no_throw",
+    "mode": "state",
     "gate": "sessions_boundary_f1"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "bootstrap: newest session of a stream, no next row",
     "expect": "stays OPEN, handed to steady rules",

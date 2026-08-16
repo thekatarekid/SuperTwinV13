@@ -5,9 +5,42 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Office Frandss",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a2",
+          "a5",
+          "a6"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "a2",
+        "text": "are we still on for saturday"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T08:10:00.000Z",
+        "who": "a2",
+        "text": "ok so booking now"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +51,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "set_equal",
-    "gate": "sessions_boundary_f1"
+  "frozen_response": "policy|kind=conversation|lane=group|actor_model=multi_actor\nstream|key=c1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "cut": true,
+      "boundary": "gap",
+      "policy_gap_ms": 14400000,
+      "measured": {
+        "gap_ms": 15000000,
+        "threshold_ms": 14400000
+      }
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
   "doc": {
     "given": "group Office Frandss: gap 4h10m, group override G=4h",
     "expect": "CUT gap",

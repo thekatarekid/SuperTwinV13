@@ -18,13 +18,17 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "quiet|texts=4",
+  "expect": {
+    "llm_calls": [],
+    "ml_calls": [],
+    "code_steps": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "quiet day: 4 text msgs, no media",
     "expect": "ZERO enrichment LLM calls",

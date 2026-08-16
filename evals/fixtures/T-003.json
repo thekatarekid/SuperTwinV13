@@ -18,13 +18,28 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "request|call=P-CL1\nrequest|call=P-EP1\nrequest|call=P-TR1\nrequest|call=P-SP1\nrequest|call=P-AG1\nrequest|call=P-AG2\nrequest|call=P-AG3\nrequest|call=enrich",
+  "expect": {
+    "executed": [
+      "P-CL1"
+    ],
+    "deferred": [
+      "P-EP1",
+      "P-TR1",
+      "P-SP1",
+      "enrich"
+    ],
+    "barred": [
+      "P-AG1",
+      "P-AG2",
+      "P-AG3"
+    ]
+  },
   "assert": {
     "mode": "exact",
-    "gate": null
+    "gate": "latency_first_paint_calls"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "first-paint path inspected",
     "expect": "exactly ONE LLM call (P-CL1)",

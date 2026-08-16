@@ -5,9 +5,29 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "watched that WWE match with Shaurya",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +38,28 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nN|k1|that WWE match|med|show\nM|1|that WWE match|k1|0.9",
+  "expect": {
+    "entities": [
+      {
+        "as": "a1",
+        "type": "person",
+        "subtype": null,
+        "canonical": "Rahul"
+      },
+      {
+        "as": "k1",
+        "type": "media_work",
+        "subtype": "show",
+        "canonical": "that WWE match"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "entities_mention_linking"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "msg: 'watched that WWE match'",
     "expect": "M -> media_work",

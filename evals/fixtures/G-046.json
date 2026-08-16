@@ -18,13 +18,23 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "calib|model=Xenova/multilingual-e5-small|use=entity_name|floor=0.8|n=1200\nbind|as=l|src=whatsapp|kind=handle|v=amit-gym|name=Amit (gym)\nbind|as=r|src=whatsapp|kind=handle|v=amit-office|name=Amit (office)\nml|l=l|r=r|score=0.58|bar=0.8",
+  "expect": {
+    "state": {
+      "merged": false,
+      "routed_to": "queue",
+      "similarity_rung": true,
+      "questions_open": 1,
+      "verdict": "unsure",
+      "entity_count": 2,
+      "model_calls": 0
+    }
+  },
   "assert": {
-    "mode": "absent",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "pair with calibrated ML score 0.58, two plausible candidates",
     "expect": "resolution queue question; NO bind",

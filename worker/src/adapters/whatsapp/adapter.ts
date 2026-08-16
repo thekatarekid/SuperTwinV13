@@ -20,11 +20,12 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { normalizeSourceEvent } from "../normalize.js";
 import type { SourceAdapter } from "../source-adapter.js";
 import type {
   Actor,
   AdapterStatus,
-  Channel,
+  Stream,
   DaemonProgress,
   Progress,
   Range,
@@ -186,7 +187,7 @@ export class WhatsAppAdapter implements SourceAdapter {
   };
 
   private readonly eventCbs: Array<(e: SourceEvent) => void> = [];
-  private readonly channelCbs: Array<(c: Channel) => void> = [];
+  private readonly streamCbs: Array<(s: Stream) => void> = [];
   private readonly actorCbs: Array<(a: Actor) => void> = [];
   private readonly statusCbs: Array<(s: StatusUpdate) => void> = [];
 
@@ -207,8 +208,8 @@ export class WhatsAppAdapter implements SourceAdapter {
   onEvent(cb: (e: SourceEvent) => void): void {
     this.eventCbs.push(cb);
   }
-  onChannel(cb: (c: Channel) => void): void {
-    this.channelCbs.push(cb);
+  onStream(cb: (s: Stream) => void): void {
+    this.streamCbs.push(cb);
   }
   onActor(cb: (a: Actor) => void): void {
     this.actorCbs.push(cb);
@@ -502,7 +503,7 @@ export class WhatsAppAdapter implements SourceAdapter {
         });
         break;
       case "channel":
-        this.handleChannelMsg(msg);
+        this.handleStreamMsg(msg);
         break;
       case "actor":
         this.handleActorMsg(msg);
@@ -567,10 +568,15 @@ export class WhatsAppAdapter implements SourceAdapter {
     });
   }
 
-  private handleChannelMsg(msg: Record<string, unknown>): void {
-    const c = msg["channel"] as Channel | undefined;
+  /**
+   * The daemon still says `channel` on the wire — it is a whatsmeow-shaped
+   * protocol and this adapter is the boundary the rename happens at (arch §3.3
+   * leak 6). Nothing past this line calls a stream a channel.
+   */
+  private handleStreamMsg(msg: Record<string, unknown>): void {
+    const c = msg["channel"] as Stream | undefined;
     if (!c || typeof c.source_ext_id !== "string") return;
-    for (const cb of this.channelCbs) cb(c);
+    for (const cb of this.streamCbs) cb(c);
   }
 
   private handleActorMsg(msg: Record<string, unknown>): void {
@@ -584,8 +590,14 @@ export class WhatsAppAdapter implements SourceAdapter {
   }
 
   private handleEventMsg(msg: Record<string, unknown>): void {
-    const e = msg["event"] as SourceEvent | undefined;
-    if (!e || typeof e.external_id !== "string") return;
+    const raw = msg["event"] as (SourceEvent & { channel_ext_id?: string }) | undefined;
+    if (!raw || typeof raw.external_id !== "string") return;
+    // The daemon speaks `channel_ext_id`; the worker speaks `stream_ext_id`.
+    // One line, at the boundary, and the old name never travels further.
+    const e: SourceEvent = {
+      ...raw,
+      stream_ext_id: raw.stream_ext_id ?? raw.channel_ext_id ?? "",
+    };
     // The daemon emits the §3 Event shape verbatim, including the §R5.3/§R5.4
     // threading fields — `reply_to` ({ external_id, text, actor_ext_id }) on
     // quoted replies and `reply_to_external_id` (TARGET id) + `text` (emoji) on
@@ -594,7 +606,15 @@ export class WhatsAppAdapter implements SourceAdapter {
     // Kill-switch: when paused, drop events client-side too (belt+suspenders;
     // the daemon should also stop, but we never ingest while paused).
     if (this.status.paused) return;
-    for (const cb of this.eventCbs) cb(e);
+    // Non-content chatter (receipts, acks, typing, presence) never becomes a
+    // row, and a timestamp from the future is clamped before anything can sort
+    // on it (evals A-021…A-030).
+    const normalized = normalizeSourceEvent(e);
+    if (!normalized) {
+      this.log(`[whatsapp] dropped non-content frame kind=${String(e.kind)}`);
+      return;
+    }
+    for (const cb of this.eventCbs) cb(normalized);
   }
 
   private handleProgressMsg(msg: Record<string, unknown>): void {

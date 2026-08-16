@@ -89,9 +89,15 @@ import { startMediaQueue, stopMediaQueue } from "../media/queue.js";
 // The reader's own getter, not a copy of it: it is what the claim query reads
 // every cycle, so anything else here could serve a size nothing acts on.
 import { getMediaImageBatch, setMediaImageBatch } from "../media/switches.js";
+import {
+  getEnrichmentReadAllMedia,
+  getEnrichmentSalienceGate,
+  setEnrichmentReadAllMedia,
+  setEnrichmentSalienceGate,
+} from "../media/batch.js";
 import { MAX_IMAGE_BATCH } from "../media/describe.js";
 import { WHISPER_MODELS } from "../media/tools.js";
-import { handleWhatsAppRoute } from "./whatsapp-routes.js";
+import { handleSourceRoute } from "./whatsapp-routes.js";
 import {
   abortModelDownloads,
   handleMediaToolsRoute,
@@ -190,6 +196,9 @@ const MEDIA_SWITCHES: readonly [string, (v: boolean) => void][] = [
   ["video_frames_enabled", setMediaVideoFramesEnabled],
   ["video_audio_enabled", setMediaVideoAudioEnabled],
   ["voice_notes_enabled", setMediaVoiceNotesEnabled],
+  // The two V2 enrichment switches (§14.0c MEDIA panel, arch §8.4 table).
+  ["read_all_media", setEnrichmentReadAllMedia],
+  ["salience_gate", setEnrichmentSalienceGate],
 ];
 
 // The clamped integers it serves and accepts, each with its ceiling and where
@@ -647,11 +656,15 @@ async function handle(
     return;
   }
 
-  // --- WhatsApp + Inbox + media routes (Phase 1, additive).
-  if (path.startsWith("/api/whatsapp/") ||
+  // --- Source + Inbox + media routes (Phase 1, additive). `/api/whatsapp/*`
+  // is the aliased spelling of `/api/sources/whatsapp/*`, kept one release
+  // (arch §3.3 leak 4).
+  if (path === "/api/sources" ||
+      path.startsWith("/api/sources/") ||
+      path.startsWith("/api/whatsapp/") ||
       path.startsWith("/api/inbox/") ||
       path.startsWith("/api/media/")) {
-    const handled = await handleWhatsAppRoute(req, res, ingestion);
+    const handled = await handleSourceRoute(req, res, ingestion);
     if (handled) return;
   }
 
@@ -990,6 +1003,8 @@ function mediaSettings(): {
   video_frames_enabled: boolean;
   video_audio_enabled: boolean;
   voice_notes_enabled: boolean;
+  read_all_media: boolean;
+  salience_gate: boolean;
   rate_per_min: number;
   concurrency: number;
   image_batch: number;
@@ -1008,6 +1023,8 @@ function mediaSettings(): {
     video_frames_enabled: getMediaVideoFramesEnabled(),
     video_audio_enabled: getMediaVideoAudioEnabled(),
     voice_notes_enabled: getMediaVoiceNotesEnabled(),
+    read_all_media: getEnrichmentReadAllMedia(),
+    salience_gate: getEnrichmentSalienceGate(),
     rate_per_min: getMediaRatePerMin(),
     concurrency: getMediaConcurrency(),
     image_batch: getMediaImageBatch(),

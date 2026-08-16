@@ -5,9 +5,94 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (1)"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T07:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (2)"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T10:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (3)"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-10T13:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (4)"
+      },
+      {
+        "n": 5,
+        "ts": "2026-08-10T16:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (5)"
+      },
+      {
+        "n": 6,
+        "ts": "2026-08-10T19:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (6)"
+      },
+      {
+        "n": 7,
+        "ts": "2026-08-10T22:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (7)"
+      },
+      {
+        "n": 8,
+        "ts": "2026-08-11T01:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (8)"
+      },
+      {
+        "n": 9,
+        "ts": "2026-08-11T04:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (9)"
+      },
+      {
+        "n": 10,
+        "ts": "2026-08-11T07:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (10)"
+      },
+      {
+        "n": 11,
+        "ts": "2026-08-11T10:00:00.000Z",
+        "who": "a1",
+        "text": "still thinking about it (11)"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +103,34 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "set_equal",
-    "gate": "sessions_boundary_f1"
+  "frozen_response": "policy|kind=conversation|lane=dm|actor_model=multi_actor|day_boundary=0\nstream|key=c1|tz=Asia/Kolkata\nseal\nnow|at=2026-08-11T10:00:00.000Z",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "event_counts": [
+        9,
+        2
+      ],
+      "boundary": "ceiling",
+      "measured": {
+        "span_ms": 97200000,
+        "ceiling_ms": 86400000
+      },
+      "seal_modes": [
+        "ceiling",
+        null
+      ],
+      "statuses": [
+        "sealed",
+        "open"
+      ]
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
   "doc": {
     "given": "slow trickle: 1 msg every 3h for 30h",
     "expect": "SEAL at 24h ceiling",

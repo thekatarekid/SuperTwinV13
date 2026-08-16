@@ -18,13 +18,22 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "budget|seq=0",
+  "expect": {
+    "budget": [
+      {
+        "seq": 0,
+        "sessions": 4,
+        "tokens": 6000,
+        "output_tokens": 600
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "cohort seq 0",
     "expect": "budget = min(MAX, BASE x 2^0)",

@@ -5,9 +5,36 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Ana Iyer",
+      "a2=Rahul Mehta",
+      "a3=Priya Nair",
+      "a4=Sam Kohli",
+      "a5=Dev Bhatt",
+      "a6=Kiran Rao"
+    ],
+    "streams": [
+      {
+        "alias": "c2",
+        "name": "Weekend plans",
+        "kind": "group",
+        "participants": [
+          "self",
+          "a1",
+          "a2",
+          "a3",
+          "a4"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-12T21:10+05:30",
+        "who": "a2",
+        "text": "you were right about the road"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +45,20 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "claim|c=c2|speaker=a2|subject=self",
+  "expect": {
+    "state": {
+      "party_pair": "os",
+      "speaker_role": "o",
+      "subject_role": "s",
+      "derived_by": "code"
+    }
+  },
   "assert": {
     "mode": "state",
     "gate": "party_pairs_correct"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "claim: other about me (variant 2)",
     "expect": "party_pair=os",

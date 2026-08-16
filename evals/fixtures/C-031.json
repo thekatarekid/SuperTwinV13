@@ -18,13 +18,16 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "route|kind=link|url=https://indianexpress.com/article/city/bangalore/x",
+  "expect": {
+    "llm_calls": [],
+    "ml_calls": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "link to a news site",
     "expect": "[CODE] fetch/yt-dlp; no model",

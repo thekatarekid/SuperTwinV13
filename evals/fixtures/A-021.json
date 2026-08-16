@@ -18,13 +18,15 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "drop|kind=read_receipt",
+  "expect": {
+    "events": []
+  },
   "assert": {
     "mode": "absent",
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "read receipt event from daemon",
     "expect": "dropped at adapter, no events row",

@@ -18,13 +18,21 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "me\nself|src=contacts|kind=phone|v=+919999900000\nself|src=whatsapp|kind=jid|v=919999900000@s.whatsapp.net\nself|src=gmail|kind=email|v=me@x.com\nself|src=device|kind=device_id|v=MAC-0001",
+  "expect": {
+    "state": {
+      "me_singleton": true,
+      "entity_count": 1,
+      "person_count": 1,
+      "self_identities": 6,
+      "model_calls": 0
+    }
+  },
   "assert": {
-    "mode": "set_equal",
+    "mode": "state",
     "gate": "entities_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "WhatsApp self_jid / gmail account / device id / contacts-me card (4)",
     "expect": "bind to the ONE canonical me entity",

@@ -5,9 +5,1777 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "self=Me",
+      "a1=Pranjali Sachdeva",
+      "a2=Rahul Mehta",
+      "a3=Rashmi Deshpande",
+      "a4=Sudhir Katare",
+      "a5=Hrishikesh Joshi",
+      "a6=Gargi Nene"
+    ],
+    "streams": [
+      {
+        "alias": "d1",
+        "name": "Goa itinerary",
+        "kind": "doc",
+        "participants": [
+          "self"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-10T04:00:00.000Z",
+        "who": "self",
+        "text": "rev 1",
+        "author": "self"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-10T04:01:00.000Z",
+        "who": "self",
+        "text": "rev 2",
+        "author": "self"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-10T04:02:00.000Z",
+        "who": "self",
+        "text": "rev 3",
+        "author": "self"
+      },
+      {
+        "n": 4,
+        "ts": "2026-08-10T04:03:00.000Z",
+        "who": "self",
+        "text": "rev 4",
+        "author": "self"
+      },
+      {
+        "n": 5,
+        "ts": "2026-08-10T04:04:00.000Z",
+        "who": "self",
+        "text": "rev 5",
+        "author": "self"
+      },
+      {
+        "n": 6,
+        "ts": "2026-08-10T04:05:00.000Z",
+        "who": "self",
+        "text": "rev 6",
+        "author": "self"
+      },
+      {
+        "n": 7,
+        "ts": "2026-08-10T04:06:00.000Z",
+        "who": "self",
+        "text": "rev 7",
+        "author": "self"
+      },
+      {
+        "n": 8,
+        "ts": "2026-08-10T04:07:00.000Z",
+        "who": "self",
+        "text": "rev 8",
+        "author": "self"
+      },
+      {
+        "n": 9,
+        "ts": "2026-08-10T04:08:00.000Z",
+        "who": "self",
+        "text": "rev 9",
+        "author": "self"
+      },
+      {
+        "n": 10,
+        "ts": "2026-08-10T04:09:00.000Z",
+        "who": "self",
+        "text": "rev 10",
+        "author": "self"
+      },
+      {
+        "n": 11,
+        "ts": "2026-08-10T04:10:00.000Z",
+        "who": "self",
+        "text": "rev 11",
+        "author": "self"
+      },
+      {
+        "n": 12,
+        "ts": "2026-08-10T04:11:00.000Z",
+        "who": "self",
+        "text": "rev 12",
+        "author": "self"
+      },
+      {
+        "n": 13,
+        "ts": "2026-08-10T04:12:00.000Z",
+        "who": "self",
+        "text": "rev 13",
+        "author": "self"
+      },
+      {
+        "n": 14,
+        "ts": "2026-08-10T04:13:00.000Z",
+        "who": "self",
+        "text": "rev 14",
+        "author": "self"
+      },
+      {
+        "n": 15,
+        "ts": "2026-08-10T04:14:00.000Z",
+        "who": "self",
+        "text": "rev 15",
+        "author": "self"
+      },
+      {
+        "n": 16,
+        "ts": "2026-08-10T04:15:00.000Z",
+        "who": "self",
+        "text": "rev 16",
+        "author": "self"
+      },
+      {
+        "n": 17,
+        "ts": "2026-08-10T04:16:00.000Z",
+        "who": "self",
+        "text": "rev 17",
+        "author": "self"
+      },
+      {
+        "n": 18,
+        "ts": "2026-08-10T04:17:00.000Z",
+        "who": "self",
+        "text": "rev 18",
+        "author": "self"
+      },
+      {
+        "n": 19,
+        "ts": "2026-08-10T04:18:00.000Z",
+        "who": "self",
+        "text": "rev 19",
+        "author": "self"
+      },
+      {
+        "n": 20,
+        "ts": "2026-08-10T04:19:00.000Z",
+        "who": "self",
+        "text": "rev 20",
+        "author": "self"
+      },
+      {
+        "n": 21,
+        "ts": "2026-08-10T04:20:00.000Z",
+        "who": "self",
+        "text": "rev 21",
+        "author": "self"
+      },
+      {
+        "n": 22,
+        "ts": "2026-08-10T04:21:00.000Z",
+        "who": "self",
+        "text": "rev 22",
+        "author": "self"
+      },
+      {
+        "n": 23,
+        "ts": "2026-08-10T04:22:00.000Z",
+        "who": "self",
+        "text": "rev 23",
+        "author": "self"
+      },
+      {
+        "n": 24,
+        "ts": "2026-08-10T04:23:00.000Z",
+        "who": "self",
+        "text": "rev 24",
+        "author": "self"
+      },
+      {
+        "n": 25,
+        "ts": "2026-08-10T04:24:00.000Z",
+        "who": "self",
+        "text": "rev 25",
+        "author": "self"
+      },
+      {
+        "n": 26,
+        "ts": "2026-08-10T04:25:00.000Z",
+        "who": "self",
+        "text": "rev 26",
+        "author": "self"
+      },
+      {
+        "n": 27,
+        "ts": "2026-08-10T04:26:00.000Z",
+        "who": "self",
+        "text": "rev 27",
+        "author": "self"
+      },
+      {
+        "n": 28,
+        "ts": "2026-08-10T04:27:00.000Z",
+        "who": "self",
+        "text": "rev 28",
+        "author": "self"
+      },
+      {
+        "n": 29,
+        "ts": "2026-08-10T04:28:00.000Z",
+        "who": "self",
+        "text": "rev 29",
+        "author": "self"
+      },
+      {
+        "n": 30,
+        "ts": "2026-08-10T04:29:00.000Z",
+        "who": "self",
+        "text": "rev 30",
+        "author": "self"
+      },
+      {
+        "n": 31,
+        "ts": "2026-08-10T04:30:00.000Z",
+        "who": "self",
+        "text": "rev 31",
+        "author": "self"
+      },
+      {
+        "n": 32,
+        "ts": "2026-08-10T04:31:00.000Z",
+        "who": "self",
+        "text": "rev 32",
+        "author": "self"
+      },
+      {
+        "n": 33,
+        "ts": "2026-08-10T04:32:00.000Z",
+        "who": "self",
+        "text": "rev 33",
+        "author": "self"
+      },
+      {
+        "n": 34,
+        "ts": "2026-08-10T04:33:00.000Z",
+        "who": "self",
+        "text": "rev 34",
+        "author": "self"
+      },
+      {
+        "n": 35,
+        "ts": "2026-08-10T04:34:00.000Z",
+        "who": "self",
+        "text": "rev 35",
+        "author": "self"
+      },
+      {
+        "n": 36,
+        "ts": "2026-08-10T04:35:00.000Z",
+        "who": "self",
+        "text": "rev 36",
+        "author": "self"
+      },
+      {
+        "n": 37,
+        "ts": "2026-08-10T04:36:00.000Z",
+        "who": "self",
+        "text": "rev 37",
+        "author": "self"
+      },
+      {
+        "n": 38,
+        "ts": "2026-08-10T04:37:00.000Z",
+        "who": "self",
+        "text": "rev 38",
+        "author": "self"
+      },
+      {
+        "n": 39,
+        "ts": "2026-08-10T04:38:00.000Z",
+        "who": "self",
+        "text": "rev 39",
+        "author": "self"
+      },
+      {
+        "n": 40,
+        "ts": "2026-08-10T04:39:00.000Z",
+        "who": "self",
+        "text": "rev 40",
+        "author": "self"
+      },
+      {
+        "n": 41,
+        "ts": "2026-08-10T04:40:00.000Z",
+        "who": "self",
+        "text": "rev 41",
+        "author": "self"
+      },
+      {
+        "n": 42,
+        "ts": "2026-08-10T04:41:00.000Z",
+        "who": "self",
+        "text": "rev 42",
+        "author": "self"
+      },
+      {
+        "n": 43,
+        "ts": "2026-08-10T04:42:00.000Z",
+        "who": "self",
+        "text": "rev 43",
+        "author": "self"
+      },
+      {
+        "n": 44,
+        "ts": "2026-08-10T04:43:00.000Z",
+        "who": "self",
+        "text": "rev 44",
+        "author": "self"
+      },
+      {
+        "n": 45,
+        "ts": "2026-08-10T04:44:00.000Z",
+        "who": "self",
+        "text": "rev 45",
+        "author": "self"
+      },
+      {
+        "n": 46,
+        "ts": "2026-08-10T04:45:00.000Z",
+        "who": "self",
+        "text": "rev 46",
+        "author": "self"
+      },
+      {
+        "n": 47,
+        "ts": "2026-08-10T04:46:00.000Z",
+        "who": "self",
+        "text": "rev 47",
+        "author": "self"
+      },
+      {
+        "n": 48,
+        "ts": "2026-08-10T04:47:00.000Z",
+        "who": "self",
+        "text": "rev 48",
+        "author": "self"
+      },
+      {
+        "n": 49,
+        "ts": "2026-08-10T04:48:00.000Z",
+        "who": "self",
+        "text": "rev 49",
+        "author": "self"
+      },
+      {
+        "n": 50,
+        "ts": "2026-08-10T04:49:00.000Z",
+        "who": "self",
+        "text": "rev 50",
+        "author": "self"
+      },
+      {
+        "n": 51,
+        "ts": "2026-08-10T04:50:00.000Z",
+        "who": "self",
+        "text": "rev 51",
+        "author": "self"
+      },
+      {
+        "n": 52,
+        "ts": "2026-08-10T04:51:00.000Z",
+        "who": "self",
+        "text": "rev 52",
+        "author": "self"
+      },
+      {
+        "n": 53,
+        "ts": "2026-08-10T04:52:00.000Z",
+        "who": "self",
+        "text": "rev 53",
+        "author": "self"
+      },
+      {
+        "n": 54,
+        "ts": "2026-08-10T04:53:00.000Z",
+        "who": "self",
+        "text": "rev 54",
+        "author": "self"
+      },
+      {
+        "n": 55,
+        "ts": "2026-08-10T04:54:00.000Z",
+        "who": "self",
+        "text": "rev 55",
+        "author": "self"
+      },
+      {
+        "n": 56,
+        "ts": "2026-08-10T04:55:00.000Z",
+        "who": "self",
+        "text": "rev 56",
+        "author": "self"
+      },
+      {
+        "n": 57,
+        "ts": "2026-08-10T04:56:00.000Z",
+        "who": "self",
+        "text": "rev 57",
+        "author": "self"
+      },
+      {
+        "n": 58,
+        "ts": "2026-08-10T04:57:00.000Z",
+        "who": "self",
+        "text": "rev 58",
+        "author": "self"
+      },
+      {
+        "n": 59,
+        "ts": "2026-08-10T04:58:00.000Z",
+        "who": "self",
+        "text": "rev 59",
+        "author": "self"
+      },
+      {
+        "n": 60,
+        "ts": "2026-08-10T04:59:00.000Z",
+        "who": "self",
+        "text": "rev 60",
+        "author": "self"
+      },
+      {
+        "n": 61,
+        "ts": "2026-08-10T05:00:00.000Z",
+        "who": "self",
+        "text": "rev 61",
+        "author": "self"
+      },
+      {
+        "n": 62,
+        "ts": "2026-08-10T05:01:00.000Z",
+        "who": "self",
+        "text": "rev 62",
+        "author": "self"
+      },
+      {
+        "n": 63,
+        "ts": "2026-08-10T05:02:00.000Z",
+        "who": "self",
+        "text": "rev 63",
+        "author": "self"
+      },
+      {
+        "n": 64,
+        "ts": "2026-08-10T05:03:00.000Z",
+        "who": "self",
+        "text": "rev 64",
+        "author": "self"
+      },
+      {
+        "n": 65,
+        "ts": "2026-08-10T05:04:00.000Z",
+        "who": "self",
+        "text": "rev 65",
+        "author": "self"
+      },
+      {
+        "n": 66,
+        "ts": "2026-08-10T05:05:00.000Z",
+        "who": "self",
+        "text": "rev 66",
+        "author": "self"
+      },
+      {
+        "n": 67,
+        "ts": "2026-08-10T05:06:00.000Z",
+        "who": "self",
+        "text": "rev 67",
+        "author": "self"
+      },
+      {
+        "n": 68,
+        "ts": "2026-08-10T05:07:00.000Z",
+        "who": "self",
+        "text": "rev 68",
+        "author": "self"
+      },
+      {
+        "n": 69,
+        "ts": "2026-08-10T05:08:00.000Z",
+        "who": "self",
+        "text": "rev 69",
+        "author": "self"
+      },
+      {
+        "n": 70,
+        "ts": "2026-08-10T05:09:00.000Z",
+        "who": "self",
+        "text": "rev 70",
+        "author": "self"
+      },
+      {
+        "n": 71,
+        "ts": "2026-08-10T05:10:00.000Z",
+        "who": "self",
+        "text": "rev 71",
+        "author": "self"
+      },
+      {
+        "n": 72,
+        "ts": "2026-08-10T05:11:00.000Z",
+        "who": "self",
+        "text": "rev 72",
+        "author": "self"
+      },
+      {
+        "n": 73,
+        "ts": "2026-08-10T05:12:00.000Z",
+        "who": "self",
+        "text": "rev 73",
+        "author": "self"
+      },
+      {
+        "n": 74,
+        "ts": "2026-08-10T05:13:00.000Z",
+        "who": "self",
+        "text": "rev 74",
+        "author": "self"
+      },
+      {
+        "n": 75,
+        "ts": "2026-08-10T05:14:00.000Z",
+        "who": "self",
+        "text": "rev 75",
+        "author": "self"
+      },
+      {
+        "n": 76,
+        "ts": "2026-08-10T05:15:00.000Z",
+        "who": "self",
+        "text": "rev 76",
+        "author": "self"
+      },
+      {
+        "n": 77,
+        "ts": "2026-08-10T05:16:00.000Z",
+        "who": "self",
+        "text": "rev 77",
+        "author": "self"
+      },
+      {
+        "n": 78,
+        "ts": "2026-08-10T05:17:00.000Z",
+        "who": "self",
+        "text": "rev 78",
+        "author": "self"
+      },
+      {
+        "n": 79,
+        "ts": "2026-08-10T05:18:00.000Z",
+        "who": "self",
+        "text": "rev 79",
+        "author": "self"
+      },
+      {
+        "n": 80,
+        "ts": "2026-08-10T05:19:00.000Z",
+        "who": "self",
+        "text": "rev 80",
+        "author": "self"
+      },
+      {
+        "n": 81,
+        "ts": "2026-08-10T05:20:00.000Z",
+        "who": "self",
+        "text": "rev 81",
+        "author": "self"
+      },
+      {
+        "n": 82,
+        "ts": "2026-08-10T05:21:00.000Z",
+        "who": "self",
+        "text": "rev 82",
+        "author": "self"
+      },
+      {
+        "n": 83,
+        "ts": "2026-08-10T05:22:00.000Z",
+        "who": "self",
+        "text": "rev 83",
+        "author": "self"
+      },
+      {
+        "n": 84,
+        "ts": "2026-08-10T05:23:00.000Z",
+        "who": "self",
+        "text": "rev 84",
+        "author": "self"
+      },
+      {
+        "n": 85,
+        "ts": "2026-08-10T05:24:00.000Z",
+        "who": "self",
+        "text": "rev 85",
+        "author": "self"
+      },
+      {
+        "n": 86,
+        "ts": "2026-08-10T05:25:00.000Z",
+        "who": "self",
+        "text": "rev 86",
+        "author": "self"
+      },
+      {
+        "n": 87,
+        "ts": "2026-08-10T05:26:00.000Z",
+        "who": "self",
+        "text": "rev 87",
+        "author": "self"
+      },
+      {
+        "n": 88,
+        "ts": "2026-08-10T05:27:00.000Z",
+        "who": "self",
+        "text": "rev 88",
+        "author": "self"
+      },
+      {
+        "n": 89,
+        "ts": "2026-08-10T05:28:00.000Z",
+        "who": "self",
+        "text": "rev 89",
+        "author": "self"
+      },
+      {
+        "n": 90,
+        "ts": "2026-08-10T05:29:00.000Z",
+        "who": "self",
+        "text": "rev 90",
+        "author": "self"
+      },
+      {
+        "n": 91,
+        "ts": "2026-08-10T05:30:00.000Z",
+        "who": "self",
+        "text": "rev 91",
+        "author": "self"
+      },
+      {
+        "n": 92,
+        "ts": "2026-08-10T05:31:00.000Z",
+        "who": "self",
+        "text": "rev 92",
+        "author": "self"
+      },
+      {
+        "n": 93,
+        "ts": "2026-08-10T05:32:00.000Z",
+        "who": "self",
+        "text": "rev 93",
+        "author": "self"
+      },
+      {
+        "n": 94,
+        "ts": "2026-08-10T05:33:00.000Z",
+        "who": "self",
+        "text": "rev 94",
+        "author": "self"
+      },
+      {
+        "n": 95,
+        "ts": "2026-08-10T05:34:00.000Z",
+        "who": "self",
+        "text": "rev 95",
+        "author": "self"
+      },
+      {
+        "n": 96,
+        "ts": "2026-08-10T05:35:00.000Z",
+        "who": "self",
+        "text": "rev 96",
+        "author": "self"
+      },
+      {
+        "n": 97,
+        "ts": "2026-08-10T05:36:00.000Z",
+        "who": "self",
+        "text": "rev 97",
+        "author": "self"
+      },
+      {
+        "n": 98,
+        "ts": "2026-08-10T05:37:00.000Z",
+        "who": "self",
+        "text": "rev 98",
+        "author": "self"
+      },
+      {
+        "n": 99,
+        "ts": "2026-08-10T05:38:00.000Z",
+        "who": "self",
+        "text": "rev 99",
+        "author": "self"
+      },
+      {
+        "n": 100,
+        "ts": "2026-08-10T05:39:00.000Z",
+        "who": "self",
+        "text": "rev 100",
+        "author": "self"
+      },
+      {
+        "n": 101,
+        "ts": "2026-08-10T05:40:00.000Z",
+        "who": "self",
+        "text": "rev 101",
+        "author": "self"
+      },
+      {
+        "n": 102,
+        "ts": "2026-08-10T05:41:00.000Z",
+        "who": "self",
+        "text": "rev 102",
+        "author": "self"
+      },
+      {
+        "n": 103,
+        "ts": "2026-08-10T05:42:00.000Z",
+        "who": "self",
+        "text": "rev 103",
+        "author": "self"
+      },
+      {
+        "n": 104,
+        "ts": "2026-08-10T05:43:00.000Z",
+        "who": "self",
+        "text": "rev 104",
+        "author": "self"
+      },
+      {
+        "n": 105,
+        "ts": "2026-08-10T05:44:00.000Z",
+        "who": "self",
+        "text": "rev 105",
+        "author": "self"
+      },
+      {
+        "n": 106,
+        "ts": "2026-08-10T05:45:00.000Z",
+        "who": "self",
+        "text": "rev 106",
+        "author": "self"
+      },
+      {
+        "n": 107,
+        "ts": "2026-08-10T05:46:00.000Z",
+        "who": "self",
+        "text": "rev 107",
+        "author": "self"
+      },
+      {
+        "n": 108,
+        "ts": "2026-08-10T05:47:00.000Z",
+        "who": "self",
+        "text": "rev 108",
+        "author": "self"
+      },
+      {
+        "n": 109,
+        "ts": "2026-08-10T05:48:00.000Z",
+        "who": "self",
+        "text": "rev 109",
+        "author": "self"
+      },
+      {
+        "n": 110,
+        "ts": "2026-08-10T05:49:00.000Z",
+        "who": "self",
+        "text": "rev 110",
+        "author": "self"
+      },
+      {
+        "n": 111,
+        "ts": "2026-08-10T05:50:00.000Z",
+        "who": "self",
+        "text": "rev 111",
+        "author": "self"
+      },
+      {
+        "n": 112,
+        "ts": "2026-08-10T05:51:00.000Z",
+        "who": "self",
+        "text": "rev 112",
+        "author": "self"
+      },
+      {
+        "n": 113,
+        "ts": "2026-08-10T05:52:00.000Z",
+        "who": "self",
+        "text": "rev 113",
+        "author": "self"
+      },
+      {
+        "n": 114,
+        "ts": "2026-08-10T05:53:00.000Z",
+        "who": "self",
+        "text": "rev 114",
+        "author": "self"
+      },
+      {
+        "n": 115,
+        "ts": "2026-08-10T05:54:00.000Z",
+        "who": "self",
+        "text": "rev 115",
+        "author": "self"
+      },
+      {
+        "n": 116,
+        "ts": "2026-08-10T05:55:00.000Z",
+        "who": "self",
+        "text": "rev 116",
+        "author": "self"
+      },
+      {
+        "n": 117,
+        "ts": "2026-08-10T05:56:00.000Z",
+        "who": "self",
+        "text": "rev 117",
+        "author": "self"
+      },
+      {
+        "n": 118,
+        "ts": "2026-08-10T05:57:00.000Z",
+        "who": "self",
+        "text": "rev 118",
+        "author": "self"
+      },
+      {
+        "n": 119,
+        "ts": "2026-08-10T05:58:00.000Z",
+        "who": "self",
+        "text": "rev 119",
+        "author": "self"
+      },
+      {
+        "n": 120,
+        "ts": "2026-08-10T05:59:00.000Z",
+        "who": "self",
+        "text": "rev 120",
+        "author": "self"
+      },
+      {
+        "n": 121,
+        "ts": "2026-08-10T06:00:00.000Z",
+        "who": "self",
+        "text": "rev 121",
+        "author": "self"
+      },
+      {
+        "n": 122,
+        "ts": "2026-08-10T06:01:00.000Z",
+        "who": "self",
+        "text": "rev 122",
+        "author": "self"
+      },
+      {
+        "n": 123,
+        "ts": "2026-08-10T06:02:00.000Z",
+        "who": "self",
+        "text": "rev 123",
+        "author": "self"
+      },
+      {
+        "n": 124,
+        "ts": "2026-08-10T06:03:00.000Z",
+        "who": "self",
+        "text": "rev 124",
+        "author": "self"
+      },
+      {
+        "n": 125,
+        "ts": "2026-08-10T06:04:00.000Z",
+        "who": "self",
+        "text": "rev 125",
+        "author": "self"
+      },
+      {
+        "n": 126,
+        "ts": "2026-08-10T06:05:00.000Z",
+        "who": "self",
+        "text": "rev 126",
+        "author": "self"
+      },
+      {
+        "n": 127,
+        "ts": "2026-08-10T06:06:00.000Z",
+        "who": "self",
+        "text": "rev 127",
+        "author": "self"
+      },
+      {
+        "n": 128,
+        "ts": "2026-08-10T06:07:00.000Z",
+        "who": "self",
+        "text": "rev 128",
+        "author": "self"
+      },
+      {
+        "n": 129,
+        "ts": "2026-08-10T06:08:00.000Z",
+        "who": "self",
+        "text": "rev 129",
+        "author": "self"
+      },
+      {
+        "n": 130,
+        "ts": "2026-08-10T06:09:00.000Z",
+        "who": "self",
+        "text": "rev 130",
+        "author": "self"
+      },
+      {
+        "n": 131,
+        "ts": "2026-08-10T06:10:00.000Z",
+        "who": "self",
+        "text": "rev 131",
+        "author": "self"
+      },
+      {
+        "n": 132,
+        "ts": "2026-08-10T06:11:00.000Z",
+        "who": "self",
+        "text": "rev 132",
+        "author": "self"
+      },
+      {
+        "n": 133,
+        "ts": "2026-08-10T06:12:00.000Z",
+        "who": "self",
+        "text": "rev 133",
+        "author": "self"
+      },
+      {
+        "n": 134,
+        "ts": "2026-08-10T06:13:00.000Z",
+        "who": "self",
+        "text": "rev 134",
+        "author": "self"
+      },
+      {
+        "n": 135,
+        "ts": "2026-08-10T06:14:00.000Z",
+        "who": "self",
+        "text": "rev 135",
+        "author": "self"
+      },
+      {
+        "n": 136,
+        "ts": "2026-08-10T06:15:00.000Z",
+        "who": "self",
+        "text": "rev 136",
+        "author": "self"
+      },
+      {
+        "n": 137,
+        "ts": "2026-08-10T06:16:00.000Z",
+        "who": "self",
+        "text": "rev 137",
+        "author": "self"
+      },
+      {
+        "n": 138,
+        "ts": "2026-08-10T06:17:00.000Z",
+        "who": "self",
+        "text": "rev 138",
+        "author": "self"
+      },
+      {
+        "n": 139,
+        "ts": "2026-08-10T06:18:00.000Z",
+        "who": "self",
+        "text": "rev 139",
+        "author": "self"
+      },
+      {
+        "n": 140,
+        "ts": "2026-08-10T06:19:00.000Z",
+        "who": "self",
+        "text": "rev 140",
+        "author": "self"
+      },
+      {
+        "n": 141,
+        "ts": "2026-08-10T06:20:00.000Z",
+        "who": "self",
+        "text": "rev 141",
+        "author": "self"
+      },
+      {
+        "n": 142,
+        "ts": "2026-08-10T06:21:00.000Z",
+        "who": "self",
+        "text": "rev 142",
+        "author": "self"
+      },
+      {
+        "n": 143,
+        "ts": "2026-08-10T06:22:00.000Z",
+        "who": "self",
+        "text": "rev 143",
+        "author": "self"
+      },
+      {
+        "n": 144,
+        "ts": "2026-08-10T06:23:00.000Z",
+        "who": "self",
+        "text": "rev 144",
+        "author": "self"
+      },
+      {
+        "n": 145,
+        "ts": "2026-08-10T06:24:00.000Z",
+        "who": "self",
+        "text": "rev 145",
+        "author": "self"
+      },
+      {
+        "n": 146,
+        "ts": "2026-08-10T06:25:00.000Z",
+        "who": "self",
+        "text": "rev 146",
+        "author": "self"
+      },
+      {
+        "n": 147,
+        "ts": "2026-08-10T06:26:00.000Z",
+        "who": "self",
+        "text": "rev 147",
+        "author": "self"
+      },
+      {
+        "n": 148,
+        "ts": "2026-08-10T06:27:00.000Z",
+        "who": "self",
+        "text": "rev 148",
+        "author": "self"
+      },
+      {
+        "n": 149,
+        "ts": "2026-08-10T06:28:00.000Z",
+        "who": "self",
+        "text": "rev 149",
+        "author": "self"
+      },
+      {
+        "n": 150,
+        "ts": "2026-08-10T06:29:00.000Z",
+        "who": "self",
+        "text": "rev 150",
+        "author": "self"
+      },
+      {
+        "n": 151,
+        "ts": "2026-08-10T06:30:00.000Z",
+        "who": "self",
+        "text": "rev 151",
+        "author": "self"
+      },
+      {
+        "n": 152,
+        "ts": "2026-08-10T06:31:00.000Z",
+        "who": "self",
+        "text": "rev 152",
+        "author": "self"
+      },
+      {
+        "n": 153,
+        "ts": "2026-08-10T06:32:00.000Z",
+        "who": "self",
+        "text": "rev 153",
+        "author": "self"
+      },
+      {
+        "n": 154,
+        "ts": "2026-08-10T06:33:00.000Z",
+        "who": "self",
+        "text": "rev 154",
+        "author": "self"
+      },
+      {
+        "n": 155,
+        "ts": "2026-08-10T06:34:00.000Z",
+        "who": "self",
+        "text": "rev 155",
+        "author": "self"
+      },
+      {
+        "n": 156,
+        "ts": "2026-08-10T06:35:00.000Z",
+        "who": "self",
+        "text": "rev 156",
+        "author": "self"
+      },
+      {
+        "n": 157,
+        "ts": "2026-08-10T06:36:00.000Z",
+        "who": "self",
+        "text": "rev 157",
+        "author": "self"
+      },
+      {
+        "n": 158,
+        "ts": "2026-08-10T06:37:00.000Z",
+        "who": "self",
+        "text": "rev 158",
+        "author": "self"
+      },
+      {
+        "n": 159,
+        "ts": "2026-08-10T06:38:00.000Z",
+        "who": "self",
+        "text": "rev 159",
+        "author": "self"
+      },
+      {
+        "n": 160,
+        "ts": "2026-08-10T06:39:00.000Z",
+        "who": "self",
+        "text": "rev 160",
+        "author": "self"
+      },
+      {
+        "n": 161,
+        "ts": "2026-08-10T06:40:00.000Z",
+        "who": "self",
+        "text": "rev 161",
+        "author": "self"
+      },
+      {
+        "n": 162,
+        "ts": "2026-08-10T06:41:00.000Z",
+        "who": "self",
+        "text": "rev 162",
+        "author": "self"
+      },
+      {
+        "n": 163,
+        "ts": "2026-08-10T06:42:00.000Z",
+        "who": "self",
+        "text": "rev 163",
+        "author": "self"
+      },
+      {
+        "n": 164,
+        "ts": "2026-08-10T06:43:00.000Z",
+        "who": "self",
+        "text": "rev 164",
+        "author": "self"
+      },
+      {
+        "n": 165,
+        "ts": "2026-08-10T06:44:00.000Z",
+        "who": "self",
+        "text": "rev 165",
+        "author": "self"
+      },
+      {
+        "n": 166,
+        "ts": "2026-08-10T06:45:00.000Z",
+        "who": "self",
+        "text": "rev 166",
+        "author": "self"
+      },
+      {
+        "n": 167,
+        "ts": "2026-08-10T06:46:00.000Z",
+        "who": "self",
+        "text": "rev 167",
+        "author": "self"
+      },
+      {
+        "n": 168,
+        "ts": "2026-08-10T06:47:00.000Z",
+        "who": "self",
+        "text": "rev 168",
+        "author": "self"
+      },
+      {
+        "n": 169,
+        "ts": "2026-08-10T06:48:00.000Z",
+        "who": "self",
+        "text": "rev 169",
+        "author": "self"
+      },
+      {
+        "n": 170,
+        "ts": "2026-08-10T06:49:00.000Z",
+        "who": "self",
+        "text": "rev 170",
+        "author": "self"
+      },
+      {
+        "n": 171,
+        "ts": "2026-08-10T06:50:00.000Z",
+        "who": "self",
+        "text": "rev 171",
+        "author": "self"
+      },
+      {
+        "n": 172,
+        "ts": "2026-08-10T06:51:00.000Z",
+        "who": "self",
+        "text": "rev 172",
+        "author": "self"
+      },
+      {
+        "n": 173,
+        "ts": "2026-08-10T06:52:00.000Z",
+        "who": "self",
+        "text": "rev 173",
+        "author": "self"
+      },
+      {
+        "n": 174,
+        "ts": "2026-08-10T06:53:00.000Z",
+        "who": "self",
+        "text": "rev 174",
+        "author": "self"
+      },
+      {
+        "n": 175,
+        "ts": "2026-08-10T06:54:00.000Z",
+        "who": "self",
+        "text": "rev 175",
+        "author": "self"
+      },
+      {
+        "n": 176,
+        "ts": "2026-08-10T06:55:00.000Z",
+        "who": "self",
+        "text": "rev 176",
+        "author": "self"
+      },
+      {
+        "n": 177,
+        "ts": "2026-08-10T06:56:00.000Z",
+        "who": "self",
+        "text": "rev 177",
+        "author": "self"
+      },
+      {
+        "n": 178,
+        "ts": "2026-08-10T06:57:00.000Z",
+        "who": "self",
+        "text": "rev 178",
+        "author": "self"
+      },
+      {
+        "n": 179,
+        "ts": "2026-08-10T06:58:00.000Z",
+        "who": "self",
+        "text": "rev 179",
+        "author": "self"
+      },
+      {
+        "n": 180,
+        "ts": "2026-08-10T06:59:00.000Z",
+        "who": "self",
+        "text": "rev 180",
+        "author": "self"
+      },
+      {
+        "n": 181,
+        "ts": "2026-08-10T07:00:00.000Z",
+        "who": "self",
+        "text": "rev 181",
+        "author": "self"
+      },
+      {
+        "n": 182,
+        "ts": "2026-08-10T07:01:00.000Z",
+        "who": "self",
+        "text": "rev 182",
+        "author": "self"
+      },
+      {
+        "n": 183,
+        "ts": "2026-08-10T07:02:00.000Z",
+        "who": "self",
+        "text": "rev 183",
+        "author": "self"
+      },
+      {
+        "n": 184,
+        "ts": "2026-08-10T07:03:00.000Z",
+        "who": "self",
+        "text": "rev 184",
+        "author": "self"
+      },
+      {
+        "n": 185,
+        "ts": "2026-08-10T07:04:00.000Z",
+        "who": "self",
+        "text": "rev 185",
+        "author": "self"
+      },
+      {
+        "n": 186,
+        "ts": "2026-08-10T07:05:00.000Z",
+        "who": "self",
+        "text": "rev 186",
+        "author": "self"
+      },
+      {
+        "n": 187,
+        "ts": "2026-08-10T07:06:00.000Z",
+        "who": "self",
+        "text": "rev 187",
+        "author": "self"
+      },
+      {
+        "n": 188,
+        "ts": "2026-08-10T07:07:00.000Z",
+        "who": "self",
+        "text": "rev 188",
+        "author": "self"
+      },
+      {
+        "n": 189,
+        "ts": "2026-08-10T07:08:00.000Z",
+        "who": "self",
+        "text": "rev 189",
+        "author": "self"
+      },
+      {
+        "n": 190,
+        "ts": "2026-08-10T07:09:00.000Z",
+        "who": "self",
+        "text": "rev 190",
+        "author": "self"
+      },
+      {
+        "n": 191,
+        "ts": "2026-08-10T07:10:00.000Z",
+        "who": "self",
+        "text": "rev 191",
+        "author": "self"
+      },
+      {
+        "n": 192,
+        "ts": "2026-08-10T07:11:00.000Z",
+        "who": "self",
+        "text": "rev 192",
+        "author": "self"
+      },
+      {
+        "n": 193,
+        "ts": "2026-08-10T07:12:00.000Z",
+        "who": "self",
+        "text": "rev 193",
+        "author": "self"
+      },
+      {
+        "n": 194,
+        "ts": "2026-08-10T07:13:00.000Z",
+        "who": "self",
+        "text": "rev 194",
+        "author": "self"
+      },
+      {
+        "n": 195,
+        "ts": "2026-08-10T07:14:00.000Z",
+        "who": "self",
+        "text": "rev 195",
+        "author": "self"
+      },
+      {
+        "n": 196,
+        "ts": "2026-08-10T07:15:00.000Z",
+        "who": "self",
+        "text": "rev 196",
+        "author": "self"
+      },
+      {
+        "n": 197,
+        "ts": "2026-08-10T07:16:00.000Z",
+        "who": "self",
+        "text": "rev 197",
+        "author": "self"
+      },
+      {
+        "n": 198,
+        "ts": "2026-08-10T07:17:00.000Z",
+        "who": "self",
+        "text": "rev 198",
+        "author": "self"
+      },
+      {
+        "n": 199,
+        "ts": "2026-08-10T07:18:00.000Z",
+        "who": "self",
+        "text": "rev 199",
+        "author": "self"
+      },
+      {
+        "n": 200,
+        "ts": "2026-08-10T07:19:00.000Z",
+        "who": "self",
+        "text": "rev 200",
+        "author": "self"
+      },
+      {
+        "n": 201,
+        "ts": "2026-08-10T07:20:00.000Z",
+        "who": "self",
+        "text": "rev 201",
+        "author": "self"
+      },
+      {
+        "n": 202,
+        "ts": "2026-08-10T07:21:00.000Z",
+        "who": "self",
+        "text": "rev 202",
+        "author": "self"
+      },
+      {
+        "n": 203,
+        "ts": "2026-08-10T07:22:00.000Z",
+        "who": "self",
+        "text": "rev 203",
+        "author": "self"
+      },
+      {
+        "n": 204,
+        "ts": "2026-08-10T07:23:00.000Z",
+        "who": "self",
+        "text": "rev 204",
+        "author": "self"
+      },
+      {
+        "n": 205,
+        "ts": "2026-08-10T07:24:00.000Z",
+        "who": "self",
+        "text": "rev 205",
+        "author": "self"
+      },
+      {
+        "n": 206,
+        "ts": "2026-08-10T07:25:00.000Z",
+        "who": "self",
+        "text": "rev 206",
+        "author": "self"
+      },
+      {
+        "n": 207,
+        "ts": "2026-08-10T07:26:00.000Z",
+        "who": "self",
+        "text": "rev 207",
+        "author": "self"
+      },
+      {
+        "n": 208,
+        "ts": "2026-08-10T07:27:00.000Z",
+        "who": "self",
+        "text": "rev 208",
+        "author": "self"
+      },
+      {
+        "n": 209,
+        "ts": "2026-08-10T07:28:00.000Z",
+        "who": "self",
+        "text": "rev 209",
+        "author": "self"
+      },
+      {
+        "n": 210,
+        "ts": "2026-08-10T07:29:00.000Z",
+        "who": "self",
+        "text": "rev 210",
+        "author": "self"
+      },
+      {
+        "n": 211,
+        "ts": "2026-08-10T07:30:00.000Z",
+        "who": "self",
+        "text": "rev 211",
+        "author": "self"
+      },
+      {
+        "n": 212,
+        "ts": "2026-08-10T07:31:00.000Z",
+        "who": "self",
+        "text": "rev 212",
+        "author": "self"
+      },
+      {
+        "n": 213,
+        "ts": "2026-08-10T07:32:00.000Z",
+        "who": "self",
+        "text": "rev 213",
+        "author": "self"
+      },
+      {
+        "n": 214,
+        "ts": "2026-08-10T07:33:00.000Z",
+        "who": "self",
+        "text": "rev 214",
+        "author": "self"
+      },
+      {
+        "n": 215,
+        "ts": "2026-08-10T07:34:00.000Z",
+        "who": "self",
+        "text": "rev 215",
+        "author": "self"
+      },
+      {
+        "n": 216,
+        "ts": "2026-08-10T07:35:00.000Z",
+        "who": "self",
+        "text": "rev 216",
+        "author": "self"
+      },
+      {
+        "n": 217,
+        "ts": "2026-08-10T07:36:00.000Z",
+        "who": "self",
+        "text": "rev 217",
+        "author": "self"
+      },
+      {
+        "n": 218,
+        "ts": "2026-08-10T07:37:00.000Z",
+        "who": "self",
+        "text": "rev 218",
+        "author": "self"
+      },
+      {
+        "n": 219,
+        "ts": "2026-08-10T07:38:00.000Z",
+        "who": "self",
+        "text": "rev 219",
+        "author": "self"
+      },
+      {
+        "n": 220,
+        "ts": "2026-08-10T07:39:00.000Z",
+        "who": "self",
+        "text": "rev 220",
+        "author": "self"
+      },
+      {
+        "n": 221,
+        "ts": "2026-08-10T07:40:00.000Z",
+        "who": "self",
+        "text": "rev 221",
+        "author": "self"
+      },
+      {
+        "n": 222,
+        "ts": "2026-08-10T07:41:00.000Z",
+        "who": "self",
+        "text": "rev 222",
+        "author": "self"
+      },
+      {
+        "n": 223,
+        "ts": "2026-08-10T07:42:00.000Z",
+        "who": "self",
+        "text": "rev 223",
+        "author": "self"
+      },
+      {
+        "n": 224,
+        "ts": "2026-08-10T07:43:00.000Z",
+        "who": "self",
+        "text": "rev 224",
+        "author": "self"
+      },
+      {
+        "n": 225,
+        "ts": "2026-08-10T07:44:00.000Z",
+        "who": "self",
+        "text": "rev 225",
+        "author": "self"
+      },
+      {
+        "n": 226,
+        "ts": "2026-08-10T07:45:00.000Z",
+        "who": "self",
+        "text": "rev 226",
+        "author": "self"
+      },
+      {
+        "n": 227,
+        "ts": "2026-08-10T07:46:00.000Z",
+        "who": "self",
+        "text": "rev 227",
+        "author": "self"
+      },
+      {
+        "n": 228,
+        "ts": "2026-08-10T07:47:00.000Z",
+        "who": "self",
+        "text": "rev 228",
+        "author": "self"
+      },
+      {
+        "n": 229,
+        "ts": "2026-08-10T07:48:00.000Z",
+        "who": "self",
+        "text": "rev 229",
+        "author": "self"
+      },
+      {
+        "n": 230,
+        "ts": "2026-08-10T07:49:00.000Z",
+        "who": "self",
+        "text": "rev 230",
+        "author": "self"
+      },
+      {
+        "n": 231,
+        "ts": "2026-08-10T07:50:00.000Z",
+        "who": "self",
+        "text": "rev 231",
+        "author": "self"
+      },
+      {
+        "n": 232,
+        "ts": "2026-08-10T07:51:00.000Z",
+        "who": "self",
+        "text": "rev 232",
+        "author": "self"
+      },
+      {
+        "n": 233,
+        "ts": "2026-08-10T07:52:00.000Z",
+        "who": "self",
+        "text": "rev 233",
+        "author": "self"
+      },
+      {
+        "n": 234,
+        "ts": "2026-08-10T07:53:00.000Z",
+        "who": "self",
+        "text": "rev 234",
+        "author": "self"
+      },
+      {
+        "n": 235,
+        "ts": "2026-08-10T07:54:00.000Z",
+        "who": "self",
+        "text": "rev 235",
+        "author": "self"
+      },
+      {
+        "n": 236,
+        "ts": "2026-08-10T07:55:00.000Z",
+        "who": "self",
+        "text": "rev 236",
+        "author": "self"
+      },
+      {
+        "n": 237,
+        "ts": "2026-08-10T07:56:00.000Z",
+        "who": "self",
+        "text": "rev 237",
+        "author": "self"
+      },
+      {
+        "n": 238,
+        "ts": "2026-08-10T07:57:00.000Z",
+        "who": "self",
+        "text": "rev 238",
+        "author": "self"
+      },
+      {
+        "n": 239,
+        "ts": "2026-08-10T07:58:00.000Z",
+        "who": "self",
+        "text": "rev 239",
+        "author": "self"
+      },
+      {
+        "n": 240,
+        "ts": "2026-08-10T07:59:00.000Z",
+        "who": "self",
+        "text": "rev 240",
+        "author": "self"
+      },
+      {
+        "n": 241,
+        "ts": "2026-08-10T08:00:00.000Z",
+        "who": "self",
+        "text": "rev 241",
+        "author": "self"
+      },
+      {
+        "n": 242,
+        "ts": "2026-08-10T08:01:00.000Z",
+        "who": "self",
+        "text": "rev 242",
+        "author": "self"
+      },
+      {
+        "n": 243,
+        "ts": "2026-08-10T08:02:00.000Z",
+        "who": "self",
+        "text": "rev 243",
+        "author": "self"
+      },
+      {
+        "n": 244,
+        "ts": "2026-08-10T08:03:00.000Z",
+        "who": "self",
+        "text": "rev 244",
+        "author": "self"
+      },
+      {
+        "n": 245,
+        "ts": "2026-08-10T08:04:00.000Z",
+        "who": "self",
+        "text": "rev 245",
+        "author": "self"
+      },
+      {
+        "n": 246,
+        "ts": "2026-08-10T08:05:00.000Z",
+        "who": "self",
+        "text": "rev 246",
+        "author": "self"
+      },
+      {
+        "n": 247,
+        "ts": "2026-08-10T08:06:00.000Z",
+        "who": "self",
+        "text": "rev 247",
+        "author": "self"
+      },
+      {
+        "n": 248,
+        "ts": "2026-08-10T08:07:00.000Z",
+        "who": "self",
+        "text": "rev 248",
+        "author": "self"
+      },
+      {
+        "n": 249,
+        "ts": "2026-08-10T08:08:00.000Z",
+        "who": "self",
+        "text": "rev 249",
+        "author": "self"
+      },
+      {
+        "n": 250,
+        "ts": "2026-08-10T08:09:00.000Z",
+        "who": "self",
+        "text": "rev 250",
+        "author": "self"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +1786,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "set_equal",
-    "gate": "sessions_boundary_f1"
+  "frozen_response": "policy|kind=document|gap_ms=2700000|size_cap_events=200\nstream|key=d1|tz=Asia/Kolkata",
+  "expect": {
+    "state": {
+      "sessions": 2,
+      "event_counts": [
+        200,
+        50
+      ],
+      "boundary": "size_cap",
+      "measured": {
+        "events": 200,
+        "cap_events": 200
+      },
+      "policy_size_cap_events": 200
+    }
   },
-  "stub": true,
+  "assert": {
+    "mode": "state",
+    "gate": "sessions_explainable"
+  },
+  "stub": false,
   "doc": {
     "given": "document: 250 rapid revisions",
     "expect": "CUT at 200-revision cap",

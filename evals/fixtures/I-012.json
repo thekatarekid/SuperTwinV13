@@ -18,13 +18,20 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "group|as=g1|src=whatsapp|v=1203630112@g.us|name=Goa Crew|sub=friends|members=a1=jid:919800000002@s.whatsapp.net",
+  "expect": {
+    "state": {
+      "metadata_edges": 1,
+      "edges_written": 1,
+      "model_calls": 0,
+      "entity_count": 2
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "entities_edge_precision"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "group Goa Crew participant list includes Rahul",
     "expect": "L ... aff/member ... [CODE] conf 1.0, ZERO model calls",

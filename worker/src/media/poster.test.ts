@@ -89,7 +89,7 @@ function seedVideo(thumbPath: string | null = null): string {
     externalId: "1203@g.us/3A17B6D20C20A970AD3F",
     sourceId: "whatsapp",
     sourceType: "whatsapp",
-    channelId: null,
+    streamId: null,
     actorId: null,
     ts: "2026-07-02T10:00:00.000Z",
     kind: "video",

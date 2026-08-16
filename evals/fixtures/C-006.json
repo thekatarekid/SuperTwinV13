@@ -18,13 +18,16 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "route|kind=image",
+  "expect": {
+    "ml_calls": [],
+    "code_steps": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "image #6 in a WhatsApp session",
     "expect": "caption via [LLM-S] haiku through CLI, batched",

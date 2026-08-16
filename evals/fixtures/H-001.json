@@ -5,9 +5,29 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Pranjali"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Pranjali",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "self",
+        "text": "ask Pranjali about the Goa trip",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,18 +38,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
-  "assert": {
-    "mode": "budget",
-    "bound": {
-      "value": {
-        "min": 0.9
+  "frozen_response": "#WIRE\nM|1|Pranjali|a1|0.95",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "Pranjali",
+        "entity": "a1",
+        "confidence": 0.95,
+        "hint": null,
+        "decided_by": "llm:p-ep1"
       }
-    },
+    ]
+  },
+  "assert": {
+    "mode": "set_equal",
     "gate": "entities_mention_linking"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "msg: 'ask Pranjali about the Goa trip'",
     "expect": "M/<ev>/Pranjali/a<k>/>=0.9",

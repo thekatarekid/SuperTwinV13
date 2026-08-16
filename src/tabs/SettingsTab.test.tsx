@@ -790,9 +790,11 @@ describe("SettingsTab media section", () => {
     video_frames_enabled: false,
     video_audio_enabled: false,
     voice_notes_enabled: false,
+    read_all_media: true,
+    salience_gate: false,
     rate_per_min: 12,
     concurrency: 5,
-    image_batch: 20,
+    image_batch: 16,
     video_frame_interval_sec: 5,
     video_frame_max: 8,
     video_max_height: 480,
@@ -846,6 +848,17 @@ describe("SettingsTab media section", () => {
     }
   });
 
+  it("shows the two enrichment switches at the polarity arch §8.4 asks for", async () => {
+    render(<SettingsTab client={makeClient()} />);
+
+    // Read everything by default; gate nothing by default.
+    const readAll = (await screen.findByTestId("media-read-all")) as HTMLInputElement;
+    await waitFor(() => expect(readAll.checked).toBe(true));
+    expect((screen.getByTestId("media-salience-gate") as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+
   it("says out loud that fetching a link is an outbound request the sender can see", async () => {
     render(<SettingsTab client={makeClient()} />);
 
@@ -864,6 +877,8 @@ describe("SettingsTab media section", () => {
     const cases: [string, keyof MediaSettings][] = [
       ["media-images", "images_enabled"],
       ["media-video", "video_enabled"],
+      ["media-read-all", "read_all_media"],
+      ["media-salience-gate", "salience_gate"],
       ["media-business", "business_enabled"],
       ["media-link-scrape", "link_scrape_enabled"],
     ];
@@ -932,14 +947,14 @@ describe("SettingsTab media section", () => {
     const setMediaSettings = vi.fn(async (patch: Partial<MediaSettings>) => ({
       ...MEDIA,
       ...patch,
-      image_batch: Math.min(patch.image_batch ?? MEDIA.image_batch, 40),
+      image_batch: Math.min(patch.image_batch ?? MEDIA.image_batch, 32),
     }));
     render(<SettingsTab client={makeClient(setMediaSettings)} />);
 
     const batch = (await screen.findByTestId(
       "media-image-batch",
     )) as HTMLInputElement;
-    await waitFor(() => expect(batch.value).toBe("20"));
+    await waitFor(() => expect(batch.value).toBe("16"));
 
     fireEvent.change(batch, { target: { value: "8" } });
     fireEvent.blur(batch);
@@ -950,12 +965,12 @@ describe("SettingsTab media section", () => {
 
     fireEvent.change(batch, { target: { value: "999" } });
     fireEvent.blur(batch);
-    await waitFor(() => expect(batch.value).toBe("40"));
+    await waitFor(() => expect(batch.value).toBe("32"));
 
     // A batch of nothing is not a batch — it never leaves the UI.
     fireEvent.change(batch, { target: { value: "0" } });
     fireEvent.blur(batch);
-    await waitFor(() => expect(batch.value).toBe("40"));
+    await waitFor(() => expect(batch.value).toBe("32"));
     expect(setMediaSettings).toHaveBeenCalledTimes(2);
   });
 
@@ -1001,7 +1016,7 @@ describe("SettingsTab media section", () => {
     const batch = (await screen.findByTestId(
       "media-image-batch",
     )) as HTMLInputElement;
-    await waitFor(() => expect(batch.value).toBe("20"));
+    await waitFor(() => expect(batch.value).toBe("16"));
     fireEvent.change(batch, { target: { value: "12" } });
     fireEvent.blur(batch);
 
@@ -1365,9 +1380,11 @@ describe("SettingsTab transcription section", () => {
     video_frames_enabled: false,
     video_audio_enabled: false,
     voice_notes_enabled: false,
+    read_all_media: true,
+    salience_gate: false,
     rate_per_min: 20,
     concurrency: 5,
-    image_batch: 20,
+    image_batch: 16,
     video_frame_interval_sec: 5,
     video_frame_max: 8,
     video_max_height: 480,

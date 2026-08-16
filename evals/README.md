@@ -53,6 +53,15 @@ Registered today (`worker/src/evals/executors/index.ts`):
 
 | layer | category | product code it drives |
 |---|---|---|
+| `ingest` | A (30) | `adapters/*`, `db/ingest`, `db/watermarks` |
+| `tiers` | B (50) | `worker/src/tiers/*`, `worker/src/prompts/p-ti1` |
+| `enrichment` | C (40) | `media/batch`, `media/describe`, `media/enrich-pass`, `providers/pool` |
+| `entities` | G (70) | `worker/src/entities/{registry,identities,binding,merge}` |
+| `mentions` | H (40) | `entities/binding` mention + roster path |
+| `edges` | I (40) | `worker/src/entities/edges` |
+| `party` | O (45) | `worker/src/entities/party` |
+| `sessions` | D (75), E (40), F (40) | `worker/src/sessions/{segment,policies,prefilter,seal,ops}` |
+| `scheduler` | T (30) | `worker/src/scheduler/{cohorts,horizons,queue,lanes,paint}` |
 | `wire` | S (50) | the real STW-2 codec, `worker/src/wire` |
 | `accounting` | U (15) | `db/run-accounting`, `providers/usage`, `providers/pool` |
 | `calib` | V (15) | `retrieval/calibration*`, `db/calib` |

@@ -18,13 +18,16 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "route|kind=link|url=https://www.amazon.in/dp/B0C1234567",
+  "expect": {
+    "llm_calls": [],
+    "ml_calls": []
+  },
   "assert": {
     "mode": "absent",
     "gate": "enrich_executor_routing"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "link to amazon.in",
     "expect": "[CODE] fetch/yt-dlp; no model",

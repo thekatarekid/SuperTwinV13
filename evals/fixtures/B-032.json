@@ -5,9 +5,43 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a20=Jio"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Jio",
+        "kind": "biz",
+        "participants": [
+          "self",
+          "a20"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T08:15+05:30",
+        "who": "a20",
+        "text": "60% OFF on annual plans! Limited time offer",
+        "c": "c1"
+      },
+      {
+        "n": 2,
+        "ts": "2026-08-14T09:15+05:30",
+        "who": "a20",
+        "text": "Recharge now and get 3 months free. Use code JIO60",
+        "c": "c1"
+      },
+      {
+        "n": 3,
+        "ts": "2026-08-14T10:15+05:30",
+        "who": "a20",
+        "text": "Introducing our new gaming pack. Unsubscribe to stop these",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +52,27 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "assign",
+  "expect": {
+    "state": {
+      "tier": "T4",
+      "stored_tier": "T4",
+      "rule": "business_pm_code",
+      "tier_source": "code",
+      "is_business": true,
+      "is_group": false,
+      "model_calls": 0,
+      "ambiguous_channels": 0,
+      "confidence": 0.95,
+      "tier_coverage": 1,
+      "coverage_assertion": "passed"
+    }
+  },
   "assert": {
-    "mode": "exact",
+    "mode": "state",
     "gate": "tiers_all_assigned"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "Jio sample: '60% OFF', 'limited time', unsubscribe, no user id",
     "expect": "tier=T4",

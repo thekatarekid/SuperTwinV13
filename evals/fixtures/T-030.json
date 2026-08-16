@@ -18,18 +18,18 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
+  "frozen_response": "episode|id=e1|media=1|pending=0|reprocess=1|late=5",
   "expect": {},
   "assert": {
     "mode": "budget",
     "bound": {
-      "value": {
+      "reprocess_count": {
         "max": 3
       }
     },
     "gate": null
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "reprocess count per episode",
     "expect": "<= 3",

@@ -1,0 +1,231 @@
+/* ==========================================================================
+   Sessions surface — arch §14.2. A session card is mostly explanation, so the
+   two boundary lines get the monospace treatment and the visual weight: they
+   are the reason this surface exists ("every session boundary is explainable
+   in one line").
+
+   The replay panel is styled as a distinct, contained workspace — a re-cut
+   rewrites session ids and every episode built on them, so it must never read
+   like just another row in the list.
+   ========================================================================== */
+
+.session__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.session__where {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--text-display);
+}
+
+.session__when {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-ink);
+}
+
+.session__facts {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.session__late {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+  background: var(--bg-peach);
+  border-radius: var(--radius-chip);
+  padding: 2px 6px;
+}
+
+.session--late {
+  border-left: 3px solid var(--warn);
+}
+
+/* ---- The two boundary lines -------------------------------------------- */
+.session__boundary {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-ink);
+  background: var(--well);
+  border-radius: var(--radius-chip);
+  padding: 3px 8px;
+}
+
+.session__seal,
+.session__participants {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.session__enrichment {
+  margin: 0;
+  font-size: 12px;
+  color: var(--accent-soft);
+}
+
+.session__reprocess {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cat-periwinkle);
+}
+
+.session__actions {
+  margin: var(--space-1) 0 0;
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ---- Replay + per-stream segmentation override -------------------------- */
+.replay {
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-panel);
+  background: linear-gradient(180deg, var(--bg-peach) 0%, var(--surface) 55%);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.replay__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.replay__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--text-display);
+}
+
+.replay__close {
+  margin-left: auto;
+}
+
+.replay__kind {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.seg-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-2) var(--space-4);
+}
+
+.seg-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.seg-field > span:first-child {
+  flex: 1;
+}
+
+.seg-field input[type="number"] {
+  width: 84px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.seg-field__unit {
+  color: var(--text-faint);
+}
+
+.seg-field--check > span:first-child {
+  flex: none;
+}
+
+.replay__actions,
+.replay__confirm {
+  margin: 0;
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ---- The diff -----------------------------------------------------------
+   A replay writes nothing. The summary says so in bold, above the confirm
+   buttons, because the diff is the only thing standing between a candidate
+   parameter and a re-cut history. */
+.replay__diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px dashed var(--accent-border);
+  border-radius: var(--radius-tile);
+}
+
+.replay__summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-display);
+}
+
+.replay__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.replay__row {
+  display: grid;
+  grid-template-columns: 16px minmax(180px, auto) 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: var(--radius-chip);
+}
+
+.replay__change {
+  text-align: center;
+  font-weight: 700;
+}
+
+.replay__row--added {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.replay__row--removed {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.replay__row--unchanged {
+  color: var(--text-faint);
+}
+
+.replay__why {
+  color: inherit;
+  opacity: 0.85;
+}

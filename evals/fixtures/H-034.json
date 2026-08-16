@@ -5,9 +5,29 @@
   "call": "[CODE]",
   "mode": "steady",
   "given": {
-    "roster": [],
-    "streams": [],
-    "events": [],
+    "roster": [
+      "a1=Rahul"
+    ],
+    "streams": [
+      {
+        "alias": "c1",
+        "name": "Rahul",
+        "kind": "dm",
+        "participants": [
+          "self",
+          "a1"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "n": 1,
+        "ts": "2026-08-14T09:10+05:30",
+        "who": "a1",
+        "text": "the landlord wants the cheque by friday",
+        "c": "c1"
+      }
+    ],
     "open": {
       "episodes": [],
       "loops": []
@@ -18,13 +38,24 @@
       "arcs": []
     }
   },
-  "frozen_response": "",
-  "expect": {},
+  "frozen_response": "#WIRE\nM|1|the landlord|-|0.9|the Koramangala landlord, unnamed",
+  "expect": {
+    "mentions": [
+      {
+        "ev": 1,
+        "surface": "the landlord",
+        "entity": null,
+        "confidence": 0.9,
+        "hint": "the Koramangala landlord, unnamed",
+        "decided_by": "llm:p-ep1:unresolved"
+      }
+    ]
+  },
   "assert": {
     "mode": "set_equal",
     "gate": "entities_mention_linking"
   },
-  "stub": true,
+  "stub": false,
   "doc": {
     "given": "msg mentions 'the landlord', no roster candidate",
     "expect": "M/<ev>/the landlord/-/conf/hint",

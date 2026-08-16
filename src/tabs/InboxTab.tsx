@@ -22,6 +22,7 @@ import {
   useState,
 } from "react";
 import { useWhatsapp } from "../lib/useWhatsapp";
+import { ExtendResultNotice, ShallowHistoryNotice } from "./HistoryDepthNotice";
 import { WhatsappOnboarding } from "./WhatsappOnboarding";
 import {
   RANGES,
@@ -276,6 +277,9 @@ function InboxView({ wa, client, onRelinkStart }: InboxViewProps) {
   const [showExtend, setShowExtend] = useState(false);
   const [showResync, setShowResync] = useState(false);
   const [resyncing, setResyncing] = useState(false);
+  // The extend-result strip is dismissible per outcome, keyed by its start time
+  // so the NEXT run's result shows even after this one was dismissed.
+  const [dismissedExtend, setDismissedExtend] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -674,6 +678,25 @@ function InboxView({ wa, client, onRelinkStart }: InboxViewProps) {
           Inbox and watches messages arrive live — never a blocking modal. It
           clears the moment progress.done / backfill_complete lands. */}
       {wa.importing && <ImportBanner progress={wa.progress} />}
+
+      {/* A finished import is not the same as a complete one. When the worker
+          judged this sync SHALLOW — WhatsApp sent the bootstrap batch and no
+          bulk chunks — say so instead of leaving the user with a full-looking
+          Inbox of one-message chats. Hidden while an import is still running,
+          because a verdict on a sync in flight would be premature. */}
+      {!wa.importing && wa.historyDepth?.verdict === "shallow" && (
+        <ShallowHistoryNotice
+          depth={wa.historyDepth}
+          onExtend={() => setShowExtend(true)}
+        />
+      )}
+
+      {wa.lastExtend && wa.lastExtend.startedAt !== dismissedExtend && (
+        <ExtendResultNotice
+          outcome={wa.lastExtend}
+          onDismiss={() => setDismissedExtend(wa.lastExtend?.startedAt ?? null)}
+        />
+      )}
 
       {wa.lastError && (
         <div className="inbox__error" role="alert">

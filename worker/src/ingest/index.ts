@@ -15,6 +15,7 @@
 // ===========================================================================
 
 import { DescendingCohortBuffer } from "../adapters/backfill-order.js";
+import { readAnchors, type Anchor } from "../db/anchors.js";
 import type { SourceManifest } from "../adapters/registry.js";
 import type { SourceAdapter } from "../adapters/source-adapter.js";
 import { isRange } from "../adapters/types.js";
@@ -52,6 +53,7 @@ import {
 } from "../db/watermarks.js";
 import { enqueueLiveMedia } from "../media/queue.js";
 import { ensureTiers } from "../tiers/ensure.js";
+import { HistoryHealth } from "./history-health.js";
 
 /** Live-ingest nudge debounce (Rev 2 §R2.2): coalesce bursts into one frame. */
 const NUDGE_DEBOUNCE_MS = 750;
@@ -139,6 +141,14 @@ export interface IngestionOptions {
    * re-ordered into descending cohorts on the way in.
    */
   manifest?: SourceManifest<SourceEvent>;
+  /**
+   * Overrides for the shallow-bootstrap watcher's quiet windows. Tests pass
+   * milliseconds so a "settled import" is not a real minute away.
+   */
+  historyQuietMs?: number;
+  extendSettleMs?: number;
+  /** Diagnostics sink (defaults to silent), shared with HistoryHealth. */
+  log?: (line: string) => void;
 }
 
 export class Ingestion {
@@ -170,6 +180,13 @@ export class Ingestion {
   // `backfill_complete`, re-armed by every row that inserts after it.
   private backfillSealTimer: NodeJS.Timeout | null = null;
 
+  /**
+   * Shallow-bootstrap detection + extend accounting (ingest/history-health.ts).
+   * Deliberately NOT driven off `backfill_complete`: that frame has been seen
+   * firing 15s BEFORE the first history batch, so it cannot say what arrived.
+   */
+  private readonly health: HistoryHealth;
+
   readonly stats: IngestionStats = {
     streamsUpserted: 0,
     actorsUpserted: 0,
@@ -191,6 +208,15 @@ export class Ingestion {
           { pageHintEvents: cap.page_hint_events },
         )
       : null;
+    this.health = new HistoryHealth({
+      sourceId: adapter.sourceId,
+      emit: (frame) => this.emitFrame(frame),
+      ...(opts.historyQuietMs === undefined ? {} : { quietMs: opts.historyQuietMs }),
+      ...(opts.extendSettleMs === undefined
+        ? {}
+        : { extendSettleMs: opts.extendSettleMs }),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
   }
 
   /** The manifest this source was registered with, if any. */
@@ -225,11 +251,34 @@ export class Ingestion {
     // just its per-stream record, so re-deriving them from it is safe. Costs one
     // SELECT when there is nothing to repair.
     if (this.importDone) markSourceBackfillComplete(this.sourceId);
+
+    // A verdict reached on a previous run still describes the data on disk, so
+    // the Inbox must not forget it across a relaunch. An install whose import
+    // finished BEFORE this detection existed has no verdict to restore and no
+    // history left to arrive, so nothing would ever arm the quiet window —
+    // judge it once here instead, from the shape of what it already holds.
+    this.health.restore();
+    if (this.importDone && !this.health.getDepth()) this.health.judge();
     if (
       "setPaused" in this.adapter &&
       typeof (this.adapter as { setPaused?: unknown }).setPaused === "function"
     ) {
       (this.adapter as { setPaused(p: boolean): void }).setPaused(this.paused);
+    }
+
+    // Back-pagination anchors. The daemon's own map is in-memory and empty after
+    // any restart, and whatsmeow's store cannot rebuild it (no message
+    // timestamps) — so this DB is the only durable source, and without it
+    // "Extend history" paginates nothing. Read lazily on each seed so a daemon
+    // restarting hours later gets the anchors as they are THEN, not at boot.
+    if (
+      "setAnchorProvider" in this.adapter &&
+      typeof (this.adapter as { setAnchorProvider?: unknown }).setAnchorProvider ===
+        "function"
+    ) {
+      (
+        this.adapter as { setAnchorProvider(p: () => Anchor[]): void }
+      ).setAnchorProvider(() => readAnchors(this.sourceId));
     }
 
     // Returning user: install the persisted import range in the daemon at
@@ -257,6 +306,8 @@ export class Ingestion {
       paused: this.paused,
       importDone: this.importDone,
       ...(this.importRangeValue ? { importRange: this.importRangeValue } : {}),
+      ...(this.health.getDepth() ? { historyDepth: this.health.getDepth()! } : {}),
+      ...(this.health.getExtend() ? { lastExtend: this.health.getExtend()! } : {}),
     };
   }
 
@@ -285,7 +336,16 @@ export class Ingestion {
       this.markImportDone(s.range);
       markSourceBackfillComplete(this.sourceId);
       this.scheduleBackfillSeal();
+      // The frame says the PUSH stopped, not that history arrived — it has been
+      // observed firing at connect+0 with chats=0. So it only arms the quiet
+      // window; the verdict comes from what has actually landed a minute later.
+      this.health.noteHistoryActivity();
+      this.health.noteExtendChats(s.chats);
     }
+
+    // Per-payload counters from the daemon (optional frame — absent daemons just
+    // never reach here, and detection falls back to the shape of what landed).
+    if (s.type === "history_sync") this.health.notePayload(s.payload);
 
     for (const cb of this.statusSubs) {
       try {
@@ -329,6 +389,10 @@ export class Ingestion {
   clearImportState(): void {
     this.importDone = false;
     this.importRangeValue = undefined;
+    // The depth verdict and the extend outcome both describe data that is about
+    // to be (or has just been) wiped, so they go with it rather than outliving
+    // the rows they were measured from.
+    this.health.clear();
   }
 
   // ---- Kill-switch ----------------------------------------------------------
@@ -610,6 +674,11 @@ export class Ingestion {
       // A row that lands after `backfill_complete` pushes the seal out: it may
       // have created the stream this write just upserted.
       this.touchBackfillSeal();
+      // History still moving => push the depth judgement out. A row that landed
+      // during an "Extend history" run is what that run RECOVERED — inserted,
+      // so a re-fetched page that deduped away is correctly not counted.
+      if (e.is_historical === true) this.health.noteHistoryActivity();
+      this.health.noteExtendInsert(streamId);
       this.nudge(streamId);
     } else {
       this.stats.eventsDeduped += 1;
@@ -668,9 +737,18 @@ export class Ingestion {
     this.markImportDone(range);
   }
 
+  /**
+   * Widen coverage to older history. WhatsApp answers an on-demand request with
+   * at most 50 messages per chat, so one click is never exhaustive — the outcome
+   * this run reports (`lastExtend`) says how many messages actually persisted
+   * and whether more could be waiting, instead of leaving the user to guess
+   * whether the button did anything.
+   */
   async extend(range: Range): Promise<void> {
+    this.health.startExtend(range);
     await this.adapter.extend(range);
   }
+
 
   /**
    * Standalone logout (Rev 3 §R3.2): unlink the whatsmeow session AND clear the

@@ -21,6 +21,14 @@ func FormatTime(t time.Time) string {
 	return t.UTC().Format(TimeFormat)
 }
 
+// ParseTime is the inverse of FormatTime for values arriving on the INBOUND
+// (worker -> daemon) side. RFC3339 parsing accepts an optional fractional part,
+// so it reads both our own TimeFormat output and a plain second-precision
+// timestamp; the zero time comes back on anything else.
+func ParseTime(s string) (time.Time, error) {
+	return time.Parse(time.RFC3339, s)
+}
+
 // State is the connection/lifecycle state enum (status.state), contract §1.
 type State string
 
@@ -231,6 +239,47 @@ type backfillCompleteMsg struct {
 	Messages int    `json:"messages"`
 }
 
+// HistorySync reports what ONE processed HistorySync payload actually carried,
+// contract §1. It is the wire form of the per-payload log line, emitted so the
+// worker can tell a bootstrap-only session from a full re-upload from EVIDENCE
+// rather than from the shape of what happened to land in its DB.
+//
+// The counters partition the payload: MessagesSeen ==
+// MessagesEmitted + MessagesFiltered, where MessagesFiltered folds together the
+// two ways a message is dropped (outside the requested range, or unparseable /
+// unmappable). MessagesInRange sits between Seen and Emitted: it counts what
+// survived the range filter, so Emitted < InRange means messages were in range
+// but could not be mapped.
+type HistorySync struct {
+	// SyncType is whatsmeow's enum name (INITIAL_BOOTSTRAP / FULL / RECENT /
+	// ON_DEMAND / …), compared only as a string so a new type needs no release.
+	SyncType string `json:"sync_type"`
+	// Progress is WhatsApp's own 0-100 progress, omitted when it sends none.
+	Progress *int `json:"progress,omitempty"`
+	// Chats is every conversation the payload carried; ChatsInRange those that
+	// survived the chat-level range filter.
+	Chats        int `json:"chats"`
+	ChatsInRange int `json:"chats_in_range"`
+	// MessagesSeen counts messages before any filter.
+	MessagesSeen int `json:"messages_seen"`
+	// MessagesInRange survived the range filter (mapping may still fail).
+	MessagesInRange int `json:"messages_in_range"`
+	// MessagesEmitted reached the worker.
+	MessagesEmitted int `json:"messages_emitted"`
+	// MessagesFiltered were dropped by the range filter or by mapping.
+	MessagesFiltered int `json:"messages_filtered"`
+	// OnDemand marks a page fetched by "Extend history" rather than a
+	// server-pushed batch.
+	OnDemand bool `json:"on_demand"`
+}
+
+// historySyncMsg embeds HistorySync so the counters land FLAT on the wire
+// (t + the fields), which is the shape the worker's handler reads.
+type historySyncMsg struct {
+	T string `json:"t"`
+	HistorySync
+}
+
 type errorMsg struct {
 	T       string `json:"t"`
 	Code    string `json:"code"`
@@ -240,8 +289,40 @@ type errorMsg struct {
 
 // --- Inbound command (worker -> daemon, one per stdin line) ---
 
+// Anchor is ONE chat's oldest-known message, supplied by the worker on the
+// `seed_anchors` command. It is the starting point the daemon paginates BACKWARD
+// from when it asks WhatsApp for older history.
+//
+// The four fields are exactly — and only — what whatsmeow's
+// BuildHistorySyncRequest puts on the wire (send.go: ChatJID, OldestMsgID,
+// OldestMsgFromMe, OldestMsgTimestampMS), so an anchor is complete iff all four
+// are present.
+//
+// The daemon cannot derive these itself: its own store is whatsmeow's sqlstore,
+// which has no message table at all (whatsmeow_message_secrets carries
+// chat/sender/message_id but NO timestamp and NO from_me), and the in-memory
+// anchor map is rebuilt only from messages that flow through THIS process. The
+// worker's events table is therefore the only durable source of "oldest message
+// we actually hold per chat" — and it is the authority on what was ingested,
+// which is precisely what pagination must resume from.
+type Anchor struct {
+	// ChatJID is the canonical chat JID the daemon emitted as
+	// channel_ext_id / the "<chat>" half of external_id.
+	ChatJID string `json:"chat_jid"`
+	// MsgID is the WhatsApp message id — the "<id>" half of external_id, NOT the
+	// full external_id.
+	MsgID string `json:"msg_id"`
+	// FromMe marks an anchor message the user sent.
+	FromMe bool `json:"from_me"`
+	// TS is the anchor message's timestamp, ISO-8601 (see ParseTime).
+	TS string `json:"ts"`
+}
+
 // Command is a single worker->daemon command. Unknown cmd values are ignored.
 type Command struct {
 	Cmd   string `json:"cmd"`
 	Range Range  `json:"range,omitempty"`
+	// Anchors carries the `seed_anchors` payload (worker -> daemon). Empty for
+	// every other command.
+	Anchors []Anchor `json:"anchors,omitempty"`
 }

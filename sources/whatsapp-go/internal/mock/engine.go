@@ -121,6 +121,14 @@ func (e *Engine) SetRange(r protocol.Range) {
 	e.mu.Unlock()
 }
 
+// SeedAnchors is a no-op for the mock: it replays a fixture rather than
+// paginating WhatsApp, so it has no back-pagination anchors to restore. Recorded
+// in the log only, so a worker sending the command against a mock daemon is
+// visible rather than silently ignored.
+func (e *Engine) SeedAnchors(anchors []protocol.Anchor) {
+	e.logf("mock: ignoring seed_anchors (%d anchors; fixture replay has no paginator)", len(anchors))
+}
+
 // Extend widens coverage. In the mock, "all" is the widest possible, so extend
 // simply re-runs the plan for the requested (wider) range. Overlaps are fine —
 // the worker dedupes. We guard against re-running the identical range.

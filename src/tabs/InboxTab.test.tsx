@@ -424,6 +424,215 @@ describe("Inbox view (paired)", () => {
     await waitFor(() => expect(extendWhatsapp).toHaveBeenCalledWith("1y"));
   });
 
+  // -------------------------------------------------------------------------
+  // Shallow-bootstrap honesty. WhatsApp can decline to re-upload the bulk of a
+  // linked device's history; the import still "completes" and the Inbox still
+  // fills with chats, each holding one message. The old UI said nothing.
+  // -------------------------------------------------------------------------
+
+  /** The observed failure: 305 messages, 89 chats, 61 with a single message. */
+  const SHALLOW_DEPTH = {
+    verdict: "shallow" as const,
+    reason: "bootstrap_only" as const,
+    chats: 89,
+    messages: 305,
+    singleMessageChats: 61,
+    payloads: 1,
+    bulkPayloads: 0,
+    syncTypes: ["INITIAL_BOOTSTRAP"],
+    messagesSeen: 486,
+    messagesEmitted: 292,
+    messagesFiltered: 194,
+    syncTypesKnown: true,
+    checkedAt: "2026-08-17T02:00:00.000Z",
+  };
+
+  function depthBanner(): HTMLElement | null {
+    return document.querySelector(".inbox__depth-banner");
+  }
+
+  it("says WhatsApp sent a short history when the worker judges the import shallow", async () => {
+    const { client, streams } = pairedClient({
+      getInboxChats: vi.fn(async () => chats),
+    });
+    render(<InboxTab client={client} />);
+    await waitForInbox();
+    expect(depthBanner()).toBeNull();
+
+    act(() => streams[0].onFrame({ type: "history_depth", depth: SHALLOW_DEPTH }));
+
+    const banner = await waitFor(() => {
+      const el = depthBanner();
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    // States what arrived, in the user's terms.
+    expect(banner.textContent).toMatch(/305 messages across 89 chats/);
+    expect(banner.textContent).toMatch(/61 of them hold a single message/);
+    // Names WhatsApp as the decider and clears the user explicitly — a sync the
+    // server declined must never read as something they did wrong.
+    expect(banner.textContent).toMatch(/WhatsApp decides how much history/i);
+    expect(banner.textContent).toMatch(/nothing on your side went wrong/i);
+    // Offers the one recovery action that exists, and does NOT offer a re-link.
+    expect(
+      within(banner).getByRole("button", { name: "Extend history" }),
+    ).toBeTruthy();
+    expect(within(banner).queryByText(/re-?sync|re-?link|scan/i)).toBeNull();
+  });
+
+  it("stays silent on a healthy import and while one is still running", async () => {
+    const { client, streams } = pairedClient({
+      getInboxChats: vi.fn(async () => chats),
+    });
+    render(<InboxTab client={client} />);
+    await waitForInbox();
+
+    act(() =>
+      streams[0].onFrame({
+        type: "history_depth",
+        depth: {
+          ...SHALLOW_DEPTH,
+          verdict: "deep",
+          reason: "bulk_received",
+          messages: 3632,
+          singleMessageChats: 35,
+          bulkPayloads: 25,
+        },
+      }),
+    );
+    await waitFor(() => expect(depthBanner()).toBeNull());
+
+    // A verdict arriving mid-import is premature — the chunks may still be on
+    // their way — so the strip waits for the import banner to clear.
+    act(() =>
+      streams[0].onFrame({
+        type: "progress",
+        progress: {
+          phase: "backfill",
+          chatsDone: 1,
+          chatsTotal: 90,
+          messages: 10,
+          done: false,
+        },
+      }),
+    );
+    act(() => streams[0].onFrame({ type: "history_depth", depth: SHALLOW_DEPTH }));
+    await waitFor(() =>
+      expect(document.querySelector(".inbox__import-banner")).not.toBeNull(),
+    );
+    expect(depthBanner()).toBeNull();
+  });
+
+  it("the shallow banner's button opens the extend picker and never re-links", async () => {
+    const { client, streams, extendWhatsapp, relinkWhatsapp } = pairedClient({
+      getInboxChats: vi.fn(async () => chats),
+    });
+    render(<InboxTab client={client} />);
+    await waitForInbox();
+    act(() => streams[0].onFrame({ type: "history_depth", depth: SHALLOW_DEPTH }));
+
+    const banner = await waitFor(() => depthBanner() as HTMLElement);
+    fireEvent.click(
+      within(banner).getByRole("button", { name: "Extend history" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Extend history" });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Last 90 days" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Extend" }));
+
+    await waitFor(() => expect(extendWhatsapp).toHaveBeenCalledWith("90d"));
+    // WhatsApp grants ONE full history push per link. Nothing on the detection
+    // path may spend it.
+    expect(relinkWhatsapp).not.toHaveBeenCalled();
+  });
+
+  it("reports what an extend actually recovered, including that more may remain", async () => {
+    const { client, streams } = pairedClient({
+      getInboxChats: vi.fn(async () => chats),
+    });
+    render(<InboxTab client={client} />);
+    await waitForInbox();
+
+    act(() =>
+      streams[0].onFrame({
+        type: "extend_result",
+        outcome: {
+          range: "90d",
+          startedAt: "2026-08-17T02:10:00.000Z",
+          finishedAt: "2026-08-17T02:10:20.000Z",
+          running: false,
+          chatsPaginated: 41,
+          streamsWithNewMessages: 37,
+          messagesRecovered: 214,
+          mayHaveMore: true,
+        },
+      }),
+    );
+
+    const strip = await waitFor(() => {
+      const el = document.querySelector(".inbox__extend-banner");
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(strip.textContent).toMatch(/recovered 214 messages across 37 chats/);
+    // One click is never exhaustive: on-demand pages cap at 50 per request.
+    expect(strip.textContent).toMatch(/up to 50 messages per chat per request/i);
+
+    fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() =>
+      expect(document.querySelector(".inbox__extend-banner")).toBeNull(),
+    );
+  });
+
+  it("says plainly when an extend brought nothing back", async () => {
+    const { client, streams } = pairedClient({
+      getInboxChats: vi.fn(async () => chats),
+    });
+    render(<InboxTab client={client} />);
+    await waitForInbox();
+
+    act(() =>
+      streams[0].onFrame({
+        type: "extend_result",
+        outcome: {
+          range: "all",
+          startedAt: "2026-08-17T02:20:00.000Z",
+          finishedAt: "2026-08-17T02:20:10.000Z",
+          running: false,
+          chatsPaginated: 12,
+          streamsWithNewMessages: 0,
+          messagesRecovered: 0,
+          mayHaveMore: false,
+        },
+      }),
+    );
+
+    const strip = await waitFor(
+      () => document.querySelector(".inbox__extend-banner") as HTMLElement,
+    );
+    expect(strip.textContent).toMatch(/no older messages came back for 12 chats/i);
+    expect(strip.textContent).not.toMatch(/recovered \d/);
+  });
+
+  it("restores a persisted shallow verdict from the polled status", async () => {
+    // The verdict outlives the SSE frame that announced it, so a reload does not
+    // silently drop the user back into an unexplained one-message-per-chat Inbox.
+    const { client } = pairedClient({
+      getInboxChats: vi.fn(async () => chats),
+      getWhatsappStatus: vi.fn(
+        async (): Promise<AdapterStatus> => ({
+          state: "online",
+          paired: true,
+          paused: false,
+          importDone: true,
+          historyDepth: SHALLOW_DEPTH,
+        }),
+      ),
+    });
+    render(<InboxTab client={client} />);
+    await waitForInbox();
+    await waitFor(() => expect(depthBanner()).not.toBeNull());
+  });
+
   it("is strictly read-only: no composer / send control anywhere", async () => {
     const { client } = pairedClient({
       getInboxChats: vi.fn(async () => chats),

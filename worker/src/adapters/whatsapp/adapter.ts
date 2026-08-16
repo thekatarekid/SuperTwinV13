@@ -27,6 +27,7 @@ import type {
   AdapterStatus,
   Stream,
   DaemonProgress,
+  HistorySyncPayload,
   Progress,
   Range,
   SourceEvent,
@@ -74,6 +75,18 @@ export interface WhatsAppAdapterOptions {
 }
 
 const SHUTDOWN_GRACE_MS = 3_000;
+
+/**
+ * One `seed_anchors` entry, in the daemon's wire shape (protocol.Anchor). Named
+ * structurally rather than imported from the db layer so the adapter keeps
+ * having no opinion about where anchors are stored.
+ */
+export interface AnchorLike {
+  chat_jid: string;
+  msg_id: string;
+  from_me: boolean;
+  ts: string;
+}
 
 // ---------------------------------------------------------------------------
 // Binary resolution (contract §0):
@@ -179,6 +192,16 @@ export class WhatsAppAdapter implements SourceAdapter {
    * the user picks a range in onboarding (then `import` installs it).
    */
   private installedRange: Range | null = null;
+  /**
+   * Supplies the daemon's back-pagination anchors (oldest message per chat) from
+   * the worker's DB. The daemon's own `oldestPerChat` map is in-memory and is
+   * filled only by messages flowing through the RUNNING process, so a restarted
+   * daemon has none — and "Extend history" over zero anchors paginates nothing
+   * and closes. whatsmeow's store cannot rebuild them (no message timestamps),
+   * so this DB is the only durable source. Installed by the ingest layer, which
+   * is the side that can read it.
+   */
+  private anchorProvider: (() => AnchorLike[]) | null = null;
 
   private status: AdapterStatus = {
     state: "starting",
@@ -256,8 +279,35 @@ export class WhatsAppAdapter implements SourceAdapter {
     this.send({ cmd: "import", range });
   }
 
+  /**
+   * Install the source of back-pagination anchors. Called by the ingest layer
+   * (the side that can read the DB) before `connect()`. Optional: an adapter
+   * without one simply seeds nothing, and the daemon falls back to whatever
+   * anchors this session's own traffic produced.
+   */
+  setAnchorProvider(provider: () => AnchorLike[]): void {
+    this.anchorProvider = provider;
+  }
+
+  /**
+   * Send the worker's anchors to the daemon (`seed_anchors`). Sent on every
+   * daemon `ready` — a restart empties its map — and again immediately before an
+   * extend, since an extend has no history push of its own and can only work
+   * from anchors that already exist. Sending nothing is a no-op, not an error:
+   * a fresh install has no messages to anchor from yet.
+   */
+  private seedAnchors(): void {
+    const anchors = this.anchorProvider?.() ?? [];
+    if (anchors.length === 0) return;
+    this.log(`[whatsapp] seeding ${anchors.length} back-pagination anchors`);
+    this.send({ cmd: "seed_anchors", anchors });
+  }
+
   async extend(range: Range): Promise<void> {
     this.installedRange = range;
+    // Anchors FIRST: the daemon paginates from its anchor map, and an extend
+    // that arrives before the map is filled has nothing to page from.
+    this.seedAnchors();
     this.send({ cmd: "extend", range });
   }
 
@@ -477,6 +527,9 @@ export class WhatsAppAdapter implements SourceAdapter {
         // chosen window instead of buffered/defaulted (the daemon resets its
         // in-memory range on every restart). No-op on a first pair with no range.
         if (this.installedRange) this.send({ cmd: "set_range", range: this.installedRange });
+        // A fresh daemon's anchor map is empty. Re-seed it from the worker's DB
+        // so back-pagination survives the restart.
+        this.seedAnchors();
         break;
       case "status":
         this.handleStatusMsg(msg);
@@ -513,6 +566,9 @@ export class WhatsAppAdapter implements SourceAdapter {
         break;
       case "progress":
         this.handleProgressMsg(msg);
+        break;
+      case "history_sync":
+        this.handleHistorySyncMsg(msg);
         break;
       case "backfill_complete": {
         const range = (msg["range"] as Range) ?? "all";
@@ -637,6 +693,40 @@ export class WhatsAppAdapter implements SourceAdapter {
       return;
     }
     this.status = { ...this.status, progress };
+  }
+
+  /**
+   * One HistorySync payload was processed daemon-side. WhatsApp pushes a linked
+   * device's archive as one small INITIAL_BOOTSTRAP payload followed by twenty
+   * to thirty FULL chunks; when the server declines the bulk re-upload only the
+   * bootstrap arrives and the import "finishes" holding one message per chat.
+   * These per-payload counters are the only thing that can tell the two apart
+   * with certainty, so they are forwarded verbatim for the ingest side to judge.
+   *
+   * The frame is OPTIONAL: on a daemon that never emits it nothing arrives here
+   * and detection falls back to the shape of what landed. Every field defaults
+   * to 0/"" so a partial frame degrades instead of throwing.
+   */
+  private handleHistorySyncMsg(msg: Record<string, unknown>): void {
+    const payload: HistorySyncPayload = {
+      syncType: String(msg["sync_type"] ?? ""),
+      ...(msg["progress"] === undefined
+        ? {}
+        : { progress: Number(msg["progress"]) || 0 }),
+      chats: Number(msg["chats"] ?? 0),
+      chatsInRange: Number(msg["chats_in_range"] ?? 0),
+      messagesSeen: Number(msg["messages_seen"] ?? 0),
+      messagesInRange: Number(msg["messages_in_range"] ?? 0),
+      messagesEmitted: Number(msg["messages_emitted"] ?? 0),
+      messagesFiltered: Number(msg["messages_filtered"] ?? 0),
+      onDemand: Boolean(msg["on_demand"]),
+    };
+    this.log(
+      `[whatsapp] history_sync ${payload.syncType || "?"} chats=${payload.chats} ` +
+        `seen=${payload.messagesSeen} in_range=${payload.messagesInRange} ` +
+        `emitted=${payload.messagesEmitted} filtered=${payload.messagesFiltered}`,
+    );
+    this.emitStatus({ type: "history_sync", payload });
   }
 
   private handleErrorMsg(msg: Record<string, unknown>): void {

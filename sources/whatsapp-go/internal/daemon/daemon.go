@@ -33,6 +33,12 @@ type Engine interface {
 	// post-pairing HistorySync) so pushed history is filtered to the intended
 	// range instead of flooding all history.
 	SetRange(r protocol.Range)
+	// SeedAnchors installs the worker's oldest-known-message-per-chat anchors so
+	// back-pagination survives a daemon restart. The daemon's anchors are
+	// in-memory and rebuilt only from messages seen by THIS process, so without
+	// this a restarted daemon has nothing to paginate from and Extend is a
+	// silent no-op. The worker sends `seed_anchors` at connect and before extend.
+	SeedAnchors(anchors []protocol.Anchor)
 	// Pause halts event emission.
 	Pause()
 	// Resume resumes event emission.
@@ -114,6 +120,10 @@ func handleCommand(engine Engine, w *protocol.Writer, logf func(string, ...any),
 		// this at connect so the automatic post-pairing HistorySync is filtered to
 		// the intended range instead of flooding all history.
 		engine.SetRange(cmd.Range)
+	case "seed_anchors":
+		// Restore back-pagination anchors from the worker's DB. Sent at connect
+		// (and before extend) so a restarted daemon can still page older history.
+		engine.SeedAnchors(cmd.Anchors)
 	case "pause":
 		engine.Pause()
 	case "resume":

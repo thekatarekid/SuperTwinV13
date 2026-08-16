@@ -365,6 +365,122 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     await adapter.disconnect();
   });
 
+  it("renames the daemon's per-payload history_sync counters at the boundary", async () => {
+    const { adapter, child } = makeAdapter();
+    const ingestion = new Ingestion(adapter);
+    ingestion.start();
+    const statuses: StatusUpdate[] = [];
+    ingestion.subscribeStatus((s) => statuses.push(s));
+    await adapter.connect();
+
+    // The frame the shallow-bootstrap verdict is built from: WhatsApp's opening
+    // batch, with the counters that say how much of it survived the range filter.
+    child.line({
+      t: "history_sync",
+      sync_type: "INITIAL_BOOTSTRAP",
+      progress: 0,
+      chats: 89,
+      chats_in_range: 89,
+      messages_seen: 486,
+      messages_in_range: 292,
+      messages_emitted: 292,
+      messages_filtered: 194,
+      on_demand: false,
+    });
+
+    const frame = statuses.find((s) => s.type === "history_sync");
+    if (frame?.type !== "history_sync") throw new Error("no history_sync frame");
+    expect(frame.payload).toEqual({
+      syncType: "INITIAL_BOOTSTRAP",
+      progress: 0,
+      chats: 89,
+      chatsInRange: 89,
+      messagesSeen: 486,
+      messagesInRange: 292,
+      messagesEmitted: 292,
+      messagesFiltered: 194,
+      onDemand: false,
+    });
+
+    // A partial frame from an older/newer daemon degrades to zeroes rather than
+    // throwing — the frame is an optional enrichment, never a dependency.
+    child.line({ t: "history_sync", sync_type: "FULL" });
+    const partial = statuses.filter((s) => s.type === "history_sync")[1];
+    if (partial?.type !== "history_sync") throw new Error("no second frame");
+    expect(partial.payload.syncType).toBe("FULL");
+    expect(partial.payload.messagesSeen).toBe(0);
+    expect(partial.payload.progress).toBeUndefined();
+
+    await adapter.disconnect();
+  });
+
+  it("seeds back-pagination anchors from the DB on every daemon ready and before every extend", async () => {
+    const { adapter, child } = makeAdapter();
+    const ingestion = new Ingestion(adapter);
+    ingestion.start();
+    await adapter.connect();
+    child.line({ t: "ready" });
+
+    // Nothing ingested yet: seeding an empty list would be a wire message that
+    // says nothing, so none is sent.
+    expect(child.writes.some((w) => w.includes("seed_anchors"))).toBe(false);
+
+    child.line({
+      t: "channel",
+      channel: { source_ext_id: "mom@s.whatsapp.net", name: "Mom", kind: "dm" },
+    });
+    child.line({
+      t: "actor",
+      actor: { source_ext_id: "mom@s.whatsapp.net", display_name: "Mom", is_self: false },
+    });
+    for (const [id, ts] of [
+      ["OLDEST", "2026-05-01T09:00:00.000Z"],
+      ["NEWER", "2026-06-01T09:00:00.000Z"],
+    ] as const) {
+      child.line({
+        t: "event",
+        event: {
+          external_id: `mom@s.whatsapp.net/${id}`,
+          channel_ext_id: "mom@s.whatsapp.net",
+          actor_ext_id: "mom@s.whatsapp.net",
+          ts,
+          kind: "message",
+          text: id,
+          from_me: false,
+        },
+      });
+    }
+
+    // A daemon restart empties its in-memory anchor map, so `ready` re-seeds it.
+    child.line({ t: "ready" });
+    const seeded = child.writes.filter((w) => w.includes("seed_anchors"));
+    expect(seeded).toHaveLength(1);
+    expect(JSON.parse(seeded[0])).toEqual({
+      cmd: "seed_anchors",
+      anchors: [
+        {
+          // The OLDEST message is the point back-pagination resumes from.
+          chat_jid: "mom@s.whatsapp.net",
+          // The `<id>` half of external_id, not the whole thing.
+          msg_id: "OLDEST",
+          from_me: false,
+          ts: "2026-05-01T09:00:00.000Z",
+        },
+      ],
+    });
+
+    // An extend has no history push of its own and can only paginate from
+    // anchors that already exist, so it re-seeds immediately before asking.
+    await ingestion.extend("1y");
+    const tail = child.writes.slice(child.writes.indexOf(seeded[0]) + 1);
+    const seedIdx = tail.findIndex((w) => w.includes("seed_anchors"));
+    const extendIdx = tail.findIndex((w) => w.includes('"cmd":"extend"'));
+    expect(seedIdx).toBeGreaterThanOrEqual(0);
+    expect(seedIdx).toBeLessThan(extendIdx);
+
+    await adapter.disconnect();
+  });
+
   // ---- Rev 2 §R2.1: persisted import state --------------------------------
 
   it("R2.1: sets importDone on backfill_complete, surfaces it via status, and survives a restart", async () => {

@@ -150,6 +150,66 @@ export interface SourceError {
   message: string;
 }
 
+// ---- History depth (shallow-bootstrap detection) --------------------------
+
+/** One HistorySync payload the daemon reported (mirrors worker types.ts). */
+export interface HistorySyncPayload {
+  syncType: string;
+  progress?: number;
+  chats: number;
+  chatsInRange: number;
+  messagesSeen: number;
+  messagesInRange: number;
+  messagesEmitted: number;
+  messagesFiltered: number;
+  onDemand: boolean;
+}
+
+export type HistoryDepthVerdict = "unknown" | "shallow" | "deep";
+
+export type HistoryDepthReason =
+  | "no_history"
+  | "healthy_shape"
+  | "bulk_received"
+  | "bootstrap_only"
+  | "sparse_chats"
+  | "sparse_after_bulk";
+
+/**
+ * Did WhatsApp re-upload the archive, or only the bootstrap batch? Both finish
+ * with the same completion frame, so `verdict: "shallow"` is the only thing
+ * standing between the user and a full-looking Inbox holding one message per
+ * chat. Treat a missing value as "not judged yet" and show nothing.
+ */
+export interface HistoryDepth {
+  verdict: HistoryDepthVerdict;
+  reason: HistoryDepthReason;
+  chats: number;
+  messages: number;
+  singleMessageChats: number;
+  payloads: number;
+  bulkPayloads: number;
+  syncTypes: string[];
+  messagesSeen: number;
+  messagesEmitted: number;
+  messagesFiltered: number;
+  syncTypesKnown: boolean;
+  checkedAt: string;
+}
+
+/** What one "Extend history" run recovered (rows PERSISTED, not rows sent). */
+export interface ExtendOutcome {
+  range: Range;
+  startedAt: string;
+  finishedAt?: string;
+  running: boolean;
+  chatsPaginated: number;
+  streamsWithNewMessages: number;
+  messagesRecovered: number;
+  /** WhatsApp caps a page at 50 messages, so more may still be waiting. */
+  mayHaveMore: boolean;
+}
+
 /**
  * A status update surfaced over the SSE stream (contract §6/§7). Discriminated
  * by `type`; unifies the daemon's status/qr/progress/paired/error lines into a
@@ -171,6 +231,9 @@ export type StatusUpdate =
   // `channels` = distinct channel ids touched since the last nudge (may be
   // capped/omitted — presence of the frame is the signal to refetch).
   | { type: "ingest"; ts: string; channels?: string[] }
+  | { type: "history_sync"; payload: HistorySyncPayload }
+  | { type: "history_depth"; depth: HistoryDepth }
+  | { type: "extend_result"; outcome: ExtendOutcome }
   | { type: "error"; code: string; message: string; fatal: boolean };
 
 /** Adapter status snapshot returned by GET /api/whatsapp/status. */
@@ -190,6 +253,10 @@ export interface AdapterStatus {
   importDone?: boolean;
   /** R2.1: the range chosen for the persisted import, if known. */
   importRange?: Range;
+  /** The verdict on the settled import. Absent until the first quiet window. */
+  historyDepth?: HistoryDepth;
+  /** What the most recent "Extend history" run recovered. */
+  lastExtend?: ExtendOutcome;
 }
 
 /** Result of POST /api/whatsapp/reset (R2.3). */

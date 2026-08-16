@@ -16,6 +16,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   workerClient as defaultClient,
   type AdapterStatus,
+  type ExtendOutcome,
+  type HistoryDepth,
   type Progress,
   type Range,
   type SourceError,
@@ -68,6 +70,14 @@ export interface UseWhatsapp {
    * `progress.done` (or `backfill_complete`) arrives.
    */
   importing: boolean;
+  /**
+   * The worker's verdict on the settled import, or null before it has judged.
+   * `verdict: "shallow"` is the one the Inbox surfaces: WhatsApp sent only the
+   * bootstrap batch, so the import "finished" holding a message or two per chat.
+   */
+  historyDepth: HistoryDepth | null;
+  /** What the most recent "Extend history" run recovered, or null. */
+  lastExtend: ExtendOutcome | null;
   loading: boolean;
 
   pair(): Promise<void>;
@@ -126,6 +136,8 @@ export function useWhatsapp(client: WorkerClient = defaultClient): UseWhatsapp {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [lastError, setLastError] = useState<SourceError | null>(null);
   const [importStarted, setImportStarted] = useState(false);
+  const [historyDepth, setHistoryDepth] = useState<HistoryDepth | null>(null);
+  const [lastExtend, setLastExtend] = useState<ExtendOutcome | null>(null);
   const [loading, setLoading] = useState(true);
 
   const mountedRef = useRef(true);
@@ -155,6 +167,10 @@ export function useWhatsapp(client: WorkerClient = defaultClient): UseWhatsapp {
     setStatus(s);
     if (s.progress) setProgress(s.progress);
     if (s.lastError) setLastError(s.lastError);
+    // Both are persisted server-side, so a poll is what restores them after a
+    // reload; a reset clears them there and the null must travel too.
+    setHistoryDepth(s.historyDepth ?? null);
+    setLastExtend(s.lastExtend ?? null);
     // Once paired, drop any stale QR.
     if (s.paired) setQr(null);
   }, []);
@@ -252,6 +268,19 @@ export function useWhatsapp(client: WorkerClient = defaultClient): UseWhatsapp {
           // chat list + open chat refetch. The frame's mere presence is the
           // signal; `channels` (if present) lets a listener scope its refetch.
           for (const cb of ingestListenersRef.current) cb(frame.channels);
+          break;
+        case "history_depth":
+          // The worker judged the settled import. Only ever informational —
+          // nothing here re-links, re-imports, or touches the session.
+          setHistoryDepth(frame.depth);
+          break;
+        case "extend_result":
+          setLastExtend(frame.outcome);
+          break;
+        case "history_sync":
+          // Per-payload counters. The verdict is the worker's to compute (it can
+          // see the DB), so the UI only needs the `history_depth` frame — this
+          // case exists so the frame is not mistaken for an unhandled type.
           break;
         case "error":
           setLastError({ code: frame.code, message: frame.message });
@@ -494,6 +523,8 @@ export function useWhatsapp(client: WorkerClient = defaultClient): UseWhatsapp {
       importStarted,
       importing,
       loading,
+      historyDepth,
+      lastExtend,
       pair,
       startImport,
       extend,
@@ -519,6 +550,8 @@ export function useWhatsapp(client: WorkerClient = defaultClient): UseWhatsapp {
       importStarted,
       importing,
       loading,
+      historyDepth,
+      lastExtend,
       pair,
       startImport,
       extend,

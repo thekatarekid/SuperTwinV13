@@ -16,6 +16,7 @@ type fakeEngine struct {
 	shutdownDone bool
 	rangeSet     bool
 	lastRange    protocol.Range
+	lastAnchors  []protocol.Anchor
 }
 
 func (f *fakeEngine) Start(ctx context.Context) error { return nil }
@@ -26,6 +27,11 @@ func (f *fakeEngine) SetRange(r protocol.Range) {
 	f.mu.Lock()
 	f.rangeSet = true
 	f.lastRange = r
+	f.mu.Unlock()
+}
+func (f *fakeEngine) SeedAnchors(anchors []protocol.Anchor) {
+	f.mu.Lock()
+	f.lastAnchors = anchors
 	f.mu.Unlock()
 }
 func (f *fakeEngine) Pause()  {}
@@ -88,6 +94,45 @@ func TestSetRangeCommandInstallsRange(t *testing.T) {
 	}
 	if cancelled {
 		t.Fatal("set_range must NOT cancel the context (it is not a lifecycle command)")
+	}
+}
+
+// TestSeedAnchorsCommandDispatches proves the `seed_anchors` command reaches
+// engine.SeedAnchors with its payload intact. This is the wire message the worker
+// sends at connect (and before extend) to restore back-pagination anchors the
+// daemon cannot rebuild itself — without it a restarted daemon holds no anchors
+// and "Extend history" is a silent no-op.
+func TestSeedAnchorsCommandDispatches(t *testing.T) {
+	fe := &fakeEngine{}
+	cancelled := false
+	fakeCancel := context.CancelFunc(func() { cancelled = true })
+
+	line := []byte(`{"cmd":"seed_anchors","anchors":[` +
+		`{"chat_jid":"918884542333@s.whatsapp.net","msg_id":"3EB0ABC","from_me":false,"ts":"2026-07-02T12:34:56.789Z"}]}`)
+	cmd, err := protocol.DecodeCommand(line)
+	if err != nil {
+		t.Fatalf("seed_anchors line must decode: %v", err)
+	}
+
+	handleCommand(fe, nil, func(string, ...any) {}, cmd, fakeCancel)
+
+	fe.mu.Lock()
+	got := fe.lastAnchors
+	fe.mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("SeedAnchors got %d anchors, want 1", len(got))
+	}
+	want := protocol.Anchor{
+		ChatJID: "918884542333@s.whatsapp.net",
+		MsgID:   "3EB0ABC",
+		FromMe:  false,
+		TS:      "2026-07-02T12:34:56.789Z",
+	}
+	if got[0] != want {
+		t.Fatalf("anchor = %+v, want %+v", got[0], want)
+	}
+	if cancelled {
+		t.Fatal("seed_anchors must NOT cancel the context (it is not a lifecycle command)")
 	}
 }
 

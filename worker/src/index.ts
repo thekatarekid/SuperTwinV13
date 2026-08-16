@@ -104,7 +104,13 @@ async function main(): Promise<void> {
   });
   try {
     adapter = registered.adapter as WhatsAppAdapter;
-    ingestion = new Ingestion(adapter, { manifest: registered.manifest });
+    ingestion = new Ingestion(adapter, {
+      manifest: registered.manifest,
+      // The history-depth verdict and every extend outcome belong in the worker
+      // log next to the daemon's own per-payload counters, so the NEXT real
+      // re-link is diagnosable from one file instead of from a live session.
+      log: (line) => console.error(line),
+    });
     ingestion.start();
     // connect() spawns the daemon; a spawn failure is surfaced as status, not a
     // throw, so we don't guard the await beyond the outer try/catch.

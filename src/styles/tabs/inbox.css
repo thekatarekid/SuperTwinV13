@@ -353,6 +353,44 @@
   color: var(--text-muted);
 }
 
+/* ---- Shallow-history + extend-result strips -----------------------------
+   Informational, not alarming: the same tinted strip as the import banner
+   rather than the red error row, because a short history is something WhatsApp
+   decided, not something that went wrong here. */
+.inbox__depth-banner,
+.inbox__extend-banner {
+  display: flex;
+  align-items: center;
+  /* A narrow window drops the action to its own line rather than crushing the
+     sentence that explains why the action is being offered. */
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 20px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--accent-tint);
+  border-bottom: 1px solid var(--border-peach);
+  flex: none;
+}
+.inbox__depth-banner-text,
+.inbox__extend-banner-text {
+  min-width: 220px;
+  flex: 1;
+}
+.inbox__depth-banner-action,
+.inbox__extend-banner-dismiss {
+  flex: none;
+  white-space: nowrap;
+}
+.inbox__extend-banner {
+  background: var(--bg-wash);
+  color: var(--text-muted);
+}
+.inbox__extend-banner strong {
+  color: var(--text);
+}
+
 /* ---- Inbox panes: list | thread ----------------------------------------- */
 .inbox__panes {
   display: grid;

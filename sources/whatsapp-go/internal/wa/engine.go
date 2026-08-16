@@ -146,6 +146,13 @@ type Engine struct {
 	// tests for a short window; defaults to defaultQuietWindow.
 	quietWindow time.Duration
 
+	// noHistoryDeadline bounds a run that receives ZERO history-sync batches. The
+	// quiet window cannot arm without a batch and the paginator refuses to
+	// complete a batch-less import, so without this bound such a run would hold
+	// the import banner open forever. Overridable in tests; defaults to
+	// defaultNoHistoryDeadline.
+	noHistoryDeadline time.Duration
+
 	// onBackfillDone, when non-nil, is invoked AFTER finishBackfill emits the
 	// terminal done/backfill_complete for a run. Production leaves it nil; tests
 	// set it to observe the async quiet-window completion without racing the
@@ -184,6 +191,21 @@ type backfillState struct {
 	// this run. The quiet watcher fires completion once now-lastEventAt exceeds
 	// the quiet window (contract §R7.2). Zero until the first batch.
 	lastEventAt time.Time
+	// startedAt is when this run opened. The quiet watcher measures its
+	// zero-batch deadline from here (noHistoryDeadline) so a run that NEVER
+	// receives history still terminates instead of holding the banner forever.
+	startedAt time.Time
+	// isExtend marks an Extend run. An extend's only history is ON_DEMAND
+	// responses, which deliberately do NOT bump `batches` (noteHistoryBatch), so
+	// its paginator owns completion (contract §R6.4) and is exempt from the
+	// zero-batch guard an import is subject to.
+	isExtend bool
+	// paginatorArmed latches the once-per-run kick of requestOlderHistory. An
+	// IMPORT arms it from the first history-sync batch (armPaginator) rather than
+	// inline, because the paginator can only work from anchors and anchors only
+	// exist once history has been mapped; an EXTEND arms it inline and sets this
+	// so the batch path doesn't start a second one.
+	paginatorArmed bool
 }
 
 // New creates a whatsmeow Engine.
@@ -205,6 +227,7 @@ func New(w *protocol.Writer, logf func(string, ...any), sessionDB, mediaDir, log
 		businessNameQueried: map[string]bool{},
 		businessChats:       map[string]bool{},
 		quietWindow:         defaultQuietWindow,
+		noHistoryDeadline:   defaultNoHistoryDeadline,
 		// The backfill maps MUST be initialized at construction, not only at the
 		// start of a user-initiated import/extend run (resetBackfill). WhatsApp
 		// pushes HistorySync events AUTOMATICALLY right after pairing/connect —
@@ -400,7 +423,22 @@ func (e *Engine) pair() {
 
 // Import requests history sync for the given range and records the active
 // import range so history-sync events are filtered accordingly.
+//
+// It starts the back-pagination paginator only once ANCHORS EXIST. The paginator
+// walks e.oldestPerChat, which trackAnchor fills from messages that have
+// ALREADY been mapped, so calling it unconditionally here — before any history
+// had arrived — always found that map empty, hit `len(pending)==0` on its first
+// round and returned having sent nothing. Worse, its settle path then fired
+// finishBackfill, so a run "completed" seconds BEFORE the first batch landed and
+// the app reported a finished backfill over whatever shallow bootstrap arrived
+// afterwards.
+//
+// Anchors can exist at this point for one reason: the buffered post-pairing
+// bootstrap was just drained. Otherwise arming waits for the first history batch
+// (armPaginator, from processHistorySync), and if history never arrives the
+// quiet watcher's zero-batch deadline still terminates the run.
 func (e *Engine) Import(r protocol.Range) {
+	e.logf("import: entry range=%s anchors=%d", r, e.anchorCount())
 	e.mu.Lock()
 	e.importRange = r
 	e.haveImport = true
@@ -419,7 +457,7 @@ func (e *Engine) Import(r protocol.Range) {
 	// before this buffering existed; resetBackfill then zeroes the counters.
 	e.drainPendingHistory()
 
-	run := e.resetBackfill(r)
+	run := e.resetBackfill(r, false)
 
 	_ = e.w.Status(protocol.StateSyncing, "importing history", "", "")
 	_ = e.w.Progress("backfill", 0, 0, 0, false, r)
@@ -429,9 +467,21 @@ func (e *Engine) Import(r protocol.Range) {
 	go e.watchQuietCompletion(run, r)
 	// whatsmeow delivers the on-device history bootstrap via HistorySync events
 	// automatically after connect; those are range-filtered in onHistorySync.
-	// The initial import primarily surfaces that bootstrapped history. We also
-	// nudge older history on-demand to widen toward the requested range.
-	e.requestOlderHistory(r)
+	// The initial import primarily surfaces that bootstrapped history.
+	//
+	// If the drain above already produced anchors, the whole bootstrap may have
+	// arrived and been buffered BEFORE this run opened — no further batch is owed,
+	// so waiting for one would leave the paginator armed forever. Start it now.
+	// With no anchors there is nothing to page from and arming waits for the first
+	// batch.
+	if anchors := e.anchorCount(); anchors > 0 {
+		if armedRun, ok := e.armPaginator(); ok {
+			e.logf("import: run %d open range=%s — starting paginator over %d anchors from the drained bootstrap", armedRun, r, anchors)
+			e.requestOlderHistory(r)
+			return
+		}
+	}
+	e.logf("import: run %d open range=%s (no anchors yet; paginator deferred to the first history batch)", run, r)
 }
 
 // Extend requests OLDER on-demand history to widen coverage to range r
@@ -439,13 +489,20 @@ func (e *Engine) Import(r protocol.Range) {
 // extend's progress/backfill_complete reflect only the newly pulled history,
 // then issues on-demand history-sync requests for every chat whose oldest-known
 // message is still NEWER than the new cutoff (i.e. there is a gap to fill).
+// Unlike Import it DOES start the paginator inline: an extend has no automatic
+// history push of its own to wait for, and its anchors come either from this
+// process's own traffic or from the worker's seed_anchors (SeedAnchors). An
+// extend with zero anchors can only ever be a no-op, so that case is logged
+// explicitly rather than silently paginating nothing.
 func (e *Engine) Extend(r protocol.Range) {
+	anchors := e.anchorCount()
+	e.logf("extend: entry range=%s anchors=%d", r, anchors)
 	e.mu.Lock()
 	e.importRange = r
 	e.haveImport = true
 	e.mu.Unlock()
 
-	run := e.resetBackfill(r)
+	run := e.resetBackfill(r, true)
 
 	_ = e.w.Status(protocol.StateSyncing, "extending history", "", "")
 	_ = e.w.Progress("backfill", 0, 0, 0, false, r)
@@ -454,7 +511,75 @@ func (e *Engine) Extend(r protocol.Range) {
 	// banner clears (contract §R7.2). The paginator's own completion normally
 	// wins first; finishBackfill makes both idempotent.
 	go e.watchQuietCompletion(run, r)
+	// Latch the once-per-run arm here so a history batch landing mid-extend
+	// doesn't start a competing paginator.
+	e.armPaginatorForRun(run)
+	if anchors == 0 {
+		e.logf("extend: run %d has NO anchors — nothing to paginate; a restarted daemon needs the worker's seed_anchors before extend can widen anything", run)
+	}
 	e.requestOlderHistory(r)
+}
+
+// SeedAnchors installs back-pagination anchors supplied by the worker
+// (`seed_anchors`), making Extend survive a daemon restart.
+//
+// e.oldestPerChat is in-memory and is filled ONLY by trackAnchor, from messages
+// this process has mapped. After a restart it is empty, so requestOlderHistory
+// finds no chat with a gap, sends nothing, and "Extend history" silently does
+// nothing — the daemon has no durable record of its own to rebuild from
+// (whatsmeow's sqlstore keeps no message timestamps; see protocol.Anchor). The
+// worker's events table does, so it seeds them.
+//
+// Seeding goes through trackAnchor, so a seed can only ever move an anchor
+// OLDER: a live message already seen this process wins if it is older, and a
+// stale seed can never walk an anchor forward and re-request history already
+// held.
+func (e *Engine) SeedAnchors(anchors []protocol.Anchor) {
+	seeded, skipped := 0, 0
+	for _, a := range anchors {
+		info, ok := anchorMessageInfo(a)
+		if !ok {
+			skipped++
+			continue
+		}
+		e.trackAnchor(info, jidString(info.Chat))
+		seeded++
+	}
+	e.logf("seed_anchors: %d seeded, %d skipped (incomplete/unparseable), %d anchors known", seeded, skipped, e.anchorCount())
+}
+
+// anchorMessageInfo converts one wire Anchor into the MessageInfo the paginator
+// hands to BuildHistorySyncRequest. All four fields are required — WhatsApp is
+// asked for "messages older than THIS message in THIS chat", so a missing id or
+// timestamp makes the request meaningless — hence ok=false rather than a
+// partially-filled anchor that would issue a bad page request.
+func anchorMessageInfo(a protocol.Anchor) (types.MessageInfo, bool) {
+	if a.ChatJID == "" || a.MsgID == "" || a.TS == "" {
+		return types.MessageInfo{}, false
+	}
+	chat, err := types.ParseJID(a.ChatJID)
+	if err != nil || chat.IsEmpty() || skipChatJID(chat) {
+		return types.MessageInfo{}, false
+	}
+	ts, err := protocol.ParseTime(a.TS)
+	if err != nil || ts.IsZero() {
+		return types.MessageInfo{}, false
+	}
+	return types.MessageInfo{
+		ID:        a.MsgID,
+		Timestamp: ts,
+		MessageSource: types.MessageSource{
+			Chat:     chat.ToNonAD(),
+			IsFromMe: a.FromMe,
+		},
+	}, true
+}
+
+// anchorCount returns how many chats currently have a back-pagination anchor.
+func (e *Engine) anchorCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.oldestPerChat)
 }
 
 // SetRange installs the active import range WITHOUT starting a backfill run
@@ -476,8 +601,9 @@ func (e *Engine) SetRange(r protocol.Range) {
 
 // resetBackfill (re)initializes the backfill counters for a new import/extend
 // run and returns the new run number (used by the quiet watcher to detect a
-// superseding run). Callers hold no locks.
-func (e *Engine) resetBackfill(r protocol.Range) int {
+// superseding run). `extend` marks an Extend run, whose completion rules differ
+// (see backfillState.isExtend). Callers hold no locks.
+func (e *Engine) resetBackfill(r protocol.Range, extend bool) int {
 	e.backfill.mu.Lock()
 	defer e.backfill.mu.Unlock()
 	e.backfill.active = true
@@ -488,8 +614,40 @@ func (e *Engine) resetBackfill(r protocol.Range) int {
 	e.backfill.inRange = map[string]bool{}
 	e.backfill.batches = 0
 	e.backfill.lastEventAt = time.Time{}
+	e.backfill.startedAt = time.Now()
+	e.backfill.isExtend = extend
+	e.backfill.paginatorArmed = false
 	e.backfill.run++
 	return e.backfill.run
+}
+
+// armPaginator reports whether the CALLER should start this run's paginator,
+// flipping the once-per-run latch when it says yes, and returns the run it armed.
+// It refuses when no run is active, when the run is an extend (Extend arms its
+// own paginator inline), or when the paginator was already armed this run.
+//
+// This is the fix for the paginator that could never do anything: it is now
+// armed from processHistorySync, once real anchors exist, instead of inline from
+// Import where e.oldestPerChat is guaranteed empty.
+func (e *Engine) armPaginator() (int, bool) {
+	e.backfill.mu.Lock()
+	defer e.backfill.mu.Unlock()
+	if !e.backfill.active || e.backfill.isExtend || e.backfill.paginatorArmed {
+		return e.backfill.run, false
+	}
+	e.backfill.paginatorArmed = true
+	return e.backfill.run, true
+}
+
+// armPaginatorForRun latches the arm for a run the caller is starting the
+// paginator for itself (Extend), so a history batch landing mid-run does not
+// start a competing one.
+func (e *Engine) armPaginatorForRun(run int) {
+	e.backfill.mu.Lock()
+	if e.backfill.run == run {
+		e.backfill.paginatorArmed = true
+	}
+	e.backfill.mu.Unlock()
 }
 
 // noteHistoryBatch records that a history-sync batch was processed this run:
@@ -537,6 +695,10 @@ func (e *Engine) watchQuietCompletion(run int, r protocol.Range) {
 	if window <= 0 {
 		window = defaultQuietWindow
 	}
+	deadline := e.noHistoryDeadline
+	if deadline <= 0 {
+		deadline = defaultNoHistoryDeadline
+	}
 	tick := window / 4
 	if tick <= 0 {
 		tick = window
@@ -556,6 +718,7 @@ func (e *Engine) watchQuietCompletion(run int, r protocol.Range) {
 		curRun := e.backfill.run
 		batches := e.backfill.batches
 		last := e.backfill.lastEventAt
+		started := e.backfill.startedAt
 		total := e.backfill.chatsTotal
 		done := len(e.backfill.chatsDone)
 		msgs := e.backfill.messages
@@ -565,7 +728,19 @@ func (e *Engine) watchQuietCompletion(run int, r protocol.Range) {
 			return // superseded by a newer run, or already completed elsewhere.
 		}
 		if batches == 0 || last.IsZero() {
-			continue // no batch yet: nothing to time out (contract §R7.2).
+			// No batch yet: the quiet window cannot arm (contract §R7.2) and the
+			// paginator refuses to complete a batch-less import
+			// (finishBackfillFromPaginator), so nothing else can close this run.
+			// Bound it: give history a real chance to show up, then complete and
+			// say plainly that NONE arrived — the one shape that used to be
+			// reported as a finished backfill.
+			if !started.IsZero() && time.Since(started) >= deadline {
+				if e.finishBackfill(run, r, done, total, msgs) {
+					e.logf("import/extend completed with ZERO history-sync batches after %s: WhatsApp delivered no history for this run (range %s)", deadline, r)
+				}
+				return
+			}
+			continue
 		}
 		if time.Since(last) < window {
 			continue // still within the quiet window; a batch arrived recently.
@@ -596,7 +771,17 @@ func (e *Engine) finishBackfill(run int, r protocol.Range, done, total, msgs int
 		return false
 	}
 	e.backfill.active = false
+	batches := e.backfill.batches
+	isExtend := e.backfill.isExtend
+	elapsed := time.Since(e.backfill.startedAt)
 	e.backfill.mu.Unlock()
+
+	kind := "import"
+	if isExtend {
+		kind = "extend"
+	}
+	e.logf("%s: run %d closed after %.1fs — %d batches, %d/%d chats, %d msgs, %d anchors (range %s)",
+		kind, run, elapsed.Seconds(), batches, done, total, msgs, e.anchorCount(), r)
 
 	_ = e.w.Progress("backfill", done, total, msgs, true, r)
 	_ = e.w.BackfillComplete(r, done, msgs)
@@ -619,12 +804,67 @@ func (e *Engine) currentBackfillRun() int {
 	return e.backfill.run
 }
 
+// finishBackfillFromPaginator closes the run on paginator settle, but REFUSES to
+// do so for an IMPORT run in the two shapes where a settle means nothing:
+//
+//  1. Zero batches AND zero anchors. A settle means "no chat has a gap left to
+//     fill", which over an empty anchor map is vacuously true after zero
+//     requests — exactly how a run used to report a completed backfill 15
+//     seconds BEFORE the first batch of the import it was supposed to cover.
+//     With no batch and no anchor this run has seen nothing at all to judge by.
+//  2. History is still arriving (the last batch is within the quiet window). The
+//     paginator can drain the anchors it has long before WhatsApp finishes
+//     pushing, and declaring done mid-stream is what clears the banner over a
+//     partial import.
+//
+// Both refusals are safe because an import run always has watchQuietCompletion
+// behind it: the quiet window closes case 2 once batches stop, and the
+// zero-batch deadline closes case 1 if history never comes.
+//
+// An EXTEND run is exempt from both: its only history is ON_DEMAND responses,
+// which never bump `batches` by design (noteHistoryBatch), and its paginator owns
+// completion per contract §R6.4.
+func (e *Engine) finishBackfillFromPaginator(run int, r protocol.Range) bool {
+	e.backfill.mu.Lock()
+	active := e.backfill.active
+	batches := e.backfill.batches
+	last := e.backfill.lastEventAt
+	isExtend := e.backfill.isExtend
+	e.backfill.mu.Unlock()
+
+	if active && !isExtend {
+		window := e.quietWindow
+		if window <= 0 {
+			window = defaultQuietWindow
+		}
+		switch {
+		case batches == 0 && e.anchorCount() == 0:
+			e.logf("paginator: NOT completing run %d — 0 history-sync batches and 0 anchors, a settle here proves nothing; leaving it to the quiet watcher (range %s)", run, r)
+			return false
+		case !last.IsZero() && time.Since(last) < window:
+			e.logf("paginator: NOT completing run %d — history still arriving (last batch %.1fs ago, quiet window %s); leaving it to the quiet watcher (range %s)",
+				run, time.Since(last).Seconds(), window, r)
+			return false
+		}
+	}
+	return e.finishBackfill(run, r, e.backfillChats(), e.backfillChatsTotal(), e.backfillMessages())
+}
+
 const (
 	// defaultQuietWindow is the no-new-history-sync-batch idle period after which
 	// a large/entire import is declared complete regardless of chats_done vs
 	// chats_total (contract §R7.2: ~10–12s). Overridable via e.quietWindow (tests
 	// use a short window).
 	defaultQuietWindow = 11 * time.Second
+
+	// defaultNoHistoryDeadline bounds a run that receives ZERO history-sync
+	// batches. Neither the quiet window (needs >=1 batch) nor the paginator
+	// (finishBackfillFromPaginator refuses a batch-less import) can close such a
+	// run, so this is the terminator that keeps the import banner bounded. It is
+	// deliberately far longer than the quiet window: WhatsApp's automatic push can
+	// take tens of seconds to produce its first batch after connect, and cutting a
+	// run short would report an empty import over history that was still coming.
+	defaultNoHistoryDeadline = 90 * time.Second
 
 	// defaultPushedRange is the BOUNDED range onHistorySync falls back to when no
 	// range has been installed yet (no Import/Extend and no connect-time SetRange).
@@ -656,10 +896,13 @@ const (
 // device, so different chats bottom out at different dates; a chat can hit
 // "no more" long before the cutoff. This is expected and not full coverage.
 func (e *Engine) requestOlderHistory(r protocol.Range) {
+	run := e.currentBackfillRun()
+	anchors := e.anchorCount()
 	if e.client == nil || e.client.Store == nil || e.client.Store.ID == nil {
 		// No session/client: no history will ever arrive, so complete the run now
-		// (through the once-only guard) instead of leaving the banner open.
-		e.finishBackfill(e.currentBackfillRun(), r, 0, 0, 0)
+		// (through the guarded once-only path) instead of leaving the banner open.
+		e.logf("paginator: run %d not issued — no session/client (range %s, %d anchors)", run, r, anchors)
+		e.finishBackfillFromPaginator(run, r)
 		return
 	}
 
@@ -668,10 +911,13 @@ func (e *Engine) requestOlderHistory(r protocol.Range) {
 	e.extendMu.Lock()
 	if e.extendActive {
 		e.extendMu.Unlock()
+		e.logf("paginator: run %d not issued — a paginator is already running (range %s, %d anchors)", run, r, anchors)
 		return
 	}
 	e.extendActive = true
 	e.extendMu.Unlock()
+
+	e.logf("paginator: run %d starting over %d anchors (range %s)", run, anchors, r)
 
 	go func() {
 		defer func() {
@@ -679,13 +925,16 @@ func (e *Engine) requestOlderHistory(r protocol.Range) {
 			e.extendActive = false
 			e.extendMu.Unlock()
 		}()
-		e.paginateOlderHistory(r)
+		rounds, sent := e.paginateOlderHistory(r)
 		// The paginator has settled (every in-range chat reached the cutoff or the
-		// server stopped serving older history). Complete the run — but ONCE, via
-		// finishBackfill, so this is idempotent with the quiet watcher and the
-		// server-progress path (contract §R7.2 once-only guard). Whichever source
-		// wins first emits done/backfill_complete; the rest no-op.
-		e.finishBackfill(e.currentBackfillRun(), r, e.backfillChats(), e.backfillChatsTotal(), e.backfillMessages())
+		// server stopped serving older history). Complete the run — but ONCE, and
+		// only if this run has actually seen history, so a settle over zero anchors
+		// can no longer close a run before its first batch even lands
+		// (finishBackfillFromPaginator). Idempotent with the quiet watcher and the
+		// server-progress path (contract §R7.2 once-only guard).
+		e.logf("paginator: run %d settled after %d rounds, %d on-demand requests, %d anchors (range %s)",
+			run, rounds, sent, e.anchorCount(), r)
+		e.finishBackfillFromPaginator(run, r)
 	}()
 }
 
@@ -695,7 +944,12 @@ func (e *Engine) requestOlderHistory(r protocol.Range) {
 // advance anchors, and repeat. It stops when no chat needs more, or when a whole
 // batch produced no anchor movement for maxStalls consecutive rounds (server
 // exhausted), or when the engine context is cancelled.
-func (e *Engine) paginateOlderHistory(r protocol.Range) {
+//
+// It returns how many rounds it ran and how many on-demand requests it actually
+// sent, so the caller can log whether the paginator did any work at all — a
+// silent zero-request settle is the failure mode this whole path exists to make
+// visible.
+func (e *Engine) paginateOlderHistory(r protocol.Range) (rounds, sent int) {
 	now := time.Now()
 	cutoff := rangefilter.RangeCutoff(r, now)
 
@@ -704,9 +958,10 @@ func (e *Engine) paginateOlderHistory(r protocol.Range) {
 	stalls := 0
 
 	for round := 0; round < maxExtendRounds; round++ {
+		rounds = round + 1
 		select {
 		case <-e.ctx.Done():
-			return
+			return rounds, sent
 		default:
 		}
 
@@ -718,15 +973,19 @@ func (e *Engine) paginateOlderHistory(r protocol.Range) {
 			info types.MessageInfo
 		}
 		var pending []anchorEntry
+		covered, capped := 0, 0
 		for key, info := range e.oldestPerChat {
 			if !info.Timestamp.After(cutoff) {
+				covered++
 				continue // already covers the cutoff
 			}
 			if pagesUsed[key] >= maxPagesPerChat {
+				capped++
 				continue // per-chat cap reached (honest limit / rate control)
 			}
 			pending = append(pending, anchorEntry{key: key, info: info})
 		}
+		known := len(e.oldestPerChat)
 		// Remember the anchors we're about to request against, to detect movement.
 		before := make(map[string]time.Time, len(pending))
 		for _, p := range pending {
@@ -735,13 +994,15 @@ func (e *Engine) paginateOlderHistory(r protocol.Range) {
 		e.mu.Unlock()
 
 		if len(pending) == 0 {
-			return // every in-range chat reaches the cutoff or hit its cap
+			e.logf("paginator: round %d issued nothing — %d anchors known (%d already past the cutoff, %d at the page cap), range %s",
+				rounds, known, covered, capped, r)
+			return rounds, sent // every in-range chat reaches the cutoff or hit its cap
 		}
 
 		// Issue a capped batch of requests (in-flight cap = maxInFlight).
-		sent := 0
+		roundSent := 0
 		for _, p := range pending {
-			if sent >= maxInFlight {
+			if roundSent >= maxInFlight {
 				break
 			}
 			anchor := p.info
@@ -757,16 +1018,20 @@ func (e *Engine) paginateOlderHistory(r protocol.Range) {
 				continue
 			}
 			pagesUsed[p.key]++
-			sent++
+			roundSent++
 		}
-		if sent == 0 {
-			return // nothing could be sent (all capped or build failed)
+		sent += roundSent
+		if roundSent == 0 {
+			e.logf("paginator: round %d sent 0 of %d pending requests (build/send failed); stopping (range %s)", rounds, len(pending), r)
+			return rounds, sent // nothing could be sent (all capped or build failed)
 		}
+		e.logf("paginator: round %d requested %d of %d chats with a gap (%d anchors known, range %s)",
+			rounds, roundSent, len(pending), known, r)
 
 		// Wait for ON_DEMAND responses to arrive and advance anchors.
 		select {
 		case <-e.ctx.Done():
-			return
+			return rounds, sent
 		case <-time.After(extendPollInterval):
 		}
 
@@ -786,11 +1051,13 @@ func (e *Engine) paginateOlderHistory(r protocol.Range) {
 		} else {
 			stalls++
 			if stalls >= maxStalls {
-				e.logf("extend: server returned no older history for %d rounds; stopping (range %s)", stalls, r)
-				return
+				e.logf("paginator: server returned no older history for %d rounds; stopping after %d rounds / %d requests (range %s)", stalls, rounds, sent, r)
+				return rounds, sent
 			}
 		}
 	}
+	e.logf("paginator: hit the %d-round cap after %d requests (range %s)", maxExtendRounds, sent, r)
+	return rounds, sent
 }
 
 const (

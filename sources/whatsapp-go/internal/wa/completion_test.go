@@ -43,7 +43,7 @@ func countCompletions(t *testing.T, buf *bytes.Buffer) (doneProgress, complete, 
 // state) so the quiet window can arm (contract §R7.2: "after at least one
 // batch"). Returns the run number.
 func openPlateauRun(e *Engine, r protocol.Range, done, total int) int {
-	run := e.resetBackfill(r)
+	run := e.resetBackfill(r, false)
 	// An automatic (bootstrap) batch arrived and was processed: some chats
 	// delivered, one or more didn't.
 	e.noteHistoryBatch(false)
@@ -131,7 +131,7 @@ func TestServerProgressCompletesRunOnce(t *testing.T) {
 	e.quietWindow = 30 * time.Millisecond
 	completed := watchCompletion(e)
 
-	run := e.resetBackfill(protocol.Range7d)
+	run := e.resetBackfill(protocol.Range7d, false)
 	e.noteHistoryBatch(false)
 	e.backfill.mu.Lock()
 	e.backfill.chatsTotal = 5
@@ -173,7 +173,7 @@ func TestQuietWindowDoesNotArmWithoutABatch(t *testing.T) {
 	e, buf := newTestEngine()
 	e.quietWindow = 30 * time.Millisecond
 
-	run := e.resetBackfill(protocol.Range24h) // open run, but NO noteHistoryBatch.
+	run := e.resetBackfill(protocol.Range24h, false) // open run, but NO noteHistoryBatch.
 	ctx, cancel := context.WithCancel(context.Background())
 	e.ctx = ctx
 	go e.watchQuietCompletion(run, protocol.Range24h)

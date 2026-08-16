@@ -675,6 +675,14 @@ func (e *Engine) processHistorySync(hs *events.HistorySync) {
 	// (PhoneNumberToLidMappings) and per-conversation (LidJID <-> the PN thread id).
 	e.absorbLIDMappings(hs)
 
+	// Per-payload accounting. Diagnosing the shallow-import incident needed a
+	// query against the live whatsmeow DB to establish how much history WhatsApp
+	// had actually sent, because the log recorded only that batches arrived —
+	// never their shape. These counters make "the server sent us almost nothing"
+	// and "we filtered almost everything out" distinguishable from the log alone.
+	// One line per PAYLOAD, never per message.
+	var convsSeen, convsInRange, msgsSeen, msgsInRange, msgsUnparsed, msgsOutOfRange, msgsEmitted int
+
 	// Record each in-range conversation's own name and pre-count the in-range set
 	// so chats_total is the IN-RANGE total, not the full chat count (R6.3).
 	c := e.newCanonicalizer()
@@ -701,6 +709,7 @@ func (e *Engine) processHistorySync(hs *events.HistorySync) {
 	}
 
 	for _, conv := range hs.Data.GetConversations() {
+		convsSeen++
 		chatJID, err := types.ParseJID(conv.GetID())
 		if err != nil {
 			continue
@@ -715,6 +724,7 @@ func (e *Engine) processHistorySync(hs *events.HistorySync) {
 		if !lastTS.IsZero() && !rangefilter.ChatInRange(r, lastTS, now) {
 			continue
 		}
+		convsInRange++
 
 		// History sync hands a conversation back NEWEST-FIRST — verified on the live
 		// DB. Emitting it in that order puts every backward reference on the stream
@@ -727,22 +737,32 @@ func (e *Engine) processHistorySync(hs *events.HistorySync) {
 		})
 
 		for _, histMsg := range msgs {
+			msgsSeen++
 			webMsg := histMsg.GetMessage()
 			if webMsg == nil {
+				msgsUnparsed++
 				continue
 			}
 			parsed, err := e.parseWebMessage(chatJID, webMsg)
 			if err != nil {
+				msgsUnparsed++
 				continue
 			}
 			// Filter 2: message within range.
 			if !rangefilter.MessageInRange(r, parsed.Info.Timestamp, now) {
+				msgsOutOfRange++
 				continue
 			}
+			// Counted separately from msgsEmitted: a message can clear the range
+			// filter and still fail to map, and the gap between the two is the only
+			// signal that tells "the server sent little" apart from "we dropped it".
+			msgsInRange++
 			ev, chanMeta, actorMeta, ok := e.mapMessage(parsed.Info, parsed.Message)
 			if !ok {
+				msgsUnparsed++
 				continue
 			}
+			msgsEmitted++
 			// onEvent is the worker's single entry point for BOTH sources and nothing
 			// on the wire tells them apart, so an import arrived looking like live
 			// traffic and every imported row jumped the media queue one at a time
@@ -776,6 +796,52 @@ func (e *Engine) processHistorySync(hs *events.HistorySync) {
 				_ = e.w.Progress("backfill", done, total, msgs, false, r)
 			}
 		}
+	}
+
+	// ONE line per history-sync payload, with the shape of what the server sent and
+	// what survived each filter. This is the record that was missing when a re-sync
+	// delivered a fraction of the expected history: without it, a bootstrap-only
+	// session and a full sync look identical in the log.
+	e.logf("history-sync: type=%s chunk=%d progress=%d%% convs=%d/%d in-range msgs=%d seen / %d emitted / %d out-of-range / %d unparsed (range %s)",
+		hs.Data.GetSyncType(), hs.Data.GetChunkOrder(), hs.Data.GetProgress(),
+		convsInRange, convsSeen, msgsSeen, msgsEmitted, msgsOutOfRange, msgsUnparsed, r)
+
+	// The same counters on the wire. A log line is only readable AFTER the fact by
+	// a human; the worker decides whether history actually arrived, and it must
+	// decide from what the server sent rather than infer it from the shape of its
+	// own DB (which cannot distinguish "few messages sent" from "many dropped").
+	counts := protocol.HistorySync{
+		SyncType:         hs.Data.GetSyncType().String(),
+		Chats:            convsSeen,
+		ChatsInRange:     convsInRange,
+		MessagesSeen:     msgsSeen,
+		MessagesInRange:  msgsInRange,
+		MessagesEmitted:  msgsEmitted,
+		MessagesFiltered: msgsOutOfRange + msgsUnparsed,
+		OnDemand:         hs.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND,
+	}
+	// Only when the server actually sent one — 0 and "absent" mean different
+	// things, and the worker keeps the field optional for exactly that reason.
+	if hs.Data.Progress != nil {
+		p := int(hs.Data.GetProgress())
+		counts.Progress = &p
+	}
+	_ = e.w.HistorySync(counts)
+
+	// Arm the back-pagination paginator, ONCE per import run, now that this batch
+	// has produced real anchors. Import cannot do this itself: at Import time
+	// e.oldestPerChat is empty (trackAnchor only fills it from mapped messages), so
+	// the paginator found no chat with a gap, sent nothing, and settled instantly —
+	// closing the run before its first batch had even arrived. Arming here is
+	// bounded: no batch ever arriving means never arming, and the quiet watcher's
+	// zero-batch deadline terminates that run instead.
+	//
+	// This runs BEFORE maybeCompleteBackfill so the arm happens while the run is
+	// still active; the paginator itself deliberately keeps ingesting older history
+	// after the banner clears (see the `active` gate on progress above).
+	if run, armed := e.armPaginator(); armed {
+		e.logf("paginator: arming for import run %d after the first history batch (%d anchors, range %s)", run, e.anchorCount(), r)
+		e.requestOlderHistory(r)
 	}
 
 	// Re-arm the name sweep now that this batch has actually loaded data (contract

@@ -76,6 +76,12 @@ func (w *Writer) BackfillComplete(r Range, chats, messages int) error {
 	return w.emit(backfillCompleteMsg{T: "backfill_complete", Range: r, Chats: chats, Messages: messages})
 }
 
+// HistorySync reports one processed history-sync payload so the worker can see
+// what the server actually sent, not just what survived into the DB.
+func (w *Writer) HistorySync(h HistorySync) error {
+	return w.emit(historySyncMsg{T: "history_sync", HistorySync: h})
+}
+
 func (w *Writer) Error(code, message string, fatal bool) error {
 	return w.emit(errorMsg{T: "error", Code: code, Message: message, Fatal: fatal})
 }

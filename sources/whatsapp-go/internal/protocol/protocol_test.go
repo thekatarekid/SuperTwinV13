@@ -27,6 +27,109 @@ func TestFormatTimeConvertsToUTC(t *testing.T) {
 	}
 }
 
+// TestParseTimeRoundTripsFormatTime proves the inbound timestamp parser reads
+// what FormatTime writes, plus the plain second-precision form a worker DB may
+// hold. Anchor timestamps arrive this way (seed_anchors) and are handed straight
+// to whatsmeow's on-demand history request, so a misread here would ask WhatsApp
+// for history from the wrong point.
+func TestParseTimeRoundTripsFormatTime(t *testing.T) {
+	tm := time.Date(2026, 7, 2, 12, 34, 56, 789_000_000, time.UTC)
+	got, err := ParseTime(FormatTime(tm))
+	if err != nil {
+		t.Fatalf("ParseTime(FormatTime(t)) errored: %v", err)
+	}
+	if !got.Equal(tm) {
+		t.Fatalf("ParseTime round-trip = %s, want %s", got, tm)
+	}
+	// Second precision (no fractional part) must parse too.
+	sec, err := ParseTime("2026-07-02T12:34:56Z")
+	if err != nil || !sec.Equal(time.Date(2026, 7, 2, 12, 34, 56, 0, time.UTC)) {
+		t.Fatalf("ParseTime(second-precision) = %s, %v", sec, err)
+	}
+	if _, err := ParseTime("not-a-time"); err == nil {
+		t.Fatal("ParseTime must reject a non-timestamp so a bad anchor is dropped, not paged from")
+	}
+}
+
+// TestSeedAnchorsCommandWireShape pins the exact JSON the worker must send. The
+// daemon has no durable anchor store of its own, so this message is the ONLY way
+// back-pagination survives a restart — both tracks have to agree on it verbatim.
+func TestSeedAnchorsCommandWireShape(t *testing.T) {
+	line := []byte(`{"cmd":"seed_anchors","anchors":[` +
+		`{"chat_jid":"918884542333@s.whatsapp.net","msg_id":"3EB0ABC","from_me":true,"ts":"2026-07-02T12:34:56.789Z"},` +
+		`{"chat_jid":"120363000000000001@g.us","msg_id":"3EB0DEF","from_me":false,"ts":"2026-06-01T00:00:00.000Z"}]}`)
+	cmd, err := DecodeCommand(line)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if cmd.Cmd != "seed_anchors" {
+		t.Fatalf("cmd = %q, want seed_anchors", cmd.Cmd)
+	}
+	if len(cmd.Anchors) != 2 {
+		t.Fatalf("anchors = %d, want 2", len(cmd.Anchors))
+	}
+	want := Anchor{ChatJID: "918884542333@s.whatsapp.net", MsgID: "3EB0ABC", FromMe: true, TS: "2026-07-02T12:34:56.789Z"}
+	if cmd.Anchors[0] != want {
+		t.Fatalf("anchors[0] = %+v, want %+v", cmd.Anchors[0], want)
+	}
+	if cmd.Anchors[1].ChatJID != "120363000000000001@g.us" || cmd.Anchors[1].FromMe {
+		t.Fatalf("anchors[1] = %+v, want the group anchor with from_me=false", cmd.Anchors[1])
+	}
+
+	// Every other command still decodes with no anchors (forward/backward compat).
+	plain, err := DecodeCommand([]byte(`{"cmd":"set_range","range":"7d"}`))
+	if err != nil || len(plain.Anchors) != 0 || plain.Range != Range7d {
+		t.Fatalf("set_range decode = %+v, %v", plain, err)
+	}
+}
+
+// TestHistorySyncFrameWireShape pins the per-payload counter frame to the exact
+// FLAT snake_case keys the worker's handleHistorySyncMsg reads. The counters are
+// what lets the worker tell "the server sent little" apart from "we dropped a
+// lot", so a renamed or nested key silently degrades that call to a guess.
+func TestHistorySyncFrameWireShape(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	p := 42
+	if err := w.HistorySync(HistorySync{
+		SyncType: "INITIAL_BOOTSTRAP", Progress: &p,
+		Chats: 89, ChatsInRange: 61,
+		MessagesSeen: 486, MessagesInRange: 305, MessagesEmitted: 292,
+		MessagesFiltered: 194, OnDemand: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lines := decodeLines(t, buf.Bytes())
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(lines))
+	}
+	got := lines[0]
+	for k, want := range map[string]any{
+		"t": "history_sync", "sync_type": "INITIAL_BOOTSTRAP", "progress": 42.0,
+		"chats": 89.0, "chats_in_range": 61.0,
+		"messages_seen": 486.0, "messages_in_range": 305.0,
+		"messages_emitted": 292.0, "messages_filtered": 194.0,
+		"on_demand": false,
+	} {
+		if got[k] != want {
+			t.Fatalf("%s = %#v, want %#v (frame: %#v)", k, got[k], want, got)
+		}
+	}
+
+	// Progress is genuinely optional: WhatsApp omitting it must not read as 0%.
+	buf.Reset()
+	if err := w.HistorySync(HistorySync{SyncType: "ON_DEMAND", OnDemand: true}); err != nil {
+		t.Fatal(err)
+	}
+	only := decodeLines(t, buf.Bytes())[0]
+	if _, present := only["progress"]; present {
+		t.Fatalf("progress present with no value set: %#v", only)
+	}
+	if only["on_demand"] != true {
+		t.Fatalf("on_demand = %#v, want true", only["on_demand"])
+	}
+}
+
 // decodeLines splits NDJSON output and decodes each line into a generic map.
 func decodeLines(t *testing.T, b []byte) []map[string]any {
 	t.Helper()

@@ -239,6 +239,91 @@ export interface SourceError {
   message: string;
 }
 
+// ---- History depth (shallow-bootstrap detection) --------------------------
+
+/**
+ * One HistorySync payload as the daemon reports it (`t:"history_sync"`), already
+ * renamed to camelCase at the adapter boundary. Counters are PER PAYLOAD, never
+ * cumulative — the worker accumulates (ingest/history-depth.ts).
+ *
+ * The frame is OPTIONAL: on a daemon that does not emit it every field is simply
+ * absent and the shape-only fallback decides. `syncType` is whatsmeow's raw enum
+ * name (INITIAL_BOOTSTRAP / FULL / RECENT / ON_DEMAND / …) and is only ever
+ * compared as a string, so a new type needs no release here.
+ */
+export interface HistorySyncPayload {
+  syncType: string;
+  /** WhatsApp's own 0-100 progress for the sync, when it sends one. */
+  progress?: number;
+  chats: number;
+  chatsInRange: number;
+  /** Messages the payload carried, before the range filter. */
+  messagesSeen: number;
+  messagesInRange: number;
+  /** Messages actually emitted to the worker. */
+  messagesEmitted: number;
+  /** Dropped by the range filter or by mapping. */
+  messagesFiltered: number;
+  onDemand: boolean;
+}
+
+export type HistoryDepthVerdict = "unknown" | "shallow" | "deep";
+
+/** Why {@link HistoryDepth.verdict} says what it says (drives the UI copy). */
+export type HistoryDepthReason =
+  | "no_history"
+  | "healthy_shape"
+  | "bulk_received"
+  | "bootstrap_only"
+  | "sparse_chats"
+  | "sparse_after_bulk";
+
+/**
+ * The verdict on a settled import: did WhatsApp re-upload the archive, or only
+ * the bootstrap batch? Carried on {@link AdapterStatus} and persisted, so the
+ * Inbox can state what actually arrived instead of showing a finished import
+ * holding one message per chat with no explanation.
+ */
+export interface HistoryDepth {
+  verdict: HistoryDepthVerdict;
+  reason: HistoryDepthReason;
+  /** Shape read back from the DB after the import went quiet. */
+  chats: number;
+  messages: number;
+  singleMessageChats: number;
+  /** Daemon `history_sync` payloads seen; 0 when the daemon reports none. */
+  payloads: number;
+  bulkPayloads: number;
+  syncTypes: string[];
+  messagesSeen: number;
+  messagesEmitted: number;
+  messagesFiltered: number;
+  /** False when the daemon sent no payload frames — verdict is shape-only. */
+  syncTypesKnown: boolean;
+  checkedAt: string;
+}
+
+/**
+ * What one "Extend history" run actually recovered. `messagesRecovered` counts
+ * rows that PERSISTED (dedupe already applied), not rows the daemon emitted, so
+ * a run that re-fetched pages already held reports 0 rather than a flattering
+ * number. WhatsApp caps an on-demand page at 50 messages per request, so a
+ * non-zero result does not mean the chat is exhausted — hence `mayHaveMore`.
+ */
+export interface ExtendOutcome {
+  range: Range;
+  startedAt: string;
+  finishedAt?: string;
+  running: boolean;
+  /** Chats the daemon said it paginated (its own `backfill_complete` count). */
+  chatsPaginated: number;
+  /** Streams that gained at least one NEW row during this run. */
+  streamsWithNewMessages: number;
+  messagesRecovered: number;
+  /** True while more pages could plausibly be waiting behind the 50-msg cap. */
+  mayHaveMore: boolean;
+}
+
 /**
  * A status update surfaced to consumers via `onStatus`. Discriminated by
  * `type`; unifies the daemon's status/qr/progress/paired/error lines into one
@@ -258,7 +343,14 @@ export type StatusUpdate =
   | { type: "progress"; progress: Progress }
   | { type: "backfill_complete"; range: Range; chats: number; messages: number }
   | { type: "error"; code: string; message: string; fatal: boolean }
-  | { type: "ingest"; ts: string; streams: string[]; channels: string[] };
+  | { type: "ingest"; ts: string; streams: string[]; channels: string[] }
+  // One HistorySync payload was processed by the daemon. Forwarded verbatim so
+  // a subscriber can watch the sync arrive chunk by chunk.
+  | { type: "history_sync"; payload: HistorySyncPayload }
+  // The settled import has been judged (fires once per quiet window).
+  | { type: "history_depth"; depth: HistoryDepth }
+  // An "Extend history" run started or finished, with what it recovered.
+  | { type: "extend_result"; outcome: ExtendOutcome };
 
 /**
  * Live-ingest nudge frame (Rev 2 §R2.2). Emitted (debounced) by the worker
@@ -291,6 +383,13 @@ export interface AdapterStatus {
   importDone?: boolean;
   /** The chosen import range, persisted with importDone (Rev 2 §R2.1). */
   importRange?: Range;
+  /**
+   * The verdict on the settled import. Absent until the first quiet window
+   * closes; persisted across restarts so the Inbox does not forget.
+   */
+  historyDepth?: HistoryDepth;
+  /** What the most recent "Extend history" run recovered. Persisted. */
+  lastExtend?: ExtendOutcome;
 }
 
 // ---- HTTP API response shapes (§6) ----------------------------------------

@@ -17,6 +17,25 @@
 
 ## Log
 
+- **MERGED TO `main`** (`a8da50e`, v0.9.0) after CI's **first genuine green run**. Local `main` fast-forwarded, tree clean.
+- **CI had never actually run.** `ci.yml` carried two top-level `concurrency:` keys; GitHub rejects duplicates, so every run since was created with **zero jobs** and a bare `failure` — which renders on a PR as "no checks ran", not a red X. 23 commits went unvalidated. Fixed, plus `scripts/workflows.test.mjs` (dependency-free duplicate-key scan, its own tests feed it the literal broken config so it is falsifiable).
+- **Two integration suites hard-failed on CI** with `spawnSync claude ENOENT` — they require the real `claude` binary, which exists in this container but not on a runner. Pre-existing; exposed only once CI ran. Guarded with `describe.skipIf`, where the probe treats **only** `ENOENT`/`EACCES` as absence and **rethrows** everything else, so a CLI that exists and misbehaves still fails loudly (asserted both ways in `real-cli.test.ts`). Verified the suites still execute unskipped where the binary is present.
+- **Final CI-green state:** worker 3158 · root 496 · scripts 75 · eval **1000/1000, 0 gates breached**.
+
+### .dmg build — cannot be produced in this container
+
+This session runs on **Linux**: no `hdiutil`, `xcrun` or `codesign`, and only the `x86_64-unknown-linux-gnu` Rust target. Tauri cannot cross-compile a macOS bundle from Linux, and a `.dmg` is a macOS disk image built with macOS-only tooling. Validated here what is platform-neutral: `npm run build` (frontend) succeeds. `npm run bundle:worker` correctly **exits 1** on Linux because `onnxruntime-node`'s native binding is per-platform — expected, and it fails loudly rather than shipping a broken embedding runtime.
+
+To cut the v0.9.0 installer on a Mac:
+```
+git checkout main && git pull
+npm ci
+npm run build:app        # -> src-tauri/target/release/bundle/dmg/
+```
+Or push the tag and let the macOS CI job build and attach it:
+```
+git tag v0.9.0 && git push origin v0.9.0
+```
 - **PHASE 5 THESIS GATE PASSED — build complete.** Worker 3153/3153 · root 496/496 · scripts 67/67 · eval 1000/1000, 94/96 measured, 0 breached.
 - **The thesis held: zero core changes.** `git diff` vs v0.8.0 over db/entities/arcs/scheduler/sessions/wire/evals core is **empty**. Calendar + contacts are two manifests + adapters composed from pre-existing generic APIs (`registerSource`, `Ingestion`, `resolveIdentity`, `mergeEntities`, `runBridgePass`, `runArcLadder`, `promoteArcs`). Calendar registration is flag-gated (`SUPERTWIN_PHASE5_CALENDAR=1`) so the shipped single-source boot is byte-identical.
 - **5.2** — cross-source identity precision **1.0 (24/24)**, zero model calls proven structurally + behaviourally, over a trap corpus (similar names, shared landline, missing country codes, jid lookalike, dot-Gmail). Order-independent.

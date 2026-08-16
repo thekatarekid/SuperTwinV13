@@ -1182,6 +1182,80 @@ A copy of the user's fresh-install DB **at its exact broken state** (93/93 strea
   
 
 * * *
+## 5.7 WHATSAPP HISTORY DEPTH — the alarm was premature, the paginator was real
+**Measured:** Go gofmt/build/vet clean · `go test -race` **5/5** packages · worker **188 files / 3,417 tests** · UI **28 files / 502 tests** · `tsc` clean. **v0.12.0 built and archived** (`releases/SuperTwinV11_0.12.0_aarch64.dmg`, 717 MB) — **the fix is not active until the user installs 0.12.0.**
+
+### 5.7.0 What was actually true — say it plainly
+The user reported screenshots showing many WhatsApp chats with **only one message**, and was confident history sync was broken. **The first diagnosis agreed with them, and it was wrong.**
+
+That diagnosis was taken on a **mid-sync snapshot** — 305 events / 89 streams / 61 single-message chats, device registration #61, only ~486 message secrets present — and concluded, confidently, that **"WhatsApp declined to re-upload full history"**. History kept arriving after the snapshot was taken. The live DB now holds:
+
+```
+2,596 events across the same 89 streams
+window 2026-07-18 → 2026-08-16 (the full 30 days)
+2,522 distinct timestamps
+top chats 1246 / 469 / 314 / 178 / 120
+```
+
+The new depth detector classifies this shape as **deep/healthy**, not shallow. 61 chats are still single-message, but they appear **genuinely sparse within the 30-day window** — mostly business and promotional senders. **The import was not broken.** The headline was written on a snapshot of a process that had not finished.
+
+A second reported anomaly — "all events share one timestamp" — was likewise **a bad diagnostic query, not a data defect**. `events.ts` is TEXT ISO-8601, so `ts/1000` made SQLite coerce `'2026-…'` to the integer **2026**. The data was fine; the query was not.
+
+What the round did find is that **three real defects sat underneath the false alarm**, and none of them would have surfaced without it.
+
+### 5.7.1 What was fixed
+1. **The back-pagination could never fire.** `requestOlderHistory` paginates only the chats present in `oldestPerChat`, which is populated from **already-mapped messages** — but `Import` called it **inline, before any history had arrived**. Zero anchors → immediate return → run closed. Log proof: a backfill run "completed" **15 s before the first history batch**, with `chats=0 actors=0`. The paginator now **arms on the first history batch** (`engine.go:632 armPaginator`, called from `events.go:816` after the per-conversation loop and before `maybeCompleteBackfill`), latched once per run. `Extend` still arms inline, where anchors already exist.
+  
+2. **A run could "complete" over zero batches.** `finishBackfillFromPaginator` (`engine.go:827`) now **refuses** when a run has 0 batches and 0 anchors, or when the last batch is still inside the quiet window. A **90 s zero-batch deadline** closes such a run honestly, with an explicit **"ZERO history-sync batches"** log line, rather than leaving an open banner in the UI.
+  
+3. **Anchors did not survive restart — so "Extend history" was a silent no-op after any daemon restart.** whatsmeow's sqlstore has **no message table**: `whatsmeow_message_secrets` carries chat, sender and message_id but **no timestamp and no `from_me`**, proven by dumping the schema. The daemon therefore cannot derive anchors on its own. Fixed by seeding from the worker's `events` table — the only durable source — via a new **`seed_anchors`** stdin command, sent on ready and before every extend. The wire shape is pinned by `protocol_test.go TestSeedAnchorsCommandWireShape`:
+
+    ```
+    {"cmd":"seed_anchors","anchors":[
+      {"chat_jid":"…","msg_id":"…","from_me":false,"ts":"2026-07-02T12:34:56.789Z"}]}
+    ```
+
+    `msg_id` is the **id half of `external_id`**, not the full `external_id`; `ts` is ISO-8601 (RFC3339). Seeds route through `trackAnchor`, which is **oldest-wins**, so a seed can only ever **deepen** an anchor, never regress one.
+  
+4. **No observability — diagnosing this required a DB query.** That is the real indictment, and it is now closed: one line per history-sync payload (type / chunk / progress% / convs in-range-of-total / msgs seen / emitted / out-of-range / unparsed), every paginator decision with **its reason and anchor count**, Import/Extend entry with anchor count, and run close with elapsed / batches / chats / msgs / anchors.
+  
+5. **UI honesty.** New shallow-import detection in `worker/src/ingest/history-depth.ts` (`assessHistoryDepth`; thresholds chats ≥ 10 && avg < 10 && singleFrac ≥ 0.5), calibrated against **measured** installs — healthy **V10 98/3632/35** and **V9G 100/3575/37**, versus the shallow shape **89/305/61**. An ambiguous shape returns **`unknown`, never `shallow`**: a deliberate refusal to repeat the confident-wrong-story failure at the top of this section. The UI names **WhatsApp** as the decider, offers only **"Extend history"**, and never suggests a re-link. Extend now reports the rows that actually **persisted** (a re-fetched page dedupes to 0) and flags `mayHaveMore`, because on-demand pages cap at 50.
+  
+
+### 5.7.2 Proven offline — no re-link burned
+Real HistorySync payloads replayed through the real `processHistorySync`:
+
+- Paginator **defers at Import** and **arms on the first batch**.
+- Gap-selection names the **right chat count**.
+- A **zero-batch run does not complete**.
+- A **restarted engine** reports "NO anchors — nothing to paginate", then paginates **2** after `seed_anchors`.
+- Detector verified against **all three real DB shapes** (V10, V9G, the snapshot).
+- The **live install is byte-identical before and after** by sha256 — `supertwinv11.db` `31ee835f…`, `whatsmeow.db` `d703d4cb…`.
+
+### 5.7.3 Known remaining gaps
+- **The actual wire send is not verifiable offline.** `BuildHistorySyncRequest` and `SendPeerMessage` are called on the concrete `*whatsmeow.Client` with **no test seam**, so with no session the run stops at `paginator: run N not issued — no session/client`. Gap-selection and every arming/completion path are proven; that a real **ON_DEMAND request is accepted and returns a page** needs a live authenticated client. **Open.**
+  
+- **Whether WhatsApp still retains pre-July history to serve is unknown.** Even a working request may legitimately return nothing.
+  
+- **The mock engine ignores `seed_anchors`** (`mock/engine.go:129`), so an integration test against the mock **would pass with a wrong wire shape**. The contract must be pinned against `protocol.DecodeCommand`, as `TestSeedAnchorsCommandWireShape` does. This is the same hazard class as the fake-client tab tests of §5.5.0 and the throwaway-DB evals of §5.5.4: a proof that cannot see the thing it claims to prove.
+  
+- **Expect a benign nonzero `skipped`** in `seed_anchors: N seeded, M skipped` — `anchorMessageInfo` applies `skipChatJID`, so status@broadcast and newsletter anchors are dropped daemon-side and the worker does not pre-filter them. This must be distinguished from the **seeded=0 / skipped=N** signature, which means a **wrong field name**.
+  
+- **Two release archives are missing.** The 0.9.0 and 0.10.0 `.dmg` files are no longer present in `releases/`; only 0.11.0 and 0.12.0 remain. `scripts/release.mjs` contains no deletion or pruning logic and did not remove them, and they are not in the Trash. `RELEASES.md` still records **every** version with its sha256, so both remain identifiable and rebuildable from their commits. Cause unknown; recorded here so it is not rediscovered as a surprise.
+  
+
+### 5.7.4 How this class of failure recurs
+The two §5.5.4 failure modes were about **proofs that could not see the wiring**. This round adds a third: **a confident conclusion drawn from a snapshot of a process that had not finished**, and a **query bug mistaken for a data defect**. Both produced a specific, technical, entirely wrong story — "WhatsApp declined to re-upload full history" — which is more damaging than saying nothing, because it is actionable in the wrong direction.
+
+The guards adopted here:
+1. **Re-measure before concluding.** A count taken during an import is a sample, not a result. The run-close log line (elapsed / batches / chats / msgs / anchors) exists so the end of the process is observable without a DB query.
+  
+2. **A classifier that is allowed to say `unknown`.** `assessHistoryDepth` returns `unknown` rather than `shallow` on an ambiguous shape, and is calibrated on measured real installs rather than on intuition. The UI never converts uncertainty into a re-link prompt.
+  
+3. **Verify the query before believing the anomaly.** `ts/1000` against a TEXT column is silent in SQLite. A schema check costs one command and would have prevented the second false finding entirely.
+  
+
+* * *
 ## 6. Global acceptance — the build is done when
 _Every box below was measured on eval fixtures or a harness DB. §5.5 is the correction: the routes and the derivation pipeline that these claims presuppose did not run in production until the correction round, and the items still marked "needs a live device run" have not had one._
 - [x] 

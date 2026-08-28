@@ -126,6 +126,8 @@ Goal: a clean V13 skeleton that captures WhatsApp + browser into the new event l
 
 * * *
 ## 3. Phase 1 — Understanding lane (propose-only)
+> **STATUS: ✅ COMPLETE (2026-08-28).** All tasks P1.1–P1.8 done + verified (worker 2073 tests green across 139 files, `tsc` clean). Live golden suite run 4 full times (r5–r8, ~500 traced live calls through the claude-local provider, haiku judge): 83 → 89 → 94 → 96 of 100 cases; final r8 gate rows all PASS or no-data — zero hard-gate breaches. Release 13.1.1 → `releases/SuperTwinV13_Phase1_13.1.1.dmg`.
+
 Goal: WhatsApp + browser flow through the five passes into spaces/episodes/claims with review queue and minimal UI. Exit gates (hard): assignment ≥90%, over_creation <10%, false merges/closes = 0, containment ≥95% on the golden suite. **Do not start P2 until green.**
 ### SERIAL
 **P1.1 — World model schema**

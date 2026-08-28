@@ -102,6 +102,14 @@ const post = (body?: unknown): RequestInit => ({
 
 export const fetchHome = (): Promise<HomeData> => request("/api/home");
 
+export interface HealthInfo {
+  ok: boolean;
+  version: string;
+  builtThroughPhase: string;
+}
+
+export const fetchHealth = (): Promise<HealthInfo> => request("/api/health");
+
 export const approveProposal = (id: string): Promise<{ space: SpaceRow; decision_id: string }> =>
   request(`/api/proposals/${encodeURIComponent(id)}/approve`, post());
 

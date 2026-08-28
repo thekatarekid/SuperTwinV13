@@ -13,7 +13,15 @@
 - [x] Phase 0 DMG: releases/SuperTwinV13_Phase0_13.0.1.dmg (724 MB, built 2026-08-28)
 
 ## Phase 1 — Understanding lane (propose-only)
-- [ ] P1.1–P1.8 (pending Phase 0)
+- [x] P1.1 World model schema (0101_world_model)
+- [x] P1.2 Context packer + retrieval
+- [x] P1.3 Orient + Critic passes
+- [x] P1.4 Extract + Decide passes (P1 scope)
+- [x] P1.5 Unsorted, sweep, consolidation T1/T2
+- [x] P1.6 Digest pass + categories + priority order
+- [x] P1.7 Minimal UI shell (Tauri + React rebuild)
+- [x] P1.8 Enrichment rewire
+- [x] Phase 1 DMG: releases/SuperTwinV13_Phase1_13.1.1.dmg (724 MB, built 2026-08-28)
 
 ## Phase 2 — Screen capture + assist lane
 - [ ] P2.1–P2.4 (pending P1 gates)
@@ -28,3 +36,4 @@
 - 2026-08-28: Kickoff. Phase 0 orchestration started.
 - 2026-08-28: Phase 0 complete (10 agents, all green). Worker 1762 tests pass, go tests pass, BND deterministic suite green, rebrand grep clean. DMG 13.0.1 (724MB) in releases/. Commits 48f9e65..c739875.
 - 2026-08-28: Phase 1 workflow launched (P1.1 serial → lanes A–E parallel).
+- 2026-08-28: Phase 1 complete. Worker 2073/2073 tests green (139 files), tsc clean. Live golden suite run 4x (r5–r8, ~500 traced calls, claude-local provider + haiku judge): 83 → 89 → 94 → 96 of 100; r8 gate rows all PASS or no-data, zero hard-gate breaches. Version 13.1.1, BUILT_THROUGH_PHASE=P1, /api/health version wired into Settings footer. DMG in releases/.

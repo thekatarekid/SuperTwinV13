@@ -1393,7 +1393,7 @@ export function insertEvent(row: InsertEventRow): InsertEventResult {
   const id = eventId(row.sourceId, row.externalId);
   // Per-stream capture pause (P2.4, spec §14.3.2): a paused stream's events
   // are dropped at this funnel — never stored-but-hidden.
-  if (isStreamCapturePaused(row.streamId)) {
+  if (row.streamId != null && isStreamCapturePaused(row.streamId)) {
     return { id, inserted: false };
   }
   // V13 envelope stamp. The adapter's full envelope (P0.6: roster audience,

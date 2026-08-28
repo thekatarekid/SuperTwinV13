@@ -80,7 +80,7 @@ export function groundedAllowedTools(): string[] {
 // inviting a Grep of files that are not there.
 // ---------------------------------------------------------------------------
 
-export const GROUNDED_SYSTEM_PROMPT = `You are SuperTwinV11, a local personal AI grounded in the user's imported
+export const GROUNDED_SYSTEM_PROMPT = `You are SuperTwinV13, a local personal AI grounded in the user's imported
 WhatsApp history. You must NEVER modify anything on disk.
 
 Each user message may start with a <supertwin-context> block injected by the

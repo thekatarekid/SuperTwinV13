@@ -219,7 +219,7 @@ async function main() {
   const daemonBin = buildDaemon();
   const home = mkdtempSync(join(tmpdir(), "e2e-mock-home-"));
   tmpDirs.push(home);
-  const dbPath = join(home, "supertwinv11.db");
+  const dbPath = join(home, "supertwinv13.db");
 
   // ---- Run 1: pair -> import -> read/search/media/traversal ----------------
   let handle = startWorker(daemonBin, home, dbPath);
@@ -832,7 +832,7 @@ async function main() {
   // messages become present), proving extend reaches back across chats.
   const homeR6 = mkdtempSync(join(tmpdir(), "e2e-mock-home-r6-"));
   tmpDirs.push(homeR6);
-  const dbR6 = join(homeR6, "supertwinv11.db");
+  const dbR6 = join(homeR6, "supertwinv13.db");
   let handleR6 = startWorker(daemonBin, homeR6, dbR6);
   worker = handleR6.child;
   await waitReady(handleR6, "r6");

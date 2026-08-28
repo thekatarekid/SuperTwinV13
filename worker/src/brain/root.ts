@@ -1,5 +1,5 @@
 // ===========================================================================
-// Brain root: locate ~/SuperTwinV11/brain, lay it out, git-init it, and
+// Brain root: locate ~/SuperTwinV13/brain, lay it out, git-init it, and
 // best-effort commit changes.
 //
 // This is what survived the markdown brain (V2 §3.2). Nothing writes wiki pages
@@ -8,7 +8,7 @@
 // message text on disk, and only when `settings.debug_export` is on.
 //
 //   - brainRoot(): SUPERTWIN_BRAIN_DIR override (tests), else
-//     SUPERTWIN_HOME/brain, else ~/SuperTwinV11/brain (mirrors mediaRoot()).
+//     SUPERTWIN_HOME/brain, else ~/SuperTwinV13/brain (mirrors mediaRoot()).
 //   - ensureBrain(): idempotent layout + `git init` + initial commit. The layout
 //     is created programmatically; the repo's brain-template/ is gone, so there
 //     is nothing to copy and nothing to go missing in the bundled worker.
@@ -31,7 +31,7 @@ export function brainRoot(): string {
   const home =
     process.env.SUPERTWIN_HOME && process.env.SUPERTWIN_HOME.trim().length
       ? process.env.SUPERTWIN_HOME
-      : join(homedir(), "SuperTwinV11");
+      : join(homedir(), "SuperTwinV13");
   return resolve(join(home, "brain"));
 }
 
@@ -65,9 +65,9 @@ function git(cwd: string, ...args: string[]): boolean {
       env: {
         ...process.env,
         // Never block on identity config; commits always have an author.
-        GIT_AUTHOR_NAME: "SuperTwinV11",
+        GIT_AUTHOR_NAME: "SuperTwinV13",
         GIT_AUTHOR_EMAIL: "supertwin@localhost",
-        GIT_COMMITTER_NAME: "SuperTwinV11",
+        GIT_COMMITTER_NAME: "SuperTwinV13",
         GIT_COMMITTER_EMAIL: "supertwin@localhost",
       },
       timeout: 10_000,

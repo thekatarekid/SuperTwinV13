@@ -53,15 +53,20 @@ import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
 import { Ingestion } from "./ingest/index.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
+import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { ensureTiers } from "./tiers/ensure.js";
 import { startBootstrapDriver, type BootstrapDriver } from "./scheduler/bootstrap.js";
 import { startSteadyDriver, type SteadyDriver } from "./scheduler/steady.js";
 
 async function main(): Promise<void> {
+  // ---- Home layout (P0.1): ~/SuperTwinV13 with media/ logs/ browser-profile/
+  // traces/ (SUPERTWIN_HOME override kept). Before migrations so the DB's
+  // parent dir exists on a fresh install.
+  ensureHomeLayout();
   runMigrations();
   register(claudeLocalProvider);
 
-  // ---- Logs: create ~/SuperTwinV11/logs (+ /runs) and tee the node console into a
+  // ---- Logs: create ~/SuperTwinV13/logs (+ /runs) and tee the node console into a
   // durable file next to the per-run transcripts (both best-effort; §9).
   ensureLogsDir();
   teeConsole();
@@ -121,7 +126,7 @@ async function main(): Promise<void> {
     adapter = null;
   }
 
-  const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? 8011);
+  const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
 
   // ---- Tiers (item 1.2, arch §9.3 rule 4). Every stream gets a tier, and the

@@ -167,7 +167,7 @@ export function App() {
               <path d="M12 2c1.8 2.2 2.6 4.5 2.6 6.4 0 2-1.1 3.6-2.6 3.6S9.4 10.4 9.4 8.4C9.4 6.5 10.2 4.2 12 2zM12 22c-1.8-2.2-2.6-4.5-2.6-6.4 0-2 1.1-3.6 2.6-3.6s2.6 1.6 2.6 3.6c0 1.9-.8 4.2-2.6 6.4zM2 12c2.2-1.8 4.5-2.6 6.4-2.6 2 0 3.6 1.1 3.6 2.6s-1.6 2.6-3.6 2.6C6.5 14.6 4.2 13.8 2 12zM22 12c-2.2 1.8-4.5 2.6-6.4 2.6-2 0-3.6-1.1-3.6-2.6s1.6-2.6 3.6-2.6c1.9 0 4.2.8 6.4 2.6z" />
             </svg>
           </span>
-          <span className="sidebar__title">SuperTwinV11</span>
+          <span className="sidebar__title">SuperTwinV13</span>
         </div>
         <ul className="sidebar__nav">
           {TABS.map((tab) => (

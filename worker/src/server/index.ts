@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as db from "../db/index.js";
+import { DEFAULT_WORKER_PORT } from "../home.js";
 import { rescanMedia, type RescanType } from "../db/ingest.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/index.js";
 import type {
@@ -384,7 +385,7 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   });
 
   const port =
-    opts?.port ?? Number(process.env.SUPERTWIN_WORKER_PORT ?? 8011);
+    opts?.port ?? Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
 
   return new Promise<ServerHandle>((resolve, reject) => {
     server.on("error", reject);

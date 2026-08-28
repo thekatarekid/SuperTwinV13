@@ -41,30 +41,30 @@ function fixture({ version = "0.5.3", dmgs = [], manifest = MANIFEST_HEADER } = 
 
   writeFileSync(
     join(root, "package.json"),
-    `${JSON.stringify({ name: "supertwinv11", private: true, version, workspaces: ["worker"] }, null, 2)}\n`,
+    `${JSON.stringify({ name: "supertwinv13", private: true, version, workspaces: ["worker"] }, null, 2)}\n`,
   );
   writeFileSync(
     join(root, "worker/package.json"),
-    `${JSON.stringify({ name: "@supertwinv11/worker", version, private: true }, null, 2)}\n`,
+    `${JSON.stringify({ name: "@supertwinv13/worker", version, private: true }, null, 2)}\n`,
   );
   writeFileSync(
     join(root, "src-tauri/tauri.conf.json"),
-    `${JSON.stringify({ productName: APP_NAME, version, identifier: "com.supertwin.v11" }, null, 2)}\n`,
+    `${JSON.stringify({ productName: APP_NAME, version, identifier: "com.supertwin.v13" }, null, 2)}\n`,
   );
   writeFileSync(
     join(root, "src-tauri/Cargo.toml"),
-    `[package]\nname = "supertwinv11"\nversion = "${version}"\nedition = "2021"\n\n[dependencies]\ntauri = { version = "2", features = [] }\n`,
+    `[package]\nname = "supertwinv13"\nversion = "${version}"\nedition = "2021"\n\n[dependencies]\ntauri = { version = "2", features = [] }\n`,
   );
   writeFileSync(
     join(root, "package-lock.json"),
     `${JSON.stringify(
       {
-        name: "supertwinv11",
+        name: "supertwinv13",
         version,
         lockfileVersion: 3,
         packages: {
-          "": { name: "supertwinv11", version, workspaces: ["worker"] },
-          worker: { name: "@supertwinv11/worker", version },
+          "": { name: "supertwinv13", version, workspaces: ["worker"] },
+          worker: { name: "@supertwinv13/worker", version },
           "node_modules/mkdirp-classic": { version: "0.5.3" },
         },
       },
@@ -208,7 +208,7 @@ describe("the archive is append-only", () => {
 
   it("preflight names the offending file", () => {
     withFixture({ version: "0.5.3", dmgs: [`${APP_NAME}_0.6.0_aarch64.dmg`] }, (root) => {
-      expect(() => preflight(root, "0.6.0")).toThrow(/SuperTwinV11_0\.6\.0_aarch64\.dmg/);
+      expect(() => preflight(root, "0.6.0")).toThrow(/SuperTwinV13_0\.6\.0_aarch64\.dmg/);
       expect(() => preflight(root, "0.6.1")).not.toThrow();
     });
   });

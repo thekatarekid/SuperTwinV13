@@ -38,7 +38,7 @@ let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "supertwin-embeddings-test-"));
-  process.env.SUPERTWIN_DB_PATH = join(tmpDir, "supertwinv11.db");
+  process.env.SUPERTWIN_DB_PATH = join(tmpDir, "supertwinv13.db");
   closeDb();
 });
 

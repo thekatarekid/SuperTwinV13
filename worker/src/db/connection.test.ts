@@ -29,13 +29,13 @@ afterEach(() => {
 });
 
 describe("resolveDbPath precedence", () => {
-  it("defaults to ~/SuperTwinV11/supertwinv11.db when nothing is set", () => {
-    expect(resolveDbPath()).toBe(join(homedir(), "SuperTwinV11", "supertwinv11.db"));
+  it("defaults to ~/SuperTwinV13/supertwinv13.db when nothing is set", () => {
+    expect(resolveDbPath()).toBe(join(homedir(), "SuperTwinV13", "supertwinv13.db"));
   });
 
   it("SUPERTWIN_HOME redirects the db under that home dir", () => {
     process.env.SUPERTWIN_HOME = "/tmp/st-home-xyz";
-    expect(resolveDbPath()).toBe(join("/tmp/st-home-xyz", "supertwinv11.db"));
+    expect(resolveDbPath()).toBe(join("/tmp/st-home-xyz", "supertwinv13.db"));
   });
 
   it("SUPERTWIN_DB_PATH wins over SUPERTWIN_HOME (most specific)", () => {
@@ -46,6 +46,6 @@ describe("resolveDbPath precedence", () => {
 
   it("ignores a blank/whitespace SUPERTWIN_HOME and falls through to default", () => {
     process.env.SUPERTWIN_HOME = "   ";
-    expect(resolveDbPath()).toBe(join(homedir(), "SuperTwinV11", "supertwinv11.db"));
+    expect(resolveDbPath()).toBe(join(homedir(), "SuperTwinV13", "supertwinv13.db"));
   });
 });

@@ -131,7 +131,7 @@ export interface DescribeOptions {
 /**
  * Media root. Precedence mirrors the /api/media route's mediaRoot() and the
  * daemon's resolveMediaDir() (SUPERTWIN_MEDIA_DIR → SUPERTWIN_HOME/media →
- * ~/SuperTwinV11/media) so the reader's cwd is the tree the files actually live in.
+ * ~/SuperTwinV13/media) so the reader's cwd is the tree the files actually live in.
  */
 export function mediaRoot(): string {
   const override = process.env.SUPERTWIN_MEDIA_DIR;
@@ -139,7 +139,7 @@ export function mediaRoot(): string {
   const home =
     process.env.SUPERTWIN_HOME && process.env.SUPERTWIN_HOME.trim().length
       ? process.env.SUPERTWIN_HOME
-      : join(homedir(), "SuperTwinV11");
+      : join(homedir(), "SuperTwinV13");
   return resolve(join(home, "media"));
 }
 

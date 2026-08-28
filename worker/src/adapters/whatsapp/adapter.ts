@@ -61,7 +61,7 @@ export interface WhatsAppAdapterOptions {
   spawn?: SpawnFn;
   /** Explicit binary path (overrides resolution). */
   binPath?: string;
-  /** Base home dir (default: SUPERTWIN_HOME or ~/SuperTwinV11). */
+  /** Base home dir (default: SUPERTWIN_HOME or ~/SuperTwinV13). */
   home?: string;
   /** Pass --mock to the daemon (also honoured via SUPERTWIN_WHATSAPP_MOCK=1). */
   mock?: boolean;
@@ -138,14 +138,14 @@ function resolveHome(explicit?: string): string {
   if (explicit) return explicit;
   const env = process.env.SUPERTWIN_HOME;
   if (env && env.trim().length) return env;
-  return join(homedir(), "SuperTwinV11");
+  return join(homedir(), "SuperTwinV13");
 }
 
 /**
  * Media dir the daemon writes into. Precedence mirrors the /api/media route's
  * mediaRoot() (SUPERTWIN_MEDIA_DIR → home/media) so daemon-written files always
  * land under the path the route serves from. `home` is the already-resolved
- * base (SUPERTWIN_HOME or ~/SuperTwinV11), used when no explicit media override.
+ * base (SUPERTWIN_HOME or ~/SuperTwinV13), used when no explicit media override.
  */
 function resolveMediaDir(home: string): string {
   const override = process.env.SUPERTWIN_MEDIA_DIR;

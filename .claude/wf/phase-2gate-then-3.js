@@ -8,7 +8,7 @@ export const meta = {
   ],
 }
 
-const BRIEF = 'Read /home/user/SuperTwinV11/.claude/BUILD_BRIEF.md FIRST — repo map, rules, invariants, and which of the three test suites covers your files.'
+const BRIEF = 'Read /home/user/SuperTwinV13/.claude/BUILD_BRIEF.md FIRST — repo map, rules, invariants, and which of the three test suites covers your files.'
 
 phase('Phase 2 audit')
 
@@ -41,7 +41,7 @@ const audits = await parallel(AUDIT_ITEMS.map(([id, range, where]) => () =>
 
 A Phase 2 workflow landed code for item **${id}** but never reported its result, so nobody has verified it. AUDIT IT — do not implement from scratch, and do not assume it is finished.
 
-1. Read the item spec: \`sed -n '${range.replace('-', ',')}p' SuperTwinV11_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md\`, plus the architecture sections it cites.
+1. Read the item spec: \`sed -n '${range.replace('-', ',')}p' SuperTwinV13_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md\`, plus the architecture sections it cites.
 2. Read what is actually on disk (start at ${where}) and the tests beside it.
 3. Run that item's tests and report the REAL result.
 4. For EVERY acceptance box in the item spec, decide MET or NOT MET against real code and real output — not against what a comment claims.
@@ -59,14 +59,14 @@ phase('Phase 2 gate')
 const gate2 = await agent(
   `${BRIEF}
 
-You are the PHASE 2 GATE verifier for SuperTwinV11. Items 2.1-2.7 landed concurrently and have just been audited. Audit findings you must act on:
+You are the PHASE 2 GATE verifier for SuperTwinV13. Items 2.1-2.7 landed concurrently and have just been audited. Audit findings you must act on:
 ${gaps.length ? gaps.map(g => `- ${g.item}: ${g.gaps.join('; ')}`).join('\n') : '- none; every item reported complete'}
 
 1. \`npx tsc -b\` — fix every error, including merge collisions between the concurrent agents. Preserve BOTH agents' intent when resolving one.
 2. \`npm test -w worker\` AND \`npx vitest run\` AND \`npx vitest run --config scripts/vitest.config.mjs\` — fix every failure in all three.
 3. \`npm run eval\` — categories J, K and L must be implemented and green, and NO previously-passing category may regress (the suite was at 580/580 with 47 gates measured and 0 breached before Phase 2). Report the new totals.
 4. Close any audit gap listed above that is still open.
-5. Verify the Phase 2 gate boxes: \`sed -n '410,417p' SuperTwinV11_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md\` — check each against real code and real command output.
+5. Verify the Phase 2 gate boxes: \`sed -n '410,417p' SuperTwinV13_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md\` — check each against real code and real command output.
 6. Verify these invariants hold and are asserted somewhere: NO \`spaces\` table exists (promotion is fields on \`arcs\`); episodes are stream-scoped; bridges are deterministic \`[CODE]\` with zero model calls; the arc adjudicator P-AG2 is NOT on the first-paint path.
 7. A gate that reports \`no data\` is NOT passing. If a Phase 2 gate (episodes_*, arcs_*) reads \`no data\`, wire it to a real measurement the way \`worker/src/entities/audit.ts\` does for the entity gates — read that file for the established pattern. Do not stub a value or lower a threshold.
 
@@ -78,6 +78,6 @@ Report: TYPECHECK / TESTS (three suites, N passed N failed) / EVAL (total cases,
 
 phase('Phase 3')
 
-const p3 = await workflow({ scriptPath: '/home/user/SuperTwinV11/.claude/wf/phase-3.js' })
+const p3 = await workflow({ scriptPath: '/home/user/SuperTwinV13/.claude/wf/phase-3.js' })
 
 return { audits: audits.filter(Boolean), gate2, p3 }

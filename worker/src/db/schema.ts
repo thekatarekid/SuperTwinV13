@@ -1,5 +1,5 @@
 // ===========================================================================
-// Ordered SQL migrations for supertwinv11.db (see docs/PHASE0_ARCHITECTURE.md §6).
+// Ordered SQL migrations for supertwinv13.db (see docs/PHASE0_ARCHITECTURE.md §6).
 //
 // Each migration has a stable `id` (also the ordering key) and a body of SQL.
 // The migration runner records applied ids in `schema_migrations` and only runs

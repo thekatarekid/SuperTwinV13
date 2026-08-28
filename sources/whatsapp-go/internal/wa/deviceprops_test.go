@@ -23,8 +23,8 @@ func TestConfigureDeviceProps(t *testing.T) {
 	if !store.DeviceProps.GetRequireFullSync() {
 		t.Fatalf("RequireFullSync = false, want true (the load-bearing fix)")
 	}
-	if got := store.DeviceProps.GetOs(); got != "SuperTwinV11" {
-		t.Fatalf("Os = %q, want %q", got, "SuperTwinV11")
+	if got := store.DeviceProps.GetOs(); got != "SuperTwinV13" {
+		t.Fatalf("Os = %q, want %q", got, "SuperTwinV13")
 	}
 	if got := store.DeviceProps.GetPlatformType(); got != waCompanionReg.DeviceProps_DESKTOP {
 		t.Fatalf("PlatformType = %v, want DESKTOP", got)

@@ -1,14 +1,14 @@
 // ===========================================================================
 // Logs util (see docs/PHASE34_CONTRACT.md §9). Tiny, no framework.
 //
-// Layout under the SuperTwinV11 home:
-//   ~/SuperTwinV11/logs/
-//     worker.log        # Rust writes this one level up (~/SuperTwinV11/worker.log)
+// Layout under the SuperTwinV13 home:
+//   ~/SuperTwinV13/logs/
+//     worker.log        # Rust writes this one level up (~/SuperTwinV13/worker.log)
 //     worker-node.log   # the node worker tees its own console here (best-effort)
 //     runs/<taskId>-<ts>.log   # per-execution transcript
 //
 // logsDir() mirrors brainRoot()'s HOME resolution (SUPERTWIN_HOME else
-// ~/SuperTwinV11) but has no brain-style override — logs always live under
+// ~/SuperTwinV13) but has no brain-style override — logs always live under
 // <home>/logs so the "reveal logs" button opens one stable directory.
 // ===========================================================================
 
@@ -16,12 +16,12 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-/** Resolve <home>/logs: SUPERTWIN_HOME/logs, else ~/SuperTwinV11/logs. */
+/** Resolve <home>/logs: SUPERTWIN_HOME/logs, else ~/SuperTwinV13/logs. */
 export function logsDir(): string {
   const home =
     process.env.SUPERTWIN_HOME && process.env.SUPERTWIN_HOME.trim().length
       ? process.env.SUPERTWIN_HOME
-      : join(homedir(), "SuperTwinV11");
+      : join(homedir(), "SuperTwinV13");
   return resolve(join(home, "logs"));
 }
 

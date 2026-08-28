@@ -52,7 +52,7 @@ import { readLinkVideo, type LinkVideoBounds } from "./linkvideo.js";
 import { resolveYtDlpBin, run } from "./tools.js";
 
 /** No browser string: this is not a browser, and pretending otherwise is a lie. */
-const USER_AGENT = "SuperTwinV11/1.0 (+link preview; no cookies)";
+const USER_AGENT = "SuperTwinV13/1.0 (+link preview; no cookies)";
 
 /** Whole fetch, redirects included. A page that is slower than this is not worth it. */
 const SCRAPE_TIMEOUT_MS = 15_000;

@@ -1,11 +1,11 @@
 export const meta = {
   name: 'stw-phase-2',
-  description: 'SuperTwinV11 Phase 2 — episodes and arcs: episode engine, P-EP2, embeddings/attach gate, bridge extractor, arc engine, reconcile, surfaces',
+  description: 'SuperTwinV13 Phase 2 — episodes and arcs: episode engine, P-EP2, embeddings/attach gate, bridge extractor, arc engine, reconcile, surfaces',
   phases: [{ title: 'Group F' }, { title: 'Group G' }, { title: '2.5 arc-engine' }, { title: 'Group H' }, { title: 'Gate' }],
 }
 
-const BUILD = 'SuperTwinV11_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md'
-const BRIEF = 'Read /home/user/SuperTwinV11/.claude/BUILD_BRIEF.md FIRST — repo map, rules, report format. Then read your item section in the build doc with `sed -n` over the given line range, plus the architecture sections it cites. Do not read whole documents.'
+const BUILD = 'SuperTwinV13_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md'
+const BRIEF = 'Read /home/user/SuperTwinV13/.claude/BUILD_BRIEF.md FIRST — repo map, rules, report format. Then read your item section in the build doc with `sed -n` over the given line range, plus the architecture sections it cites. Do not read whole documents.'
 const REPORT = {
   type: 'object', additionalProperties: false,
   required: ['item', 'files', 'tests', 'typecheck', 'acceptance', 'notes'],
@@ -49,7 +49,7 @@ const gH = await parallel([
 
 phase('Gate')
 const gate = await agent(
-  'Read /home/user/SuperTwinV11/.claude/BUILD_BRIEF.md. You are the PHASE 2 GATE verifier for SuperTwinV11. Items 2.1-2.7 just landed concurrently.\n1. `npx tsc -b` — fix all errors including concurrent-agent merge collisions, preserving both agents intent.\n2. `npx vitest run` AND `npm test -w worker` (the worker workspace has its own ~950-test suite the root run does NOT cover) AND `npx vitest run --config scripts/vitest.config.mjs` — fix every failure in all three.\n3. `npm run eval` — report pass rates for categories J, K and L.\n4. Verify the Phase 2 gate boxes: `sed -n \'410,417p\' SuperTwinV11_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md`, checking each against real code and real command output.\nYou MAY edit any file. Do NOT git commit or git push.\nReport: TYPECHECK / TESTS (N passed, N failed + files) / EVAL (J K L) / GATE PASS|FAIL + unmet boxes / FIXES (max 10 lines).',
+  'Read /home/user/SuperTwinV13/.claude/BUILD_BRIEF.md. You are the PHASE 2 GATE verifier for SuperTwinV13. Items 2.1-2.7 just landed concurrently.\n1. `npx tsc -b` — fix all errors including concurrent-agent merge collisions, preserving both agents intent.\n2. `npx vitest run` AND `npm test -w worker` (the worker workspace has its own ~950-test suite the root run does NOT cover) AND `npx vitest run --config scripts/vitest.config.mjs` — fix every failure in all three.\n3. `npm run eval` — report pass rates for categories J, K and L.\n4. Verify the Phase 2 gate boxes: `sed -n \'410,417p\' SuperTwinV13_ProductandArchitecture_ClaimsSpacesTasks_V2_Build.md`, checking each against real code and real command output.\nYou MAY edit any file. Do NOT git commit or git push.\nReport: TYPECHECK / TESTS (N passed, N failed + files) / EVAL (J K L) / GATE PASS|FAIL + unmet boxes / FIXES (max 10 lines).',
   { label: 'phase-2 gate', phase: 'Gate', effort: 'high' })
 
 return { gF: gF.filter(Boolean), gG: gG.filter(Boolean), r25, gH: gH.filter(Boolean), gate }

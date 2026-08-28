@@ -193,7 +193,12 @@ describe("the gold fixture set", () => {
     expect(gated.length).toBeGreaterThan(500);
   });
 
-  it("is byte-identical to what the generator produces from the doc", () => {
+  // SKIPPED since P0.1: the V11 golden-evals doc this generator parsed was
+  // retired with the V13 rebrand, and SuperTwinV13_GoldenEvals_V2.md has a
+  // different structure (no '## 5. Cases' tables). The whole frozen fixture
+  // set is deleted in P0.3 and the harness reworked against the V13 docs in
+  // P0.9 — this test goes with it.
+  it.skip("is byte-identical to what the generator produces from the doc", () => {
     const sample = ["A-001", "M-014", "S-050", "V-015"];
     for (const id of sample) {
       const text = readFileSync(join(GOLD, `${id}.json`), "utf8");

@@ -58,10 +58,10 @@ type MediaFile = "file" | "thumb" | "link-thumb" | `frame${number}`;
 
 /**
  * Media root. Precedence mirrors brainRoot() (SUPERTWIN_BRAIN_DIR →
- * SUPERTWIN_HOME/brain → ~/SuperTwinV11/brain) so db+brain+media stay in lockstep:
+ * SUPERTWIN_HOME/brain → ~/SuperTwinV13/brain) so db+brain+media stay in lockstep:
  *   1. SUPERTWIN_MEDIA_DIR — explicit override.
  *   2. SUPERTWIN_HOME/media — one home dir isolates all worker data.
- *   3. ~/SuperTwinV11/media    — real default.
+ *   3. ~/SuperTwinV13/media    — real default.
  */
 function mediaRoot(): string {
   const override = process.env.SUPERTWIN_MEDIA_DIR;
@@ -69,7 +69,7 @@ function mediaRoot(): string {
   const home =
     process.env.SUPERTWIN_HOME && process.env.SUPERTWIN_HOME.trim().length
       ? process.env.SUPERTWIN_HOME
-      : join(homedir(), "SuperTwinV11");
+      : join(homedir(), "SuperTwinV13");
   return resolve(join(home, "media"));
 }
 

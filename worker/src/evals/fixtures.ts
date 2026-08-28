@@ -1,7 +1,7 @@
 // ===========================================================================
 // [CODE] Eval fixture schema + loader — evals doc §1–§3.
 //
-// One row of `SuperTwinV11_GoldenEvals_V2.md` materialises to one fixture at
+// One row of `SuperTwinV13_GoldenEvals_V2.md` materialises to one fixture at
 // `evals/fixtures/<ID>.json`, in EXACTLY the shape of evals doc §2. This module
 // is the only place that shape is known, and it validates on every read.
 //

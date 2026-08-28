@@ -404,7 +404,7 @@ const RUNS: RunListItem[] = [
 ];
 
 const LOGS: LogsInfo = {
-  dir: "/Users/x/SuperTwinV11/logs",
+  dir: "/Users/x/SuperTwinV13/logs",
   files: [
     { name: "worker-node.log", size: 2048, modified: "2026-07-10T10:00:00Z" },
   ],
@@ -592,7 +592,7 @@ describe("SettingsTab logs card", () => {
 
     // Dir + file listing render.
     await waitFor(() =>
-      expect(screen.getByText("/Users/x/SuperTwinV11/logs")).toBeTruthy(),
+      expect(screen.getByText("/Users/x/SuperTwinV13/logs")).toBeTruthy(),
     );
     expect(screen.getByText("worker-node.log")).toBeTruthy();
 
@@ -612,7 +612,7 @@ describe("SettingsTab brain card", () => {
       Partial<Pick<WorkerClient, "getBrainInfo" | "revealBrain">> = {
       ...offlineHealth,
       getBrainInfo: vi.fn(async () => ({
-        dir: "/Users/x/SuperTwinV11/brain",
+        dir: "/Users/x/SuperTwinV13/brain",
         fileCount: 42,
       })),
       revealBrain,
@@ -621,7 +621,7 @@ describe("SettingsTab brain card", () => {
 
     // The brain dir path renders.
     await waitFor(() =>
-      expect(screen.getByText("/Users/x/SuperTwinV11/brain")).toBeTruthy(),
+      expect(screen.getByText("/Users/x/SuperTwinV13/brain")).toBeTruthy(),
     );
 
     fireEvent.click(screen.getByTestId("open-brain"));
@@ -735,7 +735,7 @@ describe("SettingsTab process toggles", () => {
     render(<SettingsTab client={makeClient({ chat: true })} />);
 
     const warning = await screen.findByTestId("chat-role-warning");
-    expect(warning.textContent).toContain("only thing SuperTwinV11 does");
+    expect(warning.textContent).toContain("only thing SuperTwinV13 does");
     // Exactly one role carries the warning — the other six must not.
     expect(screen.getAllByTestId("chat-role-warning")).toHaveLength(1);
   });
@@ -1422,7 +1422,7 @@ describe("SettingsTab transcription section", () => {
       }),
       model("large-v3", { bytes: 3_095_033_483 }),
     ],
-    modelsDir: "/Users/x/SuperTwinV11/models",
+    modelsDir: "/Users/x/SuperTwinV13/models",
   };
 
   function makeClient(over: Partial<ToolClient> = {}): ToolClient {
@@ -1706,7 +1706,7 @@ describe("SettingsTab transcription section", () => {
   it("names the folder downloads land in, outside the app", async () => {
     render(<SettingsTab client={makeClient()} />);
     await waitFor(() =>
-      expect(screen.getByText("/Users/x/SuperTwinV11/models")).toBeTruthy(),
+      expect(screen.getByText("/Users/x/SuperTwinV13/models")).toBeTruthy(),
     );
   });
 
@@ -1747,7 +1747,7 @@ describe("SettingsTab search card", () => {
       embeddable: 643,
       runtimeInstalled: true,
       modelBytes: 135_392_016,
-      modelDir: "/Users/x/SuperTwinV11/models/embeddings",
+      modelDir: "/Users/x/SuperTwinV13/models/embeddings",
       bundled: false,
       present: false,
       files: [],
@@ -1786,7 +1786,7 @@ describe("SettingsTab search card", () => {
         bundled: true,
         present: true,
         indexed: 643,
-        modelDir: "/Applications/SuperTwinV11.app/Contents/Resources/models/embeddings",
+        modelDir: "/Applications/SuperTwinV13.app/Contents/Resources/models/embeddings",
       }),
     );
     render(<SettingsTab client={makeClient({ getSemanticState })} />);
@@ -1928,7 +1928,7 @@ describe("SettingsTab search card", () => {
     render(<SettingsTab client={makeClient()} />);
     await waitFor(() =>
       expect(
-        screen.getByText("/Users/x/SuperTwinV11/models/embeddings"),
+        screen.getByText("/Users/x/SuperTwinV13/models/embeddings"),
       ).toBeTruthy(),
     );
   });

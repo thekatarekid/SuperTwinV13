@@ -49,7 +49,7 @@ import { CALENDAR_SOURCE_ID } from "./manifest.js";
 export interface CalendarAdapterOptions {
   /** Explicit .ics fixture path (overrides env + default). */
   fixturePath?: string;
-  /** Base home dir (default: SUPERTWIN_HOME or ~/SuperTwinV11). */
+  /** Base home dir (default: SUPERTWIN_HOME or ~/SuperTwinV13). */
   home?: string;
   /**
    * How "me" appears in this source — the email the manifest's self_identity
@@ -74,7 +74,7 @@ function resolveHome(explicit?: string): string {
   if (explicit) return explicit;
   const env = process.env.SUPERTWIN_HOME;
   if (env && env.trim().length) return env;
-  return join(homedir(), "SuperTwinV11");
+  return join(homedir(), "SuperTwinV13");
 }
 
 export function resolveCalendarFixture(explicit?: string, home?: string): string {

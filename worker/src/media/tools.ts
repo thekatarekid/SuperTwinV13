@@ -18,7 +18,7 @@
 // that does not exist on disk resolves to null, and the caller turns that into
 // a stated error rather than a spawn that fails with ENOENT much later.
 //
-// Downloaded models live OUTSIDE the .app, under the SuperTwinV11 home, so an
+// Downloaded models live OUTSIDE the .app, under the SuperTwinV13 home, so an
 // app update never re-downloads them.
 // ===========================================================================
 
@@ -136,7 +136,7 @@ export function whisperModelsDir(): string {
   const home =
     process.env.SUPERTWIN_HOME && process.env.SUPERTWIN_HOME.trim().length
       ? process.env.SUPERTWIN_HOME
-      : join(homedir(), "SuperTwinV11");
+      : join(homedir(), "SuperTwinV13");
   return resolve(join(home, "models"));
 }
 

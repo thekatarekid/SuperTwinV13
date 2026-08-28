@@ -1235,7 +1235,7 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
           <div className="settings-nav__footer">
             <span className={dotClass} aria-hidden="true" />
             <span>
-              SuperTwinV11{online && health?.version ? ` v${health.version}` : ""}
+              SuperTwinV13{online && health?.version ? ` v${health.version}` : ""}
             </span>
           </div>
         </nav>
@@ -1255,7 +1255,7 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
           <dl className="settings__stats">
             <div className="settings__stat">
               <dt>Endpoint</dt>
-              <dd>localhost:8011</dd>
+              <dd>localhost:8013</dd>
             </div>
             <div className="settings__stat">
               <dt>Version</dt>
@@ -1396,7 +1396,7 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
                       className="settings__note settings__note--warn"
                       data-testid="chat-role-warning"
                     >
-                      Chat is the only thing SuperTwinV11 does — turning it off
+                      Chat is the only thing SuperTwinV13 does — turning it off
                       leaves the Chat tab locked.
                     </p>
                   )}
@@ -1416,7 +1416,7 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
             <h2 className="settings__section-title">Processing</h2>
           </div>
           <p className="settings__section-desc">
-            How much of your history SuperTwinV11 reads at once. This is the
+            How much of your history SuperTwinV13 reads at once. This is the
             ceiling on Claude calls — reading media and understanding
             conversations share it.
           </p>
@@ -2020,7 +2020,7 @@ export function SettingsTab({ client }: SettingsTabProps = {}) {
             </button>
           </div>
           <p className="settings__section-desc">
-            The markdown wiki SuperTwinV11 maintains about your life.
+            The markdown wiki SuperTwinV13 maintains about your life.
           </p>
           <div className="settings__logs-dirbox">
             <span className="settings__logs-label">Folder</span>

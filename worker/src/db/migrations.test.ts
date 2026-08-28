@@ -158,7 +158,7 @@ let dbPath: string;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "supertwin-migrations-test-"));
-  dbPath = join(tmpDir, "supertwinv11.db");
+  dbPath = join(tmpDir, "supertwinv13.db");
   process.env.SUPERTWIN_DB_PATH = dbPath;
   closeDb();
 });

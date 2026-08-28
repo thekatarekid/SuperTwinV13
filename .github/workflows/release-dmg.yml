@@ -14,7 +14,7 @@
 # workflow builds what is on the commit; it never bumps anything itself.
 #
 # A version ships exactly once. If a GitHub Release for the tag already carries
-# a SuperTwinV11_<version>_*.dmg, the job fails before spending an hour on a
+# a SuperTwinV13_<version>_*.dmg, the job fails before spending an hour on a
 # build whose output it would refuse to upload.
 
 name: Release .dmg
@@ -43,7 +43,7 @@ jobs:
     # macos-latest is Apple silicon, which is what the bundle needs: the staged
     # ffmpeg is an arm64 static build and whisper-cli is compiled with
     # -DCMAKE_OSX_ARCHITECTURES=arm64 (see scripts/stage-media-tools.mjs), so the
-    # installer this produces is SuperTwinV11_<version>_aarch64.dmg. The x86_64
+    # installer this produces is SuperTwinV13_<version>_aarch64.dmg. The x86_64
     # target below is installed so a future universal build has its toolchain,
     # not because the current bundle is fat — the upload step reads whatever
     # arch suffix Tauri actually emitted rather than assuming one.
@@ -98,7 +98,7 @@ jobs:
 
           echo "version=$committed" >> "$GITHUB_OUTPUT"
           echo "tag=v$committed" >> "$GITHUB_OUTPUT"
-          echo "Building SuperTwinV11 $committed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Building SuperTwinV13 $committed" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Refuse to re-ship a version
         env:
@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           assets="$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)"
-          if printf '%s\n' "$assets" | grep -Eq "^SuperTwinV11_${VERSION}_.*\.dmg$"; then
+          if printf '%s\n' "$assets" | grep -Eq "^SuperTwinV13_${VERSION}_.*\.dmg$"; then
             echo "::error::Release $TAG already has a .dmg asset for $VERSION."
             echo "::error::Releases are append-only. Cut a new version instead:"
             echo "::error::  npm run release -- --minor --no-build   # then commit and tag"
@@ -159,7 +159,7 @@ jobs:
         run: npm test
 
       - name: Worker tests
-        run: npm test --if-present -w @supertwinv11/worker
+        run: npm test --if-present -w @supertwinv13/worker
 
       - name: Build the .dmg
         # build:app = vite build + worker bundle + node sidecar + staged media
@@ -177,10 +177,10 @@ jobs:
         run: |
           # No mapfile/readarray: the macOS runner's /bin/bash is 3.2.
           set -euo pipefail
-          find src-tauri/target -type f -name "SuperTwinV11_${VERSION}_*.dmg" | sort > /tmp/dmgs.txt
+          find src-tauri/target -type f -name "SuperTwinV13_${VERSION}_*.dmg" | sort > /tmp/dmgs.txt
           count="$(wc -l < /tmp/dmgs.txt | tr -d ' ')"
           if [ "$count" -eq 0 ]; then
-            echo "::error::build finished but no SuperTwinV11_${VERSION}_*.dmg exists under src-tauri/target"
+            echo "::error::build finished but no SuperTwinV13_${VERSION}_*.dmg exists under src-tauri/target"
             echo "::error::(the .app may still be fine — look in src-tauri/target/release/bundle/macos/)"
             find src-tauri/target -type f -name '*.dmg' || true
             exit 1
@@ -258,7 +258,7 @@ jobs:
 
           # Re-check: the guard at the top of the job ran an hour ago.
           assets="$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)"
-          if printf '%s\n' "$assets" | grep -Eq "^SuperTwinV11_${VERSION}_.*\.dmg$"; then
+          if printf '%s\n' "$assets" | grep -Eq "^SuperTwinV13_${VERSION}_.*\.dmg$"; then
             echo "::error::Release $TAG gained a .dmg asset while this build ran — refusing to overwrite it."
             echo "::error::The installer is still available as this run's workflow artifact."
             exit 1
@@ -280,7 +280,7 @@ jobs:
             gh release upload "$TAG" "$DMG" "$DMG.sha256"
           else
             gh release create "$TAG" "$DMG" "$DMG.sha256" \
-              --title "SuperTwinV11 $VERSION" \
+              --title "SuperTwinV13 $VERSION" \
               --notes-file /tmp/notes.md \
               --target "$GITHUB_SHA"
           fi

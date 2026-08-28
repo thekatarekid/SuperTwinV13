@@ -1,4 +1,4 @@
-// Command whatsapp-go is the SuperTwinV11 WhatsApp ingestion daemon.
+// Command whatsapp-go is the SuperTwinV13 WhatsApp ingestion daemon.
 //
 // It speaks the NDJSON protocol defined in docs/PHASE1_CONTRACT.md over
 // stdin (commands) and stdout (events). All human/diagnostic logging goes to

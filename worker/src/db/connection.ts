@@ -3,8 +3,8 @@
 //
 //   - Resolves the DB path with the same precedence as brain/media so one env
 //     var isolates all worker data (see resolveDbPath): SUPERTWIN_DB_PATH (tests
-//     point this at a temp file), else SUPERTWIN_HOME/supertwinv11.db, else
-//     ~/SuperTwinV11/supertwinv11.db. The parent dir is created if missing.
+//     point this at a temp file), else SUPERTWIN_HOME/supertwinv13.db, else
+//     ~/SuperTwinV13/supertwinv13.db. The parent dir is created if missing.
 //   - Enables WAL journaling and `PRAGMA foreign_keys = ON`.
 //   - Runs ordered migrations transactionally; records applied ids in
 //     `schema_migrations` so running them twice is a no-op the second time.
@@ -28,15 +28,15 @@ let openedPath: string | null = null;
  * Resolve the DB file path. Precedence (mirrors brainRoot()/mediaRoot() so a
  * single env var sandboxes db+brain+media together):
  *   1. SUPERTWIN_DB_PATH  — most specific; tests + the eval runner rely on it.
- *   2. SUPERTWIN_HOME/supertwinv11.db — one home dir isolates all worker data.
- *   3. ~/SuperTwinV11/supertwinv11.db    — real default.
+ *   2. SUPERTWIN_HOME/supertwinv13.db — one home dir isolates all worker data.
+ *   3. ~/SuperTwinV13/supertwinv13.db    — real default.
  */
 export function resolveDbPath(): string {
   const override = process.env.SUPERTWIN_DB_PATH;
   if (override && override.trim().length > 0) return override;
   const home = process.env.SUPERTWIN_HOME;
-  if (home && home.trim().length > 0) return join(home, "supertwinv11.db");
-  return join(homedir(), "SuperTwinV11", "supertwinv11.db");
+  if (home && home.trim().length > 0) return join(home, "supertwinv13.db");
+  return join(homedir(), "SuperTwinV13", "supertwinv13.db");
 }
 
 /**

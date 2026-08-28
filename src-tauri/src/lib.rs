@@ -1,4 +1,4 @@
-// SuperTwinV11 — Tauri 2 application entry (library crate).
+// SuperTwinV13 — Tauri 2 application entry (library crate).
 //
 // Phase 0 scope: wire up the shell plugin, open the single window that loads the
 // Vite/React UI, and manage the Node worker **sidecar lifecycle** (§9):
@@ -36,7 +36,7 @@ use tauri_plugin_shell::ShellExt;
 const WORKER_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Resolve the worker home dir the same way the worker itself does: honour
-/// `SUPERTWIN_HOME` (if set and non-blank), else default to `~/SuperTwinV11`. This
+/// `SUPERTWIN_HOME` (if set and non-blank), else default to `~/SuperTwinV13`. This
 /// keeps `worker.log` next to the worker's db/brain/media. Returns `None` only
 /// if neither is resolvable (no HOME, no override) — logging is then skipped.
 fn worker_home_dir() -> Option<PathBuf> {
@@ -45,11 +45,11 @@ fn worker_home_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(home));
         }
     }
-    // Mirror `homedir()`/`join(home, "SuperTwinV11")` on the worker side.
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join("SuperTwinV11"))
+    // Mirror `homedir()`/`join(home, "SuperTwinV13")` on the worker side.
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join("SuperTwinV13"))
 }
 
-/// Open `~/SuperTwinV11/worker.log` (or `$SUPERTWIN_HOME/worker.log`) in append
+/// Open `~/SuperTwinV13/worker.log` (or `$SUPERTWIN_HOME/worker.log`) in append
 /// mode, creating the dir if missing and rotating an oversized file to
 /// `worker.log.old` first. Returns `None` on any failure — the caller then just
 /// runs without a log file (stdout/stderr forwarding is unaffected).
@@ -99,7 +99,7 @@ impl WorkerProcess {
         if let Ok(mut guard) = self.0.lock() {
             if let Some(child) = guard.take() {
                 let _ = child.kill();
-                println!("[supertwinv11] worker sidecar killed on app exit");
+                println!("[supertwinv13] worker sidecar killed on app exit");
             }
         }
     }
@@ -117,7 +117,7 @@ fn repo_root() -> std::path::PathBuf {
 }
 
 /// Build the worker `Command` for DEV: `npm run worker`
-/// (→ `npm run dev -w @supertwinv11/worker` → tsx) with cwd = repo root. Running
+/// (→ `npm run dev -w @supertwinv13/worker` → tsx) with cwd = repo root. Running
 /// through npm keeps us aligned with the repo's scripts and avoids hard-coding
 /// an absolute path to tsx/node. Inherits the full app environment (needed so
 /// the child claude can read its Keychain OAuth token via USER/LOGNAME/HOME).
@@ -178,7 +178,7 @@ fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     // worker's output (see the extraction-failure post-mortem). Best-effort:
     // `None` means we simply don't persist — forwarding still happens.
     let log = Arc::new(Mutex::new(open_worker_log()));
-    append_worker_log(&log, "[supertwinv11]", "worker sidecar spawned");
+    append_worker_log(&log, "[supertwinv13]", "worker sidecar spawned");
 
     // Drain the child's event stream on the async runtime: forward stdout to the
     // log, watch for the readiness line, and note early termination. Every line
@@ -198,7 +198,7 @@ fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
                     }
                     if !announced_ready && line.contains("WORKER_READY") {
                         announced_ready = true;
-                        println!("[supertwinv11] worker sidecar reported ready: {line}");
+                        println!("[supertwinv13] worker sidecar reported ready: {line}");
                         // Best-effort notify the frontend; ignore emit errors.
                         let _ = handle.emit("worker-ready", line.to_string());
                     }
@@ -216,8 +216,8 @@ fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
                         "worker sidecar terminated (code={:?}, signal={:?})",
                         payload.code, payload.signal
                     );
-                    eprintln!("[supertwinv11] {msg}");
-                    append_worker_log(&log, "[supertwinv11]", &msg);
+                    eprintln!("[supertwinv13] {msg}");
+                    append_worker_log(&log, "[supertwinv13]", &msg);
                     break;
                 }
                 _ => {}
@@ -244,12 +244,12 @@ pub fn run() {
                     if let Some(state) = handle.try_state::<WorkerProcess>() {
                         *state.0.lock().unwrap() = Some(child);
                     }
-                    println!("[supertwinv11] worker sidecar spawned");
+                    println!("[supertwinv13] worker sidecar spawned");
                 }
                 Err(err) => {
                     // Do not fail app startup — chat just stays offline until the
                     // worker is reachable.
-                    eprintln!("[supertwinv11] failed to spawn worker sidecar: {err}");
+                    eprintln!("[supertwinv13] failed to spawn worker sidecar: {err}");
                 }
             }
             Ok(())

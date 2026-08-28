@@ -774,10 +774,10 @@ describe("inbox reads + media resolution + app_state", () => {
     const { streamId, actorId } = seedSourceChannelActor();
     const r = insertEvent({
       ...makeEvent("A/img", streamId, actorId, ""),
-      mediaPath: "/tmp/SuperTwinV11/media/whatsapp/A/img.jpg",
+      mediaPath: "/tmp/SuperTwinV13/media/whatsapp/A/img.jpg",
     });
     const ev = getEventById(r.id);
-    expect(ev?.mediaPath).toBe("/tmp/SuperTwinV11/media/whatsapp/A/img.jpg");
+    expect(ev?.mediaPath).toBe("/tmp/SuperTwinV13/media/whatsapp/A/img.jpg");
     expect(getEventById("whatsapp:does-not-exist")).toBeNull();
 
     expect(appStateGet("k")).toBeNull();

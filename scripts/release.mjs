@@ -40,7 +40,7 @@ import {
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const APP_NAME = 'SuperTwinV11'
+export const APP_NAME = 'SuperTwinV13'
 
 // package-lock.json is bumped structurally (below) rather than by regex: it
 // carries unrelated dependency versions that a regex would happily corrupt.

@@ -77,7 +77,7 @@ function indexSql(handle: Database.Database, name: string): string {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "st-0020-"));
-  dbPath = join(dir, "supertwinv11.db");
+  dbPath = join(dir, "supertwinv13.db");
   db = openMigrated();
 });
 

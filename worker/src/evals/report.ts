@@ -48,7 +48,7 @@ function rule(width: number): string {
 export function renderHeader(suite: SuiteResult, fixtureCount: number, source: string): string {
   const { totals } = suite;
   return [
-    `SuperTwinV11 golden evals — ${suite.mode.toUpperCase()} mode`,
+    `SuperTwinV13 golden evals — ${suite.mode.toUpperCase()} mode`,
     `fixtures: ${fixtureCount} loaded from ${source}`,
     `cases:    ${totals.total} · pass ${totals.pass} · fail ${totals.fail} · pending ${totals.pending}`,
     `elapsed:  ${(suite.durationMs / 1000).toFixed(2)}s${suite.mode === "frozen" ? " · no network calls" : ""}`,

@@ -483,7 +483,7 @@ describe("parseBatchAnswer", () => {
 
   it("mode A: an id with the file's path appended is still that id", () => {
     const parsed = parseBatchAnswer(
-      `${BATCH_MARKER} #01 /Users/adityakatare/SuperTwinV11/media/whatsapp/` +
+      `${BATCH_MARKER} #01 /Users/adityakatare/SuperTwinV13/media/whatsapp/` +
         `120363258303310545@g.us/3AAF3432BD790FBD3EFE.jpg\nA photo.\n` +
         `${BATCH_MARKER} #02\nAnother.`,
       ["#01", "#02"],

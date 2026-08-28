@@ -1,15 +1,15 @@
 [package]
-name = "supertwinv11"
+name = "supertwinv13"
 version = "0.12.0"
-description = "SuperTwinV11 — private personal AI over your WhatsApp"
-authors = ["SuperTwinV11"]
+description = "SuperTwinV13 — private personal AI over your WhatsApp"
+authors = ["SuperTwinV13"]
 edition = "2021"
 rust-version = "1.77.2"
 
 # The `_lib` suffix keeps the library name distinct from the binary on
 # platforms (Windows) that would otherwise collide.
 [lib]
-name = "supertwinv11_lib"
+name = "supertwinv13_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

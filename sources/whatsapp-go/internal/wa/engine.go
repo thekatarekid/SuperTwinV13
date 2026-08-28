@@ -261,7 +261,7 @@ func New(w *protocol.Writer, logf func(string, ...any), sessionDB, mediaDir, log
 // HistorySyncConfig rather than replacing it, so whatsmeow's default capability
 // flags (SupportGroupHistory, InlineInitialPayloadInE2EeMsg, ...) survive.
 func configureDeviceProps() {
-	store.DeviceProps.Os = proto.String("SuperTwinV11")
+	store.DeviceProps.Os = proto.String("SuperTwinV13")
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	if store.DeviceProps.HistorySyncConfig == nil { // defensive: keep working if a future bump nils it

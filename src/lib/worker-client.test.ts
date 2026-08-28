@@ -250,7 +250,7 @@ describe("brain folder + per-process on/off", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("getBrainInfo GETs /api/brain/info and returns { dir, fileCount }", async () => {
-    const info = { dir: "/Users/x/SuperTwinV11/brain", fileCount: 42 };
+    const info = { dir: "/Users/x/SuperTwinV13/brain", fileCount: 42 };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(info));
     vi.stubGlobal("fetch", fetchMock);
     await expect(getBrainInfo()).resolves.toEqual(info);
@@ -317,7 +317,7 @@ describe("runs viewer + logs", () => {
 
   it("getLogsInfo GETs /api/logs/info and returns { dir, files }", async () => {
     const info = {
-      dir: "/Users/x/SuperTwinV11/logs",
+      dir: "/Users/x/SuperTwinV13/logs",
       files: [{ name: "worker.log", size: 120, modified: "2026-07-01T09:00:00Z" }],
     };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(info));
@@ -426,7 +426,7 @@ describe("media toolchain endpoints (v5 §4)", () => {
         download: null,
       },
     ],
-    modelsDir: "/Users/x/SuperTwinV11/models",
+    modelsDir: "/Users/x/SuperTwinV13/models",
   };
 
   it("getMediaTools GETs /api/media/tools", async () => {

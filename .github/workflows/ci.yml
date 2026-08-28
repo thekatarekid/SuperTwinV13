@@ -46,7 +46,7 @@ jobs:
         run: npx vitest run --config scripts/vitest.config.mjs
 
       - name: Worker tests
-        run: npm test --if-present -w @supertwinv11/worker
+        run: npm test --if-present -w @supertwinv13/worker
 
       # `npm run eval` does not exist yet. Guarded rather than omitted so the
       # evals start running here the day the script lands, without a workflow

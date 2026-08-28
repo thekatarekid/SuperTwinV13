@@ -4,9 +4,9 @@
 // Override order (first defined wins):
 //   1. Vite env  VITE_WORKER_BASE_URL  (build/dev time)
 //   2. window.__SUPERTWIN_WORKER_BASE_URL__ (runtime injection / tests)
-//   3. the localhost default the worker binds to (§7: port 8011)
+//   3. the localhost default the worker binds to (§7: port 8013)
 
-const DEFAULT_WORKER_BASE_URL = "http://localhost:8011";
+const DEFAULT_WORKER_BASE_URL = "http://localhost:8013";
 
 function readEnvBaseUrl(): string | undefined {
   // import.meta.env is present under Vite/vitest; guard for other runtimes.

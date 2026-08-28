@@ -3,7 +3,7 @@
 // [CODE] Fixture stub generator — evals doc §1.2 ("each row materialises to a
 // fixture at evals/fixtures/<ID>.json").
 //
-// The 1,000 gold cases live as markdown tables in SuperTwinV11_GoldenEvals_V2.md.
+// The 1,000 gold cases live as markdown tables in SuperTwinV13_GoldenEvals_V2.md.
 // Hand-writing 1,000 JSON files from them is how rows go missing, so this
 // parses the tables and writes one stub per row. A stub carries:
 //
@@ -41,7 +41,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
-const DOC = join(ROOT, "SuperTwinV11_GoldenEvals_V2.md");
+const DOC = join(ROOT, "SuperTwinV13_GoldenEvals_V2.md");
 const OUT = join(HERE, "fixtures");
 
 /** evals doc §4 — category, expected count, and the layer it exercises. */

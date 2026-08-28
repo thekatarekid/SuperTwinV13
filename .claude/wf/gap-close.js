@@ -7,7 +7,7 @@ export const meta = {
   ],
 }
 
-const BRIEF = 'Read /home/user/SuperTwinV11/.claude/BUILD_BRIEF.md FIRST — repo map, rules, and which of the three test suites covers your files. Key context: the eval harness is worker/src/evals/{runner,gates,fixtures}.ts with executors in worker/src/evals/executors/ (registered in executors/index.ts as PRODUCT_EXECUTORS). Fixtures live in evals/fixtures/<CAT>-NNN.json; `node evals/generate-fixtures.mjs --check` validates the set against the doc tables. Executors must drive REAL product code over a real temp SQLite DB — the established patterns are executors/ingest.ts, executors/entity-world.ts, executors/episodes.ts and executors/write.ts; gate measurement via GateObservation[] follows worker/src/entities/audit.ts and worker/src/episodes/audit.ts. Never stub a metric, never lower a threshold, never edit product code to fit a fixture — if product code is genuinely wrong, fix the product and say so.'
+const BRIEF = 'Read /home/user/SuperTwinV13/.claude/BUILD_BRIEF.md FIRST — repo map, rules, and which of the three test suites covers your files. Key context: the eval harness is worker/src/evals/{runner,gates,fixtures}.ts with executors in worker/src/evals/executors/ (registered in executors/index.ts as PRODUCT_EXECUTORS). Fixtures live in evals/fixtures/<CAT>-NNN.json; `node evals/generate-fixtures.mjs --check` validates the set against the doc tables. Executors must drive REAL product code over a real temp SQLite DB — the established patterns are executors/ingest.ts, executors/entity-world.ts, executors/episodes.ts and executors/write.ts; gate measurement via GateObservation[] follows worker/src/entities/audit.ts and worker/src/episodes/audit.ts. Never stub a metric, never lower a threshold, never edit product code to fit a fixture — if product code is genuinely wrong, fix the product and say so.'
 
 const REPORT = {
   type: 'object', additionalProperties: false,
@@ -29,7 +29,7 @@ const results = await parallel([
 
 YOUR TASK: author the 95 category-M CLAIMS fixtures and the \`claims\` executor so evals M is measured for real.
 
-1. Read the M case table: sed -n '723,824p' SuperTwinV11_GoldenEvals_V2.md — every row describes given/expect. Read arch doc §11.3 (lines 1585-1686) and §12.4 P-CL1 (1950-2051) for semantics.
+1. Read the M case table: sed -n '723,824p' SuperTwinV13_GoldenEvals_V2.md — every row describes given/expect. Read arch doc §11.3 (lines 1585-1686) and §12.4 P-CL1 (1950-2051) for semantics.
 2. The product code already exists and its unit tests pass: worker/src/prompts/p-cl1.ts, worker/src/claims/extract.ts (parser, accounting identity), worker/src/claims/ (write path, supersede). Read them; the executor drives THEM.
 3. Author evals/fixtures/M-001..M-095.json with real given/expect payloads and "stub": false, exactly matching the doc rows. Update evals/generate-fixtures.mjs bookkeeping if it tracks authored counts.
 4. Write worker/src/evals/executors/claims.ts driving the frozen_response path through the real parser + write path over a temp DB, and register it in executors/index.ts.
@@ -43,7 +43,7 @@ OWNERSHIP: you own evals/fixtures/M-*.json and executors/claims.ts. Shared files
 
 YOUR TASK: author the 75 category-N LOOPS fixtures and the \`loops\` executor.
 
-1. Read the N case table: sed -n '825,906p' SuperTwinV11_GoldenEvals_V2.md. Read arch doc §11.4 code facts / loop state (1687-1721) and §12.8 P-TR1 / §12.9 P-DD1 (2202-2307).
+1. Read the N case table: sed -n '825,906p' SuperTwinV13_GoldenEvals_V2.md. Read arch doc §11.4 code facts / loop state (1687-1721) and §12.8 P-TR1 / §12.9 P-DD1 (2202-2307).
 2. Product code exists: worker/src/claims/extract.ts parses T lines; worker/src/loops/ or worker/src/claims/ carries loop state derivation, triage (p-tr1) and done-detection (p-dd1) — find them with Glob and read them.
 3. Author evals/fixtures/N-001..N-075.json ("stub": false), write worker/src/evals/executors/loops.ts, register it.
 4. Feed the unmeasured loop gates — especially \`loops_born_past_due_open\` (must measure 0) and \`loops_non_user_owner_tasks\` (must measure 0) — with real observations from persisted rows.
@@ -56,7 +56,7 @@ OWNERSHIP: evals/fixtures/N-*.json, executors/loops.ts. Minimal additive edits t
 
 YOUR TASK: author the 30 category-Q TASKS fixtures and the \`tasks\` executor.
 
-1. Read the Q case table: sed -n '1016,1052p' SuperTwinV11_GoldenEvals_V2.md. Read arch doc §11.3 tasks semantics and §12.8/§12.9.
+1. Read the Q case table: sed -n '1016,1052p' SuperTwinV13_GoldenEvals_V2.md. Read arch doc §11.3 tasks semantics and §12.8/§12.9.
 2. Product code exists: tasksFrom() and pastDueOpenViolations() (grep -rn for them in worker/src). The invariants — zero tasks born past-due as open, zero non-self tasks, possibly_done does not exist — are already test-asserted; your job is to make the EVAL measure them over the Q corpus.
 3. Author evals/fixtures/Q-001..Q-030.json ("stub": false), write worker/src/evals/executors/tasks.ts, register it.
 4. \`npm run eval -- --only Q\` 30/30; no regression; worker suite green for your files.
@@ -68,7 +68,7 @@ OWNERSHIP: evals/fixtures/Q-*.json, executors/tasks.ts. Minimal additive edits t
 
 YOUR TASK: make the two spaces gates measurable and enforce the spaces cap.
 
-1. \`spaces_count_vs_gold\` (fails outside ±25%) and \`spaces_archetype_accuracy\` (fails < 0.85) read \`no data\`. Read their definitions in arch doc §14.2 (grep -n "14.2" SuperTwinV11_ProductandArchitecture_ClaimsSpacesTasks_V2.md) and in worker/src/evals/gates.ts.
+1. \`spaces_count_vs_gold\` (fails outside ±25%) and \`spaces_archetype_accuracy\` (fails < 0.85) read \`no data\`. Read their definitions in arch doc §14.2 (grep -n "14.2" SuperTwinV13_ProductandArchitecture_ClaimsSpacesTasks_V2.md) and in worker/src/evals/gates.ts.
 2. The Phase 3 gate box says: spaces ≤ 45 on the reference corpus, > 90% holding a live loop or reference anchor. There is currently NO cap in worker/src/arcs/constraints.ts — read the promotion code (worker/src/arcs/, promotion fields on arcs) and the P PROMOTION executor, then implement the cap/justification logic in the PRODUCT code where arch §11.3 says it belongs, not in the eval.
 3. Build a reference corpus fixture (the P executor's world may already be close) sized so the ±25% count check and the >90% justification check are real measurements, and feed both gates with observations.
 4. Also wire \`labels_anchor_entity\` if it still reads no data and belongs to promotion.

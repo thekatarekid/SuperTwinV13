@@ -818,7 +818,7 @@ describe("scrapeLink", () => {
     // Credentials in the authority must not become an Authorization header.
     await scrapeLink(`http://joe:hunter2@127.0.0.1:${port}/x`, allowLoopback);
 
-    expect(headers["user-agent"]).toMatch(/^SuperTwinV11\//);
+    expect(headers["user-agent"]).toMatch(/^SuperTwinV13\//);
     expect(headers.cookie).toBeUndefined();
     expect(headers.authorization).toBeUndefined();
   });

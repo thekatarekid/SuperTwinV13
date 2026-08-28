@@ -289,7 +289,7 @@ export function ChatTab({ client, onOpenSettings }: ChatTabProps = {}) {
           <div className="chat__off" role="status" data-testid="chat-off-banner">
             <span>
               <strong>Chat is turned off.</strong> It's switched off in Settings,
-              and it's the only thing SuperTwinV11 does — nothing here works until
+              and it's the only thing SuperTwinV13 does — nothing here works until
               you turn it back on.
             </span>
             <button
@@ -324,7 +324,7 @@ export function ChatTab({ client, onOpenSettings }: ChatTabProps = {}) {
           ) : showThreadEmpty ? (
             <div className="chat__thread-empty">
               <div className="chat__welcome">
-                <p className="chat__welcome-title">Ask SuperTwinV11 anything</p>
+                <p className="chat__welcome-title">Ask SuperTwinV13 anything</p>
                 <p className="chat__welcome-sub">
                   Messages stream in live. Your conversation is saved locally so
                   you can pick it back up from the sidebar.
@@ -455,7 +455,7 @@ export function ChatTab({ client, onOpenSettings }: ChatTabProps = {}) {
             className="chat__input"
             placeholder={
               chatEnabled
-                ? "Message SuperTwinV11…  (Enter to send, Shift+Enter for a new line)"
+                ? "Message SuperTwinV13…  (Enter to send, Shift+Enter for a new line)"
                 : "Chat is turned off in Settings."
             }
             value={draft}

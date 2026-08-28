@@ -1,4 +1,4 @@
-# whatsapp-go — SuperTwinV11 WhatsApp ingestion daemon
+# whatsapp-go — SuperTwinV13 WhatsApp ingestion daemon
 #
 # Pure-Go (CGO disabled) so the binary is self-contained and cross-compilable.
 

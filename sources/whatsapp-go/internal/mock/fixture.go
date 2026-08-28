@@ -49,6 +49,10 @@ type FixtureMessage struct {
 	// ReplyTo, when set, marks this message as a quoted reply and carries the
 	// quoted reference (contract §R5.4). Passed through to the event's reply_to.
 	ReplyTo *FixtureReplyTo `json:"reply_to,omitempty"`
+	// MentionedExtIDs are the canonical JIDs @-mentioned in the body, passed
+	// through verbatim to the event's mentioned_ext_ids so the worker's
+	// structural-mentions path (v13 roles envelope) is exercisable in mock.
+	MentionedExtIDs []string `json:"mentioned_ext_ids,omitempty"`
 }
 
 // FixtureReplyTo is the quoted-message reference on a fixture reply message,
@@ -86,6 +90,11 @@ type Fixture struct {
 	// Default 0 preserves the existing "chats_done == chats_total" behavior for
 	// every current fixture/test.
 	EmptyInRangeChats int `json:"empty_in_range_chats,omitempty"`
+	// RefuseSends makes the mock engine refuse EVERY send_message with
+	// SEND_REFUSED even when the daemon's approval-token gate passed — the
+	// send-refusal fixture (P0.6). It models a server-side refusal so the
+	// worker's full "send was refused" path is exercisable in --mock CI.
+	RefuseSends bool `json:"refuse_sends,omitempty"`
 }
 
 // LoadFixture reads a fixture from a JSON file at path.

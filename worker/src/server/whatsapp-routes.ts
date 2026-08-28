@@ -38,6 +38,7 @@ import { homedir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
 
 import { registeredSources } from "../adapters/registry.js";
+import { mintApprovalToken } from "../approvals/tokens.js";
 import { isRange, type StatusUpdate } from "../adapters/types.js";
 import type { Ingestion } from "../ingest/index.js";
 import {
@@ -217,6 +218,34 @@ export async function handleSourceRoute(
         return true;
       }
 
+      // ---- POST send { to, text, approval_token }  (P0.6)
+      // Double-gated send: the worker consumes the single-use token (invalid/
+      // expired/used ⇒ 403, adapter never called) and the daemon refuses again
+      // on its own. The outcome lands on the SSE stream as `send_result`.
+      case "POST send": {
+        if (!ingestion) return notReady(res);
+        const body = (await readJsonBody(req)) as
+          | { to?: unknown; text?: unknown; approval_token?: unknown }
+          | undefined;
+        const to = body && typeof body.to === "string" ? body.to.trim() : "";
+        const text = body && typeof body.text === "string" ? body.text : "";
+        const token =
+          body && typeof body.approval_token === "string"
+            ? body.approval_token
+            : "";
+        if (!to || !text || !token) {
+          sendJson(res, 400, { error: "to, text and approval_token are required" });
+          return true;
+        }
+        try {
+          await ingestion.sendMessage({ to, text, approvalToken: token });
+          sendJson(res, 200, { ok: true });
+        } catch (err) {
+          sendJson(res, 403, { error: (err as Error).message });
+        }
+        return true;
+      }
+
       // ---- POST pause { paused }
       case "POST pause": {
         if (!ingestion) return notReady(res);
@@ -263,6 +292,29 @@ export async function handleSourceRoute(
       default:
         break;
     }
+  }
+
+  // ---- POST /api/approvals/mint { action } → { token, action, expires_at }
+  // Mints one single-use approval token (P0.6). The P3 approval modal calls
+  // this at tap-time; until then it is the programmatic mint surface (tests,
+  // scripts, the mock e2e).
+  if (method === "POST" && path === "/api/approvals/mint") {
+    const body = (await readJsonBody(req)) as { action?: unknown } | undefined;
+    const action =
+      body && typeof body.action === "string" && body.action.trim()
+        ? body.action.trim()
+        : "";
+    if (!action) {
+      sendJson(res, 400, { error: "action required" });
+      return true;
+    }
+    const minted = mintApprovalToken(action);
+    sendJson(res, 200, {
+      token: minted.token,
+      action: minted.action,
+      expires_at: minted.expires_at,
+    });
+    return true;
   }
 
   // ---- GET /api/inbox/chats

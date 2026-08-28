@@ -2,7 +2,9 @@
 // persistence via sqlstore, live message streaming, history-sync backfill with
 // range filtering, media download, and capped-backoff reconnect.
 //
-// READ-ONLY: this package contains NO code path that sends a WhatsApp message.
+// Sending exists on exactly ONE code path (SendMessage, P0.6) and it is only
+// reachable behind the daemon's single-use approval-token gate — the worker
+// mints and consumes tokens, the daemon refuses any send_message without one.
 package wa
 
 import (
@@ -17,6 +19,7 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -482,6 +485,35 @@ func (e *Engine) Import(r protocol.Range) {
 		}
 	}
 	e.logf("import: run %d open range=%s (no anchors yet; paginator deferred to the first history batch)", run, r)
+}
+
+// SendMessage sends ONE plain-text message to a chat (P0.6). It executes only
+// after the daemon's approval-token gate admitted the command — this method
+// itself never sees (or needs) the token. Outcome is reported via the
+// `send_result` frame; failures also emit an `error` frame so the worker's
+// generic error surface catches them.
+func (e *Engine) SendMessage(to, text string) {
+	if e.client == nil || e.client.Store.ID == nil {
+		_ = e.w.Error("SEND_FAILED", "not paired", false)
+		_ = e.w.SendResult(false, "", "not paired")
+		return
+	}
+	jid, err := types.ParseJID(to)
+	if err != nil || jid.User == "" {
+		_ = e.w.Error("SEND_FAILED", fmt.Sprintf("invalid chat jid %q", to), false)
+		_ = e.w.SendResult(false, "", "invalid chat jid")
+		return
+	}
+	resp, err := e.client.SendMessage(e.ctx, jid, &waE2E.Message{Conversation: proto.String(text)})
+	if err != nil {
+		e.logf("send_message to %s failed: %v", to, err)
+		_ = e.w.Error("SEND_FAILED", err.Error(), false)
+		_ = e.w.SendResult(false, "", err.Error())
+		return
+	}
+	ext := jid.String() + "/" + resp.ID
+	e.logf("send_message: sent %s", ext)
+	_ = e.w.SendResult(true, ext, "")
 }
 
 // Extend requests OLDER on-demand history to widen coverage to range r

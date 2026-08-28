@@ -134,6 +134,22 @@ export interface InsertEventRow {
    * what a daemon that does not send the flag means.
    */
   isHistorical?: boolean;
+  /**
+   * Full v13 envelope stamp (P0.6, spec §6.1), pre-built by the adapter (roles
+   * from the observed roster, structural mentions, reply markers in the
+   * payload). When absent the minimal legacy bridge (db/eventlog.ts
+   * legacyEnvelopeFields) fills the columns instead.
+   */
+  envelope?: {
+    capturedAt: string;
+    origin: "live" | "backfill";
+    ageBand: "A" | "B" | "C" | "D";
+    actor: string;
+    rolesJson: string;
+    payloadJson: string;
+    contentHash: string;
+    blobRefsJson: string;
+  };
 }
 
 /**
@@ -1355,17 +1371,21 @@ export function upsertActor(params: UpsertActorParams): string {
  */
 export function insertEvent(row: InsertEventRow): InsertEventResult {
   const id = eventId(row.sourceId, row.externalId);
-  // V13 envelope stamp (P0.4) — the legacy bridge in db/eventlog.ts.
-  const envelope = legacyEnvelopeFields({
-    sourceId: row.sourceId,
-    externalId: row.externalId,
-    streamKey: row.streamId,
-    actorId: row.actorId,
-    ts: row.ts,
-    kind: row.kind,
-    text: row.text,
-    isHistorical: row.isHistorical,
-  });
+  // V13 envelope stamp. The adapter's full envelope (P0.6: roster audience,
+  // structural mentions, reply markers) wins; the legacy bridge in
+  // db/eventlog.ts derives a minimal one for writers that have none yet.
+  const envelope =
+    row.envelope ??
+    legacyEnvelopeFields({
+      sourceId: row.sourceId,
+      externalId: row.externalId,
+      streamKey: row.streamId,
+      actorId: row.actorId,
+      ts: row.ts,
+      kind: row.kind,
+      text: row.text,
+      isHistorical: row.isHistorical,
+    });
   const info = statements().insertEvent.run({
     ...envelope,
     id,

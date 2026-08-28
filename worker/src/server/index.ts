@@ -678,7 +678,8 @@ async function handle(
       path.startsWith("/api/sources/") ||
       path.startsWith("/api/whatsapp/") ||
       path.startsWith("/api/inbox/") ||
-      path.startsWith("/api/media/")) {
+      path.startsWith("/api/media/") ||
+      path.startsWith("/api/approvals/")) {
     const handled = await handleSourceRoute(req, res, ingestion);
     if (handled) return;
   }

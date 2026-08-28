@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -17,6 +19,7 @@ type fakeEngine struct {
 	rangeSet     bool
 	lastRange    protocol.Range
 	lastAnchors  []protocol.Anchor
+	sends        []string // "to|text" per SendMessage call
 }
 
 func (f *fakeEngine) Start(ctx context.Context) error { return nil }
@@ -36,6 +39,11 @@ func (f *fakeEngine) SeedAnchors(anchors []protocol.Anchor) {
 }
 func (f *fakeEngine) Pause()  {}
 func (f *fakeEngine) Resume() {}
+func (f *fakeEngine) SendMessage(to, text string) {
+	f.mu.Lock()
+	f.sends = append(f.sends, to+"|"+text)
+	f.mu.Unlock()
+}
 func (f *fakeEngine) Logout() {
 	f.mu.Lock()
 	f.loggedOut = true
@@ -133,6 +141,85 @@ func TestSeedAnchorsCommandDispatches(t *testing.T) {
 	}
 	if cancelled {
 		t.Fatal("seed_anchors must NOT cancel the context (it is not a lifecycle command)")
+	}
+}
+
+// sendCalls returns a copy of the engine's recorded SendMessage calls.
+func (f *fakeEngine) sendCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.sends...)
+}
+
+// captureWriter returns a protocol.Writer over a buffer plus the buffer, so a
+// test can assert on the frames a refusal emitted.
+func captureWriter() (*protocol.Writer, *bytes.Buffer) {
+	var buf bytes.Buffer
+	return protocol.NewWriter(&buf), &buf
+}
+
+// TestSendMessageWithoutTokenRefused proves the send gate (P0.6): a
+// send_message with no approval_token NEVER reaches the engine — the daemon
+// emits SEND_REFUSED + a failed send_result and stops.
+func TestSendMessageWithoutTokenRefused(t *testing.T) {
+	fe := &fakeEngine{}
+	w, buf := captureWriter()
+
+	handleCommand(fe, w, func(string, ...any) {}, protocol.Command{
+		Cmd: "send_message", To: "15551234567@s.whatsapp.net", Text: "hi",
+	}, func() {})
+
+	if calls := fe.sendCalls(); len(calls) != 0 {
+		t.Fatalf("engine.SendMessage must NOT be called without a token; got %v", calls)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "SEND_REFUSED") {
+		t.Fatalf("expected SEND_REFUSED error frame, got: %s", out)
+	}
+	if !strings.Contains(out, `"t":"send_result"`) || !strings.Contains(out, `"ok":false`) {
+		t.Fatalf("expected failed send_result frame, got: %s", out)
+	}
+}
+
+// TestSendMessageTokenSingleUse proves the daemon's own replay guard: the same
+// approval token admits exactly one send through this process; the second use
+// is refused before the engine.
+func TestSendMessageTokenSingleUse(t *testing.T) {
+	fe := &fakeEngine{}
+	w, buf := captureWriter()
+	cmd := protocol.Command{
+		Cmd: "send_message", To: "15551234567@s.whatsapp.net", Text: "hello",
+		ApprovalToken: "tok-single-use-1",
+	}
+
+	handleCommand(fe, w, func(string, ...any) {}, cmd, func() {})
+	if calls := fe.sendCalls(); len(calls) != 1 || calls[0] != "15551234567@s.whatsapp.net|hello" {
+		t.Fatalf("first tokened send must reach the engine; got %v", calls)
+	}
+
+	handleCommand(fe, w, func(string, ...any) {}, cmd, func() {})
+	if calls := fe.sendCalls(); len(calls) != 1 {
+		t.Fatalf("replayed token must be refused; engine calls = %v", calls)
+	}
+	if !strings.Contains(buf.String(), "already used") {
+		t.Fatalf("expected already-used refusal, got: %s", buf.String())
+	}
+}
+
+// TestSendMessageMissingToRefused proves a tokened send still needs to+text.
+func TestSendMessageMissingToRefused(t *testing.T) {
+	fe := &fakeEngine{}
+	w, buf := captureWriter()
+
+	handleCommand(fe, w, func(string, ...any) {}, protocol.Command{
+		Cmd: "send_message", Text: "hi", ApprovalToken: "tok-missing-to-1",
+	}, func() {})
+
+	if calls := fe.sendCalls(); len(calls) != 0 {
+		t.Fatalf("send without `to` must not reach the engine; got %v", calls)
+	}
+	if !strings.Contains(buf.String(), "SEND_REFUSED") {
+		t.Fatalf("expected SEND_REFUSED, got: %s", buf.String())
 	}
 }
 

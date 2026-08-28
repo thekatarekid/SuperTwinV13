@@ -8,6 +8,8 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -49,6 +51,11 @@ type Engine interface {
 	// (contract §R3.1). Logout must therefore be synchronous: finish clearing +
 	// emitting before returning.
 	Logout()
+	// SendMessage sends one text message to a chat (P0.6). Called ONLY after the
+	// daemon's approval-token gate has passed (handleCommand): an engine never
+	// sees an unapproved send. The engine reports the outcome via the writer's
+	// `send_result` frame.
+	SendMessage(to, text string)
 	// Shutdown flushes and releases resources. Must return within the deadline
 	// the caller enforces.
 	Shutdown()
@@ -124,6 +131,30 @@ func handleCommand(engine Engine, w *protocol.Writer, logf func(string, ...any),
 		// Restore back-pagination anchors from the worker's DB. Sent at connect
 		// (and before extend) so a restarted daemon can still page older history.
 		engine.SeedAnchors(cmd.Anchors)
+	case "send_message":
+		// The ONLY send path, and it is code-gated (spec §2.13, P0.6): a
+		// send_message without a non-empty, never-before-seen approval token is
+		// REFUSED before the engine is ever touched. Token mint/consume lives in
+		// the worker's single-use token table; this in-process replay guard is
+		// the daemon's own, independent belt: the same token can never drive two
+		// sends through one daemon no matter what the worker does.
+		if reason, ok := admitSendToken(cmd.ApprovalToken); !ok {
+			logf("refusing send_message: %s", reason)
+			if w != nil {
+				_ = w.Error("SEND_REFUSED", "send_message refused: "+reason, false)
+				_ = w.SendResult(false, "", reason)
+			}
+			return
+		}
+		if cmd.To == "" || cmd.Text == "" {
+			logf("refusing send_message: missing to/text")
+			if w != nil {
+				_ = w.Error("SEND_REFUSED", "send_message refused: to and text are required", false)
+				_ = w.SendResult(false, "", "to and text are required")
+			}
+			return
+		}
+		engine.SendMessage(cmd.To, cmd.Text)
 	case "pause":
 		engine.Pause()
 	case "resume":
@@ -141,6 +172,33 @@ func handleCommand(engine Engine, w *protocol.Writer, logf func(string, ...any),
 	default:
 		logf("ignoring unknown command %q", cmd.Cmd)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Approval-token gate (P0.6). Tokens are minted + consumed in the worker's
+// single-use table; this map is the daemon's own replay guard so a token that
+// already drove a send through THIS process can never drive a second one.
+// Bounded implicitly: one entry per approved send in the daemon's lifetime.
+// ---------------------------------------------------------------------------
+
+var (
+	sendTokenMu   sync.Mutex
+	seenSendToken = map[string]bool{}
+)
+
+// admitSendToken returns ok=true iff the token is non-empty and unseen, and
+// marks it seen. On refusal it returns the human-readable reason.
+func admitSendToken(token string) (reason string, ok bool) {
+	if strings.TrimSpace(token) == "" {
+		return "approval_token is required (no send path without a minted single-use approval token)", false
+	}
+	sendTokenMu.Lock()
+	defer sendTokenMu.Unlock()
+	if seenSendToken[token] {
+		return "approval_token already used (single-use)", false
+	}
+	seenSendToken[token] = true
+	return "", true
 }
 
 // shutdownWithDeadline runs engine.Shutdown but never blocks longer than d.

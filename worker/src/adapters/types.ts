@@ -13,7 +13,7 @@
 
 // ---- Range (§3) -----------------------------------------------------------
 
-/** Import range enum. `all` = no cutoff (epoch 0). */
+/** Import range enum. `all` = no cutoff (epoch 0). P0.6 adds 2y–5y. */
 export type Range =
   | "24h"
   | "3d"
@@ -22,6 +22,10 @@ export type Range =
   | "90d"
   | "180d"
   | "1y"
+  | "2y"
+  | "3y"
+  | "4y"
+  | "5y"
   | "all";
 
 /** All valid Range values, in ascending duration order. */
@@ -33,6 +37,10 @@ export const RANGES: readonly Range[] = [
   "90d",
   "180d",
   "1y",
+  "2y",
+  "3y",
+  "4y",
+  "5y",
   "all",
 ] as const;
 
@@ -121,6 +129,44 @@ export interface ReplyTo {
   actor_ext_id: string;
 }
 
+// ---- V13 envelope (spec §6.1, P0.6) ---------------------------------------
+
+export type V13AgeBand = "A" | "B" | "C" | "D";
+export type V13Origin = "live" | "backfill";
+
+/** roles {sender, audience[], receiver[], mentions[]} — structural, never guessed. */
+export interface V13Roles {
+  sender: string;
+  audience: string[];
+  receiver: string[];
+  mentions: string[];
+}
+
+/**
+ * The spec §6.1 event envelope, built at the adapter boundary (roles from the
+ * observed roster, @mentions structural, reply markers in the payload) and
+ * carried on the SourceEvent into the events writer, which stamps it onto the
+ * event row's v13 columns (0100_v13_core).
+ */
+export interface V13Envelope {
+  /** ULID — time-sortable, unique. */
+  id: string;
+  ts: string;
+  captured_at: string;
+  source: string;
+  /** Namespaced kind, e.g. "wa.message". */
+  kind: string;
+  origin: V13Origin;
+  age_band: V13AgeBand;
+  stream_key: string;
+  /** Sender ref ("self" for own messages). */
+  actor: string;
+  roles: V13Roles;
+  payload: Record<string, unknown>;
+  content_hash: string;
+  blob_refs: string[];
+}
+
 /** A message/media/system event (contract §3). Source-neutral. */
 export interface SourceEvent {
   /** Stable dedupe key WITHIN the source, e.g. "<chatJID>/<messageID>". */
@@ -186,6 +232,13 @@ export interface SourceEvent {
   skew_clamped_from?: string;
   /** Small subset of the source's native message info (id/chat/sender/…). */
   raw?: unknown;
+  /**
+   * The spec §6.1 envelope for this event (P0.6), built by the adapter with
+   * structural roles. When present, the events writer stamps it onto the v13
+   * columns verbatim; when absent, a minimal envelope is derived (legacy
+   * bridge in db/eventlog.ts).
+   */
+  envelope?: V13Envelope;
 }
 
 /** Stream (lane) metadata upsert (contract §3, arch §2). */
@@ -350,7 +403,11 @@ export type StatusUpdate =
   // The settled import has been judged (fires once per quiet window).
   | { type: "history_depth"; depth: HistoryDepth }
   // An "Extend history" run started or finished, with what it recovered.
-  | { type: "extend_result"; outcome: ExtendOutcome };
+  | { type: "extend_result"; outcome: ExtendOutcome }
+  // Outcome of one `send_message` command (P0.6). `ok:false` covers both the
+  // daemon's approval-token refusal (SEND_REFUSED) and a transport failure;
+  // `externalId` is the sent message's "<chat>/<id>" on success.
+  | { type: "send_result"; ok: boolean; externalId?: string; detail?: string };
 
 /**
  * Live-ingest nudge frame (Rev 2 §R2.2). Emitted (debounced) by the worker

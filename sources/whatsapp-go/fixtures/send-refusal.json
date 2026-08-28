@@ -1,0 +1,31 @@
+{
+  "chats": [
+    { "jid": "15551234567@s.whatsapp.net", "name": "Mom", "kind": "dm" },
+    { "jid": "120363000000000001@g.us", "name": "Goa Gang", "kind": "group" }
+  ],
+  "actors": [
+    { "jid": "15550000001@s.whatsapp.net", "display_name": "You", "handle": "+1 555 000 0001", "is_self": true },
+    { "jid": "15551234567@s.whatsapp.net", "display_name": "Mom", "handle": "+1 555 123 4567" },
+    { "jid": "15559876543@s.whatsapp.net", "display_name": "Alice", "handle": "+1 555 987 6543" }
+  ],
+  "messages": [
+    {
+      "chat_jid": "15551234567@s.whatsapp.net",
+      "sender_jid": "15551234567@s.whatsapp.net",
+      "message_id": "REFUSE1",
+      "ago_seconds": 3600,
+      "kind": "message",
+      "text": "call me when you land"
+    },
+    {
+      "chat_jid": "120363000000000001@g.us",
+      "sender_jid": "15559876543@s.whatsapp.net",
+      "message_id": "REFUSE2",
+      "ago_seconds": 7200,
+      "kind": "message",
+      "text": "@you flights are cheap rn",
+      "mentioned_ext_ids": ["15550000001@s.whatsapp.net"]
+    }
+  ],
+  "refuse_sends": true
+}

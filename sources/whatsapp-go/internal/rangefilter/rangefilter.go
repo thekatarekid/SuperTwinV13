@@ -19,6 +19,10 @@ var durations = map[protocol.Range]time.Duration{
 	protocol.Range90d:  90 * 24 * time.Hour,
 	protocol.Range180d: 180 * 24 * time.Hour,
 	protocol.Range1y:   365 * 24 * time.Hour,
+	protocol.Range2y:   2 * 365 * 24 * time.Hour,
+	protocol.Range3y:   3 * 365 * 24 * time.Hour,
+	protocol.Range4y:   4 * 365 * 24 * time.Hour,
+	protocol.Range5y:   5 * 365 * 24 * time.Hour,
 }
 
 // RangeCutoff returns the cutoff time for range r relative to now.
@@ -56,6 +60,8 @@ func MessageInRange(r protocol.Range, ts, now time.Time) bool {
 func AllRanges() []protocol.Range {
 	return []protocol.Range{
 		protocol.Range24h, protocol.Range3d, protocol.Range7d, protocol.Range30d,
-		protocol.Range90d, protocol.Range180d, protocol.Range1y, protocol.RangeAll,
+		protocol.Range90d, protocol.Range180d, protocol.Range1y,
+		protocol.Range2y, protocol.Range3y, protocol.Range4y, protocol.Range5y,
+		protocol.RangeAll,
 	}
 }

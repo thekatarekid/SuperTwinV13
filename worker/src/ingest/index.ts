@@ -52,6 +52,7 @@ import {
   noteIngestedEvent,
 } from "../db/watermarks.js";
 import { enqueueLiveMedia } from "../media/queue.js";
+import { consumeApprovalToken } from "../approvals/tokens.js";
 import { HistoryHealth } from "./history-health.js";
 
 /** Live-ingest nudge debounce (Rev 2 §R2.2): coalesce bursts into one frame. */
@@ -222,6 +223,7 @@ export class Ingestion {
   getManifest(): SourceManifest<SourceEvent> | null {
     return this.manifest;
   }
+
 
   /**
    * Register the source row, seed the persisted kill-switch, and subscribe to
@@ -651,6 +653,24 @@ export class Ingestion {
       linkThumbPath: e.link?.thumb_path ?? null,
       linkPreviewType: e.link?.preview_type ?? null,
       isHistorical: e.is_historical ?? false,
+      // Full v13 envelope (P0.6, spec §6.1): built by the adapter with the
+      // observed roster, structural mentions, and reply markers. When absent
+      // (a source without envelope support yet), insertEvent derives the
+      // minimal legacy envelope instead.
+      ...(e.envelope
+        ? {
+            envelope: {
+              capturedAt: e.envelope.captured_at,
+              origin: e.envelope.origin,
+              ageBand: e.envelope.age_band,
+              actor: e.envelope.actor,
+              rolesJson: JSON.stringify(e.envelope.roles),
+              payloadJson: JSON.stringify(e.envelope.payload),
+              contentHash: e.envelope.content_hash,
+              blobRefsJson: JSON.stringify(e.envelope.blob_refs),
+            },
+          }
+        : {}),
     });
 
     if (res.inserted) {
@@ -726,10 +746,38 @@ export class Ingestion {
 
   async importRange(range: Range): Promise<void> {
     await this.adapter.backfill(range);
-    // Persist import state on a successful import call (Rev 2 §R2.1). The
-    // daemon's later backfill_complete re-affirms it via onStatus; doing it here
-    // too means a relaunch mid-backfill still remembers the chosen range.
-    this.markImportDone(range);
+    // Persist the CHOSEN range so a relaunch mid-backfill remembers it — but do
+    // NOT advance the import watermark here (P0.6): importDone (and the
+    // per-stream backfill_complete seal) advances only on the DAEMON'S
+    // completion signal (`backfill_complete`, handled in onStatus). A crash
+    // mid-import must come back as "still importing", never as "done".
+    this.importRangeValue = range;
+    appStateSet(importRangeKey(this.sourceId), range);
+  }
+
+  /**
+   * Send one message through the source (P0.6) — the ONLY send path, and it is
+   * double-gated: the single-use approval token is consumed HERE (atomic
+   * UPDATE; invalid/expired/used ⇒ hard error, adapter never called), and the
+   * daemon independently refuses a send_message without a fresh token. The
+   * outcome arrives on the status stream as a `send_result` frame.
+   */
+  async sendMessage(params: {
+    to: string;
+    text: string;
+    approvalToken: string;
+  }): Promise<void> {
+    const adapter = this.adapter;
+    if (typeof adapter.sendMessage !== "function") {
+      throw new Error("SEND_REFUSED: source has no send path");
+    }
+    const action = `${this.sourceId}.send`;
+    if (!consumeApprovalToken(params.approvalToken, action)) {
+      throw new Error(
+        "SEND_REFUSED: approval token invalid, expired, or already used",
+      );
+    }
+    await adapter.sendMessage(params.to, params.text, params.approvalToken);
   }
 
   /**

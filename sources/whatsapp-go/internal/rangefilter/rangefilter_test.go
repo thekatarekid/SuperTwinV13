@@ -21,6 +21,10 @@ func TestRangeCutoff(t *testing.T) {
 		{protocol.Range90d, now.Add(-90 * 24 * time.Hour)},
 		{protocol.Range180d, now.Add(-180 * 24 * time.Hour)},
 		{protocol.Range1y, now.Add(-365 * 24 * time.Hour)},
+		{protocol.Range2y, now.Add(-2 * 365 * 24 * time.Hour)},
+		{protocol.Range3y, now.Add(-3 * 365 * 24 * time.Hour)},
+		{protocol.Range4y, now.Add(-4 * 365 * 24 * time.Hour)},
+		{protocol.Range5y, now.Add(-5 * 365 * 24 * time.Hour)},
 		{protocol.RangeAll, time.Unix(0, 0).UTC()},
 	}
 	for _, tt := range tests {
@@ -41,8 +45,8 @@ func TestRangeCutoffUnknownFallsBackToAll(t *testing.T) {
 
 func TestAllRangesCovered(t *testing.T) {
 	// Every value listed in AllRanges must produce a well-defined cutoff.
-	if len(AllRanges()) != 8 {
-		t.Fatalf("expected 8 ranges, got %d", len(AllRanges()))
+	if len(AllRanges()) != 12 {
+		t.Fatalf("expected 12 ranges, got %d", len(AllRanges()))
 	}
 	for _, r := range AllRanges() {
 		c := RangeCutoff(r, now)
@@ -93,6 +97,15 @@ func TestMessageInRange(t *testing.T) {
 		{"all: 5y ago -> in", protocol.RangeAll, now.Add(-5 * 365 * 24 * time.Hour), true},
 		{"1y: 300d ago -> in", protocol.Range1y, now.Add(-300 * 24 * time.Hour), true},
 		{"1y: 400d ago -> out", protocol.Range1y, now.Add(-400 * 24 * time.Hour), false},
+		{"2y: 400d ago -> in", protocol.Range2y, now.Add(-400 * 24 * time.Hour), true},
+		{"2y: 800d ago -> out", protocol.Range2y, now.Add(-800 * 24 * time.Hour), false},
+		{"3y: 800d ago -> in", protocol.Range3y, now.Add(-800 * 24 * time.Hour), true},
+		{"3y: 1200d ago -> out", protocol.Range3y, now.Add(-1200 * 24 * time.Hour), false},
+		{"4y: 1200d ago -> in", protocol.Range4y, now.Add(-1200 * 24 * time.Hour), true},
+		{"4y: 1500d ago -> out", protocol.Range4y, now.Add(-1500 * 24 * time.Hour), false},
+		{"5y: 1500d ago -> in", protocol.Range5y, now.Add(-1500 * 24 * time.Hour), true},
+		{"5y: 1900d ago -> out", protocol.Range5y, now.Add(-1900 * 24 * time.Hour), false},
+		{"5y: exactly at cutoff -> in", protocol.Range5y, now.Add(-5 * 365 * 24 * time.Hour), true},
 	}
 	for _, tt := range tests {
 		if got := MessageInRange(tt.r, tt.ts, now); got != tt.want {
@@ -106,7 +119,9 @@ func TestMessageInRange(t *testing.T) {
 func TestRangeMonotonic(t *testing.T) {
 	ordered := []protocol.Range{
 		protocol.Range24h, protocol.Range3d, protocol.Range7d, protocol.Range30d,
-		protocol.Range90d, protocol.Range180d, protocol.Range1y, protocol.RangeAll,
+		protocol.Range90d, protocol.Range180d, protocol.Range1y,
+		protocol.Range2y, protocol.Range3y, protocol.Range4y, protocol.Range5y,
+		protocol.RangeAll,
 	}
 	ts := now.Add(-100 * 24 * time.Hour) // 100 days ago
 	sawIncluded := false

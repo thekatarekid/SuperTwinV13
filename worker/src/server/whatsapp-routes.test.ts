@@ -859,6 +859,9 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ range: "7d" }),
     });
+    // P0.6: import_done advances only on the DAEMON'S completion signal, not
+    // on issuing the import — emit the frame the way a finished daemon would.
+    child.line({ t: "backfill_complete", range: "7d", chats: 1, messages: 1 });
     expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBe("true");
     const before = await getJson<{ importDone: boolean }>("/api/whatsapp/status");
     expect(before.importDone).toBe(true);
@@ -904,6 +907,8 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ range: "7d" }),
     });
+    // P0.6: completion (and thus import_done) comes from the daemon's signal.
+    child.line({ t: "backfill_complete", range: "7d", chats: 1, messages: 1 });
     expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBe("true");
 
     const before = child.writes.length;
@@ -943,6 +948,8 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ range: "30d" }),
     });
+    // P0.6: completion (and thus import_done) comes from the daemon's signal.
+    child.line({ t: "backfill_complete", range: "30d", chats: 1, messages: 1 });
     expect(ingestDb.appStateGet("source.whatsapp.import_done")).toBe("true");
     const chatsBefore = await getJson<Array<{ id: string }>>("/api/inbox/chats");
     expect(chatsBefore.length).toBeGreaterThan(0);
@@ -1012,5 +1019,93 @@ describe("whatsapp/inbox/media routes", () => {
   it("does not shadow Phase-0 routes (health still ok, unknown => 404)", async () => {
     const res = await fetch(`${base}/api/does-not-exist`);
     expect(res.status).toBe(404);
+  });
+
+  // ---- P0.6: approval-token mint + gated send ------------------------------
+
+  it("POST /api/approvals/mint mints a single-use token; blank action 400s", async () => {
+    const res = await fetch(`${base}/api/approvals/mint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "whatsapp.send" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { token: string; action: string; expires_at: string };
+    expect(body.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.action).toBe("whatsapp.send");
+
+    const bad = await fetch(`${base}/api/approvals/mint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("POST send without a valid token => 403, nothing reaches the daemon", async () => {
+    const before = child.writes.length;
+    const res = await fetch(`${base}/api/sources/whatsapp/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: "x@s.whatsapp.net",
+        text: "hi",
+        approval_token: "bogus",
+      }),
+    });
+    expect(res.status).toBe(403);
+    expect(
+      child.writes.slice(before).some((w) => w.includes('"cmd":"send_message"')),
+    ).toBe(false);
+
+    // Missing fields entirely => 400 before the token is even considered.
+    const missing = await fetch(`${base}/api/sources/whatsapp/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: "x@s.whatsapp.net" }),
+    });
+    expect(missing.status).toBe(400);
+  });
+
+  it("POST send with a minted token forwards send_message exactly once", async () => {
+    const mint = (await (
+      await fetch(`${base}/api/approvals/mint`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "whatsapp.send" }),
+      })
+    ).json()) as { token: string };
+
+    const before = child.writes.length;
+    const res = await fetch(`${base}/api/sources/whatsapp/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: "x@s.whatsapp.net",
+        text: "approved via route",
+        approval_token: mint.token,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const sends = child.writes
+      .slice(before)
+      .filter((w) => w.includes('"cmd":"send_message"'));
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toContain(mint.token);
+
+    // Replaying the consumed token => 403, no second command.
+    const replay = await fetch(`${base}/api/sources/whatsapp/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: "x@s.whatsapp.net",
+        text: "again",
+        approval_token: mint.token,
+      }),
+    });
+    expect(replay.status).toBe(403);
+    expect(
+      child.writes.slice(before).filter((w) => w.includes('"cmd":"send_message"')),
+    ).toHaveLength(1);
   });
 });

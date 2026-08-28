@@ -85,3 +85,8 @@ func (w *Writer) HistorySync(h HistorySync) error {
 func (w *Writer) Error(code, message string, fatal bool) error {
 	return w.emit(errorMsg{T: "error", Code: code, Message: message, Fatal: fatal})
 }
+
+// SendResult reports the outcome of one `send_message` command (P0.6).
+func (w *Writer) SendResult(ok bool, externalID, detail string) error {
+	return w.emit(sendResultMsg{T: "send_result", OK: ok, ExternalID: externalID, Detail: detail})
+}

@@ -38,6 +38,7 @@ type Engine struct {
 	paired    bool
 	widest    protocol.Range // widest range already emitted (for extend semantics)
 	haveRange bool
+	sendSeq   int // monotonically numbers mock send echoes (P0.6)
 
 	// quietWindow simulates the real daemon's no-new-history-sync-batch idle
 	// period (contract §R7.2) for the plateau case: when the fixture declares
@@ -260,6 +261,9 @@ func (e *Engine) buildEvent(pe PlannedEvent) protocol.Event {
 	if m.ReplyToExternalID != "" {
 		ev.ReplyToExternalID = m.ReplyToExternalID
 	}
+	if len(m.MentionedExtIDs) > 0 {
+		ev.MentionedExtIDs = append([]string(nil), m.MentionedExtIDs...)
+	}
 	if m.ReplyTo != nil {
 		ev.ReplyTo = &protocol.ReplyTo{
 			ExternalID: m.ReplyTo.ExternalID,
@@ -314,6 +318,56 @@ func (e *Engine) writeMedia(m FixtureMessage) (*protocol.Media, error) {
 		Size:     int64(len(data)),
 		SHA256:   hex.EncodeToString(sum[:]),
 	}, nil
+}
+
+// SendMessage emits the echo of one approved send (P0.6). The daemon's
+// approval-token gate ran BEFORE this is called; the mock adds two refusals of
+// its own: an unpaired session cannot send, and a fixture with refuse_sends
+// (the send-refusal fixture) refuses every send so CI can exercise the
+// worker's refusal path end to end.
+func (e *Engine) SendMessage(to, text string) {
+	e.mu.Lock()
+	paired := e.paired
+	refuse := e.fixture != nil && e.fixture.RefuseSends
+	e.sendSeq++
+	seq := e.sendSeq
+	e.mu.Unlock()
+
+	if refuse {
+		e.logf("mock: refusing send_message to %s (refuse_sends fixture)", to)
+		_ = e.w.Error("SEND_REFUSED", "mock fixture refuses sends", false)
+		_ = e.w.SendResult(false, "", "mock fixture refuses sends")
+		return
+	}
+	if !paired {
+		e.logf("mock: send_message while unpaired")
+		_ = e.w.Error("SEND_FAILED", "not paired", false)
+		_ = e.w.SendResult(false, "", "not paired")
+		return
+	}
+
+	now := time.Now()
+	id := fmt.Sprintf("MOCKSEND%04d", seq)
+	ext := to + "/" + id
+	self := e.fixture.selfActorJID()
+	_ = e.w.Event(protocol.Event{
+		ExternalID:   ext,
+		ChannelExtID: to,
+		ActorExtID:   self,
+		TS:           protocol.FormatTime(now),
+		Kind:         protocol.KindMessage,
+		Text:         text,
+		FromMe:       true,
+		Raw: map[string]any{
+			"id":        id,
+			"chat":      to,
+			"sender":    self,
+			"type":      "message",
+			"timestamp": protocol.FormatTime(now),
+		},
+	})
+	_ = e.w.SendResult(true, ext, "")
+	e.logf("mock: sent message %s", ext)
 }
 
 // Pause halts emission.

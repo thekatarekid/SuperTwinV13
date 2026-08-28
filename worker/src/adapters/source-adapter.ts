@@ -37,6 +37,14 @@ export interface SourceAdapter {
    * this — their pushed history is buffered daemon-side until the user picks.
    */
   setRange?(range: Range): Promise<void>;
+  /**
+   * Send ONE message through the source (P0.6). Optional: only sources with a
+   * send path implement it. `approvalToken` is a minted, still-unused
+   * single-use token — the adapter MUST refuse (throw) without one, and the
+   * daemon behind it refuses again on its own. The result arrives as a
+   * `send_result` status frame, never as a return value.
+   */
+  sendMessage?(to: string, text: string, approvalToken: string): Promise<void>;
   /** Kill-switch: pause (true) / resume (false) event emission. */
   pause(paused: boolean): Promise<void>;
   /** Clear the session (unpair). */
@@ -71,6 +79,10 @@ const RANGE_MS: Record<Exclude<Range, "all">, number> = {
   "90d": 90 * MS.day,
   "180d": 180 * MS.day,
   "1y": 365 * MS.day,
+  "2y": 2 * 365 * MS.day,
+  "3y": 3 * 365 * MS.day,
+  "4y": 4 * 365 * MS.day,
+  "5y": 5 * 365 * MS.day,
 };
 
 /**

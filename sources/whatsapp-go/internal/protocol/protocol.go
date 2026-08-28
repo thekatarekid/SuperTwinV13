@@ -55,6 +55,10 @@ const (
 	Range90d  Range = "90d"
 	Range180d Range = "180d"
 	Range1y   Range = "1y"
+	Range2y   Range = "2y"
+	Range3y   Range = "3y"
+	Range4y   Range = "4y"
+	Range5y   Range = "5y"
 	RangeAll  Range = "all"
 )
 
@@ -287,6 +291,18 @@ type errorMsg struct {
 	Fatal   bool   `json:"fatal"`
 }
 
+// sendResultMsg reports the outcome of ONE `send_message` command (P0.6). OK
+// is true iff the message actually left through the engine; ExternalID is the
+// sent message's "<chatJID>/<messageID>" (so the worker can join the echo of
+// its own send against the stored event), empty on failure. Detail carries a
+// human-readable reason on failure.
+type sendResultMsg struct {
+	T          string `json:"t"`
+	OK         bool   `json:"ok"`
+	ExternalID string `json:"external_id,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
+
 // --- Inbound command (worker -> daemon, one per stdin line) ---
 
 // Anchor is ONE chat's oldest-known message, supplied by the worker on the
@@ -325,4 +341,13 @@ type Command struct {
 	// Anchors carries the `seed_anchors` payload (worker -> daemon). Empty for
 	// every other command.
 	Anchors []Anchor `json:"anchors,omitempty"`
+
+	// --- send_message payload (P0.6). The daemon HARD-REFUSES a send_message
+	// whose ApprovalToken is absent/empty or already seen by this process:
+	// enforcement is code, not prompt (spec §2.13). The worker mints and
+	// consumes tokens in its single-use token table before ever writing this
+	// command; the daemon's check is the second, independent gate.
+	To            string `json:"to,omitempty"`
+	Text          string `json:"text,omitempty"`
+	ApprovalToken string `json:"approval_token,omitempty"`
 }

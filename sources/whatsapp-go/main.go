@@ -2,7 +2,8 @@
 //
 // It speaks the NDJSON protocol defined in docs/PHASE1_CONTRACT.md over
 // stdin (commands) and stdout (events). All human/diagnostic logging goes to
-// stderr. It is READ-ONLY: there is NO code path that sends a WhatsApp message.
+// stderr. Ingestion is read-only; the ONE send path (`send_message`, P0.6) is
+// code-gated behind a single-use approval token and refuses hard without one.
 //
 // Modes:
 //   - default: connect to WhatsApp via whatsmeow (QR pairing + session store).

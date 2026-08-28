@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 
 import { normalizeSourceEvent } from "../normalize.js";
 import type { SourceAdapter } from "../source-adapter.js";
+import { buildWhatsAppEnvelope } from "./envelope.js";
 import type {
   Actor,
   AdapterStatus,
@@ -210,6 +211,14 @@ export class WhatsAppAdapter implements SourceAdapter {
   };
 
   private readonly eventCbs: Array<(e: SourceEvent) => void> = [];
+  /**
+   * Observed roster per stream (P0.6, spec §6.1 roles): every actor ext id
+   * seen SENDING on the stream so far. WhatsApp's wire protocol never hands
+   * over a group's member list as one frame — the roster is what the traffic
+   * proves — so audience[] grows as members speak, which is also exactly the
+   * set of people the log can attribute anything to.
+   */
+  private readonly rosterByStream = new Map<string, Set<string>>();
   private readonly streamCbs: Array<(s: Stream) => void> = [];
   private readonly actorCbs: Array<(a: Actor) => void> = [];
   private readonly statusCbs: Array<(s: StatusUpdate) => void> = [];
@@ -314,6 +323,21 @@ export class WhatsAppAdapter implements SourceAdapter {
   async pause(paused: boolean): Promise<void> {
     this.setPaused(paused);
     this.send({ cmd: paused ? "pause" : "resume" });
+  }
+
+  /**
+   * Send ONE message (P0.6). Hard gate at every layer: this adapter refuses to
+   * even write the command without a token, the worker consumed the token from
+   * its single-use table before calling here, and the daemon refuses any
+   * send_message whose token is absent or replayed. The outcome arrives as a
+   * `send_result` status frame.
+   */
+  async sendMessage(to: string, text: string, approvalToken: string): Promise<void> {
+    if (!approvalToken || !approvalToken.trim()) {
+      throw new Error("SEND_REFUSED: approval token required (no send path without one)");
+    }
+    if (!to || !text) throw new Error("SEND_REFUSED: to and text are required");
+    this.send({ cmd: "send_message", to, text, approval_token: approvalToken });
   }
 
   async logout(): Promise<void> {
@@ -592,6 +616,17 @@ export class WhatsAppAdapter implements SourceAdapter {
         this.emitStatus({ type: "backfill_complete", range, chats, messages });
         break;
       }
+      case "send_result": {
+        // Outcome of one gated send (P0.6). Forwarded verbatim so the API layer
+        // (and P3's approval modal) can confirm or surface the refusal.
+        this.emitStatus({
+          type: "send_result",
+          ok: Boolean(msg["ok"]),
+          ...(str(msg["external_id"]) ? { externalId: str(msg["external_id"])! } : {}),
+          ...(str(msg["detail"]) ? { detail: str(msg["detail"])! } : {}),
+        });
+        break;
+      }
       case "error":
         this.handleErrorMsg(msg);
         break;
@@ -670,7 +705,28 @@ export class WhatsAppAdapter implements SourceAdapter {
       this.log(`[whatsapp] dropped non-content frame kind=${String(e.kind)}`);
       return;
     }
-    for (const cb of this.eventCbs) cb(normalized);
+    // Roster (spec §6.1 roles): remember who has been seen sending on this
+    // stream. Self is tracked via status.jid, not the roster set, so it maps
+    // to "self" in the envelope without duplicating an ext id.
+    if (normalized.stream_ext_id && normalized.actor_ext_id && !normalized.from_me) {
+      let members = this.rosterByStream.get(normalized.stream_ext_id);
+      if (!members) {
+        members = new Set<string>();
+        this.rosterByStream.set(normalized.stream_ext_id, members);
+      }
+      members.add(normalized.actor_ext_id);
+    }
+    // The v13 envelope (spec §6.1) rides ON the event: the ingest writer
+    // stamps it onto the row's envelope columns (0100_v13_core), so roles are
+    // decided here — at the boundary that knows the roster — and nowhere else.
+    const withEnvelope: SourceEvent = {
+      ...normalized,
+      envelope: buildWhatsAppEnvelope(normalized, {
+        selfExtId: this.status.jid ?? null,
+        roster: [...(this.rosterByStream.get(normalized.stream_ext_id) ?? [])],
+      }),
+    };
+    for (const cb of this.eventCbs) cb(withEnvelope);
   }
 
   private handleProgressMsg(msg: Record<string, unknown>): void {

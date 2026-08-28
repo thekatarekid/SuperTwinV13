@@ -65,6 +65,125 @@ func TestMockLogoutClearsSessionAndEmitsLoggedOut(t *testing.T) {
 	}
 }
 
+// TestMockSendMessageEmitsEchoAndResult proves an approved send through the
+// paired mock engine emits the sent event (from_me, live) and an ok
+// send_result carrying its external_id (P0.6).
+func TestMockSendMessageEmitsEchoAndResult(t *testing.T) {
+	var buf bytes.Buffer
+	w := protocol.NewWriter(&buf)
+	e := New(w, func(string, ...any) {}, BuiltinFixture(), t.TempDir())
+	e.StartPairing()
+	buf.Reset()
+
+	e.SendMessage("15551234567@s.whatsapp.net", "hello from the twin")
+
+	lines := decodeLines(t, &buf)
+	var sawEvent, sawResult bool
+	for _, l := range lines {
+		if l["t"] == "event" {
+			ev := l["event"].(map[string]any)
+			if ev["from_me"] != true {
+				t.Errorf("send echo must be from_me; got %v", ev)
+			}
+			if ev["text"] != "hello from the twin" {
+				t.Errorf("send echo text = %v", ev["text"])
+			}
+			if !strings.HasPrefix(ev["external_id"].(string), "15551234567@s.whatsapp.net/MOCKSEND") {
+				t.Errorf("send echo external_id = %v", ev["external_id"])
+			}
+			sawEvent = true
+		}
+		if l["t"] == "send_result" {
+			if l["ok"] != true {
+				t.Errorf("send_result must be ok; got %v", l)
+			}
+			sawResult = true
+		}
+	}
+	if !sawEvent || !sawResult {
+		t.Fatalf("expected event + send_result; got %v", lines)
+	}
+}
+
+// TestMockSendMessageUnpairedFails proves the mock refuses to send before
+// pairing (no session, nothing to send through).
+func TestMockSendMessageUnpairedFails(t *testing.T) {
+	var buf bytes.Buffer
+	w := protocol.NewWriter(&buf)
+	e := New(w, func(string, ...any) {}, BuiltinFixture(), t.TempDir())
+
+	e.SendMessage("15551234567@s.whatsapp.net", "hi")
+
+	out := buf.String()
+	if !strings.Contains(out, "SEND_FAILED") || !strings.Contains(out, `"ok":false`) {
+		t.Fatalf("unpaired send must fail; got: %s", out)
+	}
+	if strings.Contains(out, `"t":"event"`) {
+		t.Fatalf("unpaired send must emit no event; got: %s", out)
+	}
+}
+
+// TestMockSendRefusalFixture proves the send-refusal fixture (refuse_sends):
+// every send is refused with SEND_REFUSED even on a paired session, and no
+// event is emitted — the worker's refusal path is exercisable in --mock CI.
+func TestMockSendRefusalFixture(t *testing.T) {
+	fixture := BuiltinFixture()
+	fixture.RefuseSends = true
+	var buf bytes.Buffer
+	w := protocol.NewWriter(&buf)
+	e := New(w, func(string, ...any) {}, fixture, t.TempDir())
+	e.StartPairing()
+	buf.Reset()
+
+	e.SendMessage("15551234567@s.whatsapp.net", "hi")
+
+	out := buf.String()
+	if !strings.Contains(out, "SEND_REFUSED") || !strings.Contains(out, `"ok":false`) {
+		t.Fatalf("refuse_sends fixture must refuse; got: %s", out)
+	}
+	if strings.Contains(out, `"t":"event"`) {
+		t.Fatalf("refused send must emit no event; got: %s", out)
+	}
+}
+
+// TestMockFixtureMentionsPassThrough proves fixture mentioned_ext_ids reach the
+// emitted event verbatim (structural mentions for the v13 roles envelope).
+func TestMockFixtureMentionsPassThrough(t *testing.T) {
+	fixture := &Fixture{
+		Chats:  []FixtureChat{{JID: "g1@g.us", Name: "G", Kind: "group"}},
+		Actors: []FixtureActor{{JID: "1@s.whatsapp.net", DisplayName: "A"}, {JID: "self@s.whatsapp.net", DisplayName: "You", IsSelf: true}},
+		Messages: []FixtureMessage{{
+			ChatJID: "g1@g.us", SenderJID: "1@s.whatsapp.net", MessageID: "M1",
+			AgoSeconds: 60, Kind: "message", Text: "@self ping",
+			MentionedExtIDs: []string{"self@s.whatsapp.net"},
+		}},
+	}
+	var buf bytes.Buffer
+	w := protocol.NewWriter(&buf)
+	e := New(w, func(string, ...any) {}, fixture, t.TempDir())
+	e.StartPairing()
+	e.Import(protocol.RangeAll)
+
+	lines := decodeLines(t, &buf)
+	found := false
+	for _, l := range lines {
+		if l["t"] != "event" {
+			continue
+		}
+		ev := l["event"].(map[string]any)
+		if ev["external_id"] == "g1@g.us/M1" {
+			m, _ := ev["mentioned_ext_ids"].([]any)
+			if len(m) != 1 || m[0] != "self@s.whatsapp.net" {
+				t.Fatalf("mentioned_ext_ids = %v", ev["mentioned_ext_ids"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("fixture message with mentions was not emitted")
+	}
+}
+
 // TestMockFiltersNoiseChats proves the mock plan drops status@broadcast and
 // @newsletter chats and contentless system messages (contract §R4.3, bug 17),
 // while keeping the business chat's non-plain message.

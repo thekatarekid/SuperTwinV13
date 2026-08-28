@@ -1,4 +1,4 @@
-# SuperTwinV11
+# SuperTwinV13
 
 A local-first, private, proactive personal AI assistant — a Mac desktop app fed
 by your own data (WhatsApp is source #1). All data stays on your machine: the
@@ -31,7 +31,7 @@ Other useful scripts:
 npm run build                        # tsc + vite build → dist/
 npm run worker                       # run the worker directly (tsx)
 npm test                             # UI unit tests (vitest)
-npm run typecheck -w @supertwinv11/worker   # typecheck the worker
+npm run typecheck -w @supertwinv13/worker   # typecheck the worker
 ```
 
 ## Repo layout
@@ -42,15 +42,15 @@ npm run typecheck -w @supertwinv11/worker   # typecheck the worker
 /src                 React UI (Vite + React 18 + TS): 5-tab app shell
   /tabs              Inbox, Spaces, Agent, Chat, Settings
 /src-tauri           Tauri 2 Rust shell (single window; worker sidecar wiring)
-/worker              Node/TS worker workspace (@supertwinv11/worker)
+/worker              Node/TS worker workspace (@supertwinv13/worker)
   /src/db            SQLite schema, migrations, data-access
   /src/providers     provider interface + registry (Claude adapter under claude-local)
   /src/server        localhost HTTP + SSE server exposing the provider to the UI
   /src/index.ts      worker entrypoint (migrations → server → WORKER_READY)
-/brain-template      initial brain-wiki skeleton copied to ~/SuperTwinV11/brain
+/brain-template      initial brain-wiki skeleton copied to ~/SuperTwinV13/brain
 ```
 
 ## Ports
 
 - UI dev server (Vite): **1420**
-- Worker HTTP/SSE server: **8011** (override via `SUPERTWIN_WORKER_PORT`)
+- Worker HTTP/SSE server: **8013** (override via `SUPERTWIN_WORKER_PORT`)

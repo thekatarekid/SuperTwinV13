@@ -1,16 +1,16 @@
-# Building SuperTwinV11
+# Building SuperTwinV13
 
 ## One command
 
 ```bash
-cd ~/Documents/SuperTwinV11
+cd ~/Documents/SuperTwinV13
 npm ci
 npm run build:app        # .app + .dmg
 npm run build:appbundle  # .app only — skips the flaky bundle_dmg.sh step
 ```
 
-Output: `src-tauri/target/release/bundle/dmg/SuperTwinV11_<version>_aarch64.dmg`
-(and the raw `.app` under `bundle/macos/SuperTwinV11.app`).
+Output: `src-tauri/target/release/bundle/dmg/SuperTwinV13_<version>_aarch64.dmg`
+(and the raw `.app` under `bundle/macos/SuperTwinV13.app`).
 
 **The `.dmg` is ~765 MB, up from ~636 MB.** The difference is the retrieval
 encoder (129 MB), which v7 §7 bundles rather than downloading on first run; the
@@ -75,7 +75,7 @@ missing file. Runtime paths:
 | | the three binaries | models |
 |---|---|---|
 | dev (from source) | `src-tauri/resources/bin/…` | `src-tauri/resources/models/…` |
-| packaged `.app` | `SuperTwinV11.app/Contents/Resources/bin/…` | `…/Contents/Resources/models/…` |
+| packaged `.app` | `SuperTwinV13.app/Contents/Resources/bin/…` | `…/Contents/Resources/models/…` |
 
 The worker resolves all of them from the directory `worker.cjs` sits in, never
 from `process.cwd()` — esbuild rewrites `import.meta` to an empty object in the
@@ -124,12 +124,12 @@ because two sets of digests for one model is how a build ships weights that rank
 nothing like the ones Settings would have fetched.
 
 The Settings download button still works and is still the path for a build that
-was never staged. It writes to `~/SuperTwinV11/models/embeddings/`, and that
+was never staged. It writes to `~/SuperTwinV13/models/embeddings/`, and that
 directory stays the only one the app ever writes to or deletes from — removing a
 file from inside a signed `.app` breaks the app.
 
 Models the user downloads later from the model selector do **not** go here.
-They live in `~/SuperTwinV11/models/`, outside the app, so an app update never
+They live in `~/SuperTwinV13/models/`, outside the app, so an app update never
 re-downloads them.
 
 The bundled ffmpeg is a GPL build (`--enable-gpl`, no `--enable-nonfree`).
@@ -166,7 +166,7 @@ The bump moves `package.json`, `worker/package.json`, `src-tauri/tauri.conf.json
 `src-tauri/Cargo.toml` and `package-lock.json` together, and adds a `pending` row
 to `RELEASES.md`. Pushing the tag runs the workflow: it re-checks that all five
 files agree with the tag, runs the test suites, builds, and attaches
-`SuperTwinV11_<version>_aarch64.dmg` to Release `v<version>` — as a workflow
+`SuperTwinV13_<version>_aarch64.dmg` to Release `v<version>` — as a workflow
 artifact too, so a failed upload never loses the installer. Copy the manifest row
 the job summary prints over the `pending` one and commit it.
 
@@ -180,7 +180,7 @@ version whose `.dmg` is already in `releases/` or whose digest is already in
 
 ## First run
 
-The app defaults to `~/SuperTwinV11` and starts empty. **Nothing is migrated
+The app defaults to `~/SuperTwinV13` and starts empty. **Nothing is migrated
 from V8** — that is deliberate. Launch it, scan the QR, and let it build its own
 data from scratch. `~/SuperTwinV8` is never read, never written, never touched.
 
@@ -190,30 +190,30 @@ data from scratch. `~/SuperTwinV8` is never read, never written, never touched.
 
 Every identity surface moved, so a V11 install cannot fall back onto V8 state:
 
-| Surface | SuperTwinV8 | SuperTwinV11 |
+| Surface | SuperTwinV8 | SuperTwinV13 |
 |---|---|---|
-| macOS app name | SuperTwinV8 | **SuperTwinV11** |
-| Bundle identifier | `com.supertwin.v8` | **`com.supertwin.v11`** |
-| Window title | SuperTwinV8 | **SuperTwinV11** |
-| Data folder | `~/SuperTwinV8` | **`~/SuperTwinV11`** |
-| Database | `~/SuperTwinV8/supertwin.db` | **`~/SuperTwinV11/supertwinv11.db`** |
-| Brain / media / models | `~/SuperTwinV8/…` | **`~/SuperTwinV11/…`** |
-| Logs folder | `~/SuperTwinV8/logs/` | **`~/SuperTwinV11/logs/`** |
-| `worker.log` (Rust) | `~/SuperTwinV8/worker.log` | **`~/SuperTwinV11/worker.log`** |
-| WhatsApp session store | `~/SuperTwinV8/whatsapp/whatsmeow.db` | **`~/SuperTwinV11/whatsapp/whatsmeow.db`** |
-| Worker HTTP port | 8787 | **8011** |
-| npm package | `supertwinv8`, `@supertwinv8/worker` | **`supertwinv11`, `@supertwinv11/worker`** |
-| Rust crate | `supertwinv8`, `supertwinv8_lib` | **`supertwinv11`, `supertwinv11_lib`** |
-| WhatsApp Linked Devices | SuperTwinV8 | **SuperTwinV11** |
-| Chat identity (system prompt) | "You are SuperTwinV8" | **"You are SuperTwinV11"** |
-| Link-preview user agent | `SuperTwin/1.0` | **`SuperTwinV11/1.0`** |
-| Sidebar / chat / settings copy | SuperTwinV8 | **SuperTwinV11** |
-| Brain git commit author | SuperTwinV8 | **SuperTwinV11** |
+| macOS app name | SuperTwinV8 | **SuperTwinV13** |
+| Bundle identifier | `com.supertwin.v8` | **`com.supertwin.v13`** |
+| Window title | SuperTwinV8 | **SuperTwinV13** |
+| Data folder | `~/SuperTwinV8` | **`~/SuperTwinV13`** |
+| Database | `~/SuperTwinV8/supertwin.db` | **`~/SuperTwinV13/supertwinv13.db`** |
+| Brain / media / models | `~/SuperTwinV8/…` | **`~/SuperTwinV13/…`** |
+| Logs folder | `~/SuperTwinV8/logs/` | **`~/SuperTwinV13/logs/`** |
+| `worker.log` (Rust) | `~/SuperTwinV8/worker.log` | **`~/SuperTwinV13/worker.log`** |
+| WhatsApp session store | `~/SuperTwinV8/whatsapp/whatsmeow.db` | **`~/SuperTwinV13/whatsapp/whatsmeow.db`** |
+| Worker HTTP port | 8787 | **8013** |
+| npm package | `supertwinv8`, `@supertwinv8/worker` | **`supertwinv13`, `@supertwinv13/worker`** |
+| Rust crate | `supertwinv8`, `supertwinv8_lib` | **`supertwinv13`, `supertwinv13_lib`** |
+| WhatsApp Linked Devices | SuperTwinV8 | **SuperTwinV13** |
+| Chat identity (system prompt) | "You are SuperTwinV8" | **"You are SuperTwinV13"** |
+| Link-preview user agent | `SuperTwin/1.0` | **`SuperTwinV13/1.0`** |
+| Sidebar / chat / settings copy | SuperTwinV8 | **SuperTwinV13** |
+| Brain git commit author | SuperTwinV8 | **SuperTwinV13** |
 
-The DB **filename** changed too (`supertwin.db` → `supertwinv11.db`), so even
+The DB **filename** changed too (`supertwin.db` → `supertwinv13.db`), so even
 pointing `SUPERTWIN_HOME` at an old folder cannot open the V8 database.
 
-The **worker port** moved to 8011 for the same reason: on 8787 a V11 window
+The **worker port** moved to 8013 for the same reason: on 8787 a V11 window
 would happily talk to a V8 worker that happened to already be running, and the
 UI would look correct while reading the wrong data.
 
@@ -267,11 +267,11 @@ string, and its own Go unit test was updated to match.
 - **Codesign errors** — `tauri.conf.json` uses `"signingIdentity": "-"`
   (ad-hoc). That's fine locally; Gatekeeper will warn on another machine.
 - **`failed to bundle project: error running bundle_dmg.sh`** — the `.app` is
-  already built and signed at `bundle/macos/SuperTwinV11.app`; only the disk-image
+  already built and signed at `bundle/macos/SuperTwinV13.app`; only the disk-image
   wrapper failed. Use `npm run build:appbundle` to skip it, or clear a stale
-  mount with `hdiutil detach /Volumes/SuperTwinV11` and retry.
+  mount with `hdiutil detach /Volumes/SuperTwinV13` and retry.
 - **Stale Rust artifacts after the crate rename** — `rm -rf src-tauri/target`
-  and rebuild. The crate went `supertwin` → `supertwinv11`, so a cached target
+  and rebuild. The crate went `supertwin` → `supertwinv13`, so a cached target
   dir can confuse the linker.
 
 ## When a download fails

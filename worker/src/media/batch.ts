@@ -27,8 +27,8 @@
 //      highest rowids and the oldest timestamps.
 //
 // Nothing here blocks the text path: pass 1 has already run on text by the time
-// any of this executes (§8.4). The hand-off back to it — the pending countdown
-// and the completion pass — is ./enrich-pass.ts.
+// any of this executes (§8.4). The hand-off back to it — the per-bundle
+// pending countdown and the scoped re-understand — is ./bundle-pass.ts.
 // ===========================================================================
 
 import { existsSync } from "node:fs";
@@ -369,6 +369,15 @@ export interface EnrichmentUnit {
   ts?: string | null;
   /** The stream's tier. Null before the boot backfill has run. */
   tier?: string | null;
+  /**
+   * The row came from history sync — backfill, in §5.2's words. Absent reads
+   * as live, the same way the insert path treats a missing flag.
+   */
+  isHistorical?: boolean;
+  /** The stream's §5.1 category ('cat1' | 'cat2'). Null before classification. */
+  category?: string | null;
+  /** The stream's engagement score — an ORDERING signal only (§5.2). */
+  engagementScore?: number | null;
 }
 
 /** An untiered stream sorts as T3: present, but behind anything classified. */
@@ -393,7 +402,34 @@ export function enrichmentPriority(unit: EnrichmentUnit, now: number = Date.now(
 }
 
 /**
- * Priority order, highest first.
+ * The stream's §5.1 category for ordering. An explicit 'cat1'/'cat2' wins;
+ * with none recorded yet, an EXPLICIT tier stands in (T1/T2 are the engaged
+ * streams, T3/T4 the never-replied and promotional — the same split by other
+ * means). A stream with neither sorts as Cat 1: misclassification costs
+ * latency, never data (§5.1), and "not classified yet" is not "promotional".
+ */
+export function categoryRank(unit: EnrichmentUnit): number {
+  if (unit.category === "cat1") return 0;
+  if (unit.category === "cat2") return 1;
+  return unit.tier === "T3" || unit.tier === "T4" ? 1 : 0;
+}
+
+/** The UTC day of the unit's instant — §5.2's "day-major" grain. */
+function dayOf(unit: EnrichmentUnit): string {
+  return typeof unit.ts === "string" ? unit.ts.slice(0, 10) : "";
+}
+
+/**
+ * Priority order, highest first — §5.2's processing order applied to the
+ * enrichment claim:
+ *
+ *   1. Live before backfill (live preempts everything, always — the reader's
+ *      live set enforces the hard version; this keeps the pool consistent).
+ *   2. Within backfill: Cat 1 before Cat 2 (§5.2 rule 3 — Cat 2 media
+ *      enrichment runs last), then day-major with the newest day first
+ *      (§5.2 rule 2), then engagement score descending (an ordering signal
+ *      only, never relationship value).
+ *   3. Then the cohort key — tier, horizon, recency (§9.2/§9.3).
  *
  * The key's recency term is quantised to ten minutes (§9.3), which is the right
  * grain for scheduling cohorts and far too coarse for a burst of photos sent one
@@ -410,10 +446,22 @@ export function orderByEnrichmentPriority<T extends EnrichmentUnit>(
     const ms = u.ts ? Date.parse(u.ts) : NaN;
     return Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
   };
+  const backfillOrder = (a: EnrichmentUnit, b: EnrichmentUnit): number => {
+    const liveA = a.isHistorical !== true;
+    const liveB = b.isHistorical !== true;
+    if (liveA !== liveB) return liveA ? -1 : 1;
+    if (liveA) return 0; // both live: §5.2's backfill terms do not apply
+    return (
+      categoryRank(a) - categoryRank(b) ||
+      (dayOf(a) < dayOf(b) ? 1 : dayOf(a) > dayOf(b) ? -1 : 0) ||
+      (b.engagementScore ?? 0) - (a.engagementScore ?? 0)
+    );
+  };
   return [...units]
     .map((unit) => ({ unit, key: enrichmentPriority(unit, now) }))
     .sort(
       (a, b) =>
+        backfillOrder(a.unit, b.unit) ||
         b.key - a.key ||
         at(b.unit) - at(a.unit) ||
         (a.unit.id < b.unit.id ? -1 : a.unit.id > b.unit.id ? 1 : 0),

@@ -43,12 +43,15 @@ export const STAGES = [
   "extract",
   "triage",
   "derive",
+  // P1.8: the scoped re-understand pass (spec §4.4 rule 2) — a bundle whose
+  // enrichment countdown hit zero is re-read, scoped to its affected episodes.
+  "understand",
   "done",
 ] as const;
 export type Stage = (typeof STAGES)[number];
 
-/** `work_queue.unit_kind`. */
-export const UNIT_KINDS = ["event", "session", "episode", "arc", "claim_pair", "loop_batch"] as const;
+/** `work_queue.unit_kind`. `bundle` = enrichment_bundles.id (P1.8). */
+export const UNIT_KINDS = ["event", "session", "episode", "arc", "claim_pair", "loop_batch", "bundle"] as const;
 export type UnitKind = (typeof UNIT_KINDS)[number];
 
 export type WorkState = "ready" | "running" | "done" | "paused" | "quarantined";

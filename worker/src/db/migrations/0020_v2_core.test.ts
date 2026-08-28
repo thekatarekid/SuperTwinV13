@@ -119,6 +119,13 @@ describe("0020_v2_core applies", () => {
       // stream-scoped V13 shape, and adds spaces/chapters/tasks/claims-header/
       // tone_profiles/unsorted/second_look/space_index.
       "0101_world_model",
+      // P1.2: the packer's content economy — digest cache, escalation log,
+      // T2 review queue; new tables only.
+      "0102_content_economy",
+      // P1.8: enrichment bundle countdowns — one new table, reshapes nothing.
+      "0103_enrichment_bundles",
+      // P1.4: the Decide pass's per-space merge-in queue — new tables only.
+      "0104_decide_consolidation",
     ]);
 
     expect(

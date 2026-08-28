@@ -315,6 +315,13 @@ export interface PendingMediaRow {
   ts?: string | null;
   streamId?: string | null;
   tier?: string | null;
+  /**
+   * The stream's §5.1 category and engagement score — two more terms of the
+   * §5.2 processing order (P1.8): Cat 2 media enrichment runs last, and within
+   * a day Cat 1 streams order by engagement (an ordering signal only).
+   */
+  category?: string | null;
+  engagementScore?: number | null;
 }
 
 /**
@@ -555,6 +562,8 @@ interface RawPendingMediaRow {
   ts: string | null;
   stream_id: string | null;
   tier: string | null;
+  category: string | null;
+  engagement_score: number | null;
 }
 
 interface RawPendingTranscriptRow {
@@ -1032,6 +1041,8 @@ function statements(): IngestStatements {
         e.ts                AS ts,
         e.stream_id         AS stream_id,
         s.tier              AS tier,
+        s.category          AS category,
+        s.engagement_score  AS engagement_score,
         CASE WHEN json_valid(e.media_meta_json)
           THEN json_extract(e.media_meta_json, '$.caption')
         END                 AS caption
@@ -1061,11 +1072,19 @@ function statements(): IngestStatements {
         AND (e.kind IS NOT 'video'
           OR e.media_thumb_path IS NOT NULL
           OR e.media_frames_json IS NOT NULL)
-      -- The queue key, never FIFO (arch §9.2 rule 5): tier first, then the
-      -- kinds that can share a call, then recency. is_historical is NOT a sort
-      -- term — a live arrival pre-empts through the reader's live set, and
-      -- ordering by it here would let a live 2023 photo outrank an hour-old one.
-      ORDER BY CASE s.tier
+      -- The queue key, never FIFO (arch §9.2 rule 5): Cat 2 last (spec §5.2
+      -- rule 3 — P1.8; tier stands in while the stream is unclassified), then
+      -- tier, then the kinds that can share a call, then recency.
+      -- is_historical is NOT a sort term — a live arrival pre-empts through
+      -- the reader's live set, and ordering by it here would let a live 2023
+      -- photo outrank an hour-old one.
+      ORDER BY CASE
+                 WHEN s.category = 'cat2' THEN 1
+                 WHEN s.category = 'cat1' THEN 0
+                 WHEN s.tier IN ('T3', 'T4') THEN 1
+                 ELSE 0
+               END ASC,
+               CASE s.tier
                  WHEN 'T1' THEN 4 WHEN 'T2' THEN 3
                  WHEN 'T3' THEN 2 WHEN 'T4' THEN 1
                  ELSE 2
@@ -1554,6 +1573,8 @@ export function claimPendingMedia(
     ts: r.ts,
     streamId: r.stream_id,
     tier: r.tier,
+    category: r.category,
+    engagementScore: r.engagement_score,
   }));
 }
 

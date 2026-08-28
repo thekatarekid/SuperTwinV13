@@ -105,7 +105,7 @@ import {
   type DescribeOptions,
   type DescribeResult,
 } from "./describe.js";
-import { resolveEnrichment } from "./enrich-pass.js";
+import { resolveEnrichment } from "./bundle-pass.js";
 import {
   sampleVideoFrames,
   sweepOrphanFrames,
@@ -845,19 +845,26 @@ export class MediaQueue {
 
   /**
    * The verdict is on the row, whatever it says — so this attachment is no
-   * longer pending as far as §8.4 is concerned. Ready, failed and skipped all
-   * count as resolved (§8.4 rule 3); the session's countdown drops by one and,
-   * at zero, pass 2 is enqueued exactly once.
+   * longer pending as far as spec §4.4 is concerned. Ready, failed and skipped
+   * all count as resolved; every dispatched bundle waiting on this event
+   * counts down by one and, at zero, acts exactly once — one scoped
+   * re-understand job, or a full re-dispatch when a placeholder forced an
+   * episode into `unsorted`.
    *
-   * Never fatal. Enrichment must not be able to break the text path, and a
-   * session table that segmentation has not written yet simply has nothing to
-   * count down.
+   * Never fatal. Enrichment must not be able to break the text path, and an
+   * event no bundle is waiting on simply has nothing to count down.
    */
   private resolvePass(id: string, text: string | null): void {
     try {
-      const resolution = resolveEnrichment(id, { text });
-      if (resolution.completionEnqueued) {
-        this.log(`[media] session ${resolution.sessionId} fully read — completion pass queued`);
+      for (const r of resolveEnrichment(id, { text })) {
+        if (r.action === "understand_enqueued") {
+          this.log(
+            `[media] bundle ${r.bundleId} fully read — re-understand queued` +
+              (r.episodeIds.length > 0 ? ` (episodes ${r.episodeIds.join(", ")})` : ""),
+          );
+        } else if (r.action === "redispatched") {
+          this.log(`[media] bundle ${r.bundleId} fully read — placeholder forced unsorted, re-dispatching`);
+        }
       }
     } catch (err) {
       this.log(`[media] completion pass check failed for ${id}: ${(err as Error).message}`);

@@ -51,6 +51,7 @@ import {
   type MediaQueueOptions,
 } from "./queue.js";
 import { setEnrichmentReadAllMedia } from "./batch.js";
+import { registerBundleForEnrichment } from "./bundle-pass.js";
 import {
   setMediaBusinessEnabled,
   setMediaImageBatch,
@@ -586,32 +587,29 @@ describe("priority, never FIFO (arch §9.2/§9.3)", () => {
   });
 });
 
-describe("the completion pass (arch §8.4)", () => {
-  function seedSession(id: string, eventIds: string[]): void {
-    getDb()
-      .prepare(
-        `INSERT INTO sessions (id, source_id, started_at, ended_at, event_ids,
-                               status, pending_enrichment_count)
-         VALUES (?, 'whatsapp', '2026-07-02T09:00:00.000Z', '2026-07-02T10:00:00.000Z',
-                 ?, 'sealed', ?)`,
-      )
-      .run(id, JSON.stringify(eventIds), eventIds.length);
+describe("the completion pass (spec §4.4 rule 2 — P1.8 bundle countdown)", () => {
+  /** A dispatched bundle waiting on the given events (spec §4.4 rule 2). */
+  function seedBundle(eventIds: string[]): string | null {
+    return registerBundleForEnrichment({
+      streamId: "whatsapp:st:test",
+      events: eventIds.map((id) => ({ id })),
+    }).bundleId;
   }
 
   function completionRows(): number {
     return (
       getDb()
         .prepare(
-          `SELECT COUNT(*) AS n FROM work_queue WHERE unit_kind = 'session' AND stage = 'extract'`,
+          `SELECT COUNT(*) AS n FROM work_queue WHERE unit_kind = 'bundle' AND stage = 'understand'`,
         )
         .get() as { n: number }
     ).n;
   }
 
-  it("fires once, when the session's last attachment has a verdict", async () => {
+  it("fires once, when the bundle's last attachment has a verdict", async () => {
     const a = seed("a", "2026-07-02T09:30:02.000Z");
     const b = seed("b", "2026-07-02T09:30:01.000Z");
-    seedSession("s1", [a, b]);
+    seedBundle([a, b]);
     const r = reader();
     queue = new MediaQueue(r.opts);
     queue.start();
@@ -625,9 +623,9 @@ describe("the completion pass (arch §8.4)", () => {
     expect(completionRows()).toBe(1);
   });
 
-  it("an unreadable attachment resolves the session rather than stranding it", async () => {
+  it("an unreadable attachment resolves the bundle rather than stranding it", async () => {
     const a = seed("a", "2026-07-02T09:30:00.000Z");
-    seedSession("s1", [a]);
+    seedBundle([a]);
     const r = reader(() => ({
       description: null,
       status: "unsupported",
@@ -645,7 +643,19 @@ describe("the completion pass (arch §8.4)", () => {
   it("a sticker skipped by read_all_media = off still moves the countdown", async () => {
     setEnrichmentReadAllMedia(false);
     const s = seed("sticker", "2026-07-02T09:30:00.000Z", { kind: "sticker" });
-    seedSession("s1", [s]);
+    // The countdown is registered BEFORE the skip verdict exists — with the
+    // switch off, registration itself already resolves the sticker (§10.1's
+    // routing says skip), so nothing waits and no job is owed.
+    expect(seedBundle([s])).toBeNull();
+
+    // A bundle registered while the sticker still looked pending (switch on at
+    // dispatch time) is not stranded either: the queue's skip verdict counts it
+    // down like ready and failed do.
+    setEnrichmentReadAllMedia(true);
+    const bundleId = seedBundle([s]);
+    expect(bundleId).not.toBeNull();
+    setEnrichmentReadAllMedia(false);
+
     const r = reader();
     queue = new MediaQueue(r.opts);
     queue.start();

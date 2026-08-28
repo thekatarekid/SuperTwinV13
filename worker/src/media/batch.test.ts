@@ -23,6 +23,7 @@ import {
   DEFAULT_IMAGE_BATCH_SIZE,
   MAX_IMAGE_BATCH_SIZE,
   batchable,
+  categoryRank,
   clampImageBatchSize,
   enrichmentPriority,
   enrichmentRoute,
@@ -303,5 +304,69 @@ describe("the queue key (§9.2, §9.3)", () => {
   it("an untiered stream still sorts — it never falls out of the queue", () => {
     const untiered = { id: "u", ts: ago(1_000), tier: null };
     expect(enrichmentPriority(untiered, NOW)).toBeGreaterThan(0);
+  });
+});
+
+describe("the §5.2 processing order (P1.8)", () => {
+  const NOW = Date.parse("2026-08-15T12:00:00.000Z");
+  const ago = (ms: number): string => new Date(NOW - ms).toISOString();
+  const DAY = 86_400_000;
+
+  it("live preempts backfill, whatever the backfill's tier or day", () => {
+    const live = { id: "live", ts: ago(2 * DAY), tier: "T3", isHistorical: false };
+    const backfill = { id: "bf", ts: ago(3_600_000), tier: "T1", isHistorical: true };
+    expect(orderByEnrichmentPriority([backfill, live], NOW).map((u) => u.id)).toEqual([
+      "live",
+      "bf",
+    ]);
+  });
+
+  it("within backfill, Cat 1 media enrichment runs before Cat 2 (§5.2 rule 3)", () => {
+    const promo = { id: "promo", ts: ago(3_600_000), tier: "T1", isHistorical: true, category: "cat2" };
+    const dm = { id: "dm", ts: ago(10 * DAY), tier: "T2", isHistorical: true, category: "cat1" };
+    expect(orderByEnrichmentPriority([promo, dm], NOW).map((u) => u.id)).toEqual([
+      "dm",
+      "promo",
+    ]);
+  });
+
+  it("an explicit T3/T4 tier stands in for Cat 2 when no category is recorded", () => {
+    const blast = { id: "blast", ts: ago(3_600_000), tier: "T4", isHistorical: true };
+    const friend = { id: "friend", ts: ago(10 * DAY), tier: "T1", isHistorical: true };
+    const unclassified = { id: "unknown", ts: ago(20 * DAY), tier: null, isHistorical: true };
+    expect(categoryRank(blast)).toBe(1);
+    expect(categoryRank(friend)).toBe(0);
+    // Not classified yet is NOT promotional: misclassification costs latency,
+    // never data (§5.1) — the unknown stream sorts with Cat 1.
+    expect(categoryRank(unclassified)).toBe(0);
+  });
+
+  it("backfill is day-major, newest day first (§5.2 rule 2)", () => {
+    const yesterday = { id: "y", ts: ago(1 * DAY), tier: "T2", isHistorical: true, category: "cat1" };
+    const lastWeek = { id: "w", ts: ago(7 * DAY), tier: "T1", isHistorical: true, category: "cat1" };
+    // Day outranks tier within a category — the day is the major key.
+    expect(orderByEnrichmentPriority([lastWeek, yesterday], NOW).map((u) => u.id)).toEqual([
+      "y",
+      "w",
+    ]);
+  });
+
+  it("within a day, engagement score orders Cat 1 streams (an ordering signal only)", () => {
+    const ts = ago(2 * DAY);
+    const quiet = { id: "quiet", ts, tier: "T1", isHistorical: true, category: "cat1", engagementScore: 0.1 };
+    const busy = { id: "busy", ts, tier: "T1", isHistorical: true, category: "cat1", engagementScore: 0.9 };
+    expect(orderByEnrichmentPriority([quiet, busy], NOW).map((u) => u.id)).toEqual([
+      "busy",
+      "quiet",
+    ]);
+  });
+
+  it("two live rows keep the cohort key: tier first, then recency — §5.2's backfill terms do not apply", () => {
+    const blast = { id: "blast", ts: ago(3_600_000), tier: "T4" };
+    const friend = { id: "friend", ts: ago(6 * DAY), tier: "T1" };
+    expect(orderByEnrichmentPriority([blast, friend], NOW).map((u) => u.id)).toEqual([
+      "friend",
+      "blast",
+    ]);
   });
 });

@@ -1812,11 +1812,13 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
       seconds: 42,
       caption: "the dog again",
       isHistorical: false,
-      // The two terms of the enrichment queue key travel with the row (§9.3):
-      // ordering it without them is the FIFO defect.
+      // The terms of the enrichment queue key travel with the row (§9.3 +
+      // §5.2, P1.8): ordering it without them is the FIFO defect.
       ts: "2026-07-02T11:00:00.000Z",
       streamId,
       tier: null,
+      category: null,
+      engagementScore: 0,
     });
     expect(pending[0].caption).toBe("the whiteboard");
   });
@@ -1840,6 +1842,8 @@ describe("claimPendingMedia / recordMediaDescription (media spec §8)", () => {
         ts: "2026-07-02T12:00:00.000Z",
         streamId,
         tier: null,
+        category: null,
+        engagementScore: 0,
       },
     ]);
   });

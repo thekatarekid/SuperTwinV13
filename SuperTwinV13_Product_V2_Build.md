@@ -31,6 +31,8 @@ Execution plan for Claude Code (`/goal`, opus). Builds SuperTwinV13 on top of a 
 
 * * *
 ## 2. Phase 0 — Rebrand, prune, substrate
+> **STATUS: ✅ COMPLETE (2026-08-28).** All tasks P0.1–P0.9 done + verified (worker 1762 tests green, `go test ./...` green, BND deterministic suite green, rebrand grep clean). Release 13.0.1 → `releases/SuperTwinV13_Phase0_13.0.1.dmg`. Commits `48f9e65..c739875`.
+
 Goal: a clean V13 skeleton that captures WhatsApp + browser into the new event log with traces. Exit: fresh install runs; ≥95% backfill containment on mock; replayable log.
 ### SERIAL (do first, in order)
 **P0.1 — Rebrand everything to SuperTwinV13**

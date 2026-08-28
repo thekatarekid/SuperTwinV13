@@ -1,15 +1,15 @@
 # SuperTwinV13 — Build Progress
 
 ## Phase 0 — Rebrand, prune, substrate
-- [ ] P0.1 Rebrand to SuperTwinV13 (port 8013, ~/SuperTwinV13, com.supertwin.v13)
-- [ ] P0.2 Logo + icons
-- [ ] P0.3 Prune V11 dead middle
-- [ ] P0.4 Event log v13 + roles envelope
-- [ ] P0.5 Cursors, dispatch windows, priority lanes (BND green)
-- [ ] P0.6 WhatsApp adapter rewire + ranges + send gate
-- [ ] P0.7 Trace store
-- [ ] P0.8 Browser watcher
-- [ ] P0.9 Golden eval harness (live-call)
+- [x] P0.1 Rebrand to SuperTwinV13 (port 8013, ~/SuperTwinV13, com.supertwin.v13)
+- [x] P0.2 Logo + icons
+- [x] P0.3 Prune V11 dead middle
+- [x] P0.4 Event log v13 + roles envelope
+- [x] P0.5 Cursors, dispatch windows, priority lanes (BND green)
+- [x] P0.6 WhatsApp adapter rewire + ranges + send gate
+- [x] P0.7 Trace store
+- [x] P0.8 Browser watcher
+- [x] P0.9 Golden eval harness (live-call)
 - [x] Phase 0 DMG: releases/SuperTwinV13_Phase0_13.0.1.dmg (724 MB, built 2026-08-28)
 
 ## Phase 1 — Understanding lane (propose-only)
@@ -26,3 +26,5 @@
 
 ## Log
 - 2026-08-28: Kickoff. Phase 0 orchestration started.
+- 2026-08-28: Phase 0 complete (10 agents, all green). Worker 1762 tests pass, go tests pass, BND deterministic suite green, rebrand grep clean. DMG 13.0.1 (724MB) in releases/. Commits 48f9e65..c739875.
+- 2026-08-28: Phase 1 workflow launched (P1.1 serial → lanes A–E parallel).

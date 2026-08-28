@@ -27,7 +27,7 @@ import {
   validateConsolidateOutput,
   type ConsolidateVerdict,
 } from "../prompts/consolidate.v1.js";
-import { CONSOLIDATE_V2_SYSTEM } from "../prompts/consolidate.v2.js";
+import { CONSOLIDATE_V3_SYSTEM } from "../prompts/consolidate.v3.js";
 import {
   SWEEP_REVIEW_V1_SYSTEM,
   validateSweepReviewOutput,
@@ -107,7 +107,7 @@ async function judgePair(
   const result = await runJsonPass<ConsolidateVerdict>(
     {
       pass: "consolidate",
-      system: CONSOLIDATE_V2_SYSTEM,
+      system: CONSOLIDATE_V3_SYSTEM,
       user,
       role: "consolidate",
       cohortId: null,

@@ -18,6 +18,7 @@ import { withTraceContext } from "../traces/context.js";
 import type { Provider } from "../providers/types.js";
 import type { Fixture } from "./fixtures.js";
 import type { ExecutorResult } from "./runner.js";
+import { calendarBlock } from "./executors/seeds.js";
 
 export type JudgeExpected = "satisfied" | "partial" | "missed";
 
@@ -37,6 +38,7 @@ export function buildJudgePrompt(fixture: Fixture, produced: ExecutorResult): st
   const wrongList = fixture.wrong
     .map((w) => `- "${w.label}": must be ABSENT — ${w.assert_absent}`)
     .join("\n");
+  const seeded = produced.seededContext?.trim();
   return [
     "You are a strict eval judge for a personal-memory system. Grade the SYSTEM OUTPUT",
     "against the EXPECTED rubric. Behavior matters, not exact strings.",
@@ -44,14 +46,27 @@ export function buildJudgePrompt(fixture: Fixture, produced: ExecutorResult): st
     `## Case ${fixture.id} · ${fixture.title}`,
     "## Setup (world state before)",
     JSON.stringify(fixture.setup, null, 2),
+    ...(seeded
+      ? [
+          "## Seeded world state (deterministic, code-rendered concretion of the Setup — the pass saw exactly this)",
+          seeded,
+        ]
+      : []),
     "## Input events",
     JSON.stringify(fixture.input_events, null, 2),
     "## Expected (rubric)",
     JSON.stringify(fixture.expected, null, 2),
     "## Wrong modes (each is a named failure — report the label if you see it)",
     wrongList || "(none)",
+    "## Calendar reference (ground truth — use THIS for any weekday/date arithmetic, never your own)",
+    calendarBlock(),
     "## System output (what the pass under test produced)",
     JSON.stringify(produced.output, null, 2),
+    "",
+    "Fields named applied_by_commit_layer / resulting_history / applied_view inside the",
+    "system output are CODE-COMPUTED annotations of what the production applier does with",
+    "the pass output (demotions, review-queue entries, preserved history). Treat them as",
+    "part of the system's behavior — they are enforced by code, not claimed by the model.",
     "",
     "Answer with ONLY a JSON object, no fences, no prose around it:",
     '{"expected": "satisfied" | "partial" | "missed",',

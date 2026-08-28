@@ -14,12 +14,14 @@
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
-import { validateExtractOutput } from "../../prompts/extract.v1.js";
-import { EXTRACT_V3_SYSTEM } from "../../prompts/extract.v3.js";
-import { validateDecideOutput } from "../../prompts/decide.v1.js";
-import { DECIDE_V3_SYSTEM } from "../../prompts/decide.v3.js";
-import { validateConsolidateOutput } from "../../prompts/consolidate.v1.js";
-import { CONSOLIDATE_V2_SYSTEM } from "../../prompts/consolidate.v2.js";
+import { validateExtractOutput, type ExtractOutput } from "../../prompts/extract.v1.js";
+import { EXTRACT_V4_SYSTEM } from "../../prompts/extract.v4.js";
+import { validateDecideOutput, type DecideOutput } from "../../prompts/decide.v1.js";
+import { DECIDE_V4_SYSTEM } from "../../prompts/decide.v4.js";
+import { CLOSE_CONFIDENCE_FLOOR } from "../../brain/decide-pass.js";
+import { validateConsolidateOutput, type ConsolidateVerdict } from "../../prompts/consolidate.v1.js";
+import { CONSOLIDATE_V3_SYSTEM } from "../../prompts/consolidate.v3.js";
+import { calendarBlock, fixtureSeed } from "./seeds.js";
 import { DIGEST_V1_SYSTEM, parseDigestV1, type DigestParse } from "../../prompts/digest.v1.js";
 import { bandPolicyLine } from "../../packer/index.js";
 import { fixtureUser } from "./orient.js";
@@ -47,77 +49,159 @@ export function fixtureBand(fixture: Fixture): { letter: string; lane: string; p
 
 // ---- The live prompt executors ---------------------------------------------
 
+/**
+ * What claims/store.writeClaimVersion does with a contradicts claim — the old
+ * claim is ENDED (valid_until set), never deleted. Computed from the output.
+ */
+export function extractAppliedView(out: ExtractOutput): Record<string, unknown> | undefined {
+  const superseded = out.claims.filter((c) => c.relation === "contradicts" && c.related_claim);
+  if (superseded.length === 0) return undefined;
+  return {
+    resulting_history: superseded.map((c) => ({
+      old_claim: c.related_claim,
+      status: "PRESERVED in history with its termination date",
+      valid_until: c.old_valid_until ?? c.valid_from ?? null,
+      new_claim: c.text,
+    })),
+    note: "contradictions never overwrite — the claim store versions both (code path)",
+  };
+}
+
 export const extractExecutor: Executor = async ({ fixture }) => {
   const band = fixtureBand(fixture);
+  const seed = fixtureSeed(fixture.id);
   const user = [
-    fixtureUser(fixture.setup, fixture.input_events, band),
+    fixtureUser(fixture.setup, fixture.input_events, band, seed?.state),
+    calendarBlock(),
     "",
     "COMMITTED EPISODES (time-ordered, evidence layer): the NEW BUNDLE events above.",
   ].join("\n");
   const result = await runJsonPass({
     pass: "extract",
-    system: EXTRACT_V3_SYSTEM,
+    system: EXTRACT_V4_SYSTEM,
     user,
     role: "extract",
     unit: { kind: "eval", id: fixture.id },
     validate: validateExtractOutput,
   });
+  const out = result.output;
+  const applied = out ? extractAppliedView(out) : undefined;
   return {
     ok: result.status === "ok" || result.status === "repaired",
-    output: result.output ?? { error: result.error, responses: result.responses },
+    output: out
+      ? applied
+        ? { ...out, applied_by_claim_store: applied }
+        : out
+      : { error: result.error, responses: result.responses },
+    seededContext: seed?.state,
     metrics: { rounds: result.runIds.length },
   };
 };
 
+/**
+ * What brain/decide-pass.ts applyClosure does with the closures — a "close"
+ * below CLOSE_CONFIDENCE_FLOOR is DEMOTED to a suggest_close proposal, and a
+ * suggest_close never mutates. Computed from the output, mirroring the code.
+ */
+export function decideAppliedView(out: DecideOutput): Record<string, unknown> | undefined {
+  if (out.closures.length === 0) return undefined;
+  return {
+    closures: out.closures.map((c) => {
+      const autoClose = c.verdict === "close" && c.confidence >= CLOSE_CONFIDENCE_FLOOR;
+      return {
+        task: c.task,
+        applied_as: autoClose ? "close" : "suggest_close",
+        ...(autoClose
+          ? {}
+          : {
+              note:
+                c.verdict === "close"
+                  ? `demoted: close below the ${CLOSE_CONFIDENCE_FLOOR} confidence floor is a proposal — task stays open pending user confirmation`
+                  : "a proposal, never a mutation — task stays open pending user confirmation",
+            }),
+      };
+    }),
+  };
+}
+
 export const decideExecutor: Executor = async ({ fixture }) => {
   const band = fixtureBand(fixture);
+  const seed = fixtureSeed(fixture.id);
   const user = [
-    fixtureUser(fixture.setup, fixture.input_events, band),
+    fixtureUser(fixture.setup, fixture.input_events, band, seed?.state),
+    calendarBlock(),
     "",
     "NEW COMMITTED EPISODES (all sources, time-ordered): the NEW BUNDLE events above.",
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V3_SYSTEM,
+    system: DECIDE_V4_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },
     validate: validateDecideOutput,
   });
+  const out = result.output;
+  const applied = out ? decideAppliedView(out) : undefined;
   return {
     ok: result.status === "ok" || result.status === "repaired",
-    output: result.output ?? { error: result.error, responses: result.responses },
+    output: out
+      ? applied
+        ? { ...out, applied_by_task_writer: applied }
+        : out
+      : { error: result.error, responses: result.responses },
+    seededContext: seed?.state,
     metrics: { rounds: result.runIds.length },
   };
 };
 
+/** What consolidation/t2.ts's applier does with a verdict — computed. */
+export function consolidateAppliedView(v: ConsolidateVerdict): Record<string, unknown> {
+  const mutates =
+    (v.verdict === "merge" && v.confidence >= 0.9) || v.stateChanges.length > 0;
+  return {
+    recorded: "verdict recorded as a reversible decisions row (scoped to the cards above; no other space was loaded)",
+    ...(v.verdict === "merge" && v.confidence < 0.9
+      ? { merge_held: "merge below the 0.9 auto-apply floor is a PROPOSAL — nothing mutated (false_auto_merge = 0 gate)" }
+      : {}),
+    ...(mutates ? {} : { mutations: "none — world model unchanged by this run" }),
+  };
+}
+
 export const consolidateExecutor: Executor = async ({ fixture }) => {
-  // The T2 pair judge expects two space cards. The prose fixture describes
-  // the pair (and the review signal) — render it as the cards block so the
-  // model judges what is written instead of asking for input.
+  // The consolidation judge expects concrete cards. The prose fixture
+  // describes them (and the review signal) — render the fixture's SEED (the
+  // deterministic concretion of the setup) as the cards block so the model
+  // judges what is written instead of asking for input.
+  const seed = fixtureSeed(fixture.id);
   const parts: string[] = [
-    "[SPACE CARDS — prose rendering of the pair under review]",
-    typeof fixture.setup === "string" && fixture.setup.trim() !== ""
-      ? fixture.setup
-      : JSON.stringify(fixture.setup ?? {}),
+    "[CARDS UNDER REVIEW — prose rendering]",
+    seed?.state ??
+      (typeof fixture.setup === "string" && fixture.setup.trim() !== ""
+        ? fixture.setup
+        : JSON.stringify(fixture.setup ?? {})),
     "",
     "[REVIEW SIGNAL]",
     ...fixture.input_events.map((e) => (typeof e === "string" ? e : JSON.stringify(e))),
     "",
-    "[NOTE] The blocks above are a prose rendering of the two space cards and the review trigger — judge them exactly as given. Output the schema JSON only.",
+    "[NOTE] The blocks above are a prose rendering of the cards and the review trigger — judge them exactly as given. Output the schema JSON only.",
   ];
   const user = parts.join("\n");
   const result = await runJsonPass({
     pass: "consolidate",
-    system: CONSOLIDATE_V2_SYSTEM,
+    system: CONSOLIDATE_V3_SYSTEM,
     user,
     role: "consolidate",
     unit: { kind: "eval", id: fixture.id },
     validate: validateConsolidateOutput,
   });
+  const out = result.output;
   return {
     ok: result.status === "ok" || result.status === "repaired",
-    output: result.output ?? { error: result.error, responses: result.responses },
+    output: out
+      ? { ...out, applied_by_consolidator: consolidateAppliedView(out) }
+      : { error: result.error, responses: result.responses },
+    seededContext: seed?.state,
     metrics: { rounds: result.runIds.length },
   };
 };
@@ -168,6 +252,7 @@ export const backfillExecutor: Executor = async ({ fixture }) => {
   return {
     ok: claims.ok !== false && decisions.ok !== false,
     output: { extract: claims.output, decide: decisions.output },
+    seededContext: claims.seededContext ?? decisions.seededContext,
     metrics: {
       rounds: (claims.metrics?.rounds ?? 0) + (decisions.metrics?.rounds ?? 0),
     },

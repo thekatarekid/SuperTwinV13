@@ -42,6 +42,12 @@ export interface ExecutorResult {
   ok?: boolean;
   /** What the pass produced — structured facts and/or transcript, judge food. */
   output: unknown;
+  /**
+   * The deterministic seed block (executors/seeds.ts) the pass was shown as
+   * the concrete rendering of the fixture's one-line setup. Surfaced to the
+   * judge so pass and judge grade the same world.
+   */
+  seededContext?: string;
   /** Wrong[] modes detected by code. Any entry is a hard fail. */
   violations?: Violation[];
   /** Numbers the run measured (latency, tokens, containment, …). */

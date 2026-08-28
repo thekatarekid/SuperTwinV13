@@ -140,6 +140,9 @@ import { browserManager, handleBrowserRoute } from "../browser/routes.js";
 // Task run + approvals glue (P3.5, spec §14.6): the task modal's live states,
 // question-card answers, and the approved WhatsApp draft send.
 import { handleExecutorRoute } from "./executor-routes.js";
+// Timeline + grounded bar (P4.1, spec §14.3.1 / §14.8): paged event-log
+// reads, the day scrubber, and the bar's intent-routed submissions.
+import { handleGroundedRoute } from "./grounded-routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -798,6 +801,14 @@ async function handle(
     const handled = await handleExecutorRoute(req, res, ingestion, {
       browser: browserManager,
     });
+    if (handled) return;
+  }
+
+  // Timeline + grounded bar (P4.1): the rendered event log and the one-input
+  // bar (search / grounded chat / actions / history). Production model seams
+  // are the traced runners — the defaults inside the handler.
+  if (path.startsWith("/api/timeline") || path.startsWith("/api/bar")) {
+    const handled = await handleGroundedRoute(req, res);
     if (handled) return;
   }
 

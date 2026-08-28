@@ -45,7 +45,8 @@ describe("shell", () => {
     // (P2.4) lands on its unreachable-worker state.
     await waitFor(() => expect(screen.getByText("worker unreachable")).toBeTruthy());
     fireEvent.keyDown(window, { key: "2", metaKey: true });
-    expect(screen.getByText(/The event log rendered/)).toBeTruthy();
+    // The real Timeline screen (P4.1); the stub serves no /api/timeline.
+    expect(screen.getByLabelText("Timeline")).toBeTruthy();
     fireEvent.keyDown(window, { key: "1", metaKey: true });
     await waitFor(() => expect(screen.getByLabelText("Today")).toBeTruthy());
   });

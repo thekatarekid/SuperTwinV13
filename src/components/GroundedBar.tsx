@@ -1,20 +1,66 @@
 // ===========================================================================
-// Grounded bar — build P1.7, spec §14.8 (P1 slice).
+// Grounded bar — build P4.1, spec §14.8 (all six states).
 //
-// One pill, morphing states. This phase ships ① collapsed, ② focused and
-// ⑤ context-locked ("Tell the twin", §14.4.3): a locked object chip pins the
-// bar to one target, the utterance posts through the corrections pipeline,
-// and the twin's "what I did" line + undo ride back. Search/answer/acting
-// states arrive with their lanes (grounded chat is P4).
+// One pill, morphing states, NO modes:
+//   ① collapsed  — always visible; ↑ opens history (⌘↑)
+//   ② focused    — live results while typing (worker /api/bar/search)
+//   ③ answer     — grounded chat: citations mandatory (chips → Timeline),
+//                  inline webview card when the answer carries a URL
+//   ④ acting     — action outcomes: inline progress, ask-once options,
+//                  risky work lands behind the normal task/approval gates
+//   ⑤ context-locked — "Tell the twin" (P1.7, unchanged)
+//   ⑥ history    — past threads, reopenable + continuable (USR-06)
+//
+// Intent is inferred worker-side (traced Haiku router); Esc walks back one
+// state; threads survive in history because the worker stores them as events.
 // ===========================================================================
 
 import { useEffect, useRef, useState } from "react";
-import type { ArtifactRow, TargetKind } from "../lib/api";
+import {
+  barSearch,
+  fetchBarThread,
+  fetchBarThreads,
+  postBar,
+  type ArtifactRow,
+  type BarActionView,
+  type BarCitationView,
+  type BarResponse,
+  type BarSearchView,
+  type BarThreadSummaryView,
+  type TargetKind,
+} from "../lib/api";
 
 export interface BarLock {
   kind: TargetKind;
   id: string;
   label: string;
+}
+
+interface BarMessage {
+  role: "user" | "twin";
+  text: string;
+  citations?: BarCitationView[];
+  action?: BarActionView;
+}
+
+type BarView = "input" | "thread" | "history";
+
+const URL_RE = /https?:\/\/[^\s")\]]+/;
+
+/** The inline webview card (spec §14.8 ③) — rendered by the SuperTwin Browser. */
+function WebviewCard(props: { url: string }): JSX.Element {
+  let host = props.url;
+  try {
+    host = new URL(props.url).host;
+  } catch {
+    // keep the raw url
+  }
+  return (
+    <div className="webview-card" data-testid="webview-card">
+      <span className="chip">SuperTwin Browser</span>
+      <span className="host">{host}</span>
+    </div>
+  );
 }
 
 export function GroundedBar(props: {
@@ -27,12 +73,24 @@ export function GroundedBar(props: {
   onOpenNudge?: (artifact: ArtifactRow) => void;
   /** Typing anything dismisses the chip silently (zero-cost negative). */
   onNudgeTyped?: (artifact: ArtifactRow) => void;
+  /** A citation chip / search hit → Timeline at that event (spec §14.8.2). */
+  onOpenEvent?: (eventId: string) => void;
+  /** An action outcome's space / task → the normal modals. */
+  onOpenSpace?: (spaceId: string) => void;
+  onOpenTask?: (taskId: string) => void;
 }): JSX.Element {
   const [text, setText] = useState("");
   const [reply, setReply] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const [chipDismissed, setChipDismissed] = useState<string | null>(null);
+  const [view, setView] = useState<BarView>("input");
+  const [live, setLive] = useState<BarSearchView | null>(null);
+  const [messages, setMessages] = useState<BarMessage[]>([]);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [threads, setThreads] = useState<BarThreadSummaryView[]>([]);
+  const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const liveSeq = useRef(0);
 
   // The idle chip: bar focused but EMPTY, no lock, a fresh nudge exists and
   // typing hasn't silently dismissed it.
@@ -46,19 +104,173 @@ export function GroundedBar(props: {
     if (props.lock) {
       setReply(null);
       setText("");
+      setView("input");
       inputRef.current?.focus();
     }
   }, [props.lock]);
 
+  // ⌘↑ opens history from anywhere (spec §14.8 ⑥).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.metaKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        void openHistory();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function openHistory(): Promise<void> {
+    try {
+      const { threads: list } = await fetchBarThreads();
+      setThreads(list);
+      setView("history");
+      inputRef.current?.focus();
+    } catch {
+      // keep the current view
+    }
+  }
+
+  async function reopenThread(id: string): Promise<void> {
+    try {
+      const { messages: msgs } = await fetchBarThread(id);
+      setThreadId(id);
+      setMessages(
+        msgs.map((m) => ({
+          role: m.role,
+          text: m.text,
+          citations: Array.isArray(m.meta?.citations)
+            ? (m.meta!.citations as BarCitationView[])
+            : undefined,
+        })),
+      );
+      setView("thread");
+      inputRef.current?.focus();
+    } catch {
+      // stay in history
+    }
+  }
+
+  /** Live results while typing (state ② — retrieval only, no model). */
+  function refreshLive(value: string): void {
+    const seq = ++liveSeq.current;
+    if (value.trim() === "") {
+      setLive(null);
+      return;
+    }
+    void barSearch(value)
+      .then((results) => {
+        if (liveSeq.current === seq) setLive(results);
+      })
+      .catch(() => {});
+  }
+
+  function absorb(response: BarResponse, submitted: string): void {
+    setThreadId(response.thread_id);
+    if (response.intent === "search" && response.search) {
+      setLive(response.search);
+      setView("input");
+      return;
+    }
+    const twin: BarMessage =
+      response.intent === "question" && response.answer
+        ? { role: "twin", text: response.answer.answer, citations: response.answer.citations }
+        : response.intent === "action" && response.action
+          ? {
+              role: "twin",
+              text:
+                response.action.status === "needs_input"
+                  ? response.action.question ?? response.action.summary
+                  : response.action.summary,
+              action: response.action,
+            }
+          : { role: "twin", text: response.summary ?? "" };
+    setMessages((prev) => [...prev, { role: "user", text: submitted }, twin]);
+    setView("thread");
+  }
+
   async function submit(): Promise<void> {
     const utterance = text.trim();
-    if (utterance === "") return;
+    if (utterance === "" || busy) return;
     if (props.lock) {
       setText("");
       const line = await props.onTellTwin(props.lock, utterance);
       setReply(line);
+      return;
+    }
+    setText("");
+    setLive(null);
+    setBusy(true);
+    try {
+      const response = await postBar({
+        text: utterance,
+        thread_id: view === "thread" && threadId ? threadId : undefined,
+      });
+      absorb(response, utterance);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", text: utterance },
+        { role: "twin", text: "couldn't reach the worker" },
+      ]);
+      setView("thread");
+    } finally {
+      setBusy(false);
     }
   }
+
+  /** Ask-once (USR-03): the user tapped one of the offered spaces. */
+  async function answerOption(action: BarActionView, spaceId: string): Promise<void> {
+    if (!action.pending) return;
+    setBusy(true);
+    try {
+      const response = await postBar({
+        thread_id: threadId ?? undefined,
+        answer: { pending: action.pending, space_id: spaceId },
+      });
+      if (response.action) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "twin", text: response.action!.summary, action: response.action },
+        ]);
+      }
+    } catch {
+      setMessages((prev) => [...prev, { role: "twin", text: "couldn't reach the worker" }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Esc walks back ONE state (spec §14.8.4). */
+  function walkBack(e: React.KeyboardEvent): void {
+    if (view === "history") {
+      e.stopPropagation();
+      setView(messages.length > 0 ? "thread" : "input");
+      return;
+    }
+    if (view === "thread") {
+      e.stopPropagation();
+      setView("input");
+      return;
+    }
+    if (live || text !== "") {
+      e.stopPropagation();
+      setLive(null);
+      setText("");
+      return;
+    }
+    // Truly collapsed: let the shell handle Esc (modal → lock → hide).
+    inputRef.current?.blur();
+  }
+
+  const lastAction = [...messages].reverse().find((m) => m.action)?.action;
+  const answerUrl = messages
+    .filter((m) => m.role === "twin")
+    .map((m) => URL_RE.exec(m.text)?.[0])
+    .filter((u): u is string => Boolean(u))
+    .pop();
 
   return (
     <div className="bar-wrap">
@@ -77,6 +289,7 @@ export function GroundedBar(props: {
             ◆ {chip.title.toLowerCase()}
           </button>
         )}
+
         {props.lock && (
           <div className="lock-chip">
             <span className="chip accent">
@@ -87,33 +300,169 @@ export function GroundedBar(props: {
             </button>
           </div>
         )}
-        <input
-          ref={inputRef}
-          value={text}
-          placeholder={
-            props.lock ? "tell the twin what's wrong…" : "Ask, search, or tell me to do something"
-          }
-          aria-label="ask"
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onChange={(e) => {
-            // Typing anything dismisses the idle chip silently (§14.7.8).
-            if (chip && e.target.value !== "") {
-              setChipDismissed(chip.id);
-              props.onNudgeTyped?.(chip);
+
+        {view === "history" && (
+          <div className="bar-history" aria-label="bar history">
+            {threads.length === 0 && <p className="empty">no past threads yet</p>}
+            {threads.map((t) => (
+              <button
+                key={t.thread_id}
+                type="button"
+                className="bar-history-row"
+                onClick={() => void reopenThread(t.thread_id)}
+              >
+                ▸ {t.title} <span className="when">{t.last_ts.slice(0, 10)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {view === "thread" && messages.length > 0 && (
+          <div className="bar-thread" aria-label="bar thread">
+            {messages.map((m, i) => (
+              <div key={i} className={`bar-msg ${m.role}`}>
+                <span className="who">{m.role === "user" ? "you:" : "twin:"}</span> {m.text}
+                {m.citations && m.citations.length > 0 && (
+                  <span className="citations">
+                    {m.citations.map((c) => (
+                      <button
+                        key={c.n}
+                        type="button"
+                        className="chip citation-chip"
+                        aria-label={`citation ${c.n}`}
+                        title={c.label}
+                        onClick={() => props.onOpenEvent?.(c.id)}
+                      >
+                        ❝{c.label}❞ →
+                      </button>
+                    ))}
+                  </span>
+                )}
+                {m.action && m.action.progress.length > 0 && (
+                  <div className="progress">
+                    {m.action.progress.map((line, j) => (
+                      <div key={j}>{line}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {answerUrl && <WebviewCard url={answerUrl} />}
+            {lastAction?.status === "needs_input" && lastAction.options && (
+              <div className="bar-options">
+                {lastAction.options.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className="chip"
+                    onClick={() => void answerOption(lastAction, o.id)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {lastAction?.status === "done" && (
+              <div className="bar-links">
+                {lastAction.space_id && (
+                  <button
+                    type="button"
+                    className="linklike"
+                    onClick={() => props.onOpenSpace?.(lastAction.space_id!)}
+                  >
+                    open space
+                  </button>
+                )}
+                {lastAction.task_id && (
+                  <button
+                    type="button"
+                    className="linklike"
+                    onClick={() => props.onOpenTask?.(lastAction.task_id!)}
+                  >
+                    open task
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === "input" && live && (
+          <div className="bar-live" aria-label="live results">
+            {live.events.slice(0, 4).map((hit) => (
+              <button
+                key={hit.id}
+                type="button"
+                className="bar-live-row"
+                onClick={() => props.onOpenEvent?.(hit.id)}
+              >
+                ▸ {hit.chat ?? hit.actor ?? "event"}: {hit.snippet}
+              </button>
+            ))}
+            {live.spaces.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className="bar-live-row"
+                onClick={() => props.onOpenSpace?.(s.id)}
+              >
+                ▸ {s.label} (space)
+              </button>
+            ))}
+            {live.events.length === 0 && live.spaces.length === 0 && (
+              <p className="empty">no matches</p>
+            )}
+          </div>
+        )}
+
+        <div className="bar-input-row">
+          <input
+            ref={inputRef}
+            value={text}
+            placeholder={
+              props.lock
+                ? "tell the twin what's wrong…"
+                : view === "thread"
+                  ? "follow up…"
+                  : "Ask, search, or tell me to do something"
             }
-            setText(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              if (chip && text === "") {
-                props.onOpenNudge?.(chip);
+            aria-label="ask"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onChange={(e) => {
+              // Typing anything dismisses the idle chip silently (§14.7.8).
+              if (chip && e.target.value !== "") {
+                setChipDismissed(chip.id);
+                props.onNudgeTyped?.(chip);
+              }
+              setText(e.target.value);
+              if (!props.lock && view !== "history") refreshLive(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                walkBack(e);
                 return;
               }
-              void submit();
-            }
-          }}
-        />
+              if (e.key === "Enter") {
+                if (chip && text === "") {
+                  props.onOpenNudge?.(chip);
+                  return;
+                }
+                void submit();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="linklike history-btn"
+            aria-label="history"
+            title="history (⌘↑)"
+            onClick={() => void openHistory()}
+          >
+            ↑
+          </button>
+        </div>
+        {busy && <div className="reply">…</div>}
         {reply && <div className="reply">twin: {reply}</div>}
       </div>
     </div>

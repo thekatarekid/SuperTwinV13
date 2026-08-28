@@ -1,21 +1,10 @@
-// Timeline / Settings stubs — build P1.7 (Library graduated to its own
-// screen in P2.4). The pill nav needs the four tabs (spec §14.1.3); these
-// fill out in P4 (Timeline polish) and the Settings items land with their
-// lanes.
+// Settings stub — build P1.7 (Library graduated to its own screen in P2.4;
+// Timeline graduated in P4.1). The Settings subtabs land with P4.3.
 // Settings carries the version footer (build plan §1.8): the worker's
 // /api/health version + BUILT_THROUGH_PHASE, e.g. "v13.1.1 · built through P1".
 
 import { useEffect, useState } from "react";
 import { fetchHealth } from "../lib/api";
-
-export function Timeline(): JSX.Element {
-  return (
-    <div className="stub">
-      <h1>Timeline</h1>
-      <p>The event log rendered — arrives with the capture lanes (spec §14.3).</p>
-    </div>
-  );
-}
 
 export function Settings(): JSX.Element {
   const [footer, setFooter] = useState<string | null>(null);

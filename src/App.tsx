@@ -20,6 +20,7 @@ import {
   artifactSignal,
   fetchArtifacts,
   fetchHome,
+  fetchTaskRun,
   postCorrection,
   rejectProposal,
   undoCorrection,
@@ -36,7 +37,8 @@ import { AccessibilityOnboarding } from "./components/AccessibilityOnboarding";
 import { GroundedBar, type BarLock } from "./components/GroundedBar";
 import { Home } from "./screens/Home";
 import { Library } from "./screens/Library";
-import { Settings, Timeline } from "./screens/Stubs";
+import { Timeline } from "./screens/Timeline";
+import { Settings } from "./screens/Stubs";
 import { ArtifactModal } from "./modals/ArtifactModal";
 import { ClaimModal } from "./modals/ClaimModal";
 import { ProposalModal } from "./modals/ProposalModal";
@@ -201,6 +203,25 @@ export function App(): JSX.Element {
   // The newest unseen nudge — the grounded bar's idle chip + shelf pulse.
   const freshNudge = artifacts.find((a) => a.status === "new") ?? null;
 
+  // P4.1: Timeline filing chips and bar action outcomes open by ID — resolve
+  // against the loaded home data (the modal system takes full rows).
+  const openSpaceById = useCallback(
+    (spaceId: string) => {
+      const space = data?.spaces.find((s) => s.id === spaceId) ?? data?.review.find((s) => s.id === spaceId);
+      if (space) setModal({ type: "space", space });
+    },
+    [data],
+  );
+
+  const openTaskById = useCallback(async (taskId: string) => {
+    try {
+      const { task } = await fetchTaskRun(taskId);
+      setModal({ type: "task", task });
+    } catch {
+      // the task may not be loadable yet — the bar keeps its summary line
+    }
+  }, []);
+
   return (
     <div className="shell">
       <div className="nav-row">
@@ -237,7 +258,7 @@ export function App(): JSX.Element {
             }
           />
         )}
-        {tab === "timeline" && <Timeline />}
+        {tab === "timeline" && <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />}
         {tab === "library" && <Library onTellTwinPerson={(id, label) => lockTo("person", id, label)} />}
         {tab === "settings" && <Settings />}
       </main>
@@ -315,6 +336,9 @@ export function App(): JSX.Element {
         nudge={freshNudge}
         onOpenNudge={(a) => void openArtifact(a)}
         onNudgeTyped={(a) => void artifactSignal(a.id, "ignored").catch(() => {})}
+        onOpenEvent={() => setTab("timeline")}
+        onOpenSpace={openSpaceById}
+        onOpenTask={(id) => void openTaskById(id)}
       />
     </div>
   );

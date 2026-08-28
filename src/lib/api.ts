@@ -469,3 +469,117 @@ export interface ToneProfileView {
 
 export const fetchTone = (personId: string): Promise<{ profile: ToneProfileView | null }> =>
   request(`/api/tone?person=${encodeURIComponent(personId)}`);
+
+// ---- Timeline + grounded bar (P4.1, spec §14.3.1 / §14.8) ------------------
+
+/** One rendered Timeline row — micro-events grouped by the worker. */
+export interface TimelineRowView {
+  id: string;
+  ts: string;
+  end_ts: string;
+  source: string;
+  kind: string | null;
+  actor: string | null;
+  chat: string | null;
+  text: string;
+  count: number;
+  event_ids: string[];
+  space_id: string | null;
+  space_label: string | null;
+}
+
+export interface TimelinePageView {
+  rows: TimelineRowView[];
+  next_before: string | null;
+}
+
+export const fetchTimeline = (params?: {
+  before?: string;
+  source?: string;
+  person?: string;
+  space?: string;
+  q?: string;
+}): Promise<TimelinePageView> => {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params ?? {})) {
+    if (v) search.set(k, v);
+  }
+  const qs = search.toString();
+  return request(`/api/timeline${qs ? `?${qs}` : ""}`);
+};
+
+export const fetchTimelineDays = (): Promise<{
+  days: { day: string; count: number }[];
+  sources: string[];
+}> => request("/api/timeline/days");
+
+export interface BarSearchView {
+  events: { id: string; ts: string | null; actor: string | null; chat: string | null; snippet: string }[];
+  spaces: { id: string; label: string }[];
+}
+
+export const barSearch = (q: string): Promise<BarSearchView> =>
+  request(`/api/bar/search?q=${encodeURIComponent(q)}`);
+
+export interface BarCitationView {
+  n: number;
+  kind: "event";
+  id: string;
+  label: string;
+}
+
+export interface BarAnswerView {
+  answer: string;
+  citations: BarCitationView[];
+  grounded: boolean;
+  refused_uncited: boolean;
+}
+
+export interface BarActionView {
+  status: "done" | "needs_input" | "failed";
+  summary: string;
+  question?: string;
+  options?: { id: string; label: string }[];
+  pending?: Record<string, unknown>;
+  space_id?: string;
+  task_id?: string;
+  progress: string[];
+}
+
+export interface BarResponse {
+  intent: "search" | "question" | "action" | "correction";
+  thread_id: string;
+  search?: BarSearchView;
+  answer?: BarAnswerView;
+  action?: BarActionView;
+  summary?: string;
+}
+
+export const postBar = (req: {
+  text?: string;
+  thread_id?: string;
+  answer?: { pending: Record<string, unknown>; space_id: string };
+}): Promise<BarResponse> => request("/api/bar", post(req));
+
+export interface BarThreadSummaryView {
+  thread_id: string;
+  title: string;
+  last_ts: string;
+  message_count: number;
+}
+
+export const fetchBarThreads = (): Promise<{ threads: BarThreadSummaryView[] }> =>
+  request("/api/bar/threads");
+
+export interface BarMessageView {
+  event_id: string;
+  thread_id: string;
+  role: "user" | "twin";
+  text: string;
+  ts: string;
+  intent: string | null;
+  meta: Record<string, unknown> | null;
+}
+
+export const fetchBarThread = (id: string): Promise<{ thread_id: string; messages: BarMessageView[] }> =>
+  request(`/api/bar/threads/${encodeURIComponent(id)}`);

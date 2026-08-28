@@ -757,3 +757,214 @@ body.aux-window {
   border-radius: 10px;
   padding: var(--sp-2) var(--sp-3);
 }
+
+/* -- timeline (P4.1, spec §14.3.1) ------------------------------------------ */
+
+.timeline-filters {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-bottom: var(--sp-2);
+}
+
+.timeline-filters select,
+.timeline-filters input {
+  border: var(--glass-border);
+  border-radius: var(--r-sm);
+  background: var(--glass-2-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 4px 8px;
+}
+
+.day-scrubber {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: var(--sp-1) 0 var(--sp-2);
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.day-scrubber .scrub-day {
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--glass-2-bg);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.day-scrubber .scrub-day.active {
+  background: var(--accent, #6aa1ff);
+  color: #fff;
+}
+
+.timeline .day-heading {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  margin: var(--sp-3) 0 var(--sp-1);
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px 0;
+}
+
+.timeline-row-main {
+  flex: 1;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+
+.timeline-row-main:hover {
+  background: var(--glass-2-bg);
+}
+
+.timeline-row-main .time {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.timeline-row-main .source {
+  color: var(--ink-2);
+  flex: none;
+}
+
+.timeline-row-main .who {
+  flex: none;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-row-main .text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.filing-chip {
+  flex: none;
+  cursor: pointer;
+}
+
+.filing-chip.unsorted {
+  color: var(--ink-2);
+}
+
+/* -- grounded bar states (P4.1, spec §14.8) --------------------------------- */
+
+.bar-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.bar-input-row .history-btn {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.bar-live,
+.bar-thread,
+.bar-history {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--sp-1);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.bar-live-row,
+.bar-history-row {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-live-row:hover,
+.bar-history-row:hover {
+  background: var(--glass-2-bg);
+  color: var(--ink);
+}
+
+.bar-history-row .when {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  margin-left: var(--sp-1);
+}
+
+.bar-msg {
+  font-size: var(--text-sm);
+  padding: 2px 0;
+}
+
+.bar-msg .who {
+  color: var(--ink-2);
+}
+
+.bar-msg .citations {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 4px;
+  flex-wrap: wrap;
+}
+
+.citation-chip {
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.bar-msg .progress {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  padding-left: var(--sp-3);
+}
+
+.bar-options,
+.bar-links {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+}
+
+.webview-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border: var(--glass-border);
+  border-radius: var(--r-sm);
+  background: var(--glass-2-bg);
+  padding: var(--sp-2);
+  margin: var(--sp-1) 0;
+  font-size: var(--text-sm);
+}

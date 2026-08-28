@@ -20,6 +20,9 @@ import { CACHE_WRITE_SPLIT } from "./migrations/0025_cache_write_split.js";
 import { RUNS_BACKFILL } from "./migrations/0026_runs_backfill.js";
 import { V13_CORE } from "./migrations/0100_v13_core.js";
 import { WORLD_MODEL } from "./migrations/0101_world_model.js";
+import { DECIDE_CONSOLIDATION } from "./migrations/0104_decide_consolidation.js";
+import { CONTENT_ECONOMY } from "./migrations/0102_content_economy.js";
+import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
 
 export interface Migration {
   id: string;
@@ -928,4 +931,16 @@ export const MIGRATIONS: Migration[] = [
   // the `people` view, unsorted, second_look, and space_index (FTS +
   // embedding + entity + bridge keys) plus event_bridge_keys for ingest.
   { id: "0101_world_model", sql: WORLD_MODEL },
+  // The packer's content economy (build P1.2, spec §4.5): cached digest lines
+  // per content_hash, L1/L2 escalation log + per-run level stats, and the T2
+  // review queue the Critic's flag_overlap verdict feeds (build P1.3).
+  { id: "0102_content_economy", sql: CONTENT_ECONOMY },
+  // Enrichment bundle countdowns (build P1.8, spec §4.4 rule 2): pending
+  // attachments per dispatched bundle; zero → one scoped re-understand job,
+  // or a full re-dispatch when a placeholder forced an episode to unsorted.
+  { id: "0103_enrichment_bundles", sql: ENRICHMENT_BUNDLES },
+  // The Decide work queue (one pending row per space, merge-in), the deferred
+  // holding pen for P1-emitted schedules/follow-ups, and spaces.plan_json
+  // (build P1.4/P1.5, spec §6.3.2 / §8.4).
+  { id: "0104_decide_consolidation", sql: DECIDE_CONSOLIDATION },
 ];

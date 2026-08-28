@@ -238,7 +238,7 @@ Goal: WhatsApp + browser flow through the five passes into spaces/episodes/claim
 
 * * *
 ## 5. Phase 3 — Tasks, execution, browser core
-Goal: the twin acts. Exit: ≥80% surfaced tasks are real (self-graded suite + user), zero unapproved risky steps, EXE/SCH/FUP evals green.
+> **STATUS: ✅ COMPLETE (2026-08-29).** All tasks P3.1–P3.5 done + verified (worker 2284 passed / 2 skipped across 161 files, includes new p3.test.ts 13 tests — zero live model calls in unit tests; root npm test 80 passed; `npm run build` clean; `tsc --noEmit` clean; `go test ./...` all ok). Live evals for the phase (SCH/FUP/TIM/EXE/BRW) run via `npm run eval` in the Gates phase. Release 13.3.1 → `releases/SuperTwinV13_Phase3_13.3.1.dmg`. Goal: the twin acts. Exit: ≥80% surfaced tasks are real (self-graded suite + user), zero unapproved risky steps, EXE/SCH/FUP evals green.
 
 **P3.1 [LANE A] — Decide full scope**
 

@@ -31,7 +31,12 @@
 - [x] Phase 2 DMG: releases/SuperTwinV13_Phase2_13.2.1.dmg (built 2026-08-29)
 
 ## Phase 3 — Tasks, execution, browser core
-- [ ] P3.1–P3.5
+- [x] P3.1 Decide full scope (schedules + follow-ups un-deferred, auto-vs-confirm policy in code)
+- [x] P3.2 Schedule timer service (timers.ts: fire → enqueue, polling, sleep-wake recovery, double-fire guard)
+- [x] P3.3 Executor (Claude Code sessions with tools, result schemas, approval tokens consumed at tool layer)
+- [x] P3.4 SuperTwin Browser core (bundled Chromium + CDP harness, challenge-page hard stop, agent-tab isolation)
+- [x] P3.5 Approvals UI + task modal live states (approve mints token, whatsapp draft-send end-to-end)
+- [x] Phase 3 DMG: releases/SuperTwinV13_Phase3_13.3.1.dmg (built 2026-08-29)
 
 ## Phase 4 — Full UI + graduation
 - [ ] P4.1–P4.3
@@ -41,4 +46,5 @@
 - 2026-08-28: Phase 0 complete (10 agents, all green). Worker 1762 tests pass, go tests pass, BND deterministic suite green, rebrand grep clean. DMG 13.0.1 (724MB) in releases/. Commits 48f9e65..c739875.
 - 2026-08-28: Phase 1 workflow launched (P1.1 serial → lanes A–E parallel).
 - 2026-08-29: Phase 2 complete. Worker 2162/2162 tests green (vitest); root 29 + 75 scripts tests green, vite build green; `go test ./...` all ok; screenwatch build + 57/57 checks. Evals: AST 9/9 green (hard gates risky_without_token, trigger_gate PASS); P1 regression 50 cases — hard gates (containment ≥95%, over_creation <10%, false_auto_merge=0, idempotency, assignment 100%) green in both full runs; per-case judge variance resolved on retry. Version 13.2.1, BUILT_THROUGH_PHASE=P2. DMG in releases/.
+- 2026-08-29: Phase 3 complete. Worker 2284 passed / 2 skipped (161 files, includes new p3.test.ts 13 tests — zero live model calls in unit tests); root npm test 80 passed; npm run build clean; tsc --noEmit clean; `go test ./...` all ok. Live evals (SCH/FUP/TIM/EXE/BRW) run via `npm run eval`. Version 13.3.1, BUILT_THROUGH_PHASE=P3. DMG in releases/.
 - 2026-08-28: Phase 1 complete. Worker 2073/2073 tests green (139 files), tsc clean. Live golden suite run 4x (r5–r8, ~500 traced calls, claude-local provider + haiku judge): 83 → 89 → 94 → 96 of 100; r8 gate rows all PASS or no-data, zero hard-gate breaches. Version 13.1.1, BUILT_THROUGH_PHASE=P1, /api/health version wired into Settings footer. DMG in releases/.

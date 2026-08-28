@@ -179,6 +179,15 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     }
   }
 
+  // Live-by-construction: the passes resolve the default provider from the
+  // registry exactly as production does, so the CLI performs production's
+  // registration step (worker/src/index.ts does the same at boot).
+  const [{ register }, { claudeLocalProvider }] = await Promise.all([
+    import("../providers/registry.js"),
+    import("../providers/claude-local/index.js"),
+  ]);
+  register(claudeLocalProvider);
+
   await registerProductExecutors();
 
   let judge: Judge | undefined;

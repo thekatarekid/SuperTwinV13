@@ -719,9 +719,16 @@ const SEEDS: Record<string, FixtureSeed> = {
       "(1) can you review the deck by Thursday? (2) should we invite the Pune team to the demo? " +
       "(3) what budget line does the workshop bill to? " +
       "ACCEPTANCE CRITERIA include: the draft answers ALL 3 questions. " +
+      "MID-RUN STATE — a FIRST DRAFT already exists (attempt 1): " +
+      '"Hi Sameer — yes, I\'ll review the deck by Thursday (doing it Wednesday night). ' +
+      'And the Pune team is already on the invite list from last week." ' +
+      "The verification cycle against the criteria runs NOW on that first draft. " +
       "KNOWN CONTEXT: the deck review can be done Wednesday night; the Pune team was already invited " +
       "last week (claim clm_pune_invited); workshops bill to line item T&E-114 (claim clm_budget_line). " +
-      "SENDING is a separate approve-final action.",
+      "RECIPIENT: Sameer, whatsapp 15550002222@s.whatsapp.net. The deliverable is the DRAFT ITSELF — " +
+      "final result_type draft_preview with {to, channel, body}, the body written out in full; the " +
+      "attempt log must show the verification verdict on attempt 1 and what changed. " +
+      "SENDING is a separate approve-final action — the final status is needs_approval, never done.",
   },
 };
 

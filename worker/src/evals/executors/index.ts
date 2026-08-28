@@ -21,12 +21,18 @@ import { criticExecutor, orientExecutor } from "./orient.js";
 import {
   backfillExecutor,
   consolidateExecutor,
-  decideExecutor,
   digestExecutor,
   extractExecutor,
 } from "./passes.js";
 import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
+import {
+  browserEvalExecutor,
+  decideDispatchExecutor,
+  exeExecutor,
+  scheduleExecutor,
+  timeExecutor,
+} from "./p3.js";
 
 export { bndExecutor, bndHookAvailable } from "./bnd.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
@@ -39,6 +45,13 @@ export {
 } from "./passes.js";
 export { assistExecutor } from "./assist.js";
 export { stubExecutor } from "./stub.js";
+export {
+  browserEvalExecutor,
+  decideDispatchExecutor,
+  exeExecutor,
+  scheduleExecutor,
+  timeExecutor,
+} from "./p3.js";
 
 export async function registerProductExecutors(): Promise<void> {
   registerExecutor("selftest.stub", stubExecutor);
@@ -50,11 +63,19 @@ export async function registerProductExecutors(): Promise<void> {
   registerExecutor("critic", criticExecutor);
   // P1.4/P1.5/P1.6 (Phase 1 integration): the downstream passes.
   registerExecutor("extract", extractExecutor);
-  registerExecutor("decide", decideExecutor);
+  // P3 integration: FUP cases run the real next-step pass (followup.v1);
+  // everything else on "decide" is the DECIDE prompt as before.
+  registerExecutor("decide", decideDispatchExecutor);
   registerExecutor("consolidate", consolidateExecutor);
   registerExecutor("digest", digestExecutor);
   registerExecutor("scheduler.backfill", backfillExecutor);
   // P2 integration: the assist lane (AST) — gate/suppression/risk-line cases
   // drive the product code directly; evaluator cases run the live prompt.
   registerExecutor("assist", assistExecutor);
+  // P3 integration + gates: schedules/time through Decide + the code policy
+  // gate, the real executor session, and the code-asserted browser harness.
+  registerExecutor("schedule", scheduleExecutor);
+  registerExecutor("time", timeExecutor);
+  registerExecutor("executor", exeExecutor);
+  registerExecutor("browser", browserEvalExecutor);
 }

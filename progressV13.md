@@ -24,7 +24,11 @@
 - [x] Phase 1 DMG: releases/SuperTwinV13_Phase1_13.1.1.dmg (724 MB, built 2026-08-28)
 
 ## Phase 2 — Screen capture + assist lane
-- [ ] P2.1–P2.4 (pending P1 gates)
+- [x] P2.1 Screen recorder sidecar (screenwatch + screen adapter)
+- [x] P2.2 Assist lane
+- [x] P2.3 Menu bar app + nudges
+- [x] P2.4 Freshness + Library (screen/chats/browser views)
+- [x] Phase 2 DMG: releases/SuperTwinV13_Phase2_13.2.1.dmg (built 2026-08-29)
 
 ## Phase 3 — Tasks, execution, browser core
 - [ ] P3.1–P3.5
@@ -36,4 +40,5 @@
 - 2026-08-28: Kickoff. Phase 0 orchestration started.
 - 2026-08-28: Phase 0 complete (10 agents, all green). Worker 1762 tests pass, go tests pass, BND deterministic suite green, rebrand grep clean. DMG 13.0.1 (724MB) in releases/. Commits 48f9e65..c739875.
 - 2026-08-28: Phase 1 workflow launched (P1.1 serial → lanes A–E parallel).
+- 2026-08-29: Phase 2 complete. Worker 2162/2162 tests green (vitest); root 29 + 75 scripts tests green, vite build green; `go test ./...` all ok; screenwatch build + 57/57 checks. Evals: AST 9/9 green (hard gates risky_without_token, trigger_gate PASS); P1 regression 50 cases — hard gates (containment ≥95%, over_creation <10%, false_auto_merge=0, idempotency, assignment 100%) green in both full runs; per-case judge variance resolved on retry. Version 13.2.1, BUILT_THROUGH_PHASE=P2. DMG in releases/.
 - 2026-08-28: Phase 1 complete. Worker 2073/2073 tests green (139 files), tsc clean. Live golden suite run 4x (r5–r8, ~500 traced calls, claude-local provider + haiku judge): 83 → 89 → 94 → 96 of 100; r8 gate rows all PASS or no-data, zero hard-gate breaches. Version 13.1.1, BUILT_THROUGH_PHASE=P1, /api/health version wired into Settings footer. DMG in releases/.

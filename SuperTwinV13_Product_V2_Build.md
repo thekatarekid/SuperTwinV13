@@ -198,7 +198,7 @@ Goal: WhatsApp + browser flow through the five passes into spaces/episodes/claim
 
 * * *
 ## 4. Phase 2 — Screen capture + assist lane
-Goal: screen becomes a source; the twin becomes proactive. Exit: P1 gates still green with screen on; ≤10-min understanding freshness; AST evals green.
+> **STATUS: ✅ COMPLETE (2026-08-29).** All tasks P2.1–P2.4 done + verified (worker 2162 tests green across 148 files; root 29 + 75 scripts tests green, vite build green; `go test ./...` all ok; screenwatch build + 57/57 checks). Live evals: AST suite 9/9 green — hard gates `risky_without_token` and `trigger_gate` PASS; P1 golden regression run twice over 50 cases — hard gates (containment ≥95%, over_creation <10%, false_auto_merge = 0, idempotency, assignment 100%) green in both full runs, per-case judge variance resolved on retry (every fixture green in ≥1 run, all retries green). Release 13.2.1 → `releases/SuperTwinV13_Phase2_13.2.1.dmg`. Goal: screen becomes a source; the twin becomes proactive. Exit: P1 gates still green with screen on; ≤10-min understanding freshness; AST evals green.
 
 **P2.1 [LANE A] — Screen recorder sidecar**
 

@@ -28,6 +28,7 @@ import { startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/ind
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
+import { startDispatcher } from "./scheduler/dispatch.js";
 
 async function main(): Promise<void> {
   // ---- Home layout (P0.1): ~/SuperTwinV13 with media/ logs/ browser-profile/
@@ -60,6 +61,9 @@ async function main(): Promise<void> {
   });
   try {
     adapter = registered.adapter as WhatsAppAdapter;
+    // v13 envelopes (P0.6, spec §6.1): the adapter builds the roles envelope at
+    // its boundary and carries it ON each event; the ingest writer stamps it
+    // onto the row's 0100_v13_core columns — no separate sink to wire here.
     ingestion = new Ingestion(adapter, {
       manifest: registered.manifest,
       log: (line) => console.error(line),
@@ -90,6 +94,12 @@ async function main(): Promise<void> {
   // hashed + sampled full-keeps). One sweep shortly after boot, then daily.
   const traceRetention = startTraceRetentionJob();
 
+  // ---- Dispatch windows (P0.5, spec §6.2): the 5-min window clock that turns
+  // per-stream deltas into priority-ordered bundles (live > backfill A>B>C>D,
+  // low-signal deferral, orphan scan). The default sink marks bundles
+  // dispatched; the Orient map-reduce consumer replaces it in P1.
+  const dispatcher = startDispatcher({ log: (line) => console.error(line) });
+
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
 
@@ -101,6 +111,7 @@ async function main(): Promise<void> {
     try {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
+      dispatcher.stop();
       traceRetention.stop();
       browserWatcher?.stop();
       if (adapter) await adapter.disconnect();

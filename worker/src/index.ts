@@ -31,6 +31,7 @@ import { startTraceRetentionJob } from "./traces/index.js";
 import { startDispatcher } from "./scheduler/dispatch.js";
 import { startBrainConsumer } from "./brain/consumer.js";
 import { startConsolidationJob } from "./consolidation/index.js";
+import { startAssistLane } from "./assist/index.js";
 import { backfillTiers } from "./tiers/derive.js";
 import {
   backfillBrowserStreamCategories,
@@ -154,6 +155,12 @@ async function main(): Promise<void> {
   // second-look, unsorted review). Each duty is fenced inside the job.
   const consolidation = startConsolidationJob({ log: (line) => console.error(line) });
 
+  // ---- Assist lane (P2.2, spec §10): the proactive watcher over the event-
+  // log tail. Code trigger gate (novelty + cooldowns + suppression + quiet
+  // hours) -> one haiku evaluator -> executor-lite -> durable artifact +
+  // nudge. No capture path of its own; no risky tools in its table at all.
+  const assistLane = startAssistLane({ log: (line) => console.error(line) });
+
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
 
@@ -167,6 +174,7 @@ async function main(): Promise<void> {
       claudeLocalProvider.killAll();
       dispatcher.stop();
       consolidation.stop();
+      assistLane.stop();
       traceRetention.stop();
       browserWatcher?.stop();
       if (adapter) await adapter.disconnect();

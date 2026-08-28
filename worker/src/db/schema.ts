@@ -21,6 +21,7 @@ import { RUNS_BACKFILL } from "./migrations/0026_runs_backfill.js";
 import { V13_CORE } from "./migrations/0100_v13_core.js";
 import { WORLD_MODEL } from "./migrations/0101_world_model.js";
 import { DECIDE_CONSOLIDATION } from "./migrations/0104_decide_consolidation.js";
+import { ASSIST } from "./migrations/0105_assist.js";
 import { CONTENT_ECONOMY } from "./migrations/0102_content_economy.js";
 import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
 
@@ -943,4 +944,8 @@ export const MIGRATIONS: Migration[] = [
   // holding pen for P1-emitted schedules/follow-ups, and spaces.plan_json
   // (build P1.4/P1.5, spec §6.3.2 / §8.4).
   { id: "0104_decide_consolidation", sql: DECIDE_CONSOLIDATION },
+  // The assist lane's durable state (build P2.2, spec §10): artifacts +
+  // graded reconcile signals, the per-topic novelty/cooldown/suppression
+  // accumulator the code trigger gate keeps, and the watcher's tail cursor.
+  { id: "0105_assist", sql: ASSIST },
 ];

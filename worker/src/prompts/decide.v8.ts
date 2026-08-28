@@ -34,6 +34,11 @@ Schedule + follow-up activation rules (these outputs now ACT):
   {"interval_min":2,"until":"2026-12-16T11:00+05:30","max":20} — start the
   fire_at just before the window opens (10am window → 09:55) and poll on
   the interval until open or the cap.
+- A detected recurring commitment (rent monthly on the 1st, a yearly
+  renewal) is expressed AS a recurrence: set "recurrence" on the
+  schedule (e.g. "monthly on the 1st") so the code files a recurring
+  template — never a lone one-shot that forgets the pattern. Any
+  recurrence is a confirm suggestion by rule.
 - Request "mode":"auto" for a pure time-bound, read-only, auto-class
   check the evidence makes certain (web check-in prep, a poll of a
   window that is opening) — asking the user to confirm the obvious is

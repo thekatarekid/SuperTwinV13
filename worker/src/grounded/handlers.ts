@@ -26,19 +26,22 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { getSelectedModel } from "../db/settings.js";
+import { runJsonPass } from "../brain/llm.js";
 import {
-  BAR_ACTION_INSTRUCTIONS,
-  BAR_ACTION_VERSION,
+  BAR_ACTION_V2_INSTRUCTIONS,
+  BAR_ACTION_V2_VERSION,
   packActionInput,
   parseActionOutput,
   type ParsedBarAction,
-} from "../prompts/bar-action.v1.js";
+} from "../prompts/bar-action.v2.js";
 import {
   BAR_ANSWER_INSTRUCTIONS,
   BAR_ANSWER_VERSION,
   packAnswerInput,
 } from "../prompts/bar-answer.v1.js";
-import { runPrompt } from "../prompts/runner.js";
+import { systemPromptPath } from "../prompts/runner.js";
+import { claudeLocalProvider } from "../providers/claude-local/index.js";
+import { withTraceContext } from "../traces/context.js";
 import {
   buildContextBlock,
   getEventDetail,
@@ -150,19 +153,38 @@ export function enforceCitations(
   return { answer: text, citations: valid, grounded: true, refused_uncited: false };
 }
 
-/** The production answer call: traced, chat-role model (Haiku default). */
+/**
+ * The production answer call: one traced plain completion via the local
+ * `claude` CLI (Haiku default). The answer is PROSE with a CITATIONS line —
+ * not the wire/JSON contract the batch runners validate — so it goes through
+ * the provider directly (the same pattern the eval judge uses), inside a
+ * trace context (TRC-01) with the versioned prompt as the system file.
+ */
 export const answerViaModel: BarModelCall = async (user) => {
-  const result = await runPrompt({
-    callType: BAR_ANSWER_VERSION,
-    legend: BAR_ANSWER_INSTRUCTIONS,
-    instructions: "",
-    user,
-    role: "chat",
-    cohortId: null,
-    model: getSelectedModel("chat"),
-    unit: { kind: "bar-answer", id: "bar" },
-  });
-  return result.responses.join("\n");
+  const systemFile = systemPromptPath(BAR_ANSWER_VERSION, BAR_ANSWER_INSTRUCTIONS);
+  let text = "";
+  const result = await withTraceContext(
+    { pass: BAR_ANSWER_VERSION, caller: "grounded/handlers", promptVersion: BAR_ANSWER_VERSION },
+    () =>
+      claudeLocalProvider.send({
+        runId: mintId("run"),
+        message: user,
+        systemPromptFile: systemFile,
+        plainCompletion: true,
+        maxTurns: 1,
+        thinkingBudget: "off",
+        allowedTools: [],
+        model: getSelectedModel("chat") || "haiku",
+        timeoutMs: 120_000,
+        onEvent: (ev) => {
+          if (ev.type === "delta") text += ev.text;
+        },
+      }),
+  );
+  if (result.status !== "ok") {
+    throw new Error(`bar-answer call failed: ${result.errorCode ?? "unknown"}`);
+  }
+  return text;
 };
 
 export async function handleQuestion(
@@ -203,19 +225,27 @@ export interface BarActionOutcome {
   progress: string[];
 }
 
-/** The production action parse: traced, classify-role model (Haiku default). */
+/**
+ * The production action parse: one traced JSON call (Haiku default) through
+ * the same runner every V13 JSON pass uses — the bar-action contract is a
+ * one-line JSON object, so runJsonPass validates + repair-bounds it.
+ */
 export const actionViaModel: BarModelCall = async (user) => {
-  const result = await runPrompt({
-    callType: BAR_ACTION_VERSION,
-    legend: BAR_ACTION_INSTRUCTIONS,
-    instructions: "",
+  const result = await runJsonPass<ParsedBarAction>({
+    pass: BAR_ACTION_V2_VERSION,
+    system: BAR_ACTION_V2_INSTRUCTIONS,
     user,
     role: "classify",
     cohortId: null,
-    model: getSelectedModel("classify"),
+    model: getSelectedModel("classify") || undefined,
     unit: { kind: "bar-action", id: "bar" },
+    validate: (parsed) => {
+      const action = parseActionOutput(JSON.stringify(parsed));
+      if (!action) throw new Error('the object must carry "verb" (known value) and a non-empty "title"');
+      return action;
+    },
   });
-  return result.responses.join("\n");
+  return result.output ? JSON.stringify(result.output) : "";
 };
 
 function activeSpaces(): { id: string; label: string }[] {

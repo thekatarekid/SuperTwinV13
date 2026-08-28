@@ -31,7 +31,7 @@ import {
   packCorrectionInput,
   parseCorrectionOutputV2,
 } from "../prompts/correction-parse.v2.js";
-import { runPrompt } from "../prompts/runner.js";
+import { runJsonPass } from "../brain/llm.js";
 import { writeEvalDraft } from "./eval-drafts.js";
 
 export interface CorrectionTarget {
@@ -72,23 +72,27 @@ export type CorrectionParser = (
 ) => Promise<StructuredCorrection | null>;
 
 /**
- * The production parser: one Haiku call through the prompt runner — traced
- * (TRC-01), accounted, repair-bounded like every other LLM step.
+ * The production parser: one Haiku JSON call through the traced JSON runner
+ * (TRC-01) — the correction contract is one JSON object on one line, so
+ * runJsonPass validates + repair-bounds it like every other V13 JSON pass.
  */
 export const parseViaModel: CorrectionParser = async (target, state, utterance) => {
-  const result = await runPrompt({
-    callType: CORRECTION_PARSE_V2_VERSION,
-    legend: CORRECTION_PARSE_V2_INSTRUCTIONS,
-    instructions: "",
+  const result = await runJsonPass<StructuredCorrection>({
+    pass: CORRECTION_PARSE_V2_VERSION,
+    system: CORRECTION_PARSE_V2_INSTRUCTIONS,
     user: packCorrectionInput({ ...target, state }, utterance),
     role: "classify",
     cohortId: null,
     // The classify role's picker (defaults to Haiku — build convention).
-    model: getSelectedModel("classify"),
+    model: getSelectedModel("classify") || undefined,
     unit: { kind: `correction-${target.kind}`, id: target.id },
+    validate: (parsed) => {
+      const structured = parseCorrectionOutputV2(JSON.stringify(parsed));
+      if (!structured) throw new Error("expected one JSON object with a known correction type");
+      return structured;
+    },
   });
-  const raw = result.responses.join("\n");
-  return parseCorrectionOutputV2(raw);
+  return result.output ?? null;
 };
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

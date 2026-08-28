@@ -16,7 +16,7 @@ import {
   parseIntentOutput,
   type BarIntent,
 } from "../prompts/bar-intent.v1.js";
-import { runPrompt } from "../prompts/runner.js";
+import { runJsonPass } from "../brain/llm.js";
 
 export type { BarIntent };
 
@@ -24,23 +24,27 @@ export type { BarIntent };
 export type IntentRouter = (text: string) => Promise<BarIntent>;
 
 /**
- * The production router: one Haiku call through the prompt runner — traced,
- * accounted, repair-bounded. A dead provider or an unusable answer routes to
- * search rather than erroring the bar.
+ * The production router: one Haiku JSON call through the traced JSON runner
+ * (the bar-intent contract is `{"intent": "..."}` on one line). A dead
+ * provider or an unusable answer routes to search rather than erroring the
+ * bar — the spec's ambiguity rule, enforced in code.
  */
 export const routeViaModel: IntentRouter = async (text) => {
   try {
-    const result = await runPrompt({
-      callType: BAR_INTENT_VERSION,
-      legend: BAR_INTENT_INSTRUCTIONS,
-      instructions: "",
+    const result = await runJsonPass<BarIntent>({
+      pass: BAR_INTENT_VERSION,
+      system: BAR_INTENT_INSTRUCTIONS,
       user: packIntentInput(text),
       role: "classify",
       cohortId: null,
-      model: getSelectedModel("classify"),
+      model: getSelectedModel("classify") || undefined,
       unit: { kind: "bar-intent", id: "bar" },
+      validate: (parsed) => {
+        const intent = parseIntentOutput(JSON.stringify(parsed));
+        return intent;
+      },
     });
-    return parseIntentOutput(result.responses.join("\n"));
+    return result.output ?? "search";
   } catch {
     return "search";
   }

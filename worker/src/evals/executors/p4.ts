@@ -28,8 +28,12 @@ import { Readable } from "node:stream";
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
-import { getDb } from "../../db/connection.js";
+import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { appendEvent } from "../../db/eventlog.js";
 import { writeDecision } from "../../db/decisions.js";
 import {
@@ -51,6 +55,31 @@ import { claimHistory, claimsAbout, writeClaimVersion } from "../../claims/store
 
 function mintEvalId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 11)}`;
+}
+
+/**
+ * Run one USR case against a SCRATCH database. The grounded bar's behavior is
+ * defined over the world the fixture seeds — retrieval ranking, the active
+ * space list, and "no new space beside sp_money" are all statements about
+ * that world, and the shared home DB (full of other cases' leftovers) would
+ * turn them into statements about eval residue instead. Model calls still run
+ * live through the real runners; only the SQLite file is swapped, exactly the
+ * way the unit suites isolate.
+ */
+async function withScratchDb<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = process.env.SUPERTWIN_DB_PATH;
+  const dir = mkdtempSync(join(tmpdir(), "supertwin-eval-usr-"));
+  process.env.SUPERTWIN_DB_PATH = join(dir, "st.db");
+  closeDb();
+  runMigrations();
+  try {
+    return await fn();
+  } finally {
+    closeDb();
+    if (prev === undefined) delete process.env.SUPERTWIN_DB_PATH;
+    else process.env.SUPERTWIN_DB_PATH = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,12 +113,28 @@ async function callRoute(
   return { status, body: payload === "" ? null : (JSON.parse(payload) as unknown) };
 }
 
-/** Seed chat events the retrieval layer can surface; returns their ids. */
+/**
+ * Seed chat events the retrieval layer can surface; returns their ids. The
+ * context block renders the ACTOR NAME per line (grounded answers about "what
+ * did rohan say" are answers about the named sender), so each distinct actor
+ * ref also gets an actors row and the event is linked to it.
+ */
 function seedChatEvents(
   lines: { actor: string; text: string; streamKey?: string; source?: string; kind?: string }[],
 ): string[] {
+  const db = getDb();
   const ids: string[] = [];
   const base = Date.now() - 3 * 86_400_000;
+  const actorIds = new Map<string, string>();
+  const actorIdFor = (ref: string): string => {
+    const held = actorIds.get(ref);
+    if (held) return held;
+    const id = mintEvalId("act_eval");
+    const name = (ref.split(":").pop() ?? ref).replace(/^\w/, (c) => c.toUpperCase());
+    db.prepare(`INSERT INTO actors (id, display_name, handle) VALUES (?, ?, ?)`).run(id, name, ref);
+    actorIds.set(ref, id);
+    return id;
+  };
   lines.forEach((line, i) => {
     const { id } = appendEvent({
       ts: new Date(base + i * 60_000).toISOString(),
@@ -101,6 +146,7 @@ function seedChatEvents(
       roles: { sender: line.actor, audience: ["self"], receiver: ["self"], mentions: [] },
       payload: { text: line.text },
     });
+    db.prepare(`UPDATE events SET actor_id = ? WHERE id = ?`).run(actorIdFor(line.actor), id);
     ids.push(id);
   });
   return ids;
@@ -460,17 +506,17 @@ async function usr06(): Promise<ExecutorResult> {
 export const userObjectsExecutor: Executor = async ({ fixture }) => {
   switch (fixture.id) {
     case "USR-01":
-      return usr01();
+      return withScratchDb(usr01);
     case "USR-02":
-      return usr02();
+      return withScratchDb(usr02);
     case "USR-03":
-      return usr03();
+      return withScratchDb(usr03);
     case "USR-04":
-      return usr04();
+      return withScratchDb(usr04);
     case "USR-05":
-      return usr05();
+      return withScratchDb(usr05);
     case "USR-06":
-      return usr06();
+      return withScratchDb(usr06);
     default:
       throw new Error(`no USR executor path for ${fixture.id}`);
   }

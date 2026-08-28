@@ -79,14 +79,16 @@ describe("migrations", () => {
       // operational
       "sources",
       "channels",
-      "people",
+      // 0101_world_model renamed the V0 placeholder to legacy_people; `people`
+      // is now the world-model VIEW over entities (spec §7.3).
+      "legacy_people",
       "actors",
       "events",
-      // 0022_v2_core dropped spaces/space_events/tasks/milestones outright (a
-      // "space" is now an arc with promoted = 1) and re-created goals with its
-      // §6 shape. The V2 tables have their own suite in db/migrations/.
+      // 0101_world_model dropped the V11 arcs family and created the V13
+      // spaces/chapters/episodes/tasks world model (its own suite lives in
+      // db/worldmodel.test.ts). goals survives.
       "goals",
-      "arcs",
+      "spaces",
       "extraction_runs",
       // 0021_v2_prep (what the retired 0004 carried that is still read)
       "evaluations",
@@ -120,13 +122,14 @@ describe("migrations", () => {
     expect(cols("chat_messages")).toContain("citations_json");
     expect(cols("extraction_runs")).toEqual(expect.arrayContaining(["model", "role"]));
 
-    // The ontology columns and tables are NOT recreated — and since
-    // 0022_v2_core the tables themselves are gone, not merely un-columned.
-    expect(tableNames().has("spaces")).toBe(false);
-    expect(tableNames().has("tasks")).toBe(false);
+    // The legacy ontology tables are NOT recreated. (`spaces` and `tasks`
+    // exist again since 0101_world_model — as the V13 world model with a NEW
+    // shape, pinned by db/worldmodel.test.ts — so they are no longer part of
+    // this negative check.)
     expect(tableNames().has("patterns")).toBe(false);
     expect(tableNames().has("space_people")).toBe(false);
     expect(tableNames().has("task_runs")).toBe(false);
+    expect(tableNames().has("arcs")).toBe(false);
   });
 
   it("FTS5 virtual table stays synced with events.text via triggers", () => {

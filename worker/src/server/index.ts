@@ -122,6 +122,9 @@ import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // V2 product surfaces (§3.2). Each owns its own prefix, takes no deps arg, and
 // returns false for a path it does not claim, exactly like handleOpsRoute.
 import { handleSurfacesRoute } from "./surfaces-routes.js";
+// World-model reads (P1.1): people / spaces / claims / tone. Same contract —
+// returns false for a path it does not claim.
+import { handleWorldModelRoute } from "./worldmodel-routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -729,6 +732,17 @@ async function handle(
   // Coverage strip — polled by every surface.
   if (path === "/api/coverage") {
     const handled = await handleSurfacesRoute(req, res);
+    if (handled) return;
+  }
+
+  // World-model reads (P1.1): people, spaces, claims, tone profiles.
+  if (
+    path.startsWith("/api/people") ||
+    path.startsWith("/api/spaces") ||
+    path.startsWith("/api/claims") ||
+    path === "/api/tone"
+  ) {
+    const handled = await handleWorldModelRoute(req, res);
     if (handled) return;
   }
 

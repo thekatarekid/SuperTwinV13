@@ -1350,7 +1350,16 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
           .prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name`)
           .all() as { name: string }[]
       ).map((r) => r.name),
-    ).toEqual(["events_ad", "events_ai", "events_au", "events_stream_compat_ai"]);
+    ).toEqual([
+      "events_ad",
+      "events_ai",
+      "events_au",
+      "events_stream_compat_ai",
+      // 0101_world_model: the space_index FTS lane's sync triggers.
+      "spaces_fts_ad",
+      "spaces_fts_ai",
+      "spaces_fts_au",
+    ]);
     expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });

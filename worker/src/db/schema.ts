@@ -19,6 +19,7 @@ import { LATENCY_MARKS } from "./migrations/0024_latency_marks.js";
 import { CACHE_WRITE_SPLIT } from "./migrations/0025_cache_write_split.js";
 import { RUNS_BACKFILL } from "./migrations/0026_runs_backfill.js";
 import { V13_CORE } from "./migrations/0100_v13_core.js";
+import { WORLD_MODEL } from "./migrations/0101_world_model.js";
 
 export interface Migration {
   id: string;
@@ -921,4 +922,10 @@ export const MIGRATIONS: Migration[] = [
   // dispatch state on `streams`, decisions/corrections, the traces index
   // (schema only — P0.7 owns the module) and the extended `runs`.
   { id: "0100_v13_core", sql: V13_CORE },
+  // The V13 world model (build P1.1, spec §7.3/§9/§11.1): spaces, chapters,
+  // stream-scoped episodes (+ message-range membership), tasks, the claims
+  // header over the kept claim_versions, tone_profiles, entities.circle +
+  // the `people` view, unsorted, second_look, and space_index (FTS +
+  // embedding + entity + bridge keys) plus event_bridge_keys for ingest.
+  { id: "0101_world_model", sql: WORLD_MODEL },
 ];

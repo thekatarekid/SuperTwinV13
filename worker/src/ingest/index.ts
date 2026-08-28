@@ -51,6 +51,8 @@ import {
   markSourceBackfillComplete,
   noteIngestedEvent,
 } from "../db/watermarks.js";
+import { bridgeIngestedEvents } from "../bridges/ingest.js";
+import { ensureEntityForActor } from "../entities/from-ingest.js";
 import { enqueueLiveMedia } from "../media/queue.js";
 import { consumeApprovalToken } from "../approvals/tokens.js";
 import { HistoryHealth } from "./history-health.js";
@@ -435,6 +437,19 @@ export class Ingestion {
       isSelf: a.is_self,
     });
     this.stats.actorsUpserted += 1;
+    // Entities from ingest (P1.1, spec §7.2 rung 1): the structural rung —
+    // every announced actor becomes/touches a (provisional) entity bound by
+    // jid + encoded phone. Best-effort: never blocks the actor upsert.
+    try {
+      ensureEntityForActor({
+        sourceId: this.sourceId,
+        jid: a.source_ext_id,
+        displayName: a.display_name ?? null,
+        isSelf: a.is_self === true,
+      });
+    } catch (err) {
+      console.error(`[ingest] entity-from-actor failed (continuing): ${String(err)}`);
+    }
     if (a.is_self && a.source_ext_id) {
       // How "me" appears in this source — what the manifest's
       // self_identity.value_getter reads back (arch §2.2 note 4).
@@ -686,6 +701,14 @@ export class Ingestion {
       // through this same callback, and an import IS the backlog, not something
       // entitled to jump it.
       if (e.media?.path) enqueueLiveMedia(res.id, e.is_historical === true);
+      // Bridge extraction at ingest (P1.1, spec §19 "built, never wired —
+      // wire it"): url/phone/email/order-id literals → event_bridge_keys +
+      // pair rows against past holders. Best-effort; never blocks ingest.
+      try {
+        bridgeIngestedEvents([res.id]);
+      } catch (err) {
+        console.error(`[ingest] bridge extraction failed (continuing): ${String(err)}`);
+      }
       // A row that lands after `backfill_complete` pushes the seal out: it may
       // have created the stream this write just upserted.
       this.touchBackfillSeal();

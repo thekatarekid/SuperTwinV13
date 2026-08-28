@@ -29,6 +29,7 @@ import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
 import { startDispatcher } from "./scheduler/dispatch.js";
+import { backfillTiers } from "./tiers/derive.js";
 
 async function main(): Promise<void> {
   // ---- Home layout (P0.1): ~/SuperTwinV13 with media/ logs/ browser-profile/
@@ -88,6 +89,24 @@ async function main(): Promise<void> {
     browserWatcher = startBrowserWatcher({ log: (line) => console.error(line) });
   } catch (err) {
     console.error("[worker] browser watcher init failed (continuing):", err);
+  }
+
+  // ---- Tier backfill (P1.1, restored from V11 — §9.3 rule 4: tiering must
+  // actually RUN). Code rules only at boot: engaged/passive/DM by facts,
+  // business channels by content heuristics; the genuinely ambiguous ones
+  // default to T2 ("unsure -> tx") until the V13 P-TI1 prompt lane lands and
+  // injects a resolver. Guarded: a tiering failure must not stop the worker.
+  try {
+    const report = backfillTiers();
+    if (report.streams > 0) {
+      console.error(
+        `[worker] tier backfill: ${report.assigned}/${report.streams} streams ` +
+          `(T1=${report.byTier.T1} T2=${report.byTier.T2} T3=${report.byTier.T3} T4=${report.byTier.T4}` +
+          `${report.defaulted.length > 0 ? `, defaulted=${report.defaulted.length}` : ""})`,
+      );
+    }
+  } catch (err) {
+    console.error("[worker] tier backfill failed (continuing):", err);
   }
 
   // ---- Trace retention (P0.7): traces compress after 30 days (prompt/context

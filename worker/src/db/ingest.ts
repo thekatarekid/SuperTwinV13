@@ -711,7 +711,7 @@ function statements(): IngestStatements {
       SELECT id FROM streams WHERE source_id = ? AND external_key = ?
     `),
     upsertPerson: db.prepare(`
-      INSERT INTO people (id, name, handle)
+      INSERT INTO legacy_people (id, name, handle)
       VALUES (@id, @name, @handle)
       ON CONFLICT(id) DO NOTHING
     `),
@@ -1280,9 +1280,9 @@ function statements(): IngestStatements {
     deleteSourceActors: db.prepare(`DELETE FROM actors WHERE source_id = ?`),
     // People left with no remaining actors after the actor delete.
     deleteOrphanPeople: db.prepare(`
-      DELETE FROM people
+      DELETE FROM legacy_people
        WHERE NOT EXISTS (
-         SELECT 1 FROM actors a WHERE a.person_id = people.id
+         SELECT 1 FROM actors a WHERE a.person_id = legacy_people.id
        )
     `),
   };

@@ -20,6 +20,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
+import { bridgeIngestedEvents } from "../bridges/ingest.js";
 import { getDb } from "./connection.js";
 
 // ---- Envelope types (spec §6.1) -------------------------------------------
@@ -206,6 +207,7 @@ export function appendEvents(
   const db = getDb();
   const s = statements();
   const result: AppendResult = { inserted: 0, skipped: 0, ids: [] };
+  const insertedIds: string[] = [];
 
   const run = db.transaction(() => {
     for (const env of envelopes) {
@@ -246,9 +248,21 @@ export function appendEvents(
       });
       result.inserted++;
       result.ids.push(id);
+      insertedIds.push(id);
     }
   });
   run();
+  // Bridge extraction at ingest (P1.1, spec §19 "built, never wired — wire
+  // it"): url/phone/email/order-id literals → event_bridge_keys + bridges.
+  // Best-effort by design: an event without bridge keys is an event, not an
+  // error, so extraction failure never unwinds an append that committed.
+  if (insertedIds.length > 0) {
+    try {
+      bridgeIngestedEvents(insertedIds);
+    } catch (err) {
+      console.error("[eventlog] bridge extraction failed (continuing):", err);
+    }
+  }
   return result;
 }
 

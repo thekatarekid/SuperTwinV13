@@ -106,17 +106,22 @@ export function workId(stage: Stage, unitKind: UnitKind, unitId: string): string
  * the process restarts: §9.7 rule 5, "nothing is re-judged that already has a
  * verdict".
  */
-const VERDICT_TABLES: Partial<Record<Stage, { table: string; unitColumn: string }>> = {
-  episode: { table: "episode_verdicts", unitColumn: "session_id" },
-  arc: { table: "arc_verdicts", unitColumn: "episode_id" },
+// P1.1: the V11 episode_verdicts / arc_verdicts tables went with the pruned
+// derivation middle (0101_world_model drops them). The V13 verdict store is
+// the `decisions` table (every derived-object change is a decision row), so
+// the resume-without-re-judging check reads it, filtered by target kind.
+const VERDICT_TABLES: Partial<Record<Stage, { table: string; unitColumn: string; extraWhere?: string }>> = {
+  episode: { table: "decisions", unitColumn: "target_id", extraWhere: "target_kind = 'episode'" },
+  arc: { table: "decisions", unitColumn: "target_id", extraWhere: "target_kind = 'space'" },
 };
 
 /** True when this stage already has a stored verdict for this unit. */
 export function hasVerdict(stage: Stage, unitId: string): boolean {
   const target = VERDICT_TABLES[stage];
   if (!target) return false;
+  const extra = target.extraWhere ? ` AND ${target.extraWhere}` : "";
   const row = getDb()
-    .prepare(`SELECT 1 AS hit FROM ${target.table} WHERE ${target.unitColumn} = ? LIMIT 1`)
+    .prepare(`SELECT 1 AS hit FROM ${target.table} WHERE ${target.unitColumn} = ?${extra} LIMIT 1`)
     .get(unitId) as { hit: number } | undefined;
   return row !== undefined;
 }

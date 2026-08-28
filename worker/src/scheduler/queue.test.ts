@@ -145,8 +145,10 @@ describe("restart resumes without re-judging (§9.7 rule 5)", () => {
   function seedSessionWithVerdict(sessionId: string): void {
     const db = getDb();
     db.prepare(`INSERT INTO sessions (id, status) VALUES (?, 'sealed')`).run(sessionId);
+    // P1.1: the V13 verdict store is the decisions table (episode_verdicts
+    // went with the pruned V11 derivation middle in 0101_world_model).
     db.prepare(
-      `INSERT INTO episode_verdicts (id, session_id, decision) VALUES (?, ?, 'attach')`,
+      `INSERT INTO decisions (id, pass, target_kind, target_id, action) VALUES (?, 'orient', 'episode', ?, 'attach')`,
     ).run(`ev:${sessionId}`, sessionId);
   }
 

@@ -1329,7 +1329,9 @@ describe("resetSourceData (Rev 2 §R2.3)", () => {
     expect((db.prepare(`SELECT COUNT(*) AS n FROM channels WHERE source_id='other'`).get() as { n: number }).n).toBe(1);
     expect((db.prepare(`SELECT COUNT(*) AS n FROM actors WHERE source_id='other'`).get() as { n: number }).n).toBe(1);
     // Its person is retained (still referenced by the surviving actor).
-    expect((db.prepare(`SELECT COUNT(*) AS n FROM people`).get() as { n: number }).n).toBe(1);
+    // (0101_world_model renamed the placeholder table to legacy_people;
+    // `people` is now the world-model view over entities.)
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM legacy_people`).get() as { n: number }).n).toBe(1);
   });
 
   it("is a no-op-safe on an empty DB (returns zero counts)", () => {
@@ -1417,11 +1419,15 @@ describe("migration 0008_media", () => {
     ).map((t) => t.name);
     // events_stream_compat_ai is 0022_v2_core's channel_id -> stream_id bridge,
     // which lives on events beside the three FTS triggers until item 1.1.
+    // 0101_world_model adds the spaces_fts trio (the space_index FTS lane).
     expect(triggers).toEqual([
       "events_ad",
       "events_ai",
       "events_au",
       "events_stream_compat_ai",
+      "spaces_fts_ad",
+      "spaces_fts_ai",
+      "spaces_fts_au",
     ]);
   });
 

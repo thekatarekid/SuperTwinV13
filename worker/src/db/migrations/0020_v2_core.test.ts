@@ -114,6 +114,11 @@ describe("0020_v2_core applies", () => {
       // decisions/corrections/traces tables; reshapes nothing the ids above
       // created.
       "0100_v13_core",
+      // P1.1: the V13 world model — drops the dead V11 episode/arc/loop
+      // family (module code pruned in P0.3), recreates `episodes` with the
+      // stream-scoped V13 shape, and adds spaces/chapters/tasks/claims-header/
+      // tone_profiles/unsorted/second_look/space_index.
+      "0101_world_model",
     ]);
 
     expect(
@@ -183,21 +188,15 @@ const REQUIRED_TABLES = [
   "entity_embeddings",
   "embedder_calib",
   "sessions",
+  // 0101_world_model recreated `episodes` with the V13 stream-scoped shape
+  // and dropped the rest of the V11 derivation family (episode_sessions,
+  // episode_verdicts, episode_embeddings, arcs, arc_episodes, arc_verdicts,
+  // provisional_arcs, loops, loop_embeddings, goal_spaces).
   "episodes",
-  "episode_sessions",
-  "episode_verdicts",
-  "episode_embeddings",
-  "arcs",
-  "arc_episodes",
-  "arc_verdicts",
   "bridges",
-  "provisional_arcs",
   "claim_versions",
-  "loops",
   "claim_embeddings",
-  "loop_embeddings",
   "goals",
-  "goal_spaces",
   "evidence",
   "questions",
   "mutations",
@@ -214,28 +213,17 @@ describe("0020_v2_core tables", () => {
     }
   });
 
-  it("has NO spaces table — promotion is a field on arcs", () => {
+  it("carries the V13 spaces table, not the legacy ontology or arcs", () => {
     const names = tableNames(db);
-    expect(names.has("spaces")).toBe(false);
-    expect(objectType(db, "spaces")).toBe(null);
-    // The rest of the legacy ontology went with it.
-    for (const t of ["space_events", "tasks", "milestones", "space_people"]) {
+    // 0101_world_model: spaces is back — as the V13 world model (spec §9),
+    // not the pre-0022 legacy ontology, whose satellites stay gone.
+    expect(names.has("spaces")).toBe(true);
+    expect(columns(db, "spaces")).toEqual(
+      expect.arrayContaining(["label", "life_area", "goal", "status", "exemplars_json"]),
+    );
+    for (const t of ["space_events", "milestones", "space_people", "arcs", "arc_episodes"]) {
       expect(names.has(t), `legacy table still present: ${t}`).toBe(false);
     }
-
-    // Promotion lives here instead, all eight fields.
-    expect(columns(db, "arcs")).toEqual(
-      expect.arrayContaining([
-        "promoted",
-        "promotion_reason",
-        "archetype",
-        "archetype_source",
-        "status",
-        "ends_at",
-        "cadence",
-        "user_label",
-      ]),
-    );
   });
 
   it("rebuilds goals with its §6 shape, not the old space-scoped one", () => {
@@ -449,8 +437,8 @@ describe("0020_v2_core indices", () => {
     );
   });
 
-  it("indexes arcs by promoted, status", () => {
-    expect(indexSql(db, "idx_arcs_promoted")).toMatch(/arcs\(promoted, status\)/);
+  it("indexes spaces by status (0101 replaced the arcs index)", () => {
+    expect(indexSql(db, "idx_spaces_status")).toMatch(/spaces\(status, updated_at\)/);
   });
 
   it("indexes bridges by kind, value_norm", () => {
@@ -585,25 +573,12 @@ function seedGraph(handle: Database.Database): void {
                              boundary_reason_start, boundary_reason_end, hash_version, content_hash)
        VALUES ('se1','st1','whatsapp','2026-01-01T09:00:00Z','2026-01-01T09:40:00Z','Asia/Kolkata',
                'sealed','debounce','stream_start','gap','v1','h1')`);
-  run(`INSERT INTO episodes (id, stream_id, source_id, topic_label, label_source, arc_state, started_at)
-       VALUES ('ep1','st1','whatsapp','plumber','model','open','2026-01-01T09:00:00Z')`);
-  run(`INSERT INTO episode_sessions (episode_id, session_id, added_by) VALUES ('ep1','se1','model')`);
-  run(`INSERT INTO episode_verdicts (id, episode_id, session_id, run_id, decision, model)
-       VALUES ('ev-1','ep1','se1','run1','attach','haiku')`);
-  run(`INSERT INTO episode_embeddings (episode_id, vec, model, dim)
-       VALUES ('ep1', x'0000803f', 'multilingual-e5-small', 1)`);
-
-  run(`INSERT INTO arcs (id, arc_key, label, label_source, state, promoted, promotion_reason,
-                         archetype, archetype_source, status, cadence, user_label)
-       VALUES ('ar1','plumbing','Plumbing','model','live',1,'rec','adm','model','active','weekly','House')`);
-  run(`INSERT INTO arc_episodes (arc_id, episode_id, added_by, signal)
-       VALUES ('ar1','ep1','model','entity')`);
-  run(`INSERT INTO arc_verdicts (id, arc_id, episode_id, run_id, decision, model)
-       VALUES ('av1','ar1','ep1','run1','attach','haiku')`);
+  // 0101_world_model: episodes carry the V13 stream-scoped shape; the V11
+  // episode/arc satellite tables are gone.
+  run(`INSERT INTO episodes (id, stream_id, state, summary, first_ts, last_ts, created_by)
+       VALUES ('ep1','st1','open','plumber to be called','2026-01-01T09:00:00Z','2026-01-01T09:40:00Z','orient')`);
   run(`INSERT INTO bridges (id, kind, value_norm, left_kind, left_id, right_kind, right_id, confidence, decided_by)
-       VALUES ('br1','order_id','AZ-1','episode','ep1','arc','ar1',1.0,'code')`);
-  run(`INSERT INTO provisional_arcs (id, batch_id, arc_key_candidate, episode_ids)
-       VALUES ('pa1','b1','plumbing','["ep1"]')`);
+       VALUES ('br1','order_id','AZ-1','event','ev1','episode','ep1',1.0,'code')`);
 
   run(`INSERT INTO claim_versions (id, claim_key, kind, subject_id, predicate, object, text,
                                    speaker_id, attribution, party_pair, confidence, stated_at, ingested_at, decided_by)
@@ -611,18 +586,9 @@ function seedGraph(handle: Database.Database): void {
                'en-ma','self','ss',0.9,'2026-01-01T09:00:00Z','2026-01-01T09:00:01Z','model')`);
   run(`INSERT INTO claim_embeddings (claim_id, vec, model, dim)
        VALUES ('cv1', x'0000803f', 'multilingual-e5-small', 1)`);
-  run(`INSERT INTO loops (id, loop_key, intent, origin, owner_id, counterparty_id, party_pair,
-                          direction, stake, horizon, due_utc, due_tz, state, state_reason, triage,
-                          urgency, arc_id, confidence, stated_at, ingested_at)
-       VALUES ('lo1','plumber','task','extract','en-self','en-ma','so','out','med','d7',
-               '2026-01-08T09:00:00Z','Asia/Kolkata','open','stated','now',0.7,'ar1',0.8,
-               '2026-01-01T09:00:00Z','2026-01-01T09:00:01Z')`);
-  run(`INSERT INTO loop_embeddings (loop_id, vec, model, dim)
-       VALUES ('lo1', x'0000803f', 'multilingual-e5-small', 1)`);
 
   run(`INSERT INTO goals (id, name, kind, owner_id, emerged_from_json)
        VALUES ('go1','Keep the house standing','standing','en-self','["ar1"]')`);
-  run(`INSERT INTO goal_spaces (goal_id, space_id) VALUES ('go1','ar1')`);
 
   run(`INSERT INTO evidence (subject_kind, subject_id, event_id, episode_id, quote)
        VALUES ('claim','cv1','ev1','ep1','call the plumber')`);

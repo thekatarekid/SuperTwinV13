@@ -10,7 +10,7 @@
 - [ ] P0.7 Trace store
 - [ ] P0.8 Browser watcher
 - [ ] P0.9 Golden eval harness (live-call)
-- [ ] Phase 0 DMG: SuperTwinV13_Phase0_13.0.x.dmg
+- [x] Phase 0 DMG: releases/SuperTwinV13_Phase0_13.0.1.dmg (724 MB, built 2026-08-28)
 
 ## Phase 1 — Understanding lane (propose-only)
 - [ ] P1.1–P1.8 (pending Phase 0)

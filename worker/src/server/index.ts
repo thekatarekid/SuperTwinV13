@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import * as db from "../db/index.js";
 import { DEFAULT_WORKER_PORT } from "../home.js";
+import { BUILT_THROUGH_PHASE } from "../version.js";
 import { rescanMedia, type RescanType } from "../db/ingest.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/index.js";
 import type {
@@ -412,7 +413,11 @@ async function handle(
 
   // --- GET /api/health (additive: include whatsapp state when available)
   if (method === "GET" && path === "/api/health") {
-    const body: Record<string, unknown> = { ok: true, version: VERSION };
+    const body: Record<string, unknown> = {
+      ok: true,
+      version: VERSION,
+      builtThroughPhase: BUILT_THROUGH_PHASE,
+    };
     if (ingestion) {
       const st = ingestion.getStatus();
       body.whatsapp = { state: st.state, paired: st.paired };

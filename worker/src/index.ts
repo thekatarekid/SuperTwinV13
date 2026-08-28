@@ -16,7 +16,7 @@
 // steady drivers, embedder calibration, tier ensure) was deleted in P0.3; the
 // V13 pipeline lands in P0.4+ (event log, cursors/windows, orient/understand).
 
-import { runMigrations } from "./db/index.js";
+import { runMigrations, getDb } from "./db/index.js";
 import { startServer, type ServerHandle } from "./server/index.js";
 import { register } from "./providers/index.js";
 import { claudeLocalProvider } from "./providers/claude-local/index.js";
@@ -24,6 +24,7 @@ import { registerSource } from "./adapters/registry.js";
 import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
 import { Ingestion } from "./ingest/index.js";
+import { startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/index.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 
@@ -72,6 +73,17 @@ async function main(): Promise<void> {
     adapter = null;
   }
 
+  // ---- Browser watcher (P0.8): Chrome/Safari/Arc history + bookmarks into
+  // v13 `browser.visit` / `browser.bookmark` events. Fully guarded: a machine
+  // with no profiles, or a DB where 0100_v13_core has not landed yet, degrades
+  // to an idle watcher / buffered sink — never a boot failure.
+  let browserWatcher: BrowserWatcher | null = null;
+  try {
+    browserWatcher = startBrowserWatcher(getDb(), { log: (line) => console.error(line) });
+  } catch (err) {
+    console.error("[worker] browser watcher init failed (continuing):", err);
+  }
+
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
 
@@ -83,6 +95,7 @@ async function main(): Promise<void> {
     try {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
+      browserWatcher?.stop();
       if (adapter) await adapter.disconnect();
       // ...then stop accepting connections and let sockets drain.
       await server.close();

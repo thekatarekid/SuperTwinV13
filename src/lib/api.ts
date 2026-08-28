@@ -131,6 +131,60 @@ export const postCorrection = (req: {
 export const undoCorrection = (id: string): Promise<{ undone: boolean }> =>
   request(`/api/corrections/${encodeURIComponent(id)}/undo`, post());
 
+// ---- Task runs + approvals (P3.5, spec §14.6 / §11.4) ----------------------
+
+export interface ExecutorResultView {
+  result_type: string;
+  data: Record<string, unknown>;
+}
+
+export interface EnvelopeView {
+  status: "done" | "needs_input" | "needs_approval" | "partial";
+  criteria: string[];
+  attempts: { approach: string; outcome: string }[];
+  result: ExecutorResultView | null;
+  question: string | null;
+  approval_request: string | null;
+  gaps: string[];
+  next: string | null;
+}
+
+export interface TaskRunView {
+  run_id: string;
+  envelope: EnvelopeView;
+  invocations: { tool: string; status: string }[];
+}
+
+export interface TaskRunState {
+  task: TaskRow;
+  run: TaskRunView | null;
+}
+
+export const fetchTaskRun = (id: string): Promise<TaskRunState> =>
+  request(`/api/tasks/${encodeURIComponent(id)}/run`);
+
+export const executeTask = (
+  id: string,
+  approvalToken?: string,
+): Promise<{ run_id: string; task_status: string; envelope: EnvelopeView }> =>
+  request(
+    `/api/tasks/${encodeURIComponent(id)}/execute`,
+    post(approvalToken ? { approval_token: approvalToken } : {}),
+  );
+
+export const answerTask = (id: string, answer: string): Promise<TaskRunState> =>
+  request(`/api/tasks/${encodeURIComponent(id)}/answer`, post({ answer }));
+
+/** Mint one single-use approval token — called ONLY on the Approve tap. */
+export const mintApproval = (
+  action: string,
+): Promise<{ token: string; action: string; expires_at: string }> =>
+  request("/api/approvals/mint", post({ action }));
+
+/** The approved WhatsApp draft send: draft read server-side from the run. */
+export const sendTaskDraft = (id: string, approvalToken: string): Promise<TaskRunState> =>
+  request(`/api/tasks/${encodeURIComponent(id)}/send`, post({ approval_token: approvalToken }));
+
 // ---- Screen source (P2.1, spec §4.2.2 / §4.3) ------------------------------
 
 export interface ScreenStatus {

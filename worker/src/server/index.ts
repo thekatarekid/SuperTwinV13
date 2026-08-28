@@ -137,6 +137,9 @@ import { handleAssistRoute } from "./assist-routes.js";
 import { handleLibraryRoute } from "./library-routes.js";
 // SuperTwin Browser (P3.4, spec §12): status / kill-switch / connect-accounts.
 import { handleBrowserRoute } from "../browser/routes.js";
+// Task run + approvals glue (P3.5, spec §14.6): the task modal's live states,
+// question-card answers, and the approved WhatsApp draft send.
+import { handleExecutorRoute } from "./executor-routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -786,6 +789,13 @@ async function handle(
   // hard-stop, connect-your-accounts, session health.
   if (path.startsWith("/api/browser/")) {
     const handled = await handleBrowserRoute(req, res);
+    if (handled) return;
+  }
+
+  // Task run + approvals glue (P3.5, spec §14.6): GET run / POST execute /
+  // POST answer / POST send under /api/tasks/:id — the modal's live states.
+  if (path.startsWith("/api/tasks/")) {
+    const handled = await handleExecutorRoute(req, res, ingestion);
     if (handled) return;
   }
 

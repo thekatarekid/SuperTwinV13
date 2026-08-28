@@ -87,6 +87,20 @@ const SEEDS: Record<string, FixtureSeed> = {
       "(40 spaces exist in total; only these 3 cleared the retrieval floor.)",
     ].join("\n"),
   },
+  "ASN-05": {
+    state: [
+      ROSTER,
+      'RETRIEVAL — 1 candidate: SPACE sp_falcon — label "Falcon project delivery at work", life_area Work, ' +
+        'status active. Exemplars: ep_w1 "sprint review notes", ep_w2 "client demo prep".',
+      'STREAM: group "Project Falcon" (work chat).',
+    ].join("\n"),
+    events: [
+      "[banter] three meme forwards, no text.",
+      '[banter] "lunch mein biryani? 1pm?" + two joke replies.',
+      '[work] "standup moved to 11 tomorrow, calendar update kar lo".',
+      '[work] "noted, invites updated".',
+    ],
+  },
   "ASN-06": {
     state: [
       ROSTER,
@@ -113,6 +127,13 @@ const SEEDS: Record<string, FixtureSeed> = {
       '  u4 (2 weeks ago): episode "one-off mention of a gym trial" — events e_u4.',
       '  u5 (5 days ago): episode "car insurance promo forward" — events e_u5.',
     ].join("\n"),
+    events: [
+      '[sweep review — unsorted u1 re-presented] episode "asked in Family group about pottery class options" (events e_u1).',
+      '[sweep review — unsorted u2 re-presented] episode "compared two pottery studio prices on browser" (events e_u2).',
+      '[sweep review — unsorted u3 re-presented] episode "screenshot of a pottery class schedule shared in DM" (events e_u3).',
+      '[sweep review — unsorted u4 re-presented] episode "one-off mention of a gym trial" (events e_u4).',
+      '[sweep review — unsorted u5 re-presented] episode "car insurance promo forward" (events e_u5).',
+    ],
   },
   "ASN-10": {
     state: [
@@ -212,6 +233,17 @@ const SEEDS: Record<string, FixtureSeed> = {
         "(The quote IS verbatim from e1; the episode content is family lunch plans.)",
     ],
   },
+  "CRI-01": {
+    state: [
+      `RETRIEVAL shown to Orient (and to you): ${GOA_CARD}`,
+      "The retrieval block above was IN VIEW when the write below was produced.",
+    ].join("\n"),
+    items: [
+      'space proposal — label "December Goa vacation planning", life_area Travel, ' +
+        'evidence quote: "goa december mein chalte hai na" (e1), confidence 0.8. ' +
+        "(Produced while sp_goa_dec sat in the retrieval above.)",
+    ],
+  },
   "CRI-04": {
     state: [
       ROSTER,
@@ -253,6 +285,14 @@ const SEEDS: Record<string, FixtureSeed> = {
     state:
       "STREAM: Zepto business account — tier `promotional` (business broadcast). " +
       "TIER POLICY in force: promotional-tier content never yields claims about the user.",
+  },
+  "CLM-07": {
+    state: [
+      ROSTER,
+      'STREAM: Goa gang group. TONE PROFILE in view (documented): register "heavy banter" — ' +
+        "sarcasm, exaggeration and mock-boasting are the group's normal humor; the sender is contact:karan, " +
+        "replying to a request to pay ₹500.",
+    ].join("\n"),
   },
   "CLM-08": {
     state: [
@@ -462,6 +502,16 @@ const SEEDS: Record<string, FixtureSeed> = {
   },
 
   // ---- Backfill: AGE -------------------------------------------------------
+  "AGE-04": {
+    state: [
+      "[BAND] D backfill — a 4-year-old chat, 2,000 messages across 8 months (chat-month granularity).",
+      "EXEMPLAR MONTH UNDER DIGEST (2022-11, 1:1 chat with cousin Vikram, ~260 messages) — the month's content:",
+      "  · weekly weekend-football planning (ground bookings, team lists) all month;",
+      "  · Vikram's job switch: interviews at two Pune startups, offer accepted 2022-11-20, moved to Pune end of Nov;",
+      "  · family gathering planning for Ma's anniversary (menu, gift pooling with cousins);",
+      "  · running joke about Vikram's terrible cricket batting; warm, frequent, informal register.",
+    ].join("\n"),
+  },
   "AGE-02": {
     state: [
       "[BAND] C backfill — 14-month-old messages under review (historical; TODAY is in the calendar block):",

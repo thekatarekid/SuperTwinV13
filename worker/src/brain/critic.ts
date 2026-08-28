@@ -8,7 +8,7 @@
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
-import { CRITIC_V3 } from "../prompts/critic.v3.js";
+import { CRITIC_V4 } from "../prompts/critic.v4.js";
 import type { DeltaBundle } from "../scheduler/dispatch.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { resolveEventAliases, type OrientOutput, type OrientRun } from "./orient.js";
@@ -200,8 +200,8 @@ export async function runCritic(
   });
   const result = await runJsonPass(
     {
-      pass: CRITIC_V3.pass,
-      system: CRITIC_V3.system,
+      pass: CRITIC_V4.pass,
+      system: CRITIC_V4.system,
       user,
       role: "critic",
       unit: {
@@ -218,7 +218,7 @@ export async function runCritic(
 
 function emptyResult(): JsonPassResult<CriticOutput> {
   return {
-    pass: CRITIC_V3.pass,
+    pass: CRITIC_V4.pass,
     status: "ok",
     output: { verdicts: [] },
     responses: [],

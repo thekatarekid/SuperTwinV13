@@ -10,7 +10,7 @@
 
 import type { DeltaBundle } from "../scheduler/dispatch.js";
 import { packOrientContext, type PackedContext, type PackOptions } from "../packer/index.js";
-import { ORIENT_V5 } from "../prompts/orient.v5.js";
+import { ORIENT_V6 } from "../prompts/orient.v6.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 
 // ---------------------------------------------------------------------------
@@ -215,8 +215,8 @@ export async function runOrient(
   const packed = await packOrientContext(bundle, packOpts);
   const result = await runJsonPass(
     {
-      pass: ORIENT_V5.pass,
-      system: ORIENT_V5.system,
+      pass: ORIENT_V6.pass,
+      system: ORIENT_V6.system,
       user: packed.user,
       role: "orient",
       unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },

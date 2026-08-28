@@ -29,7 +29,13 @@ import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
 import { startDispatcher } from "./scheduler/dispatch.js";
+import { startBrainConsumer } from "./brain/consumer.js";
+import { startConsolidationJob } from "./consolidation/index.js";
 import { backfillTiers } from "./tiers/derive.js";
+import {
+  backfillBrowserStreamCategories,
+  backfillChatCategories,
+} from "./categories/index.js";
 
 async function main(): Promise<void> {
   // ---- Home layout (P0.1): ~/SuperTwinV13 with media/ logs/ browser-profile/
@@ -109,15 +115,44 @@ async function main(): Promise<void> {
     console.error("[worker] tier backfill failed (continuing):", err);
   }
 
+  // ---- Category backfill (P1.6, spec §5.1): chat streams get their Cat-1/2
+  // by code (user-reply + the cached business tier split); browser streams
+  // sync from the P0.8 per-domain verdicts. Zero model calls; every change
+  // writes a decisions row. Guarded: a category failure must not stop boot.
+  try {
+    const chat = backfillChatCategories();
+    const browser = backfillBrowserStreamCategories();
+    if (chat.streams + browser.streams > 0) {
+      console.error(
+        `[worker] category backfill: chat ${chat.byCategory.cat1}/${chat.byCategory.cat2} ` +
+          `(cat1/cat2), browser ${browser.byCategory.cat1}/${browser.byCategory.cat2}` +
+          `${chat.changes.length + browser.changes.length > 0 ? `, changed=${chat.changes.length + browser.changes.length}` : ""}`,
+      );
+    }
+  } catch (err) {
+    console.error("[worker] category backfill failed (continuing):", err);
+  }
+
   // ---- Trace retention (P0.7): traces compress after 30 days (prompt/context
   // hashed + sampled full-keeps). One sweep shortly after boot, then daily.
   const traceRetention = startTraceRetentionJob();
 
   // ---- Dispatch windows (P0.5, spec §6.2): the 5-min window clock that turns
   // per-stream deltas into priority-ordered bundles (live > backfill A>B>C>D,
-  // low-signal deferral, orphan scan). The default sink marks bundles
-  // dispatched; the Orient map-reduce consumer replaces it in P1.
-  const dispatcher = startDispatcher({ log: (line) => console.error(line) });
+  // low-signal deferral, orphan scan). The sink is the P1.3 brain consumer:
+  // digest → pack (§6.4) → Orient → Critic → single-writer commit →
+  // markDispatched. Cat-2 backfill still routes to the Digest pass.
+  const brainConsumer = startBrainConsumer({}, (line) => console.error(line));
+  const dispatcher = startDispatcher({
+    onBundle: brainConsumer.onBundle,
+    log: (line) => console.error(line),
+  });
+
+  // ---- Consolidation + reduce (P1.4/P1.5, spec §6.3.2 / §15.2): every
+  // minute — sweep newly-activated spaces, flag-triggered T2, drain the
+  // Decide work queue; every hour — the rolling T2 (merge/split/dormancy,
+  // second-look, unsorted review). Each duty is fenced inside the job.
+  const consolidation = startConsolidationJob({ log: (line) => console.error(line) });
 
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
@@ -131,6 +166,7 @@ async function main(): Promise<void> {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
       dispatcher.stop();
+      consolidation.stop();
       traceRetention.stop();
       browserWatcher?.stop();
       if (adapter) await adapter.disconnect();

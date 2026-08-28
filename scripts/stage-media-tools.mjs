@@ -188,6 +188,41 @@ export const MANIFEST = {
   },
 };
 
+/**
+ * The SuperTwin Browser engine (v13 P3.4, spec §12.1): a pinned
+ * Chrome-for-Testing build, staged as a DIRECTORY TREE rather than a single
+ * file, which is why it lives outside MANIFEST — stagedFiles() feeds the
+ * tauri.conf per-file resource assertions, and a .app bundle of ~250 files
+ * ships as one directory entry ("resources/chromium") instead.
+ *
+ * CfT release assets are immutable per version, so the digest cannot go stale
+ * under us; a new pin means bumping version + url + bytes + sha256 together
+ * (versions list: googlechromelabs.github.io/chrome-for-testing).
+ *
+ * Skippable: SUPERTWIN_SKIP_CHROMIUM=1 stages everything else and leaves the
+ * browser gracefully absent — the worker's chromiumPath() resolves to null
+ * and every /api/browser route reports {available:false} instead of erroring.
+ */
+export const CHROMIUM = {
+  version: "152.0.7977.64",
+  url: "https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.64/mac-arm64/chrome-mac-arm64.zip",
+  archiveBytes: 187855482,
+  archiveSha256:
+    "10033804338bd0a5aa098149a8dd64f3f2e0e8b201bf3d400d7c17d067ff696f",
+  dir: join(OUT_DIR, "chromium"),
+  // The executable inside the unpacked tree — the path the worker resolves
+  // (worker/src/browser/chromium.ts holds the same relative layout).
+  executable: join(
+    OUT_DIR,
+    "chromium",
+    "chrome-mac-arm64",
+    "Google Chrome for Testing.app",
+    "Contents",
+    "MacOS",
+    "Google Chrome for Testing",
+  ),
+};
+
 /** Every file that ends up in the .app, flattened — one path per resource. */
 export function stagedFiles() {
   return Object.values(MANIFEST).flatMap((entry) =>
@@ -599,6 +634,67 @@ async function stageEmbeddings() {
   log(`staged ${id} -> ${dir} (${humanSize(total)})`);
 }
 
+async function stageChromium() {
+  const { version, url, archiveBytes, archiveSha256, dir, executable } = CHROMIUM;
+
+  if (process.env.SUPERTWIN_SKIP_CHROMIUM === "1") {
+    log("chromium: skipped (SUPERTWIN_SKIP_CHROMIUM=1) — browser will be absent");
+    return;
+  }
+
+  // Same idempotency proof as ffmpeg: staged + signed + working collapses
+  // into "it runs and reports the pinned version".
+  if (reportsVersion(executable, ["--version"], version)) {
+    log(`chromium up to date: ${executable} (${version})`);
+    return;
+  }
+
+  const archive = join(CACHE_DIR, `chrome-mac-arm64-${version}.zip`);
+  mkdirSync(CACHE_DIR, { recursive: true });
+  if (!existsSync(archive) || (await sha256File(archive)) !== archiveSha256) {
+    await fetchVerified({
+      url,
+      dest: archive,
+      sha256: archiveSha256,
+      bytes: archiveBytes,
+      label: `Chrome for Testing ${version} (mac-arm64)`,
+    });
+  }
+
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  // NOT -j: the .app bundle's directory structure IS the artefact.
+  const unzip = run("unzip", ["-o", "-q", archive, "-d", dir]);
+  if (unzip.status !== 0 || !existsSync(executable)) {
+    fail(`could not extract Chrome for Testing from ${archive}:\n${unzip.out}`);
+  }
+
+  // CfT ships codesigned by Google. Verify the signature survived the trip;
+  // only if broken, re-sign the whole bundle ad-hoc (Google's signature is
+  // strictly better than ours — keep it whenever it holds).
+  const appBundle = join(dir, "chrome-mac-arm64", "Google Chrome for Testing.app");
+  const verify = run("codesign", ["--verify", "--deep", "--verbose=1", appBundle]);
+  if (verify.status !== 0) {
+    log("chromium: upstream signature invalid — ad-hoc re-signing the bundle");
+    const resign = run("codesign", [
+      "--force",
+      "--deep",
+      "--sign",
+      "-",
+      "--timestamp=none",
+      appBundle,
+    ]);
+    if (resign.status !== 0) {
+      fail(`codesign failed for Chrome for Testing:\n${resign.out}`);
+    }
+  }
+
+  if (!reportsVersion(executable, ["--version"], version)) {
+    fail(`staged Chromium does not report version ${version}: ${executable}`);
+  }
+  log(`staged Chrome for Testing ${version} -> ${dir}`);
+}
+
 /**
  * End-to-end proof that the three artefacts work together and offline: build a
  * second of silence with the staged ffmpeg, run it through the staged
@@ -742,6 +838,7 @@ async function main() {
   await stageYtDlp();
   await stageModel();
   await stageEmbeddings();
+  await stageChromium();
   smokeTest();
   embeddingSmokeTest();
 

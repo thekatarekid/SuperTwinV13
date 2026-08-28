@@ -21,6 +21,7 @@ import {
   embeddingModelFileUrl,
 } from "../worker/src/retrieval/embedder.ts";
 import {
+  CHROMIUM,
   MANIFEST,
   OUT_DIR,
   humanSize,
@@ -153,6 +154,40 @@ describe("tauri resources", () => {
     // externalBin renames files with a target-triple suffix and is reachable
     // only from Rust's sidecar API; the Node worker spawns these itself.
     expect(tauriConf.bundle.externalBin).toEqual(["binaries/node"]);
+  });
+});
+
+describe("the SuperTwin Browser engine (v13 P3.4)", () => {
+  it("pins a real sha-256 over https for Chrome for Testing", () => {
+    expect(CHROMIUM.archiveSha256).toMatch(SHA256);
+    expect(CHROMIUM.url.startsWith("https://")).toBe(true);
+  });
+
+  it("pins the version into the download url so the asset cannot move", () => {
+    expect(CHROMIUM.url).toContain(CHROMIUM.version);
+    expect(CHROMIUM.url).toContain("mac-arm64");
+  });
+
+  it("stages under the gitignored resources dir, not as a MANIFEST file", () => {
+    expect(CHROMIUM.dir.startsWith(`${OUT_DIR}/`)).toBe(true);
+    expect(CHROMIUM.executable.startsWith(`${CHROMIUM.dir}/`)).toBe(true);
+    // It is a directory tree, so it must NOT appear in the per-file resource
+    // assertions the media artefacts use.
+    expect(stagedFiles()).not.toContain(CHROMIUM.executable);
+  });
+
+  it("ships the chromium tree as its own tauri resource directory entry", () => {
+    expect(tauriConf.bundle.resources).toHaveProperty(
+      relative(tauriDir, CHROMIUM.dir),
+      "chromium",
+    );
+  });
+
+  it("resolves to the executable the worker's chromiumPath() expects", () => {
+    // worker/src/browser/chromium.ts holds this same relative layout.
+    expect(CHROMIUM.executable).toContain(
+      join("chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS"),
+    );
   });
 });
 

@@ -135,6 +135,8 @@ import { handleCorrectionsRoute } from "./corrections-routes.js";
 import { handleAssistRoute } from "./assist-routes.js";
 // Freshness chip + Library screens (P2.4, spec §5.4 / §14.3.2).
 import { handleLibraryRoute } from "./library-routes.js";
+// SuperTwin Browser (P3.4, spec §12): status / kill-switch / connect-accounts.
+import { handleBrowserRoute } from "../browser/routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -777,6 +779,13 @@ async function handle(
   // §14.7): the menu-bar panel, nudge window and in-app surfaces read here.
   if (path.startsWith("/api/assist/") || path.startsWith("/api/artifacts")) {
     const handled = await handleAssistRoute(req, res);
+    if (handled) return;
+  }
+
+  // SuperTwin Browser (P3.4, spec §12): status, kill-switch, resume-after-
+  // hard-stop, connect-your-accounts, session health.
+  if (path.startsWith("/api/browser/")) {
+    const handled = await handleBrowserRoute(req, res);
     if (handled) return;
   }
 

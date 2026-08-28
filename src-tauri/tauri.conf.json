@@ -40,6 +40,7 @@
     "externalBin": ["binaries/node"],
     "resources": {
       "../worker/bundle": "worker",
+      "resources/chromium": "chromium",
       "resources/bin/ffmpeg": "bin/ffmpeg",
       "resources/bin/whisper-cli": "bin/whisper-cli",
       "resources/bin/yt-dlp": "bin/yt-dlp",

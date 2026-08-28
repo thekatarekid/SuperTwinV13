@@ -125,6 +125,11 @@ import { handleSurfacesRoute } from "./surfaces-routes.js";
 // World-model reads (P1.1): people / spaces / claims / tone. Same contract —
 // returns false for a path it does not claim.
 import { handleWorldModelRoute } from "./worldmodel-routes.js";
+// Review queue + drill-down (P1.7): home, proposals approve/reject, decisions
+// ("why?"), trace reads, dev seed. Same contract.
+import { handleReviewRoute } from "./review-routes.js";
+// Corrections pipeline (P1.7, spec §14.4): drag / chips / "Tell the twin".
+import { handleCorrectionsRoute } from "./corrections-routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -732,6 +737,26 @@ async function handle(
   // Coverage strip — polled by every surface.
   if (path === "/api/coverage") {
     const handled = await handleSurfacesRoute(req, res);
+    if (handled) return;
+  }
+
+  // Review queue + drill-down (P1.7): the minimal UI's home fetch, proposal
+  // approve/reject, "why?" decisions, trace reads, and the dev seed.
+  if (
+    path === "/api/home" ||
+    path === "/api/review" ||
+    path.startsWith("/api/proposals/") ||
+    path.startsWith("/api/decisions/") ||
+    path.startsWith("/api/trace/") ||
+    path === "/api/dev/seed-review"
+  ) {
+    const handled = await handleReviewRoute(req, res);
+    if (handled) return;
+  }
+
+  // Corrections pipeline (P1.7, spec §14.4): every feedback path lands here.
+  if (path.startsWith("/api/corrections")) {
+    const handled = await handleCorrectionsRoute(req, res);
     if (handled) return;
   }
 

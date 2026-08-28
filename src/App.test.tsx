@@ -1,37 +1,73 @@
-// Smoke test for the P0.3 placeholder shell: it renders, shows the app name,
-// and polls the worker's /api/health through workerUrl(). The real V13 UI
-// suites arrive with the P1/P4 rebuild.
+// ===========================================================================
+// P1.7 shell — nav, Home sections, modal open/Esc-dismiss. (spec §14.1/§14.2)
+// ===========================================================================
 
-import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { workerUrl } from "./lib/config";
+import { stubWorker } from "./test-utils";
 
-describe("placeholder shell", () => {
-  beforeEach(() => {
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("shell", () => {
+  it("renders the top-center pill nav with the four tabs", async () => {
+    stubWorker();
+    render(<App />);
+    const nav = screen.getByRole("navigation", { name: "primary" });
+    expect(nav.textContent).toContain("Home");
+    expect(nav.textContent).toContain("Timeline");
+    expect(nav.textContent).toContain("Library");
+    expect(nav.textContent).toContain("Settings");
+    await waitFor(() => expect(screen.getByText("Book villa")).toBeTruthy());
+  });
+
+  it("renders the four Home sections from /api/home", async () => {
+    stubWorker();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Book villa")).toBeTruthy());
+    expect(screen.getByLabelText("Today")).toBeTruthy();
+    expect(screen.getByLabelText("Spaces")).toBeTruthy();
+    expect(screen.getByLabelText("Review queue")).toBeTruthy();
+    expect(screen.getByLabelText("Recent understanding")).toBeTruthy();
+    expect(screen.getByText("Goa trip with Rohan")).toBeTruthy();
+    expect(screen.getByText("New space: “Hampi trek in October”")).toBeTruthy();
+    expect(screen.getByText("Trip budget ₹6k/night")).toBeTruthy();
+  });
+
+  it("switches tabs by click and ⌘-number", async () => {
+    stubWorker();
+    render(<App />);
+    fireEvent.click(screen.getByText("▤ Library"));
+    expect(screen.getByText(/Per-source capture/)).toBeTruthy();
+    fireEvent.keyDown(window, { key: "2", metaKey: true });
+    expect(screen.getByText(/The event log rendered/)).toBeTruthy();
+    fireEvent.keyDown(window, { key: "1", metaKey: true });
+    await waitFor(() => expect(screen.getByLabelText("Today")).toBeTruthy());
+  });
+
+  it("opens a task modal with evidence and Esc dismisses it", async () => {
+    stubWorker();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Book villa")).toBeTruthy());
+    fireEvent.click(screen.getByText("Book villa"));
+    const dialog = screen.getByRole("dialog", { name: "Book villa" });
+    expect(dialog.textContent).toContain("lets lock goa 18-21 dec");
+    expect(dialog.textContent).toContain("approve-final");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows the worker-unreachable state without crashing", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({
-        json: async () => ({ status: "ok", version: "13.0.0" }),
-      })),
+      vi.fn(async () => {
+        throw new Error("down");
+      }),
     );
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("renders the app name and reports worker health from /api/health", async () => {
     render(<App />);
-    expect(screen.getByText("SuperTwinV13")).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByText("worker ok · v13.0.0")).toBeTruthy();
-    });
-    expect(fetch).toHaveBeenCalledWith(workerUrl("/api/health"));
-  });
-
-  it("points at the worker's 8013 default base URL", () => {
-    expect(workerUrl("/api/health")).toBe("http://localhost:8013/api/health");
+    await waitFor(() => expect(screen.getByText("worker unreachable")).toBeTruthy());
   });
 });

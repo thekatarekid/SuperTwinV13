@@ -30,6 +30,9 @@ use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+// P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
+mod hotkey;
+
 /// Roll the worker log over to `worker.log.old` if it already exceeds ~5 MB, so
 /// it never grows unbounded across many app launches. Best-effort: any IO error
 /// is swallowed (a failed rotation must never keep the app from starting).
@@ -252,6 +255,24 @@ pub fn run() {
                     eprintln!("[supertwinv13] failed to spawn worker sidecar: {err}");
                 }
             }
+
+            // P1.7 window chrome: translucent liquid glass. The window is
+            // transparent (tauri.conf.json) and macOS vibrancy paints the
+            // frosted material the CSS backdrop-filters sit on. Best-effort:
+            // a failure logs and the CSS fallback background takes over.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = handle.get_webview_window("main") {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                if let Err(err) =
+                    apply_vibrancy(&window, NSVisualEffectMaterial::UnderWindowBackground, None, Some(16.0))
+                {
+                    eprintln!("[supertwinv13] vibrancy unavailable: {err}");
+                }
+            }
+
+            // P1.7 summon: double-tap right-⌘ (event tap) + ⌘⇧S fallback.
+            hotkey::register_fallback_shortcut(handle);
+            hotkey::start_double_tap_listener(handle);
             Ok(())
         })
         .build(tauri::generate_context!())

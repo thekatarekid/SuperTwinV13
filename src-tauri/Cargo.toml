@@ -16,7 +16,20 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# macos-private-api: required for the transparent liquid-glass window
+# (tauri.conf.json app.macOSPrivateApi) that vibrancy paints under.
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# P1.7 window chrome: liquid-glass = transparent window + NSVisualEffectView
+# vibrancy under the CSS backdrop-filter materials.
+window-vibrancy = "0.6"
+
+# P1.7 summon hotkey: double-tap right-⌘ needs a flagsChanged event tap —
+# bare modifiers can't be registered global shortcuts.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.24"

@@ -1,0 +1,78 @@
+/* ==========================================================================
+   SuperTwinV13 design tokens — build P1.7 (spec §14, design principles §2).
+   Hand-written tokens, no framework. The window itself is transparent with
+   macOS vibrancy underneath (src-tauri), so every surface here is a glass
+   material: translucent fills + backdrop-filter. In a plain browser (dev,
+   tests) the body paints a fallback gradient so the glass still reads.
+   ========================================================================== */
+
+:root {
+  /* -- type ---------------------------------------------------------------- */
+  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-body: "Figtree", system-ui, -apple-system, sans-serif;
+
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-md: 14px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+  --text-display: 28px;
+
+  /* -- spacing (4pt grid) -------------------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* -- radii --------------------------------------------------------------- */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* -- ink ----------------------------------------------------------------- */
+  --ink: rgba(20, 22, 28, 0.92);
+  --ink-2: rgba(20, 22, 28, 0.62);
+  --ink-3: rgba(20, 22, 28, 0.40);
+  --accent: #4a5fc4;
+  --accent-ink: #ffffff;
+  --good: #2e7d5b;
+  --warn: #b3652c;
+  --danger: #b03a48;
+
+  /* -- liquid glass materials (spec §14.1: translucent liquid glass) ------- */
+  /* glass-1: page-level panels · glass-2: cards · glass-3: modal (deeper) */
+  --glass-1-bg: rgba(255, 255, 255, 0.42);
+  --glass-2-bg: rgba(255, 255, 255, 0.55);
+  --glass-3-bg: rgba(255, 255, 255, 0.72);
+  --glass-blur: saturate(1.4) blur(22px);
+  --glass-blur-deep: saturate(1.6) blur(34px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.55);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 8px 32px rgba(24, 30, 48, 0.14);
+  --glass-shadow-deep: 0 18px 60px rgba(24, 30, 48, 0.28);
+
+  --scrim: rgba(30, 34, 46, 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: rgba(240, 242, 248, 0.94);
+    --ink-2: rgba(240, 242, 248, 0.60);
+    --ink-3: rgba(240, 242, 248, 0.38);
+    --accent: #93a4f0;
+    --accent-ink: #10121a;
+
+    --glass-1-bg: rgba(28, 30, 40, 0.42);
+    --glass-2-bg: rgba(40, 43, 56, 0.52);
+    --glass-3-bg: rgba(46, 49, 64, 0.72);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.10);
+    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    --glass-shadow-deep: 0 18px 60px rgba(0, 0, 0, 0.55);
+
+    --scrim: rgba(6, 8, 14, 0.45);
+  }
+}

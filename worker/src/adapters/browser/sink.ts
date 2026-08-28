@@ -2,17 +2,16 @@
 // Event sink (build P0.8 → P0.4 seam).
 //
 // The browser watcher emits spec-§6.1 envelopes; WHERE they land is behind
-// this interface. Production wiring targets the v13 `events` table created by
-// migration 0100_v13_core (LANE A, concurrent) — coded to the SPEC column
-// shape, and guarded: while the migration has not landed (or on an old DB),
-// appends buffer in memory and a single warning is logged, so the watcher
-// never crashes the boot it rode in on.
+// this interface. Production wiring goes through db/eventlog.appendEvents()
+// — the single-writer append path P0.4 shipped (global conventions §1.4: all
+// DB writes via the single-writer; idempotent by content_hash).
 //
-// Idempotency: append is INSERT-or-skip on `content_hash` — re-reading the
-// same history rows next poll writes nothing new.
+// EventlogSink stays guarded: if an append throws (e.g. a DB mid-migration),
+// the batch buffers in memory (bounded) and is retried on the next poll — the
+// watcher never crashes the boot it rode in on.
 // ===========================================================================
 
-import type Database from "better-sqlite3";
+import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
 
 import type { V13Event } from "./envelope.js";
 
@@ -37,34 +36,37 @@ export class MemorySink implements V13EventSink {
   }
 }
 
-/** Does the open DB have the v13 events table (spec §6.1 columns)? */
-export function hasV13EventsTable(db: Database.Database): boolean {
-  try {
-    const cols = db.prepare(`PRAGMA table_info(events)`).all() as Array<{ name: string }>;
-    const names = new Set(cols.map((c) => c.name));
-    return ["id", "ts", "source", "kind", "origin", "age_band", "stream_key", "roles", "payload", "content_hash"].every(
-      (c) => names.has(c),
-    );
-  } catch {
-    return false;
-  }
+/** Map a browser envelope onto the single-writer's input shape. */
+export function toEventEnvelope(e: V13Event): EventEnvelope {
+  return {
+    id: e.id,
+    ts: e.ts,
+    capturedAt: e.captured_at,
+    source: e.source,
+    kind: e.kind,
+    origin: e.origin,
+    ageBand: e.age_band,
+    streamKey: e.stream_key,
+    actor: e.actor,
+    roles: e.roles,
+    // payload.text is the eventlog's FTS projection into events.text.
+    payload: { ...(e.payload as unknown as Record<string, unknown>), text: e.text },
+    contentHash: e.content_hash,
+    blobRefs: e.blob_refs,
+  };
 }
 
 /**
- * DB sink writing spec-§6.1 rows into `events`. While the 0100_v13_core table
- * is absent, events buffer (bounded) and one warning is emitted; `flush()`
- * retries the buffer — the watcher calls it each poll, so the backlog drains
- * the moment the migration lands.
+ * Production sink: the P0.4 single-writer (db/eventlog.ts) against the shared
+ * worker DB. A throwing append buffers (bounded) and retries next poll.
  */
-export class DbSink implements V13EventSink {
-  private readonly db: Database.Database;
+export class EventlogSink implements V13EventSink {
   private readonly log: (line: string) => void;
   private buffer: V13Event[] = [];
   private warned = false;
   private static readonly BUFFER_CAP = 50_000;
 
-  constructor(db: Database.Database, log: (line: string) => void = () => {}) {
-    this.db = db;
+  constructor(log: (line: string) => void = () => {}) {
     this.log = log;
   }
 
@@ -73,66 +75,25 @@ export class DbSink implements V13EventSink {
   }
 
   append(events: readonly V13Event[]): number {
-    if (!hasV13EventsTable(this.db)) {
+    const batch = [...this.buffer, ...events];
+    if (batch.length === 0) return 0;
+    this.buffer = [];
+    try {
+      const r = appendEvents(batch.map(toEventEnvelope));
+      this.warned = false;
+      return r.inserted;
+    } catch (err) {
       if (!this.warned) {
         this.warned = true;
-        this.log("[browser] v13 events table not present yet — buffering (0100_v13_core pending)");
+        this.log(`[browser] event append failed (buffering for retry): ${(err as Error).message}`);
       }
-      this.buffer.push(...events);
-      if (this.buffer.length > DbSink.BUFFER_CAP) {
-        this.buffer = this.buffer.slice(this.buffer.length - DbSink.BUFFER_CAP);
-      }
+      this.buffer = batch.slice(-EventlogSink.BUFFER_CAP);
       return 0;
     }
-    const batch = [...this.buffer, ...events];
-    this.buffer = [];
-    return this.write(batch);
   }
 
+  /** Retry whatever is buffered. */
   flush(): number {
-    if (this.buffer.length === 0) return 0;
     return this.append([]);
-  }
-
-  private write(events: readonly V13Event[]): number {
-    const stmt = this.db.prepare(
-      `INSERT INTO events (id, ts, captured_at, source, kind, origin, age_band,
-                           stream_key, actor, roles, text, payload, content_hash, blob_refs)
-       SELECT @id, @ts, @captured_at, @source, @kind, @origin, @age_band,
-              @stream_key, @actor, @roles, @text, @payload, @content_hash, @blob_refs
-        WHERE NOT EXISTS (SELECT 1 FROM events WHERE content_hash = @content_hash)`,
-    );
-    let n = 0;
-    const tx = this.db.transaction((evs: readonly V13Event[]) => {
-      for (const e of evs) {
-        const info = stmt.run({
-          id: e.id,
-          ts: e.ts,
-          captured_at: e.captured_at,
-          source: e.source,
-          kind: e.kind,
-          origin: e.origin,
-          age_band: e.age_band,
-          stream_key: e.stream_key,
-          actor: e.actor,
-          roles: JSON.stringify(e.roles),
-          text: e.text,
-          payload: JSON.stringify(e.payload),
-          content_hash: e.content_hash,
-          blob_refs: JSON.stringify(e.blob_refs),
-        });
-        n += info.changes;
-      }
-    });
-    try {
-      tx(events);
-    } catch (err) {
-      // Column drift between the concurrent migration and the spec shape must
-      // not crash capture — buffer and warn, exactly like a missing table.
-      this.log(`[browser] events append failed (buffering): ${(err as Error).message}`);
-      this.buffer.push(...events);
-      return 0;
-    }
-    return n;
   }
 }

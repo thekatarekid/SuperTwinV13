@@ -1,20 +1,18 @@
 // ===========================================================================
 // Browser watcher public surface (build P0.8).
 //
-// `startBrowserWatcher(db)` is the production entrypoint the worker boot
-// calls: discovers profiles, wires the DB sink (buffers until 0100_v13_core
-// lands), starts polling. Everything degrades gracefully — no profiles, no
-// table, locked files: the worker still boots.
+// `startBrowserWatcher()` is the production entrypoint the worker boot
+// calls: discovers profiles, wires the single-writer sink (db/eventlog.ts,
+// P0.4), starts polling. Everything degrades gracefully — no profiles,
+// locked files, a throwing append: the worker still boots.
 // ===========================================================================
 
-import type Database from "better-sqlite3";
-
 import { BrowserWatcher, discoverProfiles, type BrowserWatcherOptions } from "./watcher.js";
-import { DbSink } from "./sink.js";
+import { EventlogSink } from "./sink.js";
 
 export { BrowserWatcher, discoverProfiles, BROWSER_SOURCE_ID } from "./watcher.js";
 export type { BrowserProfile, BrowserWatcherOptions } from "./watcher.js";
-export { DbSink, MemorySink, hasV13EventsTable, type V13EventSink } from "./sink.js";
+export { EventlogSink, MemorySink, toEventEnvelope, type V13EventSink } from "./sink.js";
 export {
   ageBandOf,
   browserContentHash,
@@ -54,16 +52,13 @@ export {
 export { parseChromiumBookmarks, readChromiumBookmarks, type RawBookmark } from "./bookmarks.js";
 
 /**
- * Production wiring: discover real profiles, poll into the given DB.
- * Never throws; returns the watcher (already started).
+ * Production wiring: discover real profiles, poll into the shared worker DB
+ * via the single-writer path. Never throws; returns the watcher (started).
  */
-export function startBrowserWatcher(
-  db: Database.Database,
-  opts: Partial<BrowserWatcherOptions> = {},
-): BrowserWatcher {
+export function startBrowserWatcher(opts: Partial<BrowserWatcherOptions> = {}): BrowserWatcher {
   const log = opts.log ?? ((line: string) => console.error(line));
   const watcher = new BrowserWatcher({
-    sink: opts.sink ?? new DbSink(db, log),
+    sink: opts.sink ?? new EventlogSink(log),
     profiles: opts.profiles ?? discoverProfiles(),
     log,
     ...opts,

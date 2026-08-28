@@ -152,19 +152,3 @@ export function makeChromeBookmarks(
   writeFileSync(path, JSON.stringify(doc));
   return path;
 }
-
-// ---- v13 events table (spec §6.1 shape, as 0100_v13_core will create) ------
-
-export function makeV13EventsDb(dir: string): Database.Database {
-  const db = new Database(join(dir, "events.db"));
-  db.exec(`
-    CREATE TABLE events (
-      id TEXT PRIMARY KEY, ts TEXT NOT NULL, captured_at TEXT NOT NULL,
-      source TEXT NOT NULL, kind TEXT NOT NULL, origin TEXT NOT NULL,
-      age_band TEXT NOT NULL, stream_key TEXT NOT NULL, actor TEXT,
-      roles TEXT NOT NULL, text TEXT, payload TEXT NOT NULL,
-      content_hash TEXT NOT NULL UNIQUE, blob_refs TEXT NOT NULL DEFAULT '[]'
-    );
-  `);
-  return db;
-}

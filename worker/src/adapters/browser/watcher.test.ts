@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { utimesSync, writeFileSync } from "node:fs";
 
 import { BrowserWatcher, discoverProfiles } from "./watcher.js";
-import { DbSink, hasV13EventsTable, MemorySink } from "./sink.js";
+import { EventlogSink, MemorySink } from "./sink.js";
 import { setHistoryScratchDir } from "./history-db.js";
 import type { BrowserBookmarkPayload, BrowserVisitPayload } from "./envelope.js";
 import { ageBandOf, ulid } from "./envelope.js";
@@ -11,11 +11,10 @@ import {
   makeChromeBookmarks,
   makeChromeHistory,
   makeSafariHistory,
-  makeV13EventsDb,
   tmpDir,
   T_TYPED,
 } from "./test-fixtures.js";
-import Database from "better-sqlite3";
+import { getDb, runMigrations } from "../../db/connection.js";
 
 const NOW = Date.parse("2026-08-28T12:00:00Z");
 const MIN = 60_000;
@@ -187,55 +186,39 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
   });
 });
 
-describe("DbSink (spec §6.1 table)", () => {
-  it("writes envelopes and dedupes on content_hash", () => {
-    const dir = tmpDir();
-    const db = makeV13EventsDb(dir);
-    expect(hasV13EventsTable(db)).toBe(true);
+describe("EventlogSink (single-writer path, 0100_v13_core schema)", () => {
+  it("writes envelopes through db/eventlog and dedupes on content_hash", () => {
+    process.env.SUPERTWIN_DB_PATH = join(tmpDir(), "worker.db");
+    runMigrations();
+    const db = getDb();
 
     const histDir = tmpDir();
-    makeChromeHistory(histDir, [{ url: "https://a.example/", tsMs: NOW - 5 * MIN, dwellMs: 60_000 }]);
-    const sink = new DbSink(db);
+    makeChromeHistory(histDir, [{ url: "https://a.example/", title: "A", tsMs: NOW - 5 * MIN, dwellMs: 60_000 }]);
+    const sink = new EventlogSink();
     const w = new BrowserWatcher({ sink, profiles: [{ ...chromeProfile(histDir), bookmarksPath: null }], sinceMs: 0, now: () => NOW });
     expect(w.poll()).toBe(1);
 
-    const row = db.prepare(`SELECT * FROM events`).get() as Record<string, string>;
-    expect(row.source).toBe("browser");
+    const row = db
+      .prepare(`SELECT source_id, kind, origin, age_band, stream_key, actor, roles_json, payload_json, text FROM events`)
+      .get() as Record<string, string>;
+    expect(row.source_id).toBe("browser");
     expect(row.kind).toBe("browser.visit");
-    expect(JSON.parse(row.roles).sender).toBe("self");
-    expect(JSON.parse(row.payload).url).toBe("https://a.example/");
-    expect(row.text).toContain("https://a.example/");
+    expect(row.origin).toBe("live"); // 5 min old, inside the live window
+    expect(row.age_band).toBe("A");
+    expect(row.actor).toBe("self");
+    expect(JSON.parse(row.roles_json).sender).toBe("self");
+    expect(JSON.parse(row.payload_json).url).toBe("https://a.example/");
+    expect(row.text).toContain("https://a.example/"); // FTS projection
+
+    // A stream row exists for the chain key (single-writer upserts it).
+    const stream = db.prepare(`SELECT external_key FROM streams WHERE source_id = 'browser'`).get() as {
+      external_key: string;
+    };
+    expect(stream.external_key).toBe(row.stream_key);
 
     // Re-append the same envelope (fresh watcher, cursor reset): dedupe wins.
     const w2 = new BrowserWatcher({ sink, profiles: [{ ...chromeProfile(histDir), bookmarksPath: null }], sinceMs: 0, now: () => NOW });
     expect(w2.poll()).toBe(0);
-    expect((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n).toBe(1);
-    db.close();
-  });
-
-  it("buffers while the v13 table is absent, drains once it lands", () => {
-    const dir = tmpDir();
-    const db = new Database(join(dir, "bare.db")); // no events table yet
-    const warnings: string[] = [];
-    const sink = new DbSink(db, (l) => warnings.push(l));
-
-    const histDir = tmpDir();
-    makeChromeHistory(histDir, [{ url: "https://a.example/", tsMs: NOW - 5 * MIN, dwellMs: 60_000 }]);
-    const w = new BrowserWatcher({ sink, profiles: [{ ...chromeProfile(histDir), bookmarksPath: null }], sinceMs: 0, now: () => NOW });
-    expect(w.poll()).toBe(0); // buffered, not written, not crashed
-    expect(sink.pending).toBe(1);
-    expect(warnings.some((l) => l.includes("0100_v13_core"))).toBe(true);
-
-    // Migration lands (same shape the fixture uses):
-    db.exec(`CREATE TABLE events (
-      id TEXT PRIMARY KEY, ts TEXT NOT NULL, captured_at TEXT NOT NULL,
-      source TEXT NOT NULL, kind TEXT NOT NULL, origin TEXT NOT NULL,
-      age_band TEXT NOT NULL, stream_key TEXT NOT NULL, actor TEXT,
-      roles TEXT NOT NULL, text TEXT, payload TEXT NOT NULL,
-      content_hash TEXT NOT NULL UNIQUE, blob_refs TEXT NOT NULL DEFAULT '[]')`);
-    expect(sink.flush()).toBe(1);
-    expect(sink.pending).toBe(0);
-    expect((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n).toBe(1);
-    db.close();
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM events WHERE source_id='browser'`).get() as { n: number }).n).toBe(1);
   });
 });

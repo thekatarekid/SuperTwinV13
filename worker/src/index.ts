@@ -16,7 +16,7 @@
 // steady drivers, embedder calibration, tier ensure) was deleted in P0.3; the
 // V13 pipeline lands in P0.4+ (event log, cursors/windows, orient/understand).
 
-import { runMigrations, getDb } from "./db/index.js";
+import { runMigrations } from "./db/index.js";
 import { startServer, type ServerHandle } from "./server/index.js";
 import { register } from "./providers/index.js";
 import { claudeLocalProvider } from "./providers/claude-local/index.js";
@@ -74,12 +74,13 @@ async function main(): Promise<void> {
   }
 
   // ---- Browser watcher (P0.8): Chrome/Safari/Arc history + bookmarks into
-  // v13 `browser.visit` / `browser.bookmark` events. Fully guarded: a machine
-  // with no profiles, or a DB where 0100_v13_core has not landed yet, degrades
-  // to an idle watcher / buffered sink — never a boot failure.
+  // v13 `browser.visit` / `browser.bookmark` events via the single-writer
+  // append path (db/eventlog.ts, P0.4). Fully guarded: a machine with no
+  // profiles, or a throwing append, degrades to an idle watcher / buffered
+  // sink — never a boot failure.
   let browserWatcher: BrowserWatcher | null = null;
   try {
-    browserWatcher = startBrowserWatcher(getDb(), { log: (line) => console.error(line) });
+    browserWatcher = startBrowserWatcher({ log: (line) => console.error(line) });
   } catch (err) {
     console.error("[worker] browser watcher init failed (continuing):", err);
   }

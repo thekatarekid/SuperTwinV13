@@ -52,6 +52,19 @@ export {
   scheduleExecutor,
   timeExecutor,
 } from "./p3.js";
+export {
+  circlesExecutor,
+  feedbackExecutor,
+  tracesExecutor,
+  userObjectsExecutor,
+} from "./p4.js";
+
+import {
+  circlesExecutor,
+  feedbackExecutor,
+  tracesExecutor,
+  userObjectsExecutor,
+} from "./p4.js";
 
 export async function registerProductExecutors(): Promise<void> {
   registerExecutor("selftest.stub", stubExecutor);
@@ -78,4 +91,11 @@ export async function registerProductExecutors(): Promise<void> {
   registerExecutor("time", timeExecutor);
   registerExecutor("executor", exeExecutor);
   registerExecutor("browser", browserEvalExecutor);
+  // P4 gates: the grounded bar (USR), the People-view circle edit (CIR-04),
+  // the person-card relationship correction (FIX-03) and the end-to-end
+  // why?→trace chain (TRC-02).
+  registerExecutor("user-objects", userObjectsExecutor);
+  registerExecutor("circles", circlesExecutor);
+  registerExecutor("feedback", feedbackExecutor);
+  registerExecutor("traces", tracesExecutor);
 }

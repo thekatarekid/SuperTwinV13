@@ -24,13 +24,13 @@ import { getDb } from "../db/connection.js";
 import { markReversed, writeDecision } from "../db/decisions.js";
 import { isCircle } from "../entities/registry.js";
 import { getSelectedModel } from "../db/settings.js";
+import { type ParsedCorrection } from "../prompts/correction-parse.v1.js";
 import {
-  CORRECTION_PARSE_INSTRUCTIONS,
-  CORRECTION_PARSE_VERSION,
+  CORRECTION_PARSE_V2_INSTRUCTIONS,
+  CORRECTION_PARSE_V2_VERSION,
   packCorrectionInput,
-  parseCorrectionOutput,
-  type ParsedCorrection,
-} from "../prompts/correction-parse.v1.js";
+  parseCorrectionOutputV2,
+} from "../prompts/correction-parse.v2.js";
 import { runPrompt } from "../prompts/runner.js";
 import { writeEvalDraft } from "./eval-drafts.js";
 
@@ -40,11 +40,10 @@ export interface CorrectionTarget {
 }
 
 /**
- * The structured corrections the pipeline applies. The model parser emits the
- * ParsedCorrection subset (correction-parse.v1); the two person-shaped types
- * are direct-manipulation-only for now (People-view drag = set_circle, the
- * person card's relationship fix = set_relationship) — adding them to the
- * utterance path means cutting a correction-parse.v2 + eval run.
+ * The structured corrections the pipeline applies. Direct-manipulation paths
+ * (People-view drag = set_circle, chips) send this shape; the utterance path
+ * parses into it via correction-parse.v2, which added the two person-target
+ * types (set_relationship / set_circle) for FIX-03/CIR-04.
  */
 export type StructuredCorrection = Omit<ParsedCorrection, "type"> & {
   type: ParsedCorrection["type"] | "set_circle" | "set_relationship";
@@ -70,7 +69,7 @@ export type CorrectionParser = (
   target: CorrectionTarget,
   state: unknown,
   utterance: string,
-) => Promise<ParsedCorrection | null>;
+) => Promise<StructuredCorrection | null>;
 
 /**
  * The production parser: one Haiku call through the prompt runner — traced
@@ -78,8 +77,8 @@ export type CorrectionParser = (
  */
 export const parseViaModel: CorrectionParser = async (target, state, utterance) => {
   const result = await runPrompt({
-    callType: CORRECTION_PARSE_VERSION,
-    legend: CORRECTION_PARSE_INSTRUCTIONS,
+    callType: CORRECTION_PARSE_V2_VERSION,
+    legend: CORRECTION_PARSE_V2_INSTRUCTIONS,
     instructions: "",
     user: packCorrectionInput({ ...target, state }, utterance),
     role: "classify",
@@ -89,7 +88,7 @@ export const parseViaModel: CorrectionParser = async (target, state, utterance) 
     unit: { kind: `correction-${target.kind}`, id: target.id },
   });
   const raw = result.responses.join("\n");
-  return parseCorrectionOutput(raw);
+  return parseCorrectionOutputV2(raw);
 };
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

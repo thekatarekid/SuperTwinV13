@@ -118,6 +118,7 @@ import {
 } from "../retrieval/indexer.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleOpsRoute } from "./ops-routes.js";
+import { handleScreenRoute } from "./screen-routes.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // V2 product surfaces (§3.2). Each owns its own prefix, takes no deps arg, and
 // returns false for a path it does not claim, exactly like handleOpsRoute.
@@ -130,6 +131,8 @@ import { handleWorldModelRoute } from "./worldmodel-routes.js";
 import { handleReviewRoute } from "./review-routes.js";
 // Corrections pipeline (P1.7, spec §14.4): drag / chips / "Tell the twin".
 import { handleCorrectionsRoute } from "./corrections-routes.js";
+// Assist artifacts + nudge state + capture quick-pause (P2.3, spec §14.7).
+import { handleAssistRoute } from "./assist-routes.js";
 // Freshness chip + Library screens (P2.4, spec §5.4 / §14.3.2).
 import { handleLibraryRoute } from "./library-routes.js";
 import {
@@ -709,6 +712,13 @@ async function handle(
     if (handled) return;
   }
 
+  // --- Screen source (P2.1): sidecar status (incl. Accessibility permission
+  // for onboarding), kill-switch pause, per-app privacy pause (spec §4.3).
+  if (path.startsWith("/api/screen/")) {
+    const handled = await handleScreenRoute(req, res);
+    if (handled) return;
+  }
+
   // --- Ops surface (item 4.4): import progress, quarantine browser, question
   // queue, per-lane pause/resume, undo-run. Owns everything under /api/ops/.
   if (path.startsWith("/api/ops/")) {
@@ -760,6 +770,13 @@ async function handle(
   // capture views, per-stream pause, and the honest cascading screen delete.
   if (path === "/api/freshness" || path.startsWith("/api/library/")) {
     const handled = await handleLibraryRoute(req, res);
+    if (handled) return;
+  }
+
+  // Assist artifacts + nudge state + capture quick-pause (P2.3, spec §10.5,
+  // §14.7): the menu-bar panel, nudge window and in-app surfaces read here.
+  if (path.startsWith("/api/assist/") || path.startsWith("/api/artifacts")) {
+    const handled = await handleAssistRoute(req, res);
     if (handled) return;
   }
 

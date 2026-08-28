@@ -26,6 +26,7 @@ import {
 } from "./lib/api";
 import { hideMainWindow } from "./lib/tauri";
 import { FreshnessChip } from "./components/FreshnessChip";
+import { AccessibilityOnboarding } from "./components/AccessibilityOnboarding";
 import { GroundedBar, type BarLock } from "./components/GroundedBar";
 import { ModalFrame, parseEvidence } from "./components/Modal";
 import { Home } from "./screens/Home";
@@ -171,6 +172,8 @@ export function App(): JSX.Element {
         </nav>
         <FreshnessChip />
       </div>
+
+      <AccessibilityOnboarding />
 
       <main className="screen">
         {tab === "home" && (

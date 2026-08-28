@@ -1,0 +1,6 @@
+# Built sidecar binary (host + cross builds). Regenerated via `./build.sh`;
+# the Tauri packaging step copies it into worker/bundle/bin/.
+/screenwatch
+
+# swiftc/test build products (module, static lib, overlay, test runner).
+/.build/

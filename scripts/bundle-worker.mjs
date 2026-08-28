@@ -84,6 +84,11 @@ const NODE_MODULES_DST = join(BUNDLE_DIR, "node_modules");
 const GO_SRC_DIR = join(repoRoot, "sources", "whatsapp-go");
 const GO_BIN_DIR = join(BUNDLE_DIR, "bin");
 const GO_BIN_OUT = join(GO_BIN_DIR, "whatsapp-go");
+
+// --- Swift screenwatch sidecar (P2.1): staged the same way — the worker
+// resolves it at runtime via join(__dirname_of_worker.cjs, "bin/screenwatch").
+const SCREENWATCH_SRC_DIR = join(repoRoot, "sources", "screenwatch");
+const SCREENWATCH_BIN_OUT = join(GO_BIN_DIR, "screenwatch");
 // Ad-hoc signing uses the SAME entitlements as the outer app / node sidecar so
 // the nested Mach-O runs under the hardened runtime once the .app is signed.
 const ENTITLEMENTS = join(repoRoot, "src-tauri", "entitlements.plist");
@@ -406,6 +411,89 @@ function verifyGoDaemon() {
   log("mock spin: shutdown -> exit 0 (OK)");
 }
 
+// ---------------------------------------------------------------------------
+// Swift screenwatch sidecar (P2.1): build.sh (arm64) -> copy -> chmod ->
+// ad-hoc sign -> verify — the whatsapp-go recipe, swiftc instead of go.
+// ---------------------------------------------------------------------------
+function bundleScreenwatch() {
+  if (!existsSync(SCREENWATCH_SRC_DIR)) {
+    fail(`screenwatch source not found: ${SCREENWATCH_SRC_DIR}`);
+  }
+  if (!existsSync(ENTITLEMENTS)) {
+    fail(`entitlements not found (needed to sign screenwatch): ${ENTITLEMENTS}`);
+  }
+
+  mkdirSync(GO_BIN_DIR, { recursive: true });
+
+  log(`swift build (arm64/darwin) ${SCREENWATCH_SRC_DIR} -> ${SCREENWATCH_BIN_OUT}`);
+  const swiftBuild = run("bash", ["build.sh", "arm64"], {
+    cwd: SCREENWATCH_SRC_DIR,
+  });
+  const built = join(SCREENWATCH_SRC_DIR, "screenwatch");
+  if (swiftBuild.status !== 0 || !existsSync(built)) {
+    fail(`screenwatch build failed (status=${swiftBuild.status}):\n${swiftBuild.out}`);
+  }
+  cpSync(built, SCREENWATCH_BIN_OUT);
+  chmodSync(SCREENWATCH_BIN_OUT, 0o755);
+
+  log(`codesign (ad-hoc, hardened runtime) ${SCREENWATCH_BIN_OUT}`);
+  const sign = run("codesign", [
+    "--force",
+    "--sign",
+    "-",
+    "--timestamp=none",
+    "--options",
+    "runtime",
+    "--entitlements",
+    ENTITLEMENTS,
+    SCREENWATCH_BIN_OUT,
+  ]);
+  if (sign.status !== 0) {
+    fail(`codesign failed (status=${sign.status}):\n${sign.out}`);
+  }
+
+  verifyScreenwatch();
+}
+
+function verifyScreenwatch() {
+  if (!existsSync(SCREENWATCH_BIN_OUT)) {
+    fail(`screenwatch missing after build: ${SCREENWATCH_BIN_OUT}`);
+  }
+  const mode = statSync(SCREENWATCH_BIN_OUT).mode;
+  if (!(mode & 0o111)) fail(`screenwatch is not executable: ${SCREENWATCH_BIN_OUT}`);
+
+  const fileOut = run("file", [SCREENWATCH_BIN_OUT]).out.trim();
+  if (!/Mach-O/.test(fileOut) || !/arm64/.test(fileOut)) {
+    fail(`screenwatch is not a Mach-O arm64 binary:\n  ${fileOut}`);
+  }
+  log(`file: ${fileOut.replace(`${SCREENWATCH_BIN_OUT}: `, "")}`);
+
+  const dvvv = run("codesign", ["-dvvv", SCREENWATCH_BIN_OUT]);
+  if (dvvv.status !== 0) {
+    fail(`codesign -dvvv failed (unsigned?):\n${dvvv.out}`);
+  }
+  if (!/Signature=adhoc/.test(dvvv.out)) {
+    fail(`screenwatch is not ad-hoc signed:\n${dvvv.out}`);
+  }
+
+  const vfy = run("codesign", ["--verify", "--verbose=2", SCREENWATCH_BIN_OUT]);
+  if (vfy.status !== 0) {
+    fail(`codesign --verify failed:\n${vfy.out}`);
+  }
+
+  // Mock spin FROM THE BUNDLE PATH: `shutdown` on stdin in --mock mode; a
+  // clean exit 0 proves the binary loads and speaks the NDJSON protocol.
+  const spin = run(SCREENWATCH_BIN_OUT, ["--mock"], {
+    input: '{"cmd":"shutdown"}\n',
+  });
+  if (spin.status !== 0) {
+    fail(
+      `screenwatch mock spin did not exit cleanly (status=${spin.status}):\n${spin.out}`,
+    );
+  }
+  log("screenwatch mock spin: shutdown -> exit 0 (OK)");
+}
+
 async function main() {
   // --- Clean slate so stale artifacts never leak into the bundle.
   rmSync(BUNDLE_DIR, { recursive: true, force: true });
@@ -495,15 +583,20 @@ async function main() {
   // --- 5. Compile + sign + verify the Go WhatsApp daemon INTO the bundle.
   bundleGoDaemon();
 
+  // --- 6. Compile + sign + verify the Swift screenwatch sidecar (P2.1).
+  bundleScreenwatch();
+
   // --- Summary.
   const bundleBytes = statSync(OUT_CJS).size;
   const addonBytes = statSync(addon).size;
   const daemonBytes = statSync(GO_BIN_OUT).size;
+  const screenBytes = statSync(SCREENWATCH_BIN_OUT).size;
   const totalBytes = dirSize(BUNDLE_DIR);
   log("----------------------------------------------------------------");
   log(`worker.cjs         : ${humanSize(bundleBytes)}`);
   log(`better_sqlite3.node: ${humanSize(addonBytes)} (staged OK)`);
   log(`bin/whatsapp-go    : ${humanSize(daemonBytes)} (arm64, ad-hoc signed OK)`);
+  log(`bin/screenwatch    : ${humanSize(screenBytes)} (arm64, ad-hoc signed OK)`);
   log(`bundle/ total      : ${humanSize(totalBytes)}`);
   log(`entry              : worker/bundle/worker.cjs`);
   log("----------------------------------------------------------------");

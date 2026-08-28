@@ -1,0 +1,88 @@
+{
+  "captures": [
+    {
+      "ts": "2026-08-28T10:00:00.000Z",
+      "bundle_id": "com.apple.TextEdit",
+      "app_name": "TextEdit",
+      "window_title": "notes.txt",
+      "doc_key": "/Users/u/notes.txt",
+      "trigger": "app_switch",
+      "text": "meeting notes\nagenda: budget",
+      "links": [],
+      "files": ["file:///Users/u/notes.txt"],
+      "ax_private": false
+    },
+    {
+      "ts": "2026-08-28T10:00:20.000Z",
+      "bundle_id": "com.google.Chrome",
+      "app_name": "Chrome",
+      "window_title": "Docs — Roadmap",
+      "doc_key": "https://docs.example.com/roadmap",
+      "trigger": "tab_switch",
+      "text": "Roadmap Q3\nship the sidecar\nsee https://issues.example.com/42",
+      "links": ["https://docs.example.com/roadmap", "https://issues.example.com/42"],
+      "files": [],
+      "ax_private": false
+    },
+    {
+      "ts": "2026-08-28T10:00:40.000Z",
+      "bundle_id": "com.apple.TextEdit",
+      "app_name": "TextEdit",
+      "window_title": "notes.txt",
+      "doc_key": "/Users/u/notes.txt",
+      "trigger": "typing_pause",
+      "text": "meeting notes\nagenda: budget\naction: email finance",
+      "links": [],
+      "files": ["file:///Users/u/notes.txt"],
+      "ax_private": false
+    },
+    {
+      "ts": "2026-08-28T10:01:00.000Z",
+      "bundle_id": "com.google.Chrome",
+      "app_name": "Chrome",
+      "window_title": "secret plans (Incognito)",
+      "doc_key": "https://secret.example.com",
+      "trigger": "tab_switch",
+      "text": "SECRET-INCOGNITO-CONTENT",
+      "links": ["https://secret.example.com"],
+      "files": [],
+      "ax_private": false
+    },
+    {
+      "ts": "2026-08-28T10:01:20.000Z",
+      "bundle_id": "com.1password.1password",
+      "app_name": "1Password",
+      "window_title": "Vault",
+      "doc_key": "vault",
+      "trigger": "app_switch",
+      "text": "SECRET-VAULT-PASSWORD-12345",
+      "links": [],
+      "files": [],
+      "ax_private": false
+    },
+    {
+      "ts": "2026-08-28T10:01:40.000Z",
+      "bundle_id": "com.apple.TextEdit",
+      "app_name": "TextEdit",
+      "window_title": "notes.txt",
+      "doc_key": "/Users/u/notes.txt",
+      "trigger": "heartbeat",
+      "text": "meeting notes\nagenda: budget\naction: email finance",
+      "links": [],
+      "files": ["file:///Users/u/notes.txt"],
+      "ax_private": false
+    },
+    {
+      "ts": "2026-08-28T10:02:00.000Z",
+      "bundle_id": "com.apple.Safari",
+      "app_name": "Safari",
+      "window_title": "reading — Private Browsing",
+      "doc_key": "https://private.example.com",
+      "trigger": "tab_switch",
+      "text": "SECRET-PRIVATE-SAFARI",
+      "links": [],
+      "files": [],
+      "ax_private": true
+    }
+  ]
+}

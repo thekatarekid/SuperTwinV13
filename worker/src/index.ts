@@ -25,6 +25,7 @@ import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
 import { Ingestion } from "./ingest/index.js";
 import { startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/index.js";
+import { startScreenWatcher, type ScreenAdapter } from "./adapters/screen/index.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
@@ -96,6 +97,19 @@ async function main(): Promise<void> {
     browserWatcher = startBrowserWatcher({ log: (line) => console.error(line) });
   } catch (err) {
     console.error("[worker] browser watcher init failed (continuing):", err);
+  }
+
+  // ---- Screen watcher (P2.1): the screenwatch Swift sidecar (AX capture,
+  // privacy IN the sidecar per spec §4.3) supervised into `screen.snapshot`
+  // events via the single-writer. Guarded the same way as the browser watcher:
+  // a missing binary or denied Accessibility permission degrades to a status
+  // the UI can surface (/api/screen/status) — never a boot failure.
+  // SUPERTWIN_SCREENWATCH_MOCK=1 passes --mock through to the sidecar.
+  let screenWatcher: ScreenAdapter | null = null;
+  try {
+    screenWatcher = startScreenWatcher({ log: (line) => console.error(line) });
+  } catch (err) {
+    console.error("[worker] screen watcher init failed (continuing):", err);
   }
 
   // ---- Tier backfill (P1.1, restored from V11 — §9.3 rule 4: tiering must
@@ -177,6 +191,7 @@ async function main(): Promise<void> {
       assistLane.stop();
       traceRetention.stop();
       browserWatcher?.stop();
+      if (screenWatcher) await screenWatcher.disconnect();
       if (adapter) await adapter.disconnect();
       // ...then stop accepting connections and let sockets drain.
       await server.close();

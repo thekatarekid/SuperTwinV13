@@ -461,3 +461,63 @@ body:not(.tauri) {
   margin: 0 auto;
   color: var(--ink-2);
 }
+
+/* -- Library (P2.4, spec §14.3.2) ------------------------------------------ */
+
+.library {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.library .row.static {
+  cursor: default;
+}
+
+.library .row.static > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+  padding: var(--sp-1) 0;
+}
+
+.day-strip-bar {
+  width: 8px;
+  border-radius: 2px;
+  background: var(--ink-3);
+  opacity: 0.7;
+}
+
+.privacy-line {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  margin-top: var(--sp-2);
+}
+
+/* -- freshness chip (P2.4, spec §5.4) -------------------------------------- */
+
+.nav-row {
+  position: relative;
+}
+
+.freshness-chip {
+  position: absolute;
+  right: var(--sp-4);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.freshness-chip.lagging {
+  color: var(--ink);
+  border-color: var(--ink-2);
+}

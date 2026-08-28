@@ -130,3 +130,202 @@ export const postCorrection = (req: {
 
 export const undoCorrection = (id: string): Promise<{ undone: boolean }> =>
   request(`/api/corrections/${encodeURIComponent(id)}/undo`, post());
+
+// ---- Screen source (P2.1, spec §4.2.2 / §4.3) ------------------------------
+
+export interface ScreenStatus {
+  running: boolean;
+  state: string;
+  paused?: boolean;
+  pausedApps?: string[];
+  /** False while macOS Accessibility permission is missing. */
+  permission?: boolean;
+  drops?: Record<string, number>;
+  snapshots?: number;
+  /** Deep link into System Settings › Privacy & Security › Accessibility. */
+  settingsUrl: string;
+}
+
+export const fetchScreenStatus = (): Promise<ScreenStatus> => request("/api/screen/status");
+
+export const pauseScreen = (paused: boolean): Promise<ScreenStatus> =>
+  request("/api/screen/pause", post({ paused }));
+
+// ---- Freshness + Library (P2.4, spec §5.4 / §14.3.2) -----------------------
+
+export interface SourceFreshness {
+  source_id: string;
+  captured_from: string | null;
+  captured_to: string | null;
+  understood_from: string | null;
+  understood_to: string | null;
+  event_count: number;
+  understood_count: number;
+  pending_count: number;
+  lag_minutes: number | null;
+  backfill_complete: boolean;
+  understood_percent: number;
+  label: string | null;
+  detail: string;
+}
+
+export interface FreshnessOverview {
+  sources: SourceFreshness[];
+  label: string | null;
+  lag_minutes: number | null;
+}
+
+export const fetchFreshness = (): Promise<FreshnessOverview> => request("/api/freshness");
+
+export interface ChatStreamRow {
+  id: string;
+  label: string | null;
+  external_key: string;
+  stream_kind: string | null;
+  tier: string | null;
+  category: string | null;
+  capture_paused: number;
+  knows_from: string | null;
+  last_ts: string | null;
+  today_count: number;
+  event_count: number;
+}
+
+export const fetchLibraryChats = (): Promise<{ streams: ChatStreamRow[] }> =>
+  request("/api/library/chats");
+
+export interface BrowserChainVisit {
+  ts: string;
+  url: string;
+  title: string | null;
+  dwell_ms: number;
+}
+
+export interface LibraryBrowser {
+  domains_today: { domain: string; visits: number }[];
+  chains: {
+    stream_key: string;
+    started_at: string;
+    ended_at: string;
+    visits: BrowserChainVisit[];
+    space_label: string | null;
+  }[];
+  bookmarks: { ts: string; url: string; title: string | null; folder: string | null }[];
+}
+
+export const fetchLibraryBrowser = (): Promise<LibraryBrowser> => request("/api/library/browser");
+
+export interface ScreenSessionCard {
+  stream_key: string;
+  app: string;
+  started_at: string;
+  ended_at: string;
+  minutes: number;
+  event_count: number;
+}
+
+export interface LibraryScreen {
+  day: string;
+  hours: number[];
+  sessions: ScreenSessionCard[];
+  paused: boolean;
+}
+
+export const fetchLibraryScreen = (day?: string): Promise<LibraryScreen> =>
+  request(`/api/library/screen${day ? `?day=${encodeURIComponent(day)}` : ""}`);
+
+export const pauseStream = (
+  streamId: string,
+  paused: boolean,
+): Promise<{ stream_id: string; paused: boolean; decision_id: string | null }> =>
+  request(`/api/library/streams/${encodeURIComponent(streamId)}/pause`, post({ paused }));
+
+export interface CascadeReport {
+  events_deleted: number;
+  episodes_deleted: number;
+  claim_versions_deleted: number;
+  claims_deleted: number;
+  tasks_deleted: number;
+  decision_id: string | null;
+}
+
+export const deleteScreenSpan = (req: {
+  start_ts: string;
+  end_ts: string;
+  stream_key?: string;
+}): Promise<{ report: CascadeReport }> => request("/api/library/screen/delete", post(req));
+
+// ---- Assist artifacts + nudges (P2.2/P2.3, spec §10.5 / §14.7) -------------
+
+export type ArtifactStatus = "new" | "seen" | "dismissed" | "graduated" | "expired";
+
+export interface ArtifactRow {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string | null;
+  bodyJson: string | null;
+  intent: string | null;
+  reasoning: string | null;
+  spaceId: string | null;
+  taskId: string | null;
+  topicKey: string | null;
+  producer: "assist" | "executor";
+  status: ArtifactStatus;
+  nudgedAt: string | null;
+  seenAt: string | null;
+  dismissedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface NeedsYouRow {
+  id: string;
+  title: string;
+  space_id: string | null;
+  risk_class?: string;
+}
+
+export interface TodayRow {
+  id: string;
+  title: string;
+  due: string | null;
+}
+
+/** Everything the §14.7 menu-bar panel renders, in one read. */
+export interface PanelData {
+  needs_you: { approvals: NeedsYouRow[]; questions: NeedsYouRow[] };
+  prepared: ArtifactRow[];
+  older: ArtifactRow[];
+  nudge: ArtifactRow | null;
+  today: TodayRow[];
+  capture_paused_until: string | null;
+}
+
+export const fetchPanel = (): Promise<PanelData> => request("/api/assist/panel");
+
+export const fetchNudge = (): Promise<{ artifact: ArtifactRow | null }> =>
+  request("/api/assist/nudge");
+
+export const fetchArtifacts = (status?: ArtifactStatus): Promise<{ artifacts: ArtifactRow[] }> =>
+  request(`/api/artifacts${status ? `?status=${status}` : ""}`);
+
+export const artifactSeen = (id: string): Promise<{ artifact: ArtifactRow }> =>
+  request(`/api/artifacts/${encodeURIComponent(id)}/seen`, post());
+
+export const artifactDismiss = (id: string): Promise<{ artifact: ArtifactRow }> =>
+  request(`/api/artifacts/${encodeURIComponent(id)}/dismiss`, post());
+
+export const artifactReopen = (id: string): Promise<{ artifact: ArtifactRow }> =>
+  request(`/api/artifacts/${encodeURIComponent(id)}/reopen`, post());
+
+export const artifactGraduate = (
+  id: string,
+): Promise<{ result: { status: string; taskId?: string }; artifact: ArtifactRow }> =>
+  request(`/api/artifacts/${encodeURIComponent(id)}/graduate`, post());
+
+export const artifactSignal = (id: string, signal: string): Promise<{ weight: number }> =>
+  request(`/api/artifacts/${encodeURIComponent(id)}/signal`, post({ signal }));
+
+export const pauseCapture = (minutes: number | null): Promise<{ capture_paused_until: string | null }> =>
+  request("/api/assist/pause", post(minutes == null ? { until: null } : { minutes }));

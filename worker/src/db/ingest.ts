@@ -16,6 +16,7 @@
 
 import type Database from "better-sqlite3";
 
+import { isStreamCapturePaused } from "../library/pause.js";
 import { getDb } from "./connection.js";
 import { legacyEnvelopeFields } from "./eventlog.js";
 import {
@@ -1390,6 +1391,11 @@ export function upsertActor(params: UpsertActorParams): string {
  */
 export function insertEvent(row: InsertEventRow): InsertEventResult {
   const id = eventId(row.sourceId, row.externalId);
+  // Per-stream capture pause (P2.4, spec §14.3.2): a paused stream's events
+  // are dropped at this funnel — never stored-but-hidden.
+  if (isStreamCapturePaused(row.streamId)) {
+    return { id, inserted: false };
+  }
   // V13 envelope stamp. The adapter's full envelope (P0.6: roster audience,
   // structural mentions, reply markers) wins; the legacy bridge in
   // db/eventlog.ts derives a minimal one for writers that have none yet.

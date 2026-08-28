@@ -126,6 +126,10 @@ describe("0020_v2_core applies", () => {
       "0103_enrichment_bundles",
       // P1.4: the Decide pass's per-space merge-in queue — new tables only.
       "0104_decide_consolidation",
+      // P2.2: the assist lane's durable state — new tables only.
+      "0105_assist",
+      // P2.4: per-stream capture pause — one ADD COLUMN on streams.
+      "0106_library_freshness",
     ]);
 
     expect(

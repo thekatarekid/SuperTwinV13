@@ -22,6 +22,7 @@ import { V13_CORE } from "./migrations/0100_v13_core.js";
 import { WORLD_MODEL } from "./migrations/0101_world_model.js";
 import { DECIDE_CONSOLIDATION } from "./migrations/0104_decide_consolidation.js";
 import { ASSIST } from "./migrations/0105_assist.js";
+import { LIBRARY_FRESHNESS } from "./migrations/0106_library_freshness.js";
 import { CONTENT_ECONOMY } from "./migrations/0102_content_economy.js";
 import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
 
@@ -948,4 +949,8 @@ export const MIGRATIONS: Migration[] = [
   // graded reconcile signals, the per-topic novelty/cooldown/suppression
   // accumulator the code trigger gate keeps, and the watcher's tail cursor.
   { id: "0105_assist", sql: ASSIST },
+  // Per-stream capture pause for the Library's ⏸ toggle (build P2.4, spec
+  // §14.3.2): honored at the single-writer ingest funnels, flipped via a
+  // decision row.
+  { id: "0106_library_freshness", sql: LIBRARY_FRESHNESS },
 ];

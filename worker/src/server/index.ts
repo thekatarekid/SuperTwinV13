@@ -130,6 +130,8 @@ import { handleWorldModelRoute } from "./worldmodel-routes.js";
 import { handleReviewRoute } from "./review-routes.js";
 // Corrections pipeline (P1.7, spec §14.4): drag / chips / "Tell the twin".
 import { handleCorrectionsRoute } from "./corrections-routes.js";
+// Freshness chip + Library screens (P2.4, spec §5.4 / §14.3.2).
+import { handleLibraryRoute } from "./library-routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -751,6 +753,13 @@ async function handle(
     path === "/api/dev/seed-review"
   ) {
     const handled = await handleReviewRoute(req, res);
+    if (handled) return;
+  }
+
+  // Freshness ("Knows you: X → Y") + Library screens (P2.4): per-source
+  // capture views, per-stream pause, and the honest cascading screen delete.
+  if (path === "/api/freshness" || path.startsWith("/api/library/")) {
+    const handled = await handleLibraryRoute(req, res);
     if (handled) return;
   }
 

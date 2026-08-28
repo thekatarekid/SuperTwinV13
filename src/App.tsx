@@ -25,10 +25,12 @@ import {
   type TaskRow,
 } from "./lib/api";
 import { hideMainWindow } from "./lib/tauri";
+import { FreshnessChip } from "./components/FreshnessChip";
 import { GroundedBar, type BarLock } from "./components/GroundedBar";
 import { ModalFrame, parseEvidence } from "./components/Modal";
 import { Home } from "./screens/Home";
-import { Library, Settings, Timeline } from "./screens/Stubs";
+import { Library } from "./screens/Library";
+import { Settings, Timeline } from "./screens/Stubs";
 import { ProposalModal } from "./modals/ProposalModal";
 import { SpaceModal } from "./modals/SpaceModal";
 import { TaskModal } from "./modals/TaskModal";
@@ -167,6 +169,7 @@ export function App(): JSX.Element {
             </button>
           ))}
         </nav>
+        <FreshnessChip />
       </div>
 
       <main className="screen">

@@ -41,7 +41,9 @@ describe("shell", () => {
     stubWorker();
     render(<App />);
     fireEvent.click(screen.getByText("▤ Library"));
-    expect(screen.getByText(/Per-source capture/)).toBeTruthy();
+    // The stub serves no /api/library/* routes, so the real Library screen
+    // (P2.4) lands on its unreachable-worker state.
+    await waitFor(() => expect(screen.getByText("worker unreachable")).toBeTruthy());
     fireEvent.keyDown(window, { key: "2", metaKey: true });
     expect(screen.getByText(/The event log rendered/)).toBeTruthy();
     fireEvent.keyDown(window, { key: "1", metaKey: true });

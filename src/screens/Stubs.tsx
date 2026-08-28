@@ -1,6 +1,7 @@
-// Timeline / Library / Settings stubs — build P1.7. The pill nav needs the
-// four tabs (spec §14.1.3); these screens fill out in P2.4 (Library),
-// P4 (Timeline polish) and the Settings items land with their lanes.
+// Timeline / Settings stubs — build P1.7 (Library graduated to its own
+// screen in P2.4). The pill nav needs the four tabs (spec §14.1.3); these
+// fill out in P4 (Timeline polish) and the Settings items land with their
+// lanes.
 // Settings carries the version footer (build plan §1.8): the worker's
 // /api/health version + BUILT_THROUGH_PHASE, e.g. "v13.1.1 · built through P1".
 
@@ -12,15 +13,6 @@ export function Timeline(): JSX.Element {
     <div className="stub">
       <h1>Timeline</h1>
       <p>The event log rendered — arrives with the capture lanes (spec §14.3).</p>
-    </div>
-  );
-}
-
-export function Library(): JSX.Element {
-  return (
-    <div className="stub">
-      <h1>Library</h1>
-      <p>Per-source capture + trust controls — arrives with P2.4 (spec §14.3.2).</p>
     </div>
   );
 }

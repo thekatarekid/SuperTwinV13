@@ -22,6 +22,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { bridgeIngestedEvents } from "../bridges/ingest.js";
 import { noteSelfAuthoredEvents } from "../categories/promotion.js";
+import { isCapturePaused } from "../library/pause.js";
 import { getDb } from "./connection.js";
 
 // ---- Envelope types (spec §6.1) -------------------------------------------
@@ -65,7 +66,10 @@ export interface EventEnvelope {
 export interface AppendResult {
   inserted: number;
   skipped: number;
-  /** ids in input order; for a skipped duplicate, the EXISTING row's id. */
+  /**
+   * ids in input order; for a skipped duplicate, the EXISTING row's id; for
+   * an envelope dropped by a capture pause (P2.4), "" — nothing was written.
+   */
   ids: string[];
 }
 
@@ -217,6 +221,14 @@ export function appendEvents(
       if (existing) {
         result.skipped++;
         result.ids.push(existing.id);
+        continue;
+      }
+      // Per-stream capture pause (P2.4, spec §14.3.2): a paused stream's
+      // events are dropped at this funnel — never stored-but-hidden. The
+      // slot's id is "" (nothing was written and nothing pre-existed).
+      if (isCapturePaused(env.source, env.streamKey)) {
+        result.skipped++;
+        result.ids.push("");
         continue;
       }
       s.upsertSource.run({ id: env.source });

@@ -24,6 +24,7 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import type { DeltaBundle } from "../scheduler/dispatch.js";
+import { spaceCreationStatus } from "../consolidation/graduation.js";
 import { verdictFor, type CriticOutput } from "./critic.js";
 import { resolveEventAliases, type OrientOutput } from "./orient.js";
 import type { CommittedEpisode } from "./reduce.js";
@@ -40,9 +41,14 @@ function mintId(prefix: string): string {
  * Exported so tests can assert the guard exists; commit uses it for EVERY
  * space insert, making "proposals never activate without approval" a property
  * of the code path, not of prompt behaviour.
+ *
+ * P4.3: the GRADUATION SWITCH (spec §9.1) is the single sanctioned exception —
+ * after the gates hold 14 consecutive days, `spaceCreationStatus()` starts
+ * answering "active" and pass-created spaces skip the review queue. Until it
+ * flips (and again if the user reverts) this returns "proposed".
  */
-export function proposedStatus(): "proposed" {
-  return "proposed";
+export function proposedStatus(): "proposed" | "active" {
+  return spaceCreationStatus();
 }
 
 export interface CommitInput {
@@ -331,6 +337,9 @@ export function commitTick(input: CommitInput): CommitReport {
       }
 
       const spaceId = mintId("sp");
+      // Propose-only until the graduation switch flips (spec §9.1): the
+      // status a pass may write comes from ONE guard, never from the model.
+      const bornStatus = proposedStatus();
       db.prepare(
         `INSERT INTO spaces (id, label, life_area, goal, status, exemplars_json, created_by, confidence,
                              updated_at)
@@ -340,12 +349,12 @@ export function commitTick(input: CommitInput): CommitReport {
         p.label,
         p.life_area ?? null,
         p.goal ?? null,
-        proposedStatus(), // the ONLY status a pass may write — propose-only
+        bornStatus,
         JSON.stringify([p.summary]),
         p.confidence,
       );
       report.createdSpaces.push(spaceId);
-      decide("space", spaceId, "propose", {
+      decide("space", spaceId, bornStatus === "active" ? "create" : "propose", {
         new: { label: p.label, goal: p.goal ?? null, lifeArea: p.life_area ?? null },
         confidence: p.confidence,
       });

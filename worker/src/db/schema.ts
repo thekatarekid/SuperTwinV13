@@ -25,6 +25,7 @@ import { ASSIST } from "./migrations/0105_assist.js";
 import { LIBRARY_FRESHNESS } from "./migrations/0106_library_freshness.js";
 import { CONTENT_ECONOMY } from "./migrations/0102_content_economy.js";
 import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
+import { T3_GRADUATION } from "./migrations/0107_t3_graduation.js";
 
 export interface Migration {
   id: string;
@@ -953,4 +954,7 @@ export const MIGRATIONS: Migration[] = [
   // §14.3.2): honored at the single-writer ingest funnels, flipped via a
   // decision row.
   { id: "0106_library_freshness", sql: LIBRARY_FRESHNESS },
+  // Graduation metric ledger (gates per day, 14-day streak → auto-create)
+  // and T3's cross-space links (build P4.3, spec §15.3 + §14.9).
+  { id: "0107_t3_graduation", sql: T3_GRADUATION },
 ];

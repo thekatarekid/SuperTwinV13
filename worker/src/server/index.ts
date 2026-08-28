@@ -131,6 +131,8 @@ import { handleWorldModelRoute } from "./worldmodel-routes.js";
 import { handleReviewRoute } from "./review-routes.js";
 // Corrections pipeline (P1.7, spec §14.4): drag / chips / "Tell the twin".
 import { handleCorrectionsRoute } from "./corrections-routes.js";
+// Settings (P4.3, spec §14.9): the eight-subtab screen's worker back-end.
+import { handleSettingsRoute } from "./settings-routes.js";
 // Assist artifacts + nudge state + capture quick-pause (P2.3, spec §14.7).
 import { handleAssistRoute } from "./assist-routes.js";
 // Freshness chip + Library screens (P2.4, spec §5.4 / §14.3.2).
@@ -809,6 +811,24 @@ async function handle(
   // are the traced runners — the defaults inside the handler.
   if (path.startsWith("/api/timeline") || path.startsWith("/api/bar")) {
     const handled = await handleGroundedRoute(req, res);
+    if (handled) return;
+  }
+
+  // Settings (P4.3, spec §14.9): general/capture/sources/graduation/t3/data
+  // + the Runs & Traces viewer's filtered index and full-record read.
+  if (
+    path.startsWith("/api/settings/general") ||
+    path.startsWith("/api/settings/capture") ||
+    path.startsWith("/api/settings/sources") ||
+    path.startsWith("/api/settings/graduation") ||
+    path.startsWith("/api/settings/intelligence") ||
+    path.startsWith("/api/settings/assist") ||
+    path.startsWith("/api/settings/t3") ||
+    path.startsWith("/api/settings/data") ||
+    path === "/api/traces" ||
+    /^\/api\/trace\/[^/]+\/full$/.test(path)
+  ) {
+    const handled = await handleSettingsRoute(req, res);
     if (handled) return;
   }
 

@@ -383,6 +383,7 @@ export const artifactSignal = (id: string, signal: string): Promise<{ weight: nu
 
 export const pauseCapture = (minutes: number | null): Promise<{ capture_paused_until: string | null }> =>
   request("/api/assist/pause", post(minutes == null ? { until: null } : { minutes }));
+
 // ---- People + circles (P4.2, spec §7.3 / §14.6) ----------------------------
 
 /** The nine relationship circles (spec §7.3.2) — mirror of the worker's list. */
@@ -583,3 +584,261 @@ export interface BarMessageView {
 
 export const fetchBarThread = (id: string): Promise<{ thread_id: string; messages: BarMessageView[] }> =>
   request(`/api/bar/threads/${encodeURIComponent(id)}`);
+
+// ---- Settings (P4.3, spec §14.9) -------------------------------------------
+
+export interface GeneralSettings {
+  hotkey_summon: string;
+  hotkey_bar: string;
+  launch_at_login: boolean;
+  notifications_enabled: boolean;
+  brief_times: string[];
+  appearance: string;
+  graduation_mode: "propose" | "auto";
+}
+
+export const fetchSettingsGeneral = (): Promise<GeneralSettings> =>
+  request("/api/settings/general");
+export const saveSettingsGeneral = (
+  patch: Partial<GeneralSettings>,
+): Promise<GeneralSettings> => request("/api/settings/general", post(patch));
+
+export interface CaptureSettings {
+  sources: Record<string, { paused: boolean }>;
+  app_blocklist: string[];
+  domain_blocklist: string[];
+  pagetext_rules: string[];
+  incognito: string;
+}
+
+export const fetchSettingsCapture = (): Promise<CaptureSettings> =>
+  request("/api/settings/capture");
+export const saveSettingsCapture = (
+  patch: Partial<CaptureSettings>,
+): Promise<CaptureSettings> => request("/api/settings/capture", post(patch));
+
+export interface SourceStatusRow {
+  source: string;
+  streams: number;
+  paused_streams: number;
+  paused: boolean;
+  import_done: boolean;
+  last_event_at: string | null;
+}
+
+export const fetchSettingsSources = (): Promise<{ sources: SourceStatusRow[] }> =>
+  request("/api/settings/sources");
+
+export interface IntelligenceStepRow {
+  key: string;
+  label: string;
+  group: string;
+  recommended: string;
+  selected: string;
+  enabled: boolean;
+  cost_7d_usd: number;
+  calls_7d: number;
+}
+
+export interface IntelligenceSettings {
+  default_model: string;
+  options: string[];
+  eval_gated: boolean;
+  steps: IntelligenceStepRow[];
+}
+
+export const fetchSettingsIntelligence = (): Promise<IntelligenceSettings> =>
+  request("/api/settings/intelligence");
+export const saveIntelligenceStep = (patch: {
+  step: string;
+  model?: string;
+  enabled?: boolean;
+}): Promise<{ step: string; ok: boolean }> =>
+  request("/api/settings/intelligence", post(patch));
+
+export interface EmbeddingModelRow {
+  id: string;
+  label: string;
+  dim: number;
+  bytes: number;
+  bundled: boolean;
+  recommended: boolean;
+  active: boolean;
+  present: boolean;
+  indexed: number;
+}
+
+export const fetchEmbeddingModels = (): Promise<{
+  active: string;
+  models: EmbeddingModelRow[];
+  swap: { phase: string; embedded?: number; total?: number } | null;
+}> => request("/api/retrieval/semantic/models");
+
+export interface MediaSettings {
+  describe_enabled: boolean;
+  backfill_enabled: boolean;
+  images_enabled: boolean;
+  video_enabled: boolean;
+  business_enabled: boolean;
+  link_scrape_enabled: boolean;
+  video_frames_enabled: boolean;
+  video_audio_enabled: boolean;
+  voice_notes_enabled: boolean;
+  rate_per_min: number;
+  concurrency: number;
+  video_frame_interval_sec: number;
+  video_frame_max: number;
+  video_max_height: number;
+  whisper_model: string;
+}
+
+export const fetchSettingsMedia = (): Promise<MediaSettings> =>
+  request("/api/settings/media");
+export const saveSettingsMedia = (
+  patch: Partial<MediaSettings>,
+): Promise<MediaSettings> => request("/api/settings/media", post(patch));
+
+export interface AssistSettings {
+  enabled: boolean;
+  thresholds: Record<string, number>;
+  cooldown_min: number;
+  quiet_hours: { start: string; end: string };
+  suppressed_contexts: { topic_key: string; suppressed_until: string }[];
+}
+
+export const fetchSettingsAssist = (): Promise<AssistSettings> =>
+  request("/api/settings/assist");
+export const saveSettingsAssist = (
+  patch: Partial<AssistSettings> & { clear_suppressed?: boolean },
+): Promise<AssistSettings> => request("/api/settings/assist", post(patch));
+
+export interface GraduationSettings {
+  mode: "propose" | "auto";
+  reverted: boolean;
+  required_days: number;
+  consecutive_green: number;
+  window: {
+    day: string;
+    proposals: number;
+    userRejections: number;
+    overCreationPct: number | null;
+    falseAutoMerge: number;
+    gatesOk: boolean;
+  }[];
+}
+
+export const fetchSettingsGraduation = (): Promise<GraduationSettings> =>
+  request("/api/settings/graduation");
+export const saveGraduationMode = (
+  mode: "propose" | "auto",
+): Promise<GraduationSettings> => request("/api/settings/graduation", post({ mode }));
+
+export interface TraceIndexRow {
+  id: string;
+  run_id: string | null;
+  pass: string | null;
+  caller: string | null;
+  model: string | null;
+  prompt_version: string | null;
+  repair_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+  latency_ms: number | null;
+  status: string | null;
+  day: string | null;
+  created_at: string | null;
+}
+
+export interface TracePassCost {
+  pass: string;
+  calls: number;
+  cost_usd: number;
+}
+
+export const fetchTraces = (filter: {
+  pass?: string;
+  day?: string;
+  run_id?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ traces: TraceIndexRow[]; costs: TracePassCost[] }> => {
+  const q = new URLSearchParams();
+  if (filter.pass) q.set("pass", filter.pass);
+  if (filter.day) q.set("day", filter.day);
+  if (filter.run_id) q.set("run_id", filter.run_id);
+  if (filter.limit) q.set("limit", String(filter.limit));
+  if (filter.offset) q.set("offset", String(filter.offset));
+  return request(`/api/traces?${q.toString()}`);
+};
+
+export interface FullTraceRecord {
+  trace_id: string;
+  ts: string;
+  run_id: string;
+  pass: string;
+  caller: string;
+  model: string | null;
+  prompt_version: string | null;
+  system_prompt: unknown;
+  packed_context: unknown;
+  raw_output: unknown;
+  parsed_result: unknown;
+  repair_count: number;
+  cost_usd: number | null;
+  latency_ms: number;
+  status: string;
+}
+
+export const fetchTraceFull = (
+  id: string,
+): Promise<{ trace: FullTraceRecord; compressed: boolean }> =>
+  request(`/api/trace/${encodeURIComponent(id)}/full`);
+
+export interface QuarantineRow {
+  id: string;
+  kind?: string;
+  reason?: string;
+  [k: string]: unknown;
+}
+
+export const fetchQuarantine = (): Promise<{ items: QuarantineRow[] }> =>
+  request("/api/ops/quarantine");
+
+export const undoRun = (runId: string): Promise<unknown> =>
+  request(`/api/ops/runs/${encodeURIComponent(runId)}/undo`, post());
+
+export interface UsageSummary {
+  window: string;
+  [k: string]: unknown;
+}
+
+export const fetchUsage = (window: "today" | "7d" | "30d"): Promise<UsageSummary> =>
+  request(`/api/usage?window=${window}`);
+
+export interface T3Status {
+  last_run_at: string | null;
+  last_report: {
+    ranAt: string;
+    crossLinks: number;
+    claimVersionsCompressed: number;
+    summariesQueued: number;
+    ephemeralArchived: number;
+  } | null;
+  eval_regression_due: string | null;
+}
+
+export const fetchSettingsT3 = (): Promise<T3Status> => request("/api/settings/t3");
+
+export interface DataSettings {
+  home: string;
+  storage: { db_bytes: number; traces_bytes: number; media_bytes: number; logs_bytes: number };
+  events_per_source: { source: string; events: number }[];
+  retention: { traces_days: number };
+}
+
+export const fetchSettingsData = (): Promise<DataSettings> => request("/api/settings/data");
+export const saveTracesRetention = (
+  days: number,
+): Promise<{ retention: { traces_days: number } }> =>
+  request("/api/settings/data/retention", post({ traces_days: days }));

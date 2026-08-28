@@ -38,7 +38,7 @@ import { GroundedBar, type BarLock } from "./components/GroundedBar";
 import { Home } from "./screens/Home";
 import { Library } from "./screens/Library";
 import { Timeline } from "./screens/Timeline";
-import { Settings } from "./screens/Stubs";
+import { Settings } from "./screens/Settings";
 import { ArtifactModal } from "./modals/ArtifactModal";
 import { ClaimModal } from "./modals/ClaimModal";
 import { ProposalModal } from "./modals/ProposalModal";

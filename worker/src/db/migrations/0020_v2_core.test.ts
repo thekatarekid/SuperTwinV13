@@ -130,6 +130,8 @@ describe("0020_v2_core applies", () => {
       "0105_assist",
       // P2.4: per-stream capture pause — one ADD COLUMN on streams.
       "0106_library_freshness",
+      // P4.3: graduation metric ledger + T3 space links — new tables only.
+      "0107_t3_graduation",
     ]);
 
     expect(

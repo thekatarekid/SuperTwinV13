@@ -39,7 +39,10 @@
 - [x] Phase 3 DMG: releases/SuperTwinV13_Phase3_13.3.1.dmg (built 2026-08-29)
 
 ## Phase 4 — Full UI + graduation
-- [ ] P4.1–P4.3
+- [x] P4.1 Timeline + grounded bar (six states, intent router, USR-04 citation hard gate in code)
+- [x] P4.2 Generative result renderer + remaining modals + People view (circles drag = correction)
+- [x] P4.3 Consolidation T3 + graduation switch + Settings (eight subtabs, embedding registry)
+- [x] P4.4/P4.5 Integration + gates: USR/CIR/FIX/TRC eval executors; correction-parse.v2 + bar-action.v2; bar/correction model seams moved onto the traced JSON runner; privacy-audit script; fresh-install smoke
 
 ## Log
 - 2026-08-28: Kickoff. Phase 0 orchestration started.

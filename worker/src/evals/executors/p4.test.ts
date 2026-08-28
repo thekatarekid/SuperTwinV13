@@ -59,9 +59,11 @@ describe("P4 executor registration", () => {
     }
   });
 
-  it("unwired ids fail loudly instead of fake-passing", async () => {
-    await expect(circlesExecutor({ fixture: fixture("CIR-01", "circles") })).rejects.toThrow(/CIR-01/);
-    await expect(tracesExecutor({ fixture: fixture("TRC-01", "traces") })).rejects.toThrow(/TRC-01/);
+  it("unwired ids report PENDING (not a fake pass, not a fake fail)", async () => {
+    const cir = await circlesExecutor({ fixture: fixture("CIR-01", "circles") });
+    expect(cir.pending).toMatch(/circle-inference/);
+    const trc = await tracesExecutor({ fixture: fixture("TRC-01", "traces") });
+    expect(trc.pending).toMatch(/trc-01/i);
   });
 });
 

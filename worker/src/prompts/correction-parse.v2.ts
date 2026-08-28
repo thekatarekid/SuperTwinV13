@@ -60,6 +60,9 @@ The nine circles: ${CIRCLES.join(" | ")}.
 Rules:
 - Exactly one JSON object, one line, double-quoted keys, no trailing text.
 - "cancelled"/"called off"/"not happening" => cancel, never already_done.
+- An utterance that cancels AND hints at a future re-plan ("we cancelled goa,
+  planning jan instead") is STILL cancel — the re-plan is a NEW object the
+  user will create, never an edit/rename of the cancelled one.
 - "done"/"finished"/"booked it already" => already_done.
 - Relationship statements on a PERSON target ("she's my cousin") =>
   set_relationship, NEVER not_true — not_true/outdated are for claim targets.

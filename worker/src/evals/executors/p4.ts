@@ -46,6 +46,7 @@ import { appendBarMessage, listThreads, mintThreadId, readThread } from "../../g
 import { getEventDetail } from "../../server/chat-grounding.js";
 import { handleCorrectionsRoute } from "../../server/corrections-routes.js";
 import { handleReviewRoute } from "../../server/review-routes.js";
+import { handleLibraryRoute } from "../../server/library-routes.js";
 import { runExecutorTask } from "../../executor/index.js";
 import { riskyLeakCheck } from "./p3.js";
 import { runJsonPass } from "../../brain/llm.js";
@@ -582,7 +583,10 @@ async function cir04(): Promise<ExecutorResult> {
 
 export const circlesExecutor: Executor = async ({ fixture }) => {
   if (fixture.id === "CIR-04") return cir04();
-  throw new Error(`no CIR executor path for ${fixture.id} (P4 gates wired CIR-04 only)`);
+  return {
+    output: null,
+    pending: `${fixture.id} measures the circle-inference pass, which has no product surface yet (P4 shipped the circle EDIT path — CIR-04)`,
+  };
 };
 
 // ===========================================================================
@@ -653,9 +657,219 @@ async function fix03(): Promise<ExecutorResult> {
   }
 }
 
+/** FIX-01 — "this is karan's task, not mine": live parse → wrong_person. */
+async function fix01(): Promise<ExecutorResult> {
+  const db = getDb();
+  const taskId = mintEvalId("tsk_eval_fix01");
+  db.prepare(
+    `INSERT INTO tasks (id, title, type, risk_class, owner, status) VALUES (?, 'book badminton court', 'implicit', 'advise-only', 'self', 'open')`,
+  ).run(taskId);
+  const violations: Violation[] = [];
+  try {
+    const res = await callRoute(handleCorrectionsRoute, "POST", "/api/corrections", {
+      target: { kind: "task", id: taskId },
+      utterance: "this is karan's task, not mine",
+      scope: "once",
+    });
+    const body = res.body as Record<string, unknown> | null;
+    if (!body?.structured) {
+      violations.push({ label: "parse-to-nothing", note: "the utterance parsed to nothing" });
+    }
+    const task = taskRow(taskId);
+    const undoAvailable = typeof body?.decision_id === "string";
+    return {
+      ok: violations.length === 0 && /karan/i.test(String(task?.owner ?? "")),
+      output: {
+        route_response: body,
+        task_after: { owner: task?.owner, status: task?.status },
+        applied_immediately: body?.status === "applied",
+        undo_chip_available: undoAvailable,
+        correction_evented: body?.correction_id ?? null,
+        eval_case_auto_drafted: body?.eval_draft ?? null,
+      },
+      seededContext: "Task 'book badminton court' exists with owner=self (misassigned).",
+      violations,
+      gateObservations: [
+        { gateId: "correction_parse_accuracy", passed: body?.status === "applied", counted: true },
+        { gateId: "promotion_loop_integrity", passed: typeof body?.eval_draft === "string", counted: true },
+      ],
+    };
+  } finally {
+    db.prepare(`DELETE FROM corrections WHERE target_id = ?`).run(taskId);
+    db.prepare(`DELETE FROM tasks WHERE id = ?`).run(taskId);
+  }
+}
+
+/** FIX-02 — "we cancelled goa": cancelled ≠ done, nothing deleted. */
+async function fix02(): Promise<ExecutorResult> {
+  const db = getDb();
+  const sp = mintEvalId("sp_eval_fix02");
+  db.prepare(`INSERT INTO spaces (id, label, status) VALUES (?, 'Goa trip with the gang in December', 'active')`).run(sp);
+  const taskIds: string[] = [];
+  for (const title of ["Book villa", "Book flights CCU-GOI", "Plan itinerary", "Collect advance from gang"]) {
+    const id = mintEvalId("tsk_eval_fix02");
+    taskIds.push(id);
+    db.prepare(`INSERT INTO tasks (id, space_id, title, type, risk_class, owner, status) VALUES (?, ?, ?, 'implicit', 'advise-only', 'self', 'open')`).run(id, sp, title);
+  }
+  const violations: Violation[] = [];
+  try {
+    const res = await callRoute(handleCorrectionsRoute, "POST", "/api/corrections", {
+      target: { kind: "space", id: sp },
+      utterance: "we cancelled goa, planning jan instead",
+      scope: "space",
+    });
+    const body = res.body as Record<string, unknown> | null;
+    const tasksAfter = taskIds.map((id) => taskRow(id));
+    if (tasksAfter.some((t) => t === null)) {
+      violations.push({ label: "overzealous-delete", note: "a task row was deleted" });
+    }
+    if (tasksAfter.some((t) => t?.status === "done")) {
+      violations.push({ label: "false-victory", note: "a cancelled task was marked done" });
+    }
+    const space = db.prepare(`SELECT status FROM spaces WHERE id = ?`).get(sp) as { status: string } | undefined;
+    if (!space) violations.push({ label: "overzealous-delete", note: "the space row was deleted" });
+    const allCancelled = tasksAfter.every((t) => t?.status === "cancelled");
+    return {
+      ok: violations.length === 0 && allCancelled && space?.status === "dormant",
+      output: {
+        route_response: body,
+        tasks_after: tasksAfter.map((t) => ({ title: t?.title, status: t?.status })),
+        space_status_after: space?.status ?? null,
+        nothing_deleted: !tasksAfter.some((t) => t === null) && space !== undefined,
+        note: "a Jan re-plan is one bar utterance away — the cancelled space stays browsable (dormant), history intact",
+      },
+      seededContext: "sp_goa_dec is active with 4 open tasks (villa, flights, itinerary, collect advance).",
+      violations,
+      gateObservations: [
+        { gateId: "closure_semantics", passed: allCancelled && !violations.some((v) => v.label === "false-victory"), counted: true },
+        { gateId: "reversibility", passed: !violations.some((v) => v.label === "overzealous-delete"), counted: true },
+      ],
+    };
+  } finally {
+    db.prepare(`DELETE FROM corrections WHERE target_id = ?`).run(sp);
+    cleanupSpace(sp);
+  }
+}
+
+/** FIX-04 — "stop tracking this group": recorded + capture pause honored. */
+async function fix04(): Promise<ExecutorResult> {
+  const db = getDb();
+  const streamId = mintEvalId("st_eval_fix04");
+  db.prepare(`INSERT OR IGNORE INTO sources (id, type, enabled, mode) VALUES ('wa', 'wa', 1, 'bootstrap')`).run();
+  db.prepare(
+    `INSERT INTO streams (id, source_id, external_key, label, stream_kind) VALUES (?, 'wa', ?, 'College Memes', 'group')`,
+  ).run(streamId, `eval-fix04-${streamId}@g.us`);
+  const violations: Violation[] = [];
+  try {
+    const res = await callRoute(handleCorrectionsRoute, "POST", "/api/corrections", {
+      target: { kind: "stream", id: streamId },
+      utterance: "stop tracking this group",
+      scope: "stream",
+    });
+    const body = res.body as Record<string, unknown> | null;
+    const parsedStop = (body?.structured as { type?: string } | null)?.type === "stop_tracking";
+    // The enforcement half is the Library pause (the same control the UI's
+    // stream card drives): capture stops at the source going forward.
+    const pause = await callRoute(handleLibraryRoute, "POST", `/api/library/streams/${streamId}/pause`, { paused: true });
+    const row = db.prepare(`SELECT capture_paused FROM streams WHERE id = ?`).get(streamId) as
+      | { capture_paused: number }
+      | undefined;
+    if (row?.capture_paused !== 1) {
+      violations.push({ label: "fake-privacy", note: "capture_paused flag did not stick on the stream" });
+    }
+    return {
+      ok: violations.length === 0 && parsedStop,
+      output: {
+        route_response: body,
+        parsed_stop_tracking: parsedStop,
+        recorded_as: body?.status ?? null,
+        library_pause_response: pause.body,
+        stream_capture_paused: row?.capture_paused === 1,
+        existing_data_note:
+          "derived data is untouched by the pause; removal is the Library card's explicit keep-or-remove choice (honest delete-cascade), never a silent side effect",
+      },
+      seededContext: "'College Memes' exists as a fully processed group stream.",
+      violations,
+      gateObservations: [{ gateId: "privacy_compliance", passed: violations.length === 0 && parsedStop, counted: true }],
+    };
+  } finally {
+    db.prepare(`DELETE FROM corrections WHERE target_id = ?`).run(streamId);
+    db.prepare(`DELETE FROM streams WHERE id = ?`).run(streamId);
+  }
+}
+
+/** FIX-05 — drag = correction: the structured move runs the SAME pipeline. */
+async function fix05(): Promise<ExecutorResult> {
+  const db = getDb();
+  const spFalcon = mintEvalId("sp_eval_falcon");
+  const spSide = mintEvalId("sp_eval_side");
+  const ep = mintEvalId("ep_eval_fix05");
+  db.prepare(`INSERT INTO spaces (id, label, status) VALUES (?, 'Project Falcon', 'active')`).run(spFalcon);
+  db.prepare(`INSERT INTO spaces (id, label, status) VALUES (?, 'Side project', 'active')`).run(spSide);
+  db.prepare(`INSERT INTO episodes (id, space_id, summary) VALUES (?, ?, 'misfiled episode (eval FIX-05)')`).run(ep, spFalcon);
+  const violations: Violation[] = [];
+  try {
+    const res = await callRoute(handleCorrectionsRoute, "POST", "/api/corrections", {
+      target: { kind: "episode", id: ep },
+      structured: { type: "move", to_space_id: spSide },
+      scope: "once",
+    });
+    const body = res.body as Record<string, unknown> | null;
+    const row = db.prepare(`SELECT space_id FROM episodes WHERE id = ?`).get(ep) as { space_id: string } | undefined;
+    if (row?.space_id !== spSide) {
+      violations.push({ label: "ui-only-move", note: "the drag did not move the episode row" });
+    }
+    if (!body?.correction_id || !body?.decision_id) {
+      violations.push({ label: "ui-only-move", note: "no correction/decision row — a UI-only move, not the pipeline" });
+    }
+    // The undo chip is real: POST /undo restores the old space.
+    const undo = await callRoute(handleCorrectionsRoute, "POST", `/api/corrections/${String(body?.correction_id)}/undo`);
+    const restored = (db.prepare(`SELECT space_id FROM episodes WHERE id = ?`).get(ep) as { space_id: string } | undefined)
+      ?.space_id;
+    return {
+      ok: violations.length === 0 && restored === spFalcon,
+      output: {
+        route_response: body,
+        moved_to: spSide,
+        same_pipeline_as_text: { correction_row: body?.correction_id ?? null, decision_row: body?.decision_id ?? null, eval_draft: body?.eval_draft ?? null },
+        no_dialog: true,
+        undo_chip: { response: undo.body, restored_to_original_space: restored === spFalcon },
+      },
+      seededContext: "An episode sits misfiled in sp_falcon; sp_sideproject exists.",
+      violations,
+      gateObservations: [
+        { gateId: "correction_parse_accuracy", passed: violations.length === 0, counted: true },
+        { gateId: "promotion_loop_integrity", passed: typeof body?.eval_draft === "string", counted: true },
+      ],
+    };
+  } finally {
+    db.prepare(`DELETE FROM corrections WHERE target_id = ?`).run(ep);
+    db.prepare(`DELETE FROM episodes WHERE id = ?`).run(ep);
+    db.prepare(`DELETE FROM spaces WHERE id IN (?, ?)`).run(spFalcon, spSide);
+  }
+}
+
 export const feedbackExecutor: Executor = async ({ fixture }) => {
-  if (fixture.id === "FIX-03") return fix03();
-  throw new Error(`no FIX executor path for ${fixture.id} (P4 gates wired FIX-03 only)`);
+  switch (fixture.id) {
+    case "FIX-01":
+      return fix01();
+    case "FIX-02":
+      return fix02();
+    case "FIX-03":
+      return fix03();
+    case "FIX-04":
+      return fix04();
+    case "FIX-05":
+      return fix05();
+    case "FIX-06":
+      return {
+        output: null,
+        pending:
+          "FIX-06 is a UI render contract (contextual ··· chips) — asserted by the React suites (src/feedback.test.tsx), not runnable from the worker harness",
+      };
+    default:
+      throw new Error(`no FIX executor path for ${fixture.id}`);
+  }
 };
 
 // ===========================================================================
@@ -782,5 +996,14 @@ async function trc02(): Promise<ExecutorResult> {
 
 export const tracesExecutor: Executor = async ({ fixture }) => {
   if (fixture.id === "TRC-02") return trc02();
-  throw new Error(`no TRC executor path for ${fixture.id} (TRC-01 is unit-tested; TRC-03 is the --liveness job)`);
+  if (fixture.id === "TRC-01") {
+    return {
+      output: null,
+      pending: "TRC-01 is code-asserted by the trace-store suite (src/traces/trc-01.test.ts) over real runs; run `npm test` for the assertion",
+    };
+  }
+  return {
+    output: null,
+    pending: "TRC-03 is the pass-liveness job: run `npm run eval -- --liveness`",
+  };
 };

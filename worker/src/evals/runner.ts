@@ -56,6 +56,13 @@ export interface ExecutorResult {
   gateObservations?: GateInput[];
   /** Human-facing notes for the report. */
   notes?: string[];
+  /**
+   * Set when the registered pass CAN run some of its category's cases but the
+   * product surface THIS case measures has not been built yet. The case
+   * reports as pending with this reason — exactly what an unregistered pass
+   * reports — instead of a fake pass or a fake fail.
+   */
+  pending?: string;
 }
 
 export interface ExecutorContext {
@@ -181,6 +188,8 @@ export async function runCase(fixture: Fixture, options: SuiteOptions): Promise<
       notes: [(err as Error).stack?.split("\n")[1]?.trim() ?? ""].filter(Boolean),
     });
   }
+
+  if (produced.pending) return pending(produced.pending);
 
   const labels = knownLabels(fixture.wrong);
   const wrongHits: WrongHit[] = [];

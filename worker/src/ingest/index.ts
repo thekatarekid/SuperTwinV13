@@ -52,6 +52,7 @@ import {
   noteIngestedEvent,
 } from "../db/watermarks.js";
 import { bridgeIngestedEvents } from "../bridges/ingest.js";
+import { noteUserReply } from "../categories/promotion.js";
 import { ensureEntityForActor } from "../entities/from-ingest.js";
 import { enqueueLiveMedia } from "../media/queue.js";
 import { consumeApprovalToken } from "../approvals/tokens.js";
@@ -708,6 +709,17 @@ export class Ingestion {
         bridgeIngestedEvents([res.id]);
       } catch (err) {
         console.error(`[ingest] bridge extraction failed (continuing): ${String(err)}`);
+      }
+      // Engagement + Cat-2 -> Cat-1 promotion (P1.6, spec §5.1, eval CAT-03):
+      // a self-authored message is user engagement — it bumps the stream's
+      // engagement score and INSTANTLY promotes a Cat-2 stream with
+      // retroactive full processing. Best-effort; never blocks ingest.
+      if (e.envelope?.actor === "self") {
+        try {
+          noteUserReply(streamId, e.ts);
+        } catch (err) {
+          console.error(`[ingest] engagement note failed (continuing): ${String(err)}`);
+        }
       }
       // A row that lands after `backfill_complete` pushes the seal out: it may
       // have created the stream this write just upserted.

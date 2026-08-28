@@ -35,6 +35,17 @@
 
 import { getDb } from "../db/connection.js";
 import type { AgeBand, EventOrigin } from "../db/eventlog.js";
+import type { StreamCategory } from "../categories/chat.js";
+import {
+  admitWork,
+  applyFirstExperienceSlice,
+  compareBundles,
+  isFirstExperience,
+  pendingCat1Counts,
+  type SlotState,
+} from "./priority.js";
+import { runDigestPass } from "./digest-pass.js";
+import { registerBundleForEnrichment } from "../media/bundle-pass.js";
 
 // ---- Config ----------------------------------------------------------------
 
@@ -93,6 +104,13 @@ export interface DeltaBundle {
   predecessorSummary?: string;
   /** True when a low-signal bundle hit max-defer and dispatched anyway. */
   forced?: boolean;
+  /**
+   * Stream category (spec §5.1). null = not yet classified, ordered as Cat 1
+   * (unknown work is early work — misclassification costs latency, never data).
+   */
+  category?: StreamCategory | null;
+  /** Newest event day ("YYYY-MM-DD") — the §5.2 day-major key. */
+  day?: string;
 }
 
 export interface DeferredStream {
@@ -184,6 +202,39 @@ interface StreamStateRow {
   cursor_rowid: number;
   defer_since: string | null;
   engagement_score: number;
+  category: string | null;
+}
+
+/** Stream category, with the browser per-event fallback (P0.8 stamps it on the payload). */
+function categoryOf(
+  state: StreamStateRow | undefined,
+  events: BundleEvent[],
+): StreamCategory | null {
+  if (state?.category === "cat1" || state?.category === "cat2") return state.category;
+  // Browser events carry the per-domain verdict on the payload; any cat1
+  // evidence wins, "ambiguous" orders as Cat 2 (later, coarser, never dropped).
+  let sawBrowserVerdict = false;
+  for (const e of events) {
+    if (!e.kind?.startsWith("browser.") || !e.payloadJson) continue;
+    try {
+      const cat = (JSON.parse(e.payloadJson) as { category?: string }).category;
+      if (cat === "cat1") return "cat1";
+      if (cat === "cat2" || cat === "ambiguous") sawBrowserVerdict = true;
+    } catch {
+      /* a malformed payload is not a category */
+    }
+  }
+  return sawBrowserVerdict ? "cat2" : null;
+}
+
+/** Newest event day in the bundle — the §5.2 day-major key. */
+function dayOf(events: BundleEvent[]): string {
+  let newest = "";
+  for (const e of events) {
+    const day = (e.ts ?? "").slice(0, 10);
+    if (day > newest) newest = day;
+  }
+  return newest;
 }
 
 function toBundleEvent(r: UndispatchedRow): BundleEvent {
@@ -237,7 +288,7 @@ export function collectTick(
   }
 
   const stateStmt = db.prepare(
-    `SELECT id, cursor_rowid, defer_since, engagement_score
+    `SELECT id, cursor_rowid, defer_since, engagement_score, category
        FROM streams WHERE id = ?`,
   );
   const setDefer = db.prepare(
@@ -296,6 +347,7 @@ export function collectTick(
     }
 
     // Max-size split with predecessor summaries (BND-05).
+    const category = categoryOf(state, events);
     const partCount = Math.max(1, Math.ceil(events.length / cfg.maxBundleEvents));
     let predecessorSummary: string | undefined;
     for (let p = 0; p < partCount; p++) {
@@ -313,25 +365,31 @@ export function collectTick(
         partCount,
         predecessorSummary,
         forced: forced || undefined,
+        category,
+        day: dayOf(slice),
       };
       bundles.push(bundle);
       predecessorSummary = summarizePart(bundle);
     }
   }
 
-  // Priority lanes: live > backfill; backfill A > B > C > D, then engagement
-  // (ordering signal only), then stream key for determinism; split parts stay
-  // in order.
-  bundles.sort((a, b) => {
-    if (a.lane !== b.lane) return a.lane === "live" ? -1 : 1;
-    if (a.lane === "backfill" && BAND_ORDER[a.ageBand] !== BAND_ORDER[b.ageBand])
-      return BAND_ORDER[a.ageBand] - BAND_ORDER[b.ageBand];
-    const ea = engagement.get(a.streamId) ?? 0;
-    const eb = engagement.get(b.streamId) ?? 0;
-    if (ea !== eb) return eb - ea;
-    if (a.streamKey !== b.streamKey) return a.streamKey < b.streamKey ? -1 : 1;
-    return a.part - b.part;
-  });
+  // Priority order (spec §5.2, scheduler/priority.ts): live > backfill;
+  // backfill A > B > C > D (day-major inside a band, newest first), then
+  // source order (wa > screen > browser), Cat 1 before Cat 2, engagement
+  // (ordering signal only), then stream key for determinism; split parts
+  // stay in order.
+  const ctx = { engagement };
+  bundles.sort((a, b) => compareBundles(a, b, ctx));
+
+  // First-experience slice (spec §5.2.4): until the very first dispatch, the
+  // most recent 3–7 days of top-engagement chats jump the backfill queue so
+  // first proposals land in minutes.
+  if (bundles.length > 0 && isFirstExperience()) {
+    return {
+      bundles: applyFirstExperienceSlice(bundles, ctx, { nowMs }),
+      deferred,
+    };
+  }
 
   return { bundles, deferred };
 }
@@ -341,12 +399,26 @@ export function collectTick(
  * plan, live bundles first — a live bundle enters the very next window even
  * when a saturated backfill queue predates it, and backfill resumes with
  * whatever room is left.
+ *
+ * The Cat-1-before-Cat-2 slot rule (spec §5.2.3, eval CAT-05) is applied
+ * here: a Cat-2 backfill bundle (Digest work) never takes a CLI slot while
+ * ANY Cat-1 work — data or media enrichment — is still pending. `state`
+ * defaults to the DB's live counts; tests pass it explicitly.
  */
 export function assignSlots(
   plan: TickPlan,
   freeSlots: number = DEFAULT_DISPATCH_CONFIG.slots,
+  state?: SlotState,
 ): DeltaBundle[] {
-  return plan.bundles.slice(0, Math.max(0, freeSlots));
+  const admitted = plan.bundles.filter((b) => {
+    if (b.lane === "live" || b.category !== "cat2") return true;
+    const s = (state ??= pendingCat1Counts());
+    return admitWork(
+      { id: b.streamId, lane: b.lane, kind: "data", category: "cat2" },
+      s,
+    );
+  });
+  return admitted.slice(0, Math.max(0, freeSlots));
 }
 
 // ---- Mark ------------------------------------------------------------------
@@ -355,6 +427,14 @@ export function assignSlots(
  * Record a successful hand-off: stamp every event's processed mark and advance
  * the stream cursor to the bundle's last rowid — the ONLY place cursors move.
  * Clears the deferral clock (the lane spoke; the next 👍 starts a fresh one).
+ *
+ * The hand-off is also where the enrichment countdown arms (P1.8, spec §4.4
+ * rule 2): a bundle dispatched with unread attachments gets an
+ * `enrichment_bundles` row, and the media lane counts it down to the one
+ * scoped re-understand job. Best-effort by design — a countdown that fails to
+ * arm must not unwind a dispatch that committed (the orphan-scan side of
+ * containment does not cover it, but the register is a plain insert and the
+ * failure is logged loudly).
  */
 export function markDispatched(
   bundle: DeltaBundle,
@@ -377,6 +457,17 @@ export function markDispatched(
     advance.run(maxRowid, bundle.streamId);
   });
   run();
+  try {
+    registerBundleForEnrichment({
+      streamId: bundle.streamId,
+      events: bundle.events,
+    });
+  } catch (err) {
+    console.error(
+      `[dispatch] enrichment countdown failed for ${bundle.streamKey}:`,
+      err,
+    );
+  }
 }
 
 // ---- Orphan scan -----------------------------------------------------------
@@ -421,8 +512,13 @@ export function orphanScan(
     else byStream.set(sid, [r]);
   }
 
+  const stateStmt = db.prepare(
+    `SELECT id, cursor_rowid, defer_since, engagement_score, category
+       FROM streams WHERE id = ?`,
+  );
   const bundles: DeltaBundle[] = [];
   for (const [streamId, streamRows] of byStream) {
+    const state = stateStmt.get(streamId) as StreamStateRow | undefined;
     const events = streamRows.map(toBundleEvent);
     const lane: Lane = events.some((e) => e.origin === "live")
       ? "live"
@@ -431,6 +527,7 @@ export function orphanScan(
       (best, e) => (BAND_ORDER[e.ageBand] < BAND_ORDER[best] ? e.ageBand : best),
       "D",
     );
+    const category = categoryOf(state, events);
     const partCount = Math.max(1, Math.ceil(events.length / cfg.maxBundleEvents));
     let predecessorSummary: string | undefined;
     for (let p = 0; p < partCount; p++) {
@@ -444,6 +541,8 @@ export function orphanScan(
         partCount,
         predecessorSummary,
         forced: true,
+        category,
+        day: dayOf(events.slice(p * cfg.maxBundleEvents, (p + 1) * cfg.maxBundleEvents)),
       };
       bundles.push(bundle);
       predecessorSummary = summarizePart(bundle);
@@ -474,13 +573,26 @@ export interface DispatcherOptions {
    * (spec §6.3) replaces this in P1 and calls markDispatched() on commit.
    */
   onBundle?: (bundle: DeltaBundle) => void;
+  /**
+   * Cat-2 backfill consumer (spec §8.5): the Digest pass. Default runs
+   * digest.v1 through the traced provider path and marks the bundle
+   * dispatched ONLY on success — a failed digest is re-queued by the orphan
+   * scan. Only reached when the CAT-05 gate admitted the bundle.
+   */
+  onDigestBundle?: (bundle: DeltaBundle) => void;
   log?: (line: string) => void;
+}
+
+/** Cat-2 backfill goes to Digest, never to the full pass ladder (spec §5.2.3). */
+export function isDigestBundle(bundle: DeltaBundle): boolean {
+  return bundle.lane === "backfill" && bundle.category === "cat2";
 }
 
 /**
  * The window clock (production caller — wired in worker/src/index.ts). Every
- * window: plan the tick, hand each planned bundle to the sink, and run the
- * orphan scan behind it.
+ * window: plan the tick, apply the Cat-1-before-Cat-2 slot gate, hand each
+ * planned bundle to its sink (full passes vs Digest), and run the orphan scan
+ * behind it.
  */
 export function startDispatcher(opts: DispatcherOptions = {}): DispatcherHandle {
   const cfg = opts.cfg ?? DEFAULT_DISPATCH_CONFIG;
@@ -490,15 +602,37 @@ export function startDispatcher(opts: DispatcherOptions = {}): DispatcherHandle 
     ((bundle: DeltaBundle) => {
       markDispatched(bundle);
     });
+  const onDigestBundle =
+    opts.onDigestBundle ??
+    ((bundle: DeltaBundle) => {
+      void runDigestPass(bundle)
+        .then((report) => {
+          if (report.status === "ok") markDispatched(bundle);
+          else log(`[dispatch] digest failed for ${bundle.streamKey}: ${report.error}`);
+        })
+        .catch((err) => log(`[dispatch] digest threw for ${bundle.streamKey}: ${err}`));
+    });
+  const route = (bundle: DeltaBundle): void => {
+    if (isDigestBundle(bundle)) onDigestBundle(bundle);
+    else onBundle(bundle);
+  };
 
   const tick = (): void => {
     try {
       const now = Date.now();
       const plan = collectTick(now, cfg);
-      const slotted = assignSlots(plan, cfg.slots);
-      for (const bundle of slotted) onBundle(bundle);
+      const gate = pendingCat1Counts();
+      const slotted = assignSlots(plan, cfg.slots, gate);
+      for (const bundle of slotted) route(bundle);
       const orphans = orphanScan(now, cfg);
-      for (const bundle of orphans.bundles) onBundle(bundle);
+      // Orphans re-enter through the same CAT-05 gate: a Cat-2 orphan waits
+      // for Cat-1 to finish exactly like a planned Cat-2 bundle would.
+      const admittedOrphans = orphans.bundles.filter(
+        (b) =>
+          !isDigestBundle(b) ||
+          admitWork({ id: b.streamId, lane: b.lane, kind: "data", category: "cat2" }, gate),
+      );
+      for (const bundle of admittedOrphans) route(bundle);
       if (slotted.length > 0 || orphans.orphanCount > 0) {
         log(
           `[dispatch] window: ${slotted.length} bundle(s), ` +

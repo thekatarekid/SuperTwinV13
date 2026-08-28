@@ -21,6 +21,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { bridgeIngestedEvents } from "../bridges/ingest.js";
+import { noteSelfAuthoredEvents } from "../categories/promotion.js";
 import { getDb } from "./connection.js";
 
 // ---- Envelope types (spec §6.1) -------------------------------------------
@@ -262,6 +263,20 @@ export function appendEvents(
     } catch (err) {
       console.error("[eventlog] bridge extraction failed (continuing):", err);
     }
+    // Engagement + Cat-2 -> Cat-1 promotion (P1.6, spec §5.1, eval CAT-03):
+    // a self-authored envelope is user engagement — never throws, never
+    // unwinds the append that committed.
+    noteSelfAuthoredEvents(
+      envelopes
+        .filter((env, i) => env.actor === "self" && insertedIds.includes(result.ids[i]))
+        .map((env) => ({
+          source: env.source,
+          streamKey: env.streamKey,
+          actor: env.actor,
+          ts: env.ts,
+        })),
+      nowMs,
+    );
   }
   return result;
 }

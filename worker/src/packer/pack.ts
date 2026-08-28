@@ -141,6 +141,26 @@ function renderCandidate(idx: number, c: CandidateSpace): string {
 // The packer
 // ---------------------------------------------------------------------------
 
+/**
+ * Spec §5.3 rendered into the pack (§6.4 item 8): the age-band policy the
+ * prompts call a "hard constraint" travels WITH the band letter, so the model
+ * never has to remember the table. Band A adds nothing (everything allowed).
+ */
+export function bandPolicyLine(band: string): string {
+  switch (band) {
+    case "A":
+      return "[BAND POLICY] A (0-30d): extract everything.";
+    case "B":
+      return "[BAND POLICY] B (1-6mo): spaces, claims, recurrences; tasks ONLY with verified still-open evidence. Never stale-task spam.";
+    case "C":
+      return "[BAND POLICY] C (6mo-2y): claims, CRM, recurrences (renewals, birthdays), life events. Never live tasks - recurrence templates only.";
+    case "D":
+      return "[BAND POLICY] D (2y+): coarse claims, relationships, narrative only. Never tasks; never spaces (unless clearly alive).";
+    default:
+      return `[BAND POLICY] ${band}: unknown band - extract conservatively; no tasks.`;
+  }
+}
+
 /** Assemble the Orient user block for one delta bundle (spec §6.4). */
 export async function packOrientContext(
   bundle: DeltaBundle,
@@ -168,7 +188,9 @@ export async function packOrientContext(
   bundle.events.forEach((e, i) => eventAliases.set(`e${i + 1}`, e.id));
 
   // ---- Blocks (assembled independently so the cap can trim by priority).
-  const bandLine = `[BAND] ${bundle.ageBand} ${bundle.lane}   [MODE] propose-only`;
+  const bandLine =
+    `[BAND] ${bundle.ageBand} ${bundle.lane}   [MODE] propose-only` +
+    (bundle.ageBand === "A" ? "" : `\n${bandPolicyLine(bundle.ageBand)}`);
 
   const rosterLine = stream
     ? `[ROSTER] ${

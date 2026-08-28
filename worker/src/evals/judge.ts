@@ -14,6 +14,7 @@
 // ===========================================================================
 
 import { claudeLocalProvider } from "../providers/claude-local/index.js";
+import { withTraceContext } from "../traces/context.js";
 import type { Provider } from "../providers/types.js";
 import type { Fixture } from "./fixtures.js";
 import type { ExecutorResult } from "./runner.js";
@@ -109,16 +110,22 @@ export function haikuJudge(options: HaikuJudgeOptions = {}): Judge {
 
   async function callOnce(prompt: string, runId: string): Promise<string> {
     let text = "";
-    const result = await provider.send({
-      runId,
-      message: prompt,
-      model,
-      plainCompletion: true,
-      timeoutMs,
-      onEvent: (e) => {
-        if (e.type === "delta") text += e.text;
-      },
-    });
+    // TRC-01: every model invocation runs inside a trace context — the judge
+    // is a model call like any other.
+    const result = await withTraceContext(
+      { pass: "eval-judge", caller: "evals/judge", promptVersion: "judge.v1" },
+      () =>
+        provider.send({
+          runId,
+          message: prompt,
+          model,
+          plainCompletion: true,
+          timeoutMs,
+          onEvent: (e) => {
+            if (e.type === "delta") text += e.text;
+          },
+        }),
+    );
     if (result.status !== "ok") {
       throw new Error(`judge call failed: ${result.errorCode ?? "unknown"}`);
     }

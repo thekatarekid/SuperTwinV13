@@ -22,8 +22,13 @@ function prose(v: unknown): string {
 }
 
 /** Render a prose fixture into the packed-input dialect the pass expects. */
-export function fixtureUser(setup: unknown, inputEvents: unknown[]): string {
-  const lines: string[] = ["[BAND] A live   [MODE] propose-only"];
+export function fixtureUser(
+  setup: unknown,
+  inputEvents: unknown[],
+  band: { letter: string; lane: string; policy?: string } = { letter: "A", lane: "live" },
+): string {
+  const lines: string[] = [`[BAND] ${band.letter} ${band.lane}   [MODE] propose-only`];
+  if (band.policy) lines.push(band.policy);
   if (setup !== undefined && setup !== null && setup !== "") {
     lines.push(`[SETUP] ${prose(setup)}`);
   }

@@ -18,10 +18,24 @@
 import { registerExecutor } from "../runner.js";
 import { bndExecutor, bndHookAvailable } from "./bnd.js";
 import { criticExecutor, orientExecutor } from "./orient.js";
+import {
+  backfillExecutor,
+  consolidateExecutor,
+  decideExecutor,
+  digestExecutor,
+  extractExecutor,
+} from "./passes.js";
 import { stubExecutor } from "./stub.js";
 
 export { bndExecutor, bndHookAvailable } from "./bnd.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
+export {
+  backfillExecutor,
+  consolidateExecutor,
+  decideExecutor,
+  digestExecutor,
+  extractExecutor,
+} from "./passes.js";
 export { stubExecutor } from "./stub.js";
 
 export async function registerProductExecutors(): Promise<void> {
@@ -32,4 +46,10 @@ export async function registerProductExecutors(): Promise<void> {
   // P1.3: the Orient map pass + the Critic gate (TOP/ASN/CRE/CRI/ROL/AGE…).
   registerExecutor("orient", orientExecutor);
   registerExecutor("critic", criticExecutor);
+  // P1.4/P1.5/P1.6 (Phase 1 integration): the downstream passes.
+  registerExecutor("extract", extractExecutor);
+  registerExecutor("decide", decideExecutor);
+  registerExecutor("consolidate", consolidateExecutor);
+  registerExecutor("digest", digestExecutor);
+  registerExecutor("scheduler.backfill", backfillExecutor);
 }

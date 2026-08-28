@@ -12,6 +12,7 @@
 // ===========================================================================
 
 export {
+  bandPolicyLine,
   packOrientContext,
   DEFAULT_PACK_MAX_CHARS,
   type PackOptions,

@@ -24,7 +24,7 @@ import type {
   SendOptions,
   Usage,
 } from "../providers/types.js";
-import { handleExecutorRoute, type ExecutorRouteDeps } from "./executor-routes.js";
+import { executeRegistryFor, handleExecutorRoute, type ExecutorRouteDeps } from "./executor-routes.js";
 
 const USAGE: Usage = {
   inputTokens: 10,
@@ -238,5 +238,76 @@ describe("POST /api/tasks/:id/send", () => {
     );
     await primeDraft();
     expect((await call("POST", "/api/tasks/tsk_1/send", {}, ingestion)).status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3.x seam: executeRegistryFor — browser tools ride the default registry
+// ---------------------------------------------------------------------------
+
+describe("executeRegistryFor (browser tool seam)", () => {
+  const fakeHarness = {} as unknown as import("../browser/harness.js").BrowserHarness;
+
+  it("returns undefined with no browser (session falls back to the default table)", () => {
+    expect(executeRegistryFor({})).toBeUndefined();
+    expect(executeRegistryFor({ browser: null })).toBeUndefined();
+    expect(
+      executeRegistryFor({
+        browser: {
+          available: false,
+          ensure() {
+            throw new Error("must not launch when unavailable");
+          },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("augments the default registry with the browser surface when available", () => {
+    const registry = executeRegistryFor({
+      browser: { available: true, ensure: () => ({ harness: fakeHarness }) },
+    });
+    expect(registry).toBeDefined();
+    const names = registry!.allowedToolNames();
+    expect(names).toContain("browser_open_tab");
+    expect(names).toContain("browser_navigate");
+    expect(names).toContain("browser_snapshot");
+    // and it is the default table too, not browser-only
+    expect(names.length).toBeGreaterThan(8);
+    // every browser tool registered as risk "safe" — no gated browser surface
+    for (const t of registry!.list()) {
+      if (t.name.startsWith("browser_")) expect(t.risk).toBe("safe");
+    }
+  });
+
+  it("an injected registry always wins over the browser augmentation", () => {
+    const injected = new (class {
+      allowedToolNames() {
+        return ["only_mine"];
+      }
+    })() as any;
+    const registry = executeRegistryFor({
+      executor: { registry: injected },
+      browser: {
+        available: true,
+        ensure() {
+          throw new Error("must not be consulted when a registry is injected");
+        },
+      },
+    });
+    expect(registry).toBe(injected);
+  });
+
+  it("a browser launch failure degrades to no browser tools, never an error", () => {
+    expect(
+      executeRegistryFor({
+        browser: {
+          available: true,
+          ensure() {
+            throw new Error("chromium failed to launch");
+          },
+        },
+      }),
+    ).toBeUndefined();
   });
 });

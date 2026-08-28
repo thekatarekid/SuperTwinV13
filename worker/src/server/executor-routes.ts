@@ -32,11 +32,15 @@ import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import type { Ingestion } from "../ingest/index.js";
 import {
+  defaultToolRegistry,
   runExecutorTask,
   taskWorkspaceDir,
   type ExecutorEnvelope,
   type ExecutorRunDeps,
+  type ToolRegistry,
 } from "../executor/index.js";
+import { registerBrowserTools } from "../browser/index.js";
+import type { BrowserHarness } from "../browser/harness.js";
 
 // ---------------------------------------------------------------------------
 // Plumbing
@@ -120,10 +124,47 @@ function runView(task: DbTaskRow): { task: DbTaskRow; run: StoredRun | null } {
 // Deps (tests inject a stubbed provider; index.ts passes nothing)
 // ---------------------------------------------------------------------------
 
+/**
+ * The shape of BrowserManager this route needs (structural — routes.ts's
+ * singleton satisfies it; tests pass a fake). Kept minimal so executor-routes
+ * never launches Chromium itself: `available` is a cheap staged-binary check,
+ * and `ensure()` is only entered when it is true.
+ */
+export interface BrowserToolSource {
+  readonly available: boolean;
+  ensure(): { harness: BrowserHarness };
+}
+
 export interface ExecutorRouteDeps {
   /** Forwarded into runExecutorTask — tests stub the provider here. */
   executor?: ExecutorRunDeps;
+  /**
+   * When provided AND available, the executor session's registry is the
+   * default tool table PLUS the browser tool surface (P3.4 seam: browser
+   * tools ride the same invokeTool choke point). An explicit
+   * deps.executor.registry always wins — tests keep full control.
+   */
+  browser?: BrowserToolSource | null;
   nowMs?: number;
+}
+
+/**
+ * Build the registry for one /execute run: the injected registry verbatim if
+ * the caller supplied one; otherwise the default table, augmented with the
+ * browser tools when a browser is available. A browser launch failure never
+ * fails the run — the session simply gets no browser tools.
+ */
+export function executeRegistryFor(deps: ExecutorRouteDeps): ToolRegistry | undefined {
+  if (deps.executor?.registry) return deps.executor.registry;
+  if (!deps.browser?.available) return undefined;
+  try {
+    const { harness } = deps.browser.ensure();
+    const registry = defaultToolRegistry();
+    registerBrowserTools(registry, harness);
+    return registry;
+  } catch {
+    return undefined; // browser could not launch — run without browser tools
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +214,10 @@ export async function handleExecutorRoute(
         ? body.approval_token
         : undefined;
     try {
+      const registry = executeRegistryFor(deps);
       const result = await runExecutorTask(taskId, {
         ...(deps.executor ?? {}),
+        ...(registry ? { registry } : {}),
         ...(approvalToken ? { approvalToken } : {}),
       });
       sendJson(res, 200, {

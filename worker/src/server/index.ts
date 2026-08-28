@@ -136,7 +136,7 @@ import { handleAssistRoute } from "./assist-routes.js";
 // Freshness chip + Library screens (P2.4, spec §5.4 / §14.3.2).
 import { handleLibraryRoute } from "./library-routes.js";
 // SuperTwin Browser (P3.4, spec §12): status / kill-switch / connect-accounts.
-import { handleBrowserRoute } from "../browser/routes.js";
+import { browserManager, handleBrowserRoute } from "../browser/routes.js";
 // Task run + approvals glue (P3.5, spec §14.6): the task modal's live states,
 // question-card answers, and the approved WhatsApp draft send.
 import { handleExecutorRoute } from "./executor-routes.js";
@@ -795,7 +795,9 @@ async function handle(
   // Task run + approvals glue (P3.5, spec §14.6): GET run / POST execute /
   // POST answer / POST send under /api/tasks/:id — the modal's live states.
   if (path.startsWith("/api/tasks/")) {
-    const handled = await handleExecutorRoute(req, res, ingestion);
+    const handled = await handleExecutorRoute(req, res, ingestion, {
+      browser: browserManager,
+    });
     if (handled) return;
   }
 

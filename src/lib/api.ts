@@ -79,7 +79,7 @@ export interface HomeData {
   recent_understanding: ClaimRow[];
 }
 
-export type TargetKind = "task" | "space" | "episode" | "claim" | "stream";
+export type TargetKind = "task" | "space" | "episode" | "claim" | "stream" | "person";
 
 export interface CorrectionResult {
   correction_id: string;
@@ -383,3 +383,89 @@ export const artifactSignal = (id: string, signal: string): Promise<{ weight: nu
 
 export const pauseCapture = (minutes: number | null): Promise<{ capture_paused_until: string | null }> =>
   request("/api/assist/pause", post(minutes == null ? { until: null } : { minutes }));
+// ---- People + circles (P4.2, spec §7.3 / §14.6) ----------------------------
+
+/** The nine relationship circles (spec §7.3.2) — mirror of the worker's list. */
+export const CIRCLES = [
+  "partner",
+  "family",
+  "close_friends",
+  "friends",
+  "coworkers",
+  "important_services",
+  "old_batchmates",
+  "acquaintances",
+  "businesses",
+] as const;
+
+export type Circle = (typeof CIRCLES)[number];
+
+/** One row of the worker's `people` view (entities, merge-resolved). */
+export interface PersonRow {
+  id: string;
+  name: string | null;
+  subtype: string | null;
+  circle: Circle | null;
+  provisional: number;
+  user_pinned: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+}
+
+export interface MergeQuestion {
+  id: string;
+  question: string;
+}
+
+export const fetchPeople = (): Promise<{ people: PersonRow[]; open_questions: MergeQuestion[] }> =>
+  request("/api/people");
+
+/** One claim version as the worker's claims store serializes it. */
+export interface ClaimVersionView {
+  id: string;
+  claimKey: string;
+  kind: string | null;
+  text: string | null;
+  confidence: number | null;
+  statedAt: string;
+  validFrom: string | null;
+  validTo: string | null;
+  closedBy?: string | null;
+  closedReason?: string | null;
+  evidence?: { quote: string; event_ids: string[] }[];
+}
+
+export interface EdgeView {
+  id: string;
+  kind: string;
+  subtype: string | null;
+  srcEntityId: string;
+  dstEntityId: string;
+  status: string;
+}
+
+export interface PersonDetail {
+  subject: string;
+  circle: Circle | null;
+  claims: ClaimVersionView[];
+  edges: EdgeView[];
+}
+
+export const fetchPersonDetail = (id: string): Promise<PersonDetail> =>
+  request(`/api/people/${encodeURIComponent(id)}/claims`);
+
+export const fetchClaimHistory = (
+  key: string,
+): Promise<{ claim_key: string; active: ClaimVersionView | null; history: ClaimVersionView[] }> =>
+  request(`/api/claims/${encodeURIComponent(key)}`);
+
+export interface ToneProfileView {
+  register: string | null;
+  languageMix: string | null;
+  emojiHabits: string | null;
+  notes: string | null;
+}
+
+export const fetchTone = (personId: string): Promise<{ profile: ToneProfileView | null }> =>
+  request(`/api/tone?person=${encodeURIComponent(personId)}`);

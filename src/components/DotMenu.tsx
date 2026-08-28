@@ -11,7 +11,7 @@
 
 import type { TargetKind } from "../lib/api";
 
-export type DotMenuObjectType = "task" | "claim" | "proposal" | "space" | "episode";
+export type DotMenuObjectType = "task" | "claim" | "proposal" | "space" | "episode" | "person";
 
 export interface ChipSpec {
   label: string;
@@ -41,7 +41,9 @@ export function chipsFor(type: DotMenuObjectType): ChipSpec[] {
 
 /** Which correction "Remove" maps to, per object type (soft, reversible). */
 export function removeStructured(type: DotMenuObjectType): Record<string, unknown> {
-  return type === "task" ? { type: "not_task" } : { type: "cancel" };
+  if (type === "task") return { type: "not_task" };
+  if (type === "person") return { type: "stop_tracking" }; // recorded, honest, never a delete
+  return { type: "cancel" };
 }
 
 export interface DotMenuProps {

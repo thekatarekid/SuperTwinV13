@@ -1,13 +1,17 @@
 // ===========================================================================
-// Generative result renderer basics — build P3.5, spec §14.5 / §11.4 item 4.
+// Generative result renderer + component library — build P4.2 (grown from the
+// P3.5 basics), spec §14.5 / §11.4 item 4.
 //
 // Renders the executor's typed {result_type, data} payloads. The model
-// composes DATA, never styles: every visual decision lives here, one branch
-// per schema, all fields read defensively (a missing field renders as absent,
-// never as a crash — the worker validated on emit, but the renderer stays
-// honest about drift). P4.2 grows this into the full component library.
+// composes DATA, never styles: every visual decision lives here in a fixed
+// design-system kit (Kit* primitives below), one branch per schema, all
+// fields read defensively (a missing field renders as absent, never as a
+// crash — the worker validated on emit, but the renderer stays honest about
+// drift). Anything outside the seven schemas falls back to a clean document
+// card (spec §14.5: "overflow falls back to a clean document card").
 // ===========================================================================
 
+import type { ReactNode } from "react";
 import type { ExecutorResultView } from "../lib/api";
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
@@ -16,6 +20,124 @@ const obj = (v: unknown): Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
 const muted = { color: "var(--ink-2)" } as const;
+
+// ---- the component kit (fixed design system; the model never reaches it) ---
+
+/** Bold lead line of a result block. */
+export function KitTitle({ text }: { text: string | null }): JSX.Element | null {
+  return text ? (
+    <p>
+      <strong>{text}</strong>
+    </p>
+  ) : null;
+}
+
+/** Muted footnote / provenance / policy line. */
+export function KitNote({ text, prefix }: { text: string | null; prefix?: string }): JSX.Element | null {
+  return text ? (
+    <p style={muted}>
+      {prefix}
+      {text}
+    </p>
+  ) : null;
+}
+
+/** Column table — comparisons, fares, options. */
+export function KitTable({ columns, rows }: { columns: string[]; rows: string[][] }): JSX.Element {
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table>
+        <thead>
+          <tr>
+            {columns.map((c, i) => (
+              <th key={i}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((cells, i) => (
+            <tr key={i}>
+              {cells.map((c, j) => (
+                <td key={j}>{c}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Plain bulleted list of composed lines. */
+export function KitList({ items }: { items: ReactNode[] }): JSX.Element {
+  return (
+    <ul>
+      {items.map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+/** label: value rows (approval details, receipts). */
+export function KitKeyValue({ pairs }: { pairs: { label: string | null; value: string | null }[] }): JSX.Element {
+  return (
+    <ul>
+      {pairs.map((p, i) => (
+        <li key={i}>
+          {p.label}: {p.value}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Quoted body — drafts, verbatim text. */
+export function KitQuote({ text }: { text: string }): JSX.Element {
+  return <blockquote>{text}</blockquote>;
+}
+
+/**
+ * The overflow fallback: any payload the kit has no schema branch for renders
+ * as a clean, readable document card — never raw JSON soup, never a crash.
+ */
+export function DocumentCard({ data, title }: { data: Record<string, unknown>; title?: string | null }): JSX.Element {
+  const line = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    if (Array.isArray(v)) return v.map(line).filter(Boolean).join(" · ");
+    return Object.entries(obj(v))
+      .map(([k, x]) => `${k}: ${line(x)}`)
+      .join(" · ");
+  };
+  const entries = Object.entries(data).filter(([, v]) => line(v) !== "");
+  return (
+    <div className="document-card" data-testid="document-card">
+      <KitTitle text={title ?? str(data.title)} />
+      {entries
+        .filter(([k]) => k !== "title")
+        .map(([k, v]) => (
+          <p key={k}>
+            <span style={muted}>{k.replace(/_/g, " ")}</span> — {line(v)}
+          </p>
+        ))}
+      {entries.length === 0 && <p style={muted}>nothing to show</p>}
+    </div>
+  );
+}
+
+// ---- the seven executor result schemas -------------------------------------
+
+const KNOWN_TYPES = new Set([
+  "comparison_table",
+  "itinerary",
+  "draft_preview",
+  "approval_card",
+  "research_brief",
+  "checklist",
+  "receipt",
+]);
 
 export function ResultRenderer(props: { result: ExecutorResultView }): JSX.Element {
   const { result_type, data } = props.result;
@@ -29,6 +151,7 @@ export function ResultRenderer(props: { result: ExecutorResultView }): JSX.Eleme
       {result_type === "research_brief" && <ResearchBrief data={data} />}
       {result_type === "checklist" && <Checklist data={data} />}
       {result_type === "receipt" && <Receipt data={data} />}
+      {!KNOWN_TYPES.has(result_type) && <DocumentCard data={data} />}
     </div>
   );
 }
@@ -38,18 +161,9 @@ function ComparisonTable({ data }: { data: Record<string, unknown> }): JSX.Eleme
   const rows = arr(data.rows).map((r) => arr(r).map(String));
   return (
     <div>
-      {str(data.title) && <p><strong>{str(data.title)}</strong></p>}
-      <table>
-        <thead>
-          <tr>{columns.map((c, i) => <th key={i}>{c}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((cells, i) => (
-            <tr key={i}>{cells.map((c, j) => <td key={j}>{c}</td>)}</tr>
-          ))}
-        </tbody>
-      </table>
-      {str(data.recommendation) && <p style={muted}>← {str(data.recommendation)}</p>}
+      <KitTitle text={str(data.title)} />
+      <KitTable columns={columns} rows={rows} />
+      <KitNote text={str(data.recommendation)} prefix="← " />
     </div>
   );
 }
@@ -57,18 +171,18 @@ function ComparisonTable({ data }: { data: Record<string, unknown> }): JSX.Eleme
 function Itinerary({ data }: { data: Record<string, unknown> }): JSX.Element {
   return (
     <div>
-      {str(data.title) && <p><strong>{str(data.title)}</strong></p>}
-      <ul>
-        {arr(data.legs).map((leg, i) => {
+      <KitTitle text={str(data.title)} />
+      <KitList
+        items={arr(data.legs).map((leg) => {
           const l = obj(leg);
           return (
-            <li key={i}>
+            <>
               {str(l.when)} — {str(l.what)}
-            </li>
+            </>
           );
         })}
-      </ul>
-      {str(data.notes) && <p style={muted}>{str(data.notes)}</p>}
+      />
+      <KitNote text={str(data.notes)} />
     </div>
   );
 }
@@ -79,8 +193,8 @@ function DraftPreview({ data }: { data: Record<string, unknown> }): JSX.Element 
       <p style={muted}>
         draft · {str(data.channel) ?? "message"} → {str(data.to) ?? "?"}
       </p>
-      {str(data.subject) && <p><strong>{str(data.subject)}</strong></p>}
-      <blockquote>{str(data.body) ?? ""}</blockquote>
+      <KitTitle text={str(data.subject)} />
+      <KitQuote text={str(data.body) ?? ""} />
     </div>
   );
 }
@@ -92,17 +206,13 @@ function ApprovalCard({ data }: { data: Record<string, unknown> }): JSX.Element 
         <strong>{str(data.summary) ?? str(data.action) ?? "approval"}</strong>
         {str(data.amount) && <> · {str(data.amount)}</>}
       </p>
-      <ul>
-        {arr(data.details).map((d, i) => {
+      <KitKeyValue
+        pairs={arr(data.details).map((d) => {
           const row = obj(d);
-          return (
-            <li key={i}>
-              {str(row.label)}: {str(row.value)}
-            </li>
-          );
+          return { label: str(row.label), value: str(row.value) };
         })}
-      </ul>
-      {str(data.cancellation_policy) && <p style={muted}>{str(data.cancellation_policy)}</p>}
+      />
+      <KitNote text={str(data.cancellation_policy)} />
     </div>
   );
 }
@@ -110,15 +220,11 @@ function ApprovalCard({ data }: { data: Record<string, unknown> }): JSX.Element 
 function ResearchBrief({ data }: { data: Record<string, unknown> }): JSX.Element {
   return (
     <div>
-      {str(data.title) && <p><strong>{str(data.title)}</strong></p>}
+      <KitTitle text={str(data.title)} />
       {str(data.summary) && <p>{str(data.summary)}</p>}
-      <ul>
-        {arr(data.findings).map((f, i) => (
-          <li key={i}>{str(obj(f).point)}</li>
-        ))}
-      </ul>
+      <KitList items={arr(data.findings).map((f) => str(obj(f).point))} />
       {arr(data.sources).length > 0 && (
-        <p style={muted}>sources: {arr(data.sources).map(String).join(" · ")}</p>
+        <KitNote text={arr(data.sources).map(String).join(" · ")} prefix="sources: " />
       )}
     </div>
   );
@@ -129,17 +235,17 @@ function Checklist({ data }: { data: Record<string, unknown> }): JSX.Element {
     state === "done" ? "✓" : state === "blocked" ? "✕" : "○";
   return (
     <div>
-      {str(data.title) && <p><strong>{str(data.title)}</strong></p>}
-      <ul>
-        {arr(data.items).map((item, i) => {
+      <KitTitle text={str(data.title)} />
+      <KitList
+        items={arr(data.items).map((item) => {
           const row = obj(item);
           return (
-            <li key={i}>
+            <>
               {mark(str(row.state))} {str(row.label)}
-            </li>
+            </>
           );
         })}
-      </ul>
+      />
     </div>
   );
 }

@@ -13,7 +13,9 @@ import { join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 
+import { claimHistory, claimsAbout, writeClaimVersion } from "../claims/store.js";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
+import { circleOf, createEntity } from "../entities/registry.js";
 import { parseCorrectionOutput } from "../prompts/correction-parse.v1.js";
 import { handleCorrectionsRoute, type CorrectionParser } from "./corrections-routes.js";
 
@@ -180,6 +182,86 @@ describe("handleCorrectionsRoute", () => {
     expect(getDb().prepare(`SELECT status FROM corrections`).get()).toEqual({ status: "pending" });
     // Still drafts the eval case — pending parses are what humans review.
     expect(readdirSync(join(tmpDir, "eval-drafts")).length).toBe(1);
+  });
+
+  it("CIR-04: dragging a person between circles is a correction — logged, applied at once, eval-drafted, undoable", async () => {
+    // Priya auto-inferred "friends"; the user drags her to "close friends".
+    createEntity({ type: "person", canonical: "Priya", id: "ent_priya0000000000000000", seenAt: "2026-08-01T00:00:00Z" });
+    getDb().prepare(`UPDATE entities SET circle = 'friends' WHERE id = 'ent_priya0000000000000000'`).run();
+
+    const out = await call("POST", "/api/corrections", {
+      target: { kind: "person", id: "ent_priya0000000000000000" },
+      structured: { type: "set_circle", circle: "close_friends" },
+    });
+    expect(out.body.status).toBe("applied");
+    // The circle shifts immediately — nudge thresholds / brief inclusion /
+    // applicability all read this stored field, so downstream reflects it now.
+    expect(circleOf("ent_priya0000000000000000")).toBe("close_friends");
+    // Correction event logged + decisions row (the change is reversible).
+    expect(getDb().prepare(`SELECT status, target_kind FROM corrections`).get()).toEqual({
+      status: "applied",
+      target_kind: "person",
+    });
+    expect(out.body.decision_id).toBeTruthy();
+    // An eval case is auto-drafted from the correction (promotion loop).
+    const drafts = readdirSync(join(tmpDir, "eval-drafts"));
+    expect(drafts.length).toBe(1);
+    const fixture = JSON.parse(readFileSync(join(tmpDir, "eval-drafts", drafts[0]!), "utf8"));
+    expect(JSON.stringify(fixture)).toContain("set_circle");
+    // edit-ignored would be the failure mode; undo restores the old circle.
+    const undo = await call("POST", `/api/corrections/${out.body.correction_id}/undo`);
+    expect(undo.body.undone).toBe(true);
+    expect(circleOf("ent_priya0000000000000000")).toBe("friends");
+  });
+
+  it("FIX-03: 'she's my cousin, not a coworker' supersedes the claim (validity end, kept) and moves the circle", async () => {
+    // Riya misclaimed as coworker.
+    createEntity({ type: "person", canonical: "Riya", id: "ent_riya00000000000000000", seenAt: "2026-08-01T00:00:00Z" });
+    getDb().prepare(`UPDATE entities SET circle = 'coworkers' WHERE id = 'ent_riya00000000000000000'`).run();
+    const old = writeClaimVersion({
+      claimKey: "person.riya.relationship",
+      kind: "relationship",
+      subjectId: "ent_riya00000000000000000",
+      text: "coworker",
+      confidence: 0.7,
+      statedAt: "2026-08-10T00:00:00Z",
+      evidence: [{ quote: "riya from office joined", event_ids: ["e9"] }],
+      decidedBy: "llm:extract",
+    });
+
+    const out = await call("POST", "/api/corrections", {
+      target: { kind: "person", id: "ent_riya00000000000000000" },
+      structured: { type: "set_relationship", relation: "cousin", circle: "family" },
+    });
+    expect(out.body.status).toBe("applied");
+
+    // Old claim superseded — validity end + closed_by, NEVER deleted
+    // (silent-overwrite is the wrong[] here; history keeps both versions).
+    const history = claimHistory("person.riya.relationship");
+    expect(history.length).toBe(2);
+    const oldRow = history.find((v) => v.id === old.id)!;
+    expect(oldRow.closedBy).toBe("user");
+    expect(oldRow.validTo).not.toBeNull();
+    // The new relationship claim is the active one.
+    const active = claimsAbout("ent_riya00000000000000000", "relationship");
+    expect(active.length).toBe(1);
+    expect(active[0]!.text).toBe("cousin");
+    // Circle moved to family → dependent judgments (tone, applicability,
+    // nudge thresholds) read the new circle immediately.
+    expect(circleOf("ent_riya00000000000000000")).toBe("family");
+    // Correction evented + eval case drafted.
+    expect(getDb().prepare(`SELECT status FROM corrections`).get()).toEqual({ status: "applied" });
+    expect(readdirSync(join(tmpDir, "eval-drafts")).length).toBe(1);
+  });
+
+  it("set_circle rejects a value outside the nine circles (recorded pending, never applied)", async () => {
+    createEntity({ type: "person", canonical: "Dev", id: "ent_dev000000000000000000", seenAt: null });
+    const out = await call("POST", "/api/corrections", {
+      target: { kind: "person", id: "ent_dev000000000000000000" },
+      structured: { type: "set_circle", circle: "besties" },
+    });
+    expect(out.body.status).toBe("pending");
+    expect(circleOf("ent_dev000000000000000000")).toBeNull();
   });
 
   it("validates the request shape", async () => {

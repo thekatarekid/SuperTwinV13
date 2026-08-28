@@ -34,10 +34,11 @@ import { hideMainWindow } from "./lib/tauri";
 import { FreshnessChip } from "./components/FreshnessChip";
 import { AccessibilityOnboarding } from "./components/AccessibilityOnboarding";
 import { GroundedBar, type BarLock } from "./components/GroundedBar";
-import { ModalFrame, parseEvidence } from "./components/Modal";
 import { Home } from "./screens/Home";
 import { Library } from "./screens/Library";
 import { Settings, Timeline } from "./screens/Stubs";
+import { ArtifactModal } from "./modals/ArtifactModal";
+import { ClaimModal } from "./modals/ClaimModal";
 import { ProposalModal } from "./modals/ProposalModal";
 import { SpaceModal } from "./modals/SpaceModal";
 import { TaskModal } from "./modals/TaskModal";
@@ -237,7 +238,7 @@ export function App(): JSX.Element {
           />
         )}
         {tab === "timeline" && <Timeline />}
-        {tab === "library" && <Library />}
+        {tab === "library" && <Library onTellTwinPerson={(id, label) => lockTo("person", id, label)} />}
         {tab === "settings" && <Settings />}
       </main>
 
@@ -273,63 +274,26 @@ export function App(): JSX.Element {
         />
       )}
       {modal?.type === "claim" && (
-        <ModalFrame
-          title={modal.claim.text ?? modal.claim.claim_key}
-          typeChip={modal.claim.kind ?? "claim"}
-          objectType="claim"
-          targetKind="claim"
-          targetId={modal.claim.claim_key}
-          evidence={parseEvidence(modal.claim.evidence_json)}
+        <ClaimModal
+          claim={modal.claim}
           onCorrection={(s) => void correct({ kind: "claim", id: modal.claim.claim_key }, s)}
           onTellTwin={() => lockTo("claim", modal.claim.claim_key, modal.claim.text ?? modal.claim.claim_key)}
           onClose={() => setModal(null)}
-        >
-          {modal.claim.confidence != null && (
-            <p style={{ color: "var(--ink-2)" }}>
-              confidence {modal.claim.confidence.toFixed(2)} · stated {modal.claim.stated_at}
-            </p>
-          )}
-        </ModalFrame>
+        />
       )}
 
       {modal?.type === "artifact" && (
-        <div className="modal-scrim" onClick={() => setModal(null)} data-testid="modal-scrim">
-          <section
-            className="modal"
-            role="dialog"
-            aria-label={modal.artifact.title}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header>
-              <h2 className="title">{modal.artifact.title}</h2>
-              <span className="chip">◆ {modal.artifact.kind}</span>
-              {modal.artifact.spaceId && <span className="chip">{modal.artifact.spaceId}</span>}
-            </header>
-            {modal.artifact.summary && <p>{modal.artifact.summary}</p>}
-            {modal.artifact.reasoning && (
-              <p style={{ color: "var(--ink-2)" }}>{modal.artifact.reasoning}</p>
-            )}
-            <footer>
-              <button
-                type="button"
-                className="linklike"
-                onClick={() => void artifactAction(modal.artifact, "graduate")}
-              >
-                make it a task
-              </button>
-              <button
-                type="button"
-                className="linklike"
-                onClick={() => void artifactAction(modal.artifact, "dismiss")}
-              >
-                dismiss
-              </button>
-              <button type="button" className="linklike" onClick={() => setModal(null)}>
-                close
-              </button>
-            </footer>
-          </section>
-        </div>
+        <ArtifactModal
+          artifact={modal.artifact}
+          onGraduate={() => void artifactAction(modal.artifact, "graduate")}
+          onDismiss={() => void artifactAction(modal.artifact, "dismiss")}
+          onIterate={
+            modal.artifact.spaceId
+              ? () => lockTo("space", modal.artifact.spaceId!, modal.artifact.title)
+              : null
+          }
+          onClose={() => setModal(null)}
+        />
       )}
 
       {undo && (

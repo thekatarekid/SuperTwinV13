@@ -723,3 +723,37 @@ body.aux-window {
   margin-bottom: 4px;
   cursor: pointer;
 }
+
+/* -- People view: circles + drag-as-correction (P4.2, spec §7.3/§14.4) ------ */
+
+.people .circle-group {
+  border: 1px dashed transparent;
+  border-radius: 10px;
+  padding: 2px 6px;
+  margin-bottom: var(--sp-2);
+}
+
+.people .circle-group.drop-target {
+  border-color: var(--accent);
+  background: rgba(106, 167, 255, 0.08);
+}
+
+.people .circle-title {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  margin: 4px 0;
+  font-weight: 500;
+}
+
+.people .row.person {
+  cursor: grab;
+}
+
+/* -- generative kit: the document-card overflow fallback (spec §14.5) ------- */
+
+.document-card {
+  background: var(--glass-1-bg);
+  border: var(--glass-border);
+  border-radius: 10px;
+  padding: var(--sp-2) var(--sp-3);
+}

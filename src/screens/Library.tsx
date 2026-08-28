@@ -25,6 +25,7 @@ import {
   type LibraryScreen,
   type ScreenSessionCard,
 } from "../lib/api";
+import { People } from "./People";
 
 function knowsFromLabel(ts: string | null): string {
   if (!ts) return "not yet understood";
@@ -52,7 +53,10 @@ function hhmm(ts: string): string {
   return new Date(ts).toISOString().slice(11, 16);
 }
 
-export function Library(): JSX.Element {
+export function Library(props: {
+  /** Context-locks the grounded bar to a person from the People section. */
+  onTellTwinPerson?: (personId: string, label: string) => void;
+} = {}): JSX.Element {
   const [chats, setChats] = useState<ChatStreamRow[] | null>(null);
   const [browser, setBrowser] = useState<LibraryBrowser | null>(null);
   const [screen, setScreen] = useState<LibraryScreen | null>(null);
@@ -252,6 +256,8 @@ export function Library(): JSX.Element {
           </p>
         )}
       </section>
+
+      <People onTellTwin={props.onTellTwinPerson} />
 
       {confirmDelete && (
         <div className="modal-scrim" role="presentation" onClick={() => setConfirmDelete(null)}>

@@ -19,9 +19,10 @@
 import { randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
-import { activeClaim, closeClaimVersion } from "../claims/store.js";
+import { activeClaim, claimsAbout, closeClaimVersion, writeClaimVersion } from "../claims/store.js";
 import { getDb } from "../db/connection.js";
 import { markReversed, writeDecision } from "../db/decisions.js";
+import { isCircle } from "../entities/registry.js";
 import { getSelectedModel } from "../db/settings.js";
 import {
   CORRECTION_PARSE_INSTRUCTIONS,
@@ -34,14 +35,31 @@ import { runPrompt } from "../prompts/runner.js";
 import { writeEvalDraft } from "./eval-drafts.js";
 
 export interface CorrectionTarget {
-  kind: "task" | "space" | "episode" | "claim" | "stream";
+  kind: "task" | "space" | "episode" | "claim" | "stream" | "person";
   id: string;
 }
+
+/**
+ * The structured corrections the pipeline applies. The model parser emits the
+ * ParsedCorrection subset (correction-parse.v1); the two person-shaped types
+ * are direct-manipulation-only for now (People-view drag = set_circle, the
+ * person card's relationship fix = set_relationship) — adding them to the
+ * utterance path means cutting a correction-parse.v2 + eval run.
+ */
+export type StructuredCorrection = Omit<ParsedCorrection, "type"> & {
+  type: ParsedCorrection["type"] | "set_circle" | "set_relationship";
+  to_space_id?: string;
+  into_id?: string;
+  /** set_circle / set_relationship: one of the nine spec §7.3.2 circles. */
+  circle?: string;
+  /** set_relationship: the corrected relation as said ("cousin"). */
+  relation?: string;
+};
 
 export interface CorrectionRequest {
   target: CorrectionTarget;
   /** Direct-manipulation paths (drag, chips) send the structured form. */
-  structured?: ParsedCorrection & { to_space_id?: string; into_id?: string };
+  structured?: StructuredCorrection;
   /** "Tell the twin" sends the raw utterance instead. */
   utterance?: string;
   scope?: "once" | "stream" | "space" | "global";
@@ -97,6 +115,7 @@ const TARGET_TABLES: Record<CorrectionTarget["kind"], string | null> = {
   episode: "episodes",
   claim: null, // claims go through the claims store, not raw rows
   stream: "streams",
+  person: "entities", // People-view ids ARE entity ids (people is a view)
 };
 
 function loadTargetState(target: CorrectionTarget): unknown {
@@ -132,7 +151,7 @@ interface ApplyOutcome {
  */
 function applyCorrection(
   target: CorrectionTarget,
-  structured: ParsedCorrection & { to_space_id?: string; into_id?: string },
+  structured: StructuredCorrection,
   before: unknown,
 ): ApplyOutcome {
   const db = getDb();
@@ -256,6 +275,64 @@ function applyCorrection(
       );
       const decisionId = decide("update", `user edited ${structured.field}`);
       return { applied: true, summary: `${structured.field} updated`, decisionId, after: loadTargetState(target) };
+    }
+    case "set_circle": {
+      // CIR-04: a People-view drag between circles. The change lands
+      // immediately (nudge thresholds, brief inclusion and applicability all
+      // read the stored circle), writes a decisions row (undo restores the
+      // old entity row), and — like every correction — drafts an eval case.
+      if (kind !== "person" || !isCircle(structured.circle ?? null)) {
+        return { applied: false, summary: "set_circle needs a person and one of the nine circles" };
+      }
+      db.prepare(`UPDATE entities SET circle = ? WHERE id = ?`).run(structured.circle, id);
+      const decisionId = decide("set_circle", `user moved person to circle ${structured.circle}`);
+      return { applied: true, summary: `circle → ${structured.circle}`, decisionId, after: loadTargetState(target) };
+    }
+    case "set_relationship": {
+      // FIX-03: "she's my cousin, not a coworker" on a person card. The old
+      // relationship claim is SUPERSEDED — validity end, never deletion (the
+      // silent-overwrite failure mode is structurally impossible: history
+      // keeps every version) — a new relationship claim lands with the
+      // correction as evidence, and the circle moves when one was given so
+      // downstream judgments (tone, applicability, nudges) shift at once.
+      if (kind !== "person" || !structured.relation) {
+        return { applied: false, summary: "set_relationship needs a person and a relation" };
+      }
+      if (structured.circle !== undefined && !isCircle(structured.circle)) {
+        return { applied: false, summary: `${JSON.stringify(structured.circle)} is not one of the nine circles` };
+      }
+      const now = new Date().toISOString();
+      const open = claimsAbout(id, "relationship");
+      for (const old of open) {
+        closeClaimVersion(old.id, { closedBy: "user", reason: "corrected", validTo: now });
+      }
+      const claimKey = open[0]?.claimKey ?? `person.${id}.relationship`;
+      writeClaimVersion({
+        claimKey,
+        kind: "relationship",
+        subjectId: id,
+        text: structured.relation,
+        confidence: 1,
+        statedAt: now,
+        validFrom: now,
+        evidence: [{ quote: `user correction: ${structured.relation}`, event_ids: [] }],
+        decidedBy: "user",
+        relation: open.length > 0 ? "contradicts" : "new",
+        relatedVersionId: open[0]?.id ?? null,
+      });
+      if (structured.circle) {
+        db.prepare(`UPDATE entities SET circle = ? WHERE id = ?`).run(structured.circle, id);
+      }
+      const decisionId = decide(
+        "set_relationship",
+        `user corrected relationship to ${structured.relation}${structured.circle ? ` (circle → ${structured.circle})` : ""}`,
+      );
+      return {
+        applied: true,
+        summary: `relationship → ${structured.relation}${structured.circle ? ` · circle → ${structured.circle}` : ""}${open.length > 0 ? " (old claim kept in history with a validity end)" : ""}`,
+        decisionId,
+        after: loadTargetState(target),
+      };
     }
     case "stop_tracking":
     case "none":

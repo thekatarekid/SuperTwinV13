@@ -175,7 +175,8 @@ describe("per-category thresholds (Settings › Assist)", () => {
       sources: ["wa"],
       seenHashes: [],
       seenRefs: [],
-      eventIds: [],
+      // The firing count is DISTINCT events (AST-09) — one id per event.
+      eventIds: Array.from({ length: n }, (_, i) => `e${i + 1}`),
       lastEventTs: null,
       cooldownUntil: null,
       dismissCount: 0,

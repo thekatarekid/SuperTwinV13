@@ -25,6 +25,7 @@ import {
   digestExecutor,
   extractExecutor,
 } from "./passes.js";
+import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
 
 export { bndExecutor, bndHookAvailable } from "./bnd.js";
@@ -36,6 +37,7 @@ export {
   digestExecutor,
   extractExecutor,
 } from "./passes.js";
+export { assistExecutor } from "./assist.js";
 export { stubExecutor } from "./stub.js";
 
 export async function registerProductExecutors(): Promise<void> {
@@ -52,4 +54,7 @@ export async function registerProductExecutors(): Promise<void> {
   registerExecutor("consolidate", consolidateExecutor);
   registerExecutor("digest", digestExecutor);
   registerExecutor("scheduler.backfill", backfillExecutor);
+  // P2 integration: the assist lane (AST) — gate/suppression/risk-line cases
+  // drive the product code directly; evaluator cases run the live prompt.
+  registerExecutor("assist", assistExecutor);
 }

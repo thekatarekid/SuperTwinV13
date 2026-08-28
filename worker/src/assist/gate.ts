@@ -315,7 +315,12 @@ export function gateVerdict(state: TopicState, opts: { nowMs?: number } = {}): G
     return { ready: false, reason: "quiet_hours" };
   }
   const threshold = assistThreshold(state.category);
-  if (state.weightedCount < threshold) {
+  // The `N` of spec §10.1 counts DISTINCT deduplicated events (AST-09: the
+  // counterfactual — same topic minus one browser visit = 4 distinct — must
+  // NOT fire even though cross-source double-weighting pushes weightedCount
+  // past N). weightedCount stays what it is: evidence STRENGTH, surfaced to
+  // the evaluator in the packed input, never the firing count.
+  if (state.eventIds.length < threshold) {
     return { ready: false, reason: "below_threshold" };
   }
   if (state.newContentCount < 2) {

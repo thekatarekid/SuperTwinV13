@@ -49,6 +49,11 @@ import type { WireRecord } from "../wire/codec.js";
 import type { WireSkip, WireViolation } from "../wire/tolerance.js";
 import { legendFor, type LegendSpec } from "./legend.js";
 import {
+  annotateTrace,
+  bindTraceContext,
+  withTraceContext,
+} from "../traces/context.js";
+import {
   buildRepairAsk,
   mergeRepairRound,
   singleRound,
@@ -324,7 +329,10 @@ export class PromptRunner {
     try {
       const result = await this.pool.run(
         "llm",
-        () =>
+        // The pool may invoke this closure from a queue-drain path where
+        // AsyncLocalStorage has lost the trace scope — re-bind it explicitly
+        // so the provider's TRC-01 assertion always sees the context.
+        bindTraceContext(() =>
           provider.send({
             runId,
             message: userText,
@@ -353,6 +361,7 @@ export class PromptRunner {
               }
             },
           }),
+        ),
         { lane },
       );
       return {
@@ -538,9 +547,35 @@ export class PromptRunner {
 
   /**
    * Pack -> call -> parse -> violations -> one repair round -> merge, with the
-   * quarantine on the far side. The whole item, in one method.
+   * quarantine on the far side — inside a trace scope (build P0.7): every
+   * provider invocation this run makes is captured, and the parse-side fields
+   * (parsed result, repair count) are annotated onto the trace before it
+   * flushes. prompt_version is the same content hash that names the system
+   * prompt file, so a changed prompt is a changed version by construction.
    */
   async run(spec: PromptCallSpec): Promise<PromptRunResult> {
+    const system = buildSystemPrompt(spec);
+    const promptVersion = createHash("sha1").update(system).digest("hex").slice(0, 12);
+    return withTraceContext(
+      { pass: spec.callType, caller: "prompts/runner", promptVersion },
+      async () => {
+        const result = await this.execute(spec);
+        annotateTrace({
+          repairCount: Math.max(0, result.runIds.length - 1),
+          parsedResult: {
+            status: result.status,
+            records: result.records,
+            violations: result.violations,
+            skipped: result.skipped,
+          },
+        });
+        return result;
+      },
+    );
+  }
+
+  /** The untraced body of {@link run} — every call path stays identical. */
+  private async execute(spec: PromptCallSpec): Promise<PromptRunResult> {
     const calls: CallOutcome[] = [];
     const logged = new Set<string>();
     const logOnce = (call: CallOutcome, status: RunStatus): void => {

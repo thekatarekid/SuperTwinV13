@@ -38,6 +38,7 @@ import type {
   Usage,
 } from "../providers/index.js";
 import { emptyUsage } from "../providers/usage.js";
+import { withTraceContext } from "../traces/context.js";
 import { isValidSessionId } from "../providers/claude-local/index.js";
 import {
   MODEL_CATALOG,
@@ -905,7 +906,11 @@ async function handleChat(
 
   let result: ProviderResult;
   try {
-    result = await provider.send({
+    // Trace scope (build P0.7): a chat turn is one traced run. The provider
+    // records the actual CLI invocation(s) — fresh-fallback included — and the
+    // scope flushes them when the send settles.
+    result = await withTraceContext({ pass: "chat", caller: "server/chat" }, () =>
+      provider.send({
       runId,
       message: dispatchMessage,
       sessionId: resumeSessionId,
@@ -932,7 +937,8 @@ async function handleChat(
       timeoutMs: grounded ? 180_000 : 120_000,
       onEvent,
       signal: ac.signal,
-    });
+      }),
+    );
   } catch (err) {
     // Provider should never throw, but never leak a crash into the stream.
     sseSend(res, {

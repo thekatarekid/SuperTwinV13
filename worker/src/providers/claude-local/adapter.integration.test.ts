@@ -3,7 +3,7 @@
 // the load-bearing guarantees: streaming, resume-context, cwd-change-fresh,
 // poison fallback, cancel, and 0 orphaned processes.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
@@ -56,6 +56,17 @@ function drain(events: ProviderStreamEvent[]): {
 }
 
 describe.skipIf(skipWithoutRealCli)("claude-local adapter (real CLI)", () => {
+  // Transport suite: it drives the provider directly, without the pipeline's
+  // trace scopes. TRC-01 enforcement is exercised in traces/trc-01.test.ts.
+  let savedEnforce: string | undefined;
+  beforeAll(() => {
+    savedEnforce = process.env.SUPERTWIN_TRACE_ENFORCE;
+    process.env.SUPERTWIN_TRACE_ENFORCE = "0";
+  });
+  afterAll(() => {
+    if (savedEnforce === undefined) delete process.env.SUPERTWIN_TRACE_ENFORCE;
+    else process.env.SUPERTWIN_TRACE_ENFORCE = savedEnforce;
+  });
 
   it(
     "streams delta events and finishes with done + a session id",

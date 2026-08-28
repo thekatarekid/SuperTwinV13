@@ -178,6 +178,9 @@ beforeAll(() => {
   // provider ever spawns — which, in this file, it is.
   savedEnv.set("CLAUDE_BIN", process.env.CLAUDE_BIN);
   process.env.CLAUDE_BIN = fakeCli;
+  // Transport-only suite: trace enforcement is covered by traces/trc-01.test.ts.
+  savedEnv.set("SUPERTWIN_TRACE_ENFORCE", process.env.SUPERTWIN_TRACE_ENFORCE);
+  process.env.SUPERTWIN_TRACE_ENFORCE = "0";
 });
 
 afterAll(() => {

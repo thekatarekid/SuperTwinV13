@@ -73,6 +73,9 @@ beforeAll(() => {
   setEnv("ST_PROBE_OUT", probeOut);
   setEnv("HOME", stage);
   setEnv("MAX_THINKING_TOKENS", "31999"); // an inherited budget that must not leak
+  // This file asserts the TRANSPORT (argv/env/stdin shaping), not the trace
+  // pipeline — TRC-01 enforcement is exercised in traces/trc-01.test.ts.
+  setEnv("SUPERTWIN_TRACE_ENFORCE", "0");
 });
 
 afterAll(() => {

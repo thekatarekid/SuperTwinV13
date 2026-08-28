@@ -79,6 +79,10 @@ import {
   resolveClaudeBin,
   safeCwd,
 } from "./cli.js";
+import {
+  assertTraceContext,
+  recordProviderInvocation,
+} from "../../traces/context.js";
 
 // The shaping half of the adapter lives in ./cli.ts; re-exported here so the
 // adapter stays one import for callers and tests.
@@ -152,6 +156,12 @@ class ClaudeLocalProvider implements Provider {
       signal,
     } = opts;
 
+    // TRC-01 (build P0.7): this is the SINGLE spawn site — a call reaching it
+    // without a trace context is a ghost call. Throws in dev, before anything
+    // spawns; production falls through to the ghost-write in
+    // recordProviderInvocation instead of crashing.
+    assertTraceContext(`claude-local run ${runId}`);
+
     // Never ~/Documents, ~/Desktop or ~/Downloads (§4.1.4).
     const runCwd = safeCwd(cwd);
 
@@ -180,8 +190,44 @@ class ClaudeLocalProvider implements Provider {
       ? composeStdinMessage(systemPrompt, message)
       : message;
 
+    // Every CLI invocation records a trace (build P0.7): tap the delta stream
+    // for the raw output, time the invocation, and hand the whole thing to the
+    // active trace scope (or the ghost fallback) when it settles.
+    const modelId =
+      typeof model === "string" && model.trim().length > 0 ? model.trim() : null;
+    let attemptNo = 0;
+    const tracedRunOnce = async (
+      args: Parameters<ClaudeLocalProvider["runOnce"]>[0],
+    ): Promise<RunAttempt> => {
+      attemptNo += 1;
+      const thisAttempt = attemptNo;
+      const startedMs = Date.now();
+      const ts = new Date().toISOString();
+      let raw = "";
+      const attempt = await this.runOnce({
+        ...args,
+        onEvent: (ev) => {
+          if (ev.type === "delta") raw += ev.text;
+          args.onEvent(ev);
+        },
+      });
+      recordProviderInvocation({
+        runId,
+        attempt: thisAttempt,
+        model: modelId,
+        systemPrompt: systemPrompt ?? null,
+        packedContext: args.message,
+        rawOutput: raw,
+        usage: attempt.usage,
+        latencyMs: Date.now() - startedMs,
+        status: attempt.failure ? attempt.failure.code : "ok",
+        ts,
+      });
+      return attempt;
+    };
+
     // ---- Attempt 1: resume (if requested) or fresh.
-    let attempt = await this.runOnce({
+    let attempt = await tracedRunOnce({
       runId,
       message: wantResume ? message : freshMessage,
       resumeId: wantResume ? (sessionId as string) : null,
@@ -211,7 +257,7 @@ class ClaudeLocalProvider implements Provider {
     ) {
       freshFallback = true;
       const deadResumeSpend = attempt.usage;
-      attempt = await this.runOnce({
+      attempt = await tracedRunOnce({
         runId,
         message: freshMessage,
         resumeId: null,

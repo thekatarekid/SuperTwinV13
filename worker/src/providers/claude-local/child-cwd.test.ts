@@ -65,6 +65,8 @@ beforeAll(() => {
   setEnv("ST_PROBE_OUT", probeOut);
   setEnv("PWD", POISONED_PWD);
   setEnv("OLDPWD", join(stage, "older-still"));
+  // Transport-only suite: trace enforcement is covered by traces/trc-01.test.ts.
+  setEnv("SUPERTWIN_TRACE_ENFORCE", "0");
 });
 
 afterAll(() => {

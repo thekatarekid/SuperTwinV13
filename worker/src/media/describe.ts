@@ -37,6 +37,7 @@ import type { MediaDescStatus, MediaFrame, PendingMediaRow } from "../db/ingest.
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/index.js";
 import type { Provider, Usage } from "../providers/index.js";
 import { getSelectedModel } from "../db/settings.js";
+import { withTraceContext } from "../traces/context.js";
 import {
   DEFAULT_IMAGE_BATCH_SIZE,
   MAX_IMAGE_BATCH_SIZE,
@@ -592,7 +593,11 @@ export async function describeMedia(
 
   let text = "";
   let failure = "";
-  const result = await provider.send({
+  // Trace scope (build P0.7): one media read is one traced run.
+  const result = await withTraceContext(
+    { pass: "media", caller: "media/describe" },
+    () =>
+      provider.send({
     runId: opts.runId ?? `media-${randomUUID()}`,
     message: prompt,
     cwd: mediaRoot(),
@@ -610,7 +615,8 @@ export async function describeMedia(
       if (ev.type === "delta") text += ev.text;
       else if (ev.type === "error") failure = ev.message;
     },
-  });
+      }),
+  );
   const spend = { usage: result.usage, promptChars: prompt.length };
 
   if (result.status !== "ok") {
@@ -698,7 +704,11 @@ export async function describeMediaBatch(
   const prompt = buildBatchPrompt(items);
   let text = "";
   let failure = "";
-  const result = await provider.send({
+  // Trace scope (build P0.7): one media batch is one traced run.
+  const result = await withTraceContext(
+    { pass: "media", caller: "media/describe-batch" },
+    () =>
+      provider.send({
     runId: opts.runId ?? `media-batch-${randomUUID()}`,
     message: prompt,
     cwd: mediaRoot(),
@@ -715,7 +725,8 @@ export async function describeMediaBatch(
       if (ev.type === "delta") text += ev.text;
       else if (ev.type === "error") failure = ev.message;
     },
-  });
+      }),
+  );
   const spend = { usage: result.usage, promptChars: prompt.length };
 
   if (result.status !== "ok" || !text.trim()) {

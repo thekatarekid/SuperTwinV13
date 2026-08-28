@@ -27,6 +27,7 @@ import { Ingestion } from "./ingest/index.js";
 import { startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/index.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
+import { startTraceRetentionJob } from "./traces/index.js";
 
 async function main(): Promise<void> {
   // ---- Home layout (P0.1): ~/SuperTwinV13 with media/ logs/ browser-profile/
@@ -85,6 +86,10 @@ async function main(): Promise<void> {
     console.error("[worker] browser watcher init failed (continuing):", err);
   }
 
+  // ---- Trace retention (P0.7): traces compress after 30 days (prompt/context
+  // hashed + sampled full-keeps). One sweep shortly after boot, then daily.
+  const traceRetention = startTraceRetentionJob();
+
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
 
@@ -96,6 +101,7 @@ async function main(): Promise<void> {
     try {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
+      traceRetention.stop();
       browserWatcher?.stop();
       if (adapter) await adapter.disconnect();
       // ...then stop accepting connections and let sockets drain.

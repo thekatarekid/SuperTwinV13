@@ -13,7 +13,7 @@ import type { Executor } from "../runner.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { parseOrientOutput } from "../../brain/orient.js";
 import { parseCriticOutput } from "../../brain/critic.js";
-import { ORIENT_V1 } from "../../prompts/orient.v1.js";
+import { ORIENT_V2 } from "../../prompts/orient.v2.js";
 import { CRITIC_V1 } from "../../prompts/critic.v1.js";
 
 function prose(v: unknown): string {
@@ -34,13 +34,37 @@ export function fixtureUser(
   }
   lines.push(`[NEW BUNDLE] ${inputEvents.length} events`);
   inputEvents.forEach((e, i) => lines.push(`  e${i + 1}: ${prose(e)}`));
+  lines.push(
+    "[NOTE] The blocks above are a prose rendering of the packed context — act on them exactly as given. Output the schema JSON only.",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Render a CRITIC fixture: the setup + input events describe SEEDED writes
+ * from another pass — number them, because the schema verdicts by item number.
+ */
+export function criticFixtureUser(setup: unknown, inputEvents: unknown[]): string {
+  const lines: string[] = ["[BAND] A live   [MODE] propose-only"];
+  if (setup !== undefined && setup !== null && setup !== "") {
+    lines.push(`[CONTEXT] ${prose(setup)}`);
+  }
+  lines.push(`[WRITES TO GRADE] ${Math.max(1, inputEvents.length)} item(s) — one verdict per numbered item`);
+  if (inputEvents.length === 0) {
+    lines.push(`  1: ${prose(setup)}`);
+  } else {
+    inputEvents.forEach((e, i) => lines.push(`  ${i + 1}: ${prose(e)}`));
+  }
+  lines.push(
+    "[NOTE] The context and items above are a prose rendering of the seeded pass output and its retrieval — grade them exactly as given. Output the schema JSON only.",
+  );
   return lines.join("\n");
 }
 
 export const orientExecutor: Executor = async ({ fixture }) => {
   const result = await runJsonPass({
-    pass: ORIENT_V1.pass,
-    system: ORIENT_V1.system,
+    pass: ORIENT_V2.pass,
+    system: ORIENT_V2.system,
     user: fixtureUser(fixture.setup, fixture.input_events),
     role: "orient",
     unit: { kind: "eval", id: fixture.id },
@@ -57,7 +81,7 @@ export const criticExecutor: Executor = async ({ fixture }) => {
   const result = await runJsonPass({
     pass: CRITIC_V1.pass,
     system: CRITIC_V1.system,
-    user: fixtureUser(fixture.setup, fixture.input_events),
+    user: criticFixtureUser(fixture.setup, fixture.input_events),
     role: "critic",
     unit: { kind: "eval", id: fixture.id },
     validate: parseCriticOutput,

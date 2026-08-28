@@ -10,7 +10,7 @@
 
 import type { DeltaBundle } from "../scheduler/dispatch.js";
 import { packOrientContext, type PackedContext, type PackOptions } from "../packer/index.js";
-import { ORIENT_V1 } from "../prompts/orient.v1.js";
+import { ORIENT_V2 } from "../prompts/orient.v2.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +41,12 @@ export interface OrientProposal {
   label: string;
   life_area?: string;
   goal?: string;
+  /** Spec §9 space typing (orient.v2): short|long. */
+  term?: string;
+  /** Spec §9 space typing (orient.v2): permanent|ephemeral. */
+  persistence?: string;
+  /** Spec §9 space typing (orient.v2): one-time|recurring. */
+  cadence?: string;
   episode_events: string[];
   summary: string;
   evidence: OrientEvidence[];
@@ -132,6 +138,9 @@ export function parseOrientOutput(parsed: unknown): OrientOutput {
       label,
       ...(str(p.life_area) ? { life_area: str(p.life_area) } : {}),
       ...(str(p.goal) ? { goal: str(p.goal) } : {}),
+      ...(str(p.term) ? { term: str(p.term) } : {}),
+      ...(str(p.persistence) ? { persistence: str(p.persistence) } : {}),
+      ...(str(p.cadence) ? { cadence: str(p.cadence) } : {}),
       episode_events: strArray(p.episode_events ?? p.events),
       summary: str(p.summary) ?? label,
       evidence: evidence(p.evidence),
@@ -206,8 +215,8 @@ export async function runOrient(
   const packed = await packOrientContext(bundle, packOpts);
   const result = await runJsonPass(
     {
-      pass: ORIENT_V1.pass,
-      system: ORIENT_V1.system,
+      pass: ORIENT_V2.pass,
+      system: ORIENT_V2.system,
       user: packed.user,
       role: "orient",
       unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },

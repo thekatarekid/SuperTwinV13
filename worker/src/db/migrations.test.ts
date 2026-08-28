@@ -1324,19 +1324,25 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
     // 0022_v2_core rebuilds events: idx_events_channel/_channel_ts come back as
     // idx_events_stream/_stream_ts on the renamed column (plus the bridge index
     // that dies with channel_id in item 1.1), and the V2 columns get their own.
+    // 0100_v13_core (P0.4) adds the envelope indexes: content_hash for the
+    // single-writer idempotency lookup, (stream_key, ts) for thread history,
+    // and the partial undispatched index the P0.5 window query keys on.
     expect(indexNames(db, "events")).toEqual([
       "idx_events_actor",
       "idx_events_actor_entity",
       "idx_events_channel_compat",
+      "idx_events_content_hash",
       "idx_events_desc_status",
       "idx_events_enrichment",
       "idx_events_link_status",
       "idx_events_reply_to",
       "idx_events_source_external",
       "idx_events_stream",
+      "idx_events_stream_key",
       "idx_events_stream_ts",
       "idx_events_transcript_status",
       "idx_events_ts",
+      "idx_events_undispatched",
     ]);
     expect(
       (

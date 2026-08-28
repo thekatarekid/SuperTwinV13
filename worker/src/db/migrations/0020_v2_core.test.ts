@@ -110,6 +110,10 @@ describe("0020_v2_core applies", () => {
       "0024_latency_marks",
       "0025_cache_write_split",
       "0026_runs_backfill",
+      // P0.4: the V13 substrate — ADD COLUMNs on events/streams/runs plus new
+      // decisions/corrections/traces tables; reshapes nothing the ids above
+      // created.
+      "0100_v13_core",
     ]);
 
     expect(

@@ -17,6 +17,7 @@
 import type Database from "better-sqlite3";
 
 import { getDb } from "./connection.js";
+import { legacyEnvelopeFields } from "./eventlog.js";
 import {
   invalidateEventEmbedding,
   invalidateEventEmbeddingByExternalId,
@@ -726,17 +727,25 @@ function statements(): IngestStatements {
     // `stream_id` is the column V2 reads (arch §6). `channel_id` is written
     // beside it with the same value for exactly as long as the legacy `channels`
     // mirror above lives — see 0020_v2_core's note on the bridge.
+    // The V13 envelope columns (0100_v13_core) are stamped inline so every
+    // event this legacy-shaped writer files is dispatchable by the P0.5
+    // window scheduler. stream_key resolves from the stream row the caller
+    // upserted just before; roles start minimal (sender only) — P0.6 upgrades
+    // the adapter to full audience/mention envelopes.
     insertEvent: db.prepare(`
       INSERT INTO events
         (id, source_id, source_type, stream_id, channel_id, actor_id, ts, kind, text, media_path, raw_json, external_id, reply_to_external_id, reply_to_text,
          media_mime, media_filename, media_size, media_sha256, media_thumb_path, media_seconds, media_meta_json, media_desc_status, is_forwarded,
          link_url, link_title, link_description, link_thumb_path, link_preview_type, link_scrape_status,
-         is_historical, transcript_status)
+         is_historical, transcript_status,
+         stream_key, captured_at, origin, age_band, actor, roles_json, payload_json, content_hash, blob_refs_json)
       VALUES
         (@id, @sourceId, @sourceType, @streamId, @streamId, @actorId, @ts, @kind, @text, @mediaPath, @rawJson, @externalId, @replyToExternalId, @replyToText,
          @mediaMime, @mediaFilename, @mediaSize, @mediaSha256, @mediaThumbPath, @mediaSeconds, @mediaMetaJson, @mediaDescStatus, @isForwarded,
          @linkUrl, @linkTitle, @linkDescription, @linkThumbPath, @linkPreviewType, @linkScrapeStatus,
-         @isHistorical, @transcriptStatus)
+         @isHistorical, @transcriptStatus,
+         (SELECT external_key FROM streams WHERE id = @streamId),
+         @capturedAt, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @contentHash, @blobRefsJson)
       ON CONFLICT(source_id, external_id) DO NOTHING
     `),
     // Edit (media spec §5): the edit event carries the NEW body and updates its
@@ -1346,7 +1355,19 @@ export function upsertActor(params: UpsertActorParams): string {
  */
 export function insertEvent(row: InsertEventRow): InsertEventResult {
   const id = eventId(row.sourceId, row.externalId);
+  // V13 envelope stamp (P0.4) — the legacy bridge in db/eventlog.ts.
+  const envelope = legacyEnvelopeFields({
+    sourceId: row.sourceId,
+    externalId: row.externalId,
+    streamKey: row.streamId,
+    actorId: row.actorId,
+    ts: row.ts,
+    kind: row.kind,
+    text: row.text,
+    isHistorical: row.isHistorical,
+  });
   const info = statements().insertEvent.run({
+    ...envelope,
     id,
     sourceId: row.sourceId,
     sourceType: row.sourceType,

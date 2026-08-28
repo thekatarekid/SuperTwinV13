@@ -13,7 +13,7 @@ import type { Executor } from "../runner.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { parseOrientOutput } from "../../brain/orient.js";
 import { parseCriticOutput } from "../../brain/critic.js";
-import { ORIENT_V2 } from "../../prompts/orient.v2.js";
+import { ORIENT_V3 } from "../../prompts/orient.v3.js";
 import { CRITIC_V1 } from "../../prompts/critic.v1.js";
 
 function prose(v: unknown): string {
@@ -63,8 +63,8 @@ export function criticFixtureUser(setup: unknown, inputEvents: unknown[]): strin
 
 export const orientExecutor: Executor = async ({ fixture }) => {
   const result = await runJsonPass({
-    pass: ORIENT_V2.pass,
-    system: ORIENT_V2.system,
+    pass: ORIENT_V3.pass,
+    system: ORIENT_V3.system,
     user: fixtureUser(fixture.setup, fixture.input_events),
     role: "orient",
     unit: { kind: "eval", id: fixture.id },

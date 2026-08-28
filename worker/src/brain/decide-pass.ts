@@ -22,13 +22,13 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import {
-  DECIDE_V1_SYSTEM,
   validateDecideOutput,
   type DecideChapter,
   type DecideClosure,
   type DecideOutput,
   type DecideTask,
 } from "../prompts/decide.v1.js";
+import { DECIDE_V2_SYSTEM } from "../prompts/decide.v2.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { packEpisodes, packSpaceState } from "./thin-pack.js";
 
@@ -415,7 +415,7 @@ export async function runDecidePass(
   const result = await runJsonPass<DecideOutput>(
     {
       pass: "decide",
-      system: DECIDE_V1_SYSTEM,
+      system: DECIDE_V2_SYSTEM,
       user,
       role: "decide",
       cohortId: null,

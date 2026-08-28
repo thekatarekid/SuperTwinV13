@@ -14,8 +14,10 @@
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
-import { EXTRACT_V1_SYSTEM, validateExtractOutput } from "../../prompts/extract.v1.js";
-import { DECIDE_V1_SYSTEM, validateDecideOutput } from "../../prompts/decide.v1.js";
+import { validateExtractOutput } from "../../prompts/extract.v1.js";
+import { EXTRACT_V2_SYSTEM } from "../../prompts/extract.v2.js";
+import { validateDecideOutput } from "../../prompts/decide.v1.js";
+import { DECIDE_V2_SYSTEM } from "../../prompts/decide.v2.js";
 import {
   CONSOLIDATE_V1_SYSTEM,
   validateConsolidateOutput,
@@ -56,7 +58,7 @@ export const extractExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "extract",
-    system: EXTRACT_V1_SYSTEM,
+    system: EXTRACT_V2_SYSTEM,
     user,
     role: "extract",
     unit: { kind: "eval", id: fixture.id },
@@ -78,7 +80,7 @@ export const decideExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V1_SYSTEM,
+    system: DECIDE_V2_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },
@@ -92,7 +94,21 @@ export const decideExecutor: Executor = async ({ fixture }) => {
 };
 
 export const consolidateExecutor: Executor = async ({ fixture }) => {
-  const user = fixtureUser(fixture.setup, fixture.input_events);
+  // The T2 pair judge expects two space cards. The prose fixture describes
+  // the pair (and the review signal) — render it as the cards block so the
+  // model judges what is written instead of asking for input.
+  const parts: string[] = [
+    "[SPACE CARDS — prose rendering of the pair under review]",
+    typeof fixture.setup === "string" && fixture.setup.trim() !== ""
+      ? fixture.setup
+      : JSON.stringify(fixture.setup ?? {}),
+    "",
+    "[REVIEW SIGNAL]",
+    ...fixture.input_events.map((e) => (typeof e === "string" ? e : JSON.stringify(e))),
+    "",
+    "[NOTE] The blocks above are a prose rendering of the two space cards and the review trigger — judge them exactly as given. Output the schema JSON only.",
+  ];
+  const user = parts.join("\n");
   const result = await runJsonPass({
     pass: "consolidate",
     system: CONSOLIDATE_V1_SYSTEM,
@@ -114,9 +130,18 @@ export const backfillExecutor: Executor = async ({ fixture }) => {
   // The band policy is enforced where the model runs: Extract (claims) and
   // Decide (tasks) both see the [BAND]+policy header exactly as the packer
   // renders it in production. Run both and hand the judge the union.
+  // The prose fixtures put the historical content in `setup`; surface it as
+  // bundle content too, so the passes extract from it rather than around it.
+  const merged: Fixture = {
+    ...fixture,
+    input_events:
+      typeof fixture.setup === "string" && fixture.setup.trim() !== ""
+        ? [`historical content under review: ${fixture.setup}`, ...fixture.input_events]
+        : fixture.input_events,
+  };
   const [claims, decisions] = [
-    await extractExecutor({ fixture }),
-    await decideExecutor({ fixture }),
+    await extractExecutor({ fixture: merged }),
+    await decideExecutor({ fixture: merged }),
   ];
   return {
     ok: claims.ok !== false && decisions.ok !== false,
@@ -313,7 +338,10 @@ function cat05(): ExecutorResult {
 
 const digestPromptExecutor: Executor = async ({ fixture }) => {
   const band = fixtureBand(fixture);
-  const user = fixtureUser(fixture.setup, fixture.input_events, band);
+  const user = [
+    fixtureUser(fixture.setup, fixture.input_events, band),
+    "[NOTE] The SETUP block above IS the month of stream history, as prose — synthesize the digest from it as given.",
+  ].join("\n");
   const result = await runJsonPass<DigestParse>({
     pass: "digest",
     system: DIGEST_V1_SYSTEM,

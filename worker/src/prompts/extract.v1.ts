@@ -63,6 +63,8 @@ export interface ExtractedClaim {
   text: string;
   relation: "new" | "reinforces" | "contradicts";
   related_claim?: string | null;
+  /** extract.v2: the date the contradicted old claim stopped holding. */
+  old_valid_until?: string | null;
   evidence: ExtractEvidence[];
   confidence: number;
   valid_from?: string | null;
@@ -155,6 +157,7 @@ export function validateExtractOutput(parsed: unknown): ExtractOutput {
       text,
       relation,
       related_claim: str(r.related_claim),
+      old_valid_until: str(r.old_valid_until),
       evidence,
       confidence: confidence ?? 0.5,
       valid_from: str(r.valid_from),

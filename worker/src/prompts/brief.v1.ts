@@ -15,9 +15,10 @@ in the input. Rules:
 - Use ONLY the ledger. Never invent, never restate stale items, and on a
   genuinely empty ledger return {"skip":true,"items":[]} — a quiet day
   gets NO filler.
-- Include EVERY real commitment in the ledger. Order by urgency: money
-  due today, then pending approvals, then time-bound fires, then dates
-  coming up.
+- Include EVERY real commitment in the ledger — money due, pending
+  approvals, schedules about to fire (today OR tomorrow), and dates
+  coming up all count. Order by urgency: money due today, then pending
+  approvals, then time-bound fires, then dates coming up.
 - Each item: one plain sentence + the source chip exactly as the ledger
   names it (task id, claim id, schedule, run).
 JSON only.

@@ -128,7 +128,7 @@ export const decideExecutor: Executor = async ({ fixture }) => {
   const band = fixtureBand(fixture);
   const seed = fixtureSeed(fixture.id);
   const user = [
-    fixtureUser(fixture.setup, fixture.input_events, band, seed?.state),
+    fixtureUser(fixture.setup, seed?.events ?? fixture.input_events, band, seed?.state),
     calendarBlock(),
     "",
     "NEW COMMITTED EPISODES (all sources, time-ordered): the NEW BUNDLE events above.",

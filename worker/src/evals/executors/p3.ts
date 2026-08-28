@@ -62,32 +62,60 @@ function mintEvalId(prefix: string): string {
  * tasks). Production resolves risk off the task row; here the seed block names
  * the same classes, and this table is the machine-readable copy.
  */
-const SEEDED_RISK: Record<string, { match: RegExp; risk: string }[]> = {
-  "SCH-01": [{ match: /check[\s-]?in|prep/i, risk: "auto" }],
+const SEEDED_RISK: Record<string, { match: RegExp; risk: string; confidence: number }[]> = {
+  "SCH-01": [{ match: /check[\s-]?in|prep/i, risk: "auto", confidence: 0.9 }],
   "SCH-02": [
-    { match: /buy|purchase|pay|book(?!myshow)/i, risk: "approve-final" },
-    { match: /check|poll|watch|monitor|window|ticket|bookmyshow/i, risk: "auto" },
+    { match: /buy|purchase|pay|book(?!myshow)/i, risk: "approve-final", confidence: 0.9 },
+    { match: /check|poll|watch|monitor|window|ticket|bookmyshow/i, risk: "auto", confidence: 0.9 },
   ],
   "SCH-03": [
-    { match: /book.*cab|cab.*book/i, risk: "approve-final" },
-    { match: /traffic|check|leave/i, risk: "auto" },
+    { match: /book.*cab|cab.*book/i, risk: "approve-final", confidence: 0.9 },
+    { match: /traffic|check|leave/i, risk: "auto", confidence: 0.9 },
   ],
-  "TIM-04": [{ match: /check[\s-]?in/i, risk: "auto" }],
+  "TIM-04": [{ match: /check[\s-]?in/i, risk: "auto", confidence: 0.9 }],
   "FUP-01": [
-    { match: /check[\s-]?in/i, risk: "auto" },
-    { match: /cab|transport/i, risk: "approve-final" },
+    { match: /check[\s-]?in/i, risk: "auto", confidence: 0.9 },
+    { match: /cab|transport/i, risk: "approve-final", confidence: 0.9 },
   ],
 };
 
-function riskFor(fixtureId: string, sched: DecideScheduleV8, out: { followups: readonly { title: string; risk_class?: string | null }[] }): string | null {
+/**
+ * Resolve a candidate's risk + intent confidence the way production does off
+ * the task row: the follow-up that owns the schedule wins; else the fixture's
+ * seeded open-task table (the machine-readable copy of the seed block, task
+ * confidence included — production reads tasks.confidence the same way).
+ */
+function riskFor(
+  fixtureId: string,
+  sched: DecideScheduleV8,
+  out: { followups: readonly { title: string; risk_class?: string | null; confidence?: number | null }[] },
+): { risk: string | null; confidence: number } {
   const owner = out.followups.find(
     (f) => f.title.toLowerCase() === sched.task.toLowerCase() || sched.task.toLowerCase().includes(f.title.toLowerCase()),
   );
-  if (owner?.risk_class) return owner.risk_class;
-  for (const rule of SEEDED_RISK[fixtureId] ?? []) {
-    if (rule.match.test(sched.task)) return rule.risk;
+  if (owner?.risk_class) {
+    return { risk: owner.risk_class, confidence: sched.confidence ?? owner.confidence ?? 0 };
   }
-  return null;
+  for (const rule of SEEDED_RISK[fixtureId] ?? []) {
+    if (rule.match.test(sched.task)) {
+      return { risk: rule.risk, confidence: sched.confidence ?? rule.confidence };
+    }
+  }
+  return { risk: null, confidence: sched.confidence ?? 0 };
+}
+
+/** Announcement copy renders in the user's local time (IST), human-readable. */
+function humanFireTime(fireAt: Date | null): string {
+  if (!fireAt) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(fireAt);
 }
 
 interface PolicyRow {
@@ -98,6 +126,7 @@ interface PolicyRow {
   decision: SchedulePolicyVerdict["decision"];
   reasons: string[];
   announce?: string;
+  presented_as?: string;
 }
 
 /**
@@ -118,10 +147,13 @@ export function schedulePolicyView(
   const rows: PolicyRow[] = [];
   const violations: Violation[] = [];
   for (const sched of candidates) {
+    const resolved = riskFor(fixtureId, sched, {
+      followups: followups as { title: string; risk_class?: string | null; confidence?: number | null }[],
+    });
     const verdict = evaluateSchedulePolicy({
       requestedMode: sched.mode,
-      riskClass: riskFor(fixtureId, sched, { followups: followups as { title: string; risk_class?: string | null }[] }),
-      confidence: sched.confidence ?? 0,
+      riskClass: resolved.risk,
+      confidence: resolved.confidence,
       fireAt: sched.fire_at ?? null,
       recurrence: sched.recurrence ?? null,
       now,
@@ -134,7 +166,10 @@ export function schedulePolicyView(
       decision: verdict.decision,
       reasons: verdict.reasons,
       ...(verdict.decision === "auto"
-        ? { announce: `Scheduled: ${sched.task} ${verdict.fireAt?.toISOString() ?? ""} — tap to change` }
+        ? { announce: `Scheduled: ${sched.task} ${humanFireTime(verdict.fireAt)} — tap to change` }
+        : {}),
+      ...(verdict.decision === "confirm"
+        ? { presented_as: "suggestion card shown NOW — editable, starts only when the user confirms; nothing runs until then" }
         : {}),
     });
     const recurring = sched.recurrence !== null && sched.recurrence !== undefined && sched.recurrence.trim() !== "";
@@ -168,7 +203,7 @@ export function schedulePolicyView(
 async function scheduleLive(fixture: Fixture): Promise<ExecutorResult> {
   const seed = fixtureSeed(fixture.id);
   const user = [
-    fixtureUser(fixture.setup, fixture.input_events, { letter: fixture.id === "SCH-06" ? "B" : "A", lane: fixture.id === "SCH-06" ? "backfill" : "live" }, seed?.state),
+    fixtureUser(fixture.setup, seed?.events ?? fixture.input_events, { letter: fixture.id === "SCH-06" ? "B" : "A", lane: fixture.id === "SCH-06" ? "backfill" : "live" }, seed?.state),
     calendarBlock(),
     "",
     "NEW COMMITTED EPISODES (all sources, time-ordered): the NEW BUNDLE events above.",
@@ -448,11 +483,7 @@ export function tim02Code(): ExecutorResult {
 export const timeExecutor: Executor = async (ctx) => {
   if (ctx.fixture.id === "TIM-02") return tim02Code();
   if (ctx.fixture.id === "TIM-04") return scheduleLive(ctx.fixture);
-  const merged: Fixture = {
-    ...ctx.fixture,
-    ...(ctx.fixture.id === "TIM-03" ? { setup: `band-B backfill. ${String(ctx.fixture.setup ?? "")}` } : {}),
-  };
-  return decideExecutor({ fixture: merged });
+  return decideExecutor(ctx);
 };
 
 // ===========================================================================

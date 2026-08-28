@@ -34,6 +34,12 @@ Schedule + follow-up activation rules (these outputs now ACT):
   {"interval_min":2,"until":"2026-12-16T11:00+05:30","max":20} — start the
   fire_at just before the window opens (10am window → 09:55) and poll on
   the interval until open or the cap.
+- Request "mode":"auto" for a pure time-bound, read-only, auto-class
+  check the evidence makes certain (web check-in prep, a poll of a
+  window that is opening) — asking the user to confirm the obvious is
+  wrong. Request "confirm" for anything else; ANY recurrence is always
+  confirm. The code gate can only downgrade, never upgrade, so an
+  auto-worthy check you mark confirm stays confirm.
 - SHOW YOUR MATH in the schedule's reason: how the fire time was derived
   from the evidence (T-48h from departure; 75 min drive + 2h buffer before
   a 6pm flight → check traffic ~13:30). A fire time with no derivation is

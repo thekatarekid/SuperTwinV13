@@ -549,13 +549,18 @@ const SEEDS: Record<string, FixtureSeed> = {
       'OPEN TASKS: tsk_bms_watch — title "Watch the BookMyShow concert window", status open, owner self, ' +
         "category scheduling, risk_class auto (the CHECK is read-only; any PURCHASE is a separate " +
         "approve-final action that stops at the payment boundary).",
-      "The ticket window opens tomorrow (2026-08-30) 10:00 IST; tickets sell out in minutes.",
+      "The ticket window opens tomorrow (2026-08-30) 10:00 IST; tickets sell out in MINUTES — a single " +
+        "check at 10:00 sharp will miss it if the page is slow or the window opens early.",
+      "SCHEDULER CAPABILITY: a schedule may carry a polling block " +
+        '{"interval_min": N, "until": iso, "max": N} — start just before the window and re-check on an ' +
+        "interval until open or a cap. Scheduler defaults: poll interval 2–3 min; keep polling well past " +
+        "the nominal open (the service caps a poll loop at ~60 min).",
     ].join("\n"),
   },
   "SCH-03": {
     state: [
       ROSTER,
-      "COMMITTED EPISODE: flight tonight 18:00 IST from CCU. TODAY's date is in the calendar block.",
+      "COMMITTED EPISODE: flight 2026-09-02 18:00 IST from CCU (a few days out — see the calendar block).",
       'CLAIM clm_commute (fact): "home→airport typically takes 75 minutes".',
       'CLAIM clm_buffer (preference): "Aditya prefers a 2-hour buffer at the airport".',
       'OPEN TASKS: tsk_traffic — title "Traffic check before the 6pm flight", status open, owner self, ' +
@@ -566,7 +571,8 @@ const SEEDS: Record<string, FixtureSeed> = {
     state: [
       "BAR HISTORY (pattern detection input): the user asked the grounded bar for an " +
         '"AI news roundup" twice this week — Tue 09:12 and Thu 08:47. No brief exists yet. ' +
-        "A daily brief would be a RECURRING commitment.",
+        "A daily brief would be a RECURRING commitment. If proposed, the natural proposed time is " +
+        "8:30am daily (just before the asks), surfaced as an editable suggestion card.",
     ].join("\n"),
   },
   "SCH-05": {
@@ -618,7 +624,8 @@ const SEEDS: Record<string, FixtureSeed> = {
       'CLOSED TASK (trigger: closure detection): tsk_villa_book — "Book the villa", closed DONE: ' +
         "the USER booked Villa Azul THEMSELVES — closure evidence is the booking confirmation email " +
         "seen on screen (episode ep_scr9): Villa Azul, 18–21 Dec, total ₹18,900, " +
-        "advance ₹5,000 due by 2026-09-15 per the booking's stated terms, address: 12 Soranto Vaddo, Anjuna.",
+        "address: 12 Soranto Vaddo, Anjuna. The booking's stated terms: an advance of ₹5,000 is NOT yet " +
+        "paid and falls due 2026-09-15 — an open obligation the plan does not track yet.",
       "PLAN: stay ✓ · local transport (nothing yet — the villa address enables cab planning).",
       "OPEN TASKS in this space: none about the villa.",
     ].join("\n"),
@@ -649,11 +656,15 @@ const SEEDS: Record<string, FixtureSeed> = {
   },
   "TIM-03": {
     state: [
-      "[BAND] B backfill — historical message under review:",
-      '  m1 (dated Tue 2026-05-12, work group, sender contact:boss): "send the deck by friday".',
-      "That message week: Tue 12 · Wed 13 · Thu 14 · Fri 15 May 2026. TODAY is months later (calendar block).",
-      "NO later evidence in view shows whether the deck was sent.",
+      "[BAND] B backfill — historical messages under review (the NEW BUNDLE events below).",
+      "MESSAGE m1 TIMESTAMP: Tue 2026-05-12. That message week: Tue 12 · Wed 13 · Thu 14 · Fri 15 May 2026. " +
+        "TODAY is months later (calendar block) — resolve m1's relative date from ITS timestamp.",
+      "The still-open evidence (m2) satisfies band B's verified still-open requirement for a task.",
     ].join("\n"),
+    events: [
+      '(m1, dated Tue 2026-05-12, work group, sender contact:boss) "send the deck by friday" — addressed to the user.',
+      '(m2, dated Tue 2026-05-19, same group, sender contact:boss) "still waiting on that deck" — the ask is UNFULFILLED as of the last evidence.',
+    ],
   },
   "TIM-04": {
     state: [
@@ -661,8 +672,12 @@ const SEEDS: Record<string, FixtureSeed> = {
       "COMMITTED EPISODE (confirmation email): \"Your flight UA-847 departs SFO 2026-12-02 11:30 PDT\" " +
         "(PDT = UTC-07:00 — 11:30 PDT is 18:30 UTC, 2026-12-03 00:00 IST).",
       'OPEN TASKS: tsk_sfo_checkin — title "Web check-in for the SFO flight", status open, owner self, ' +
-        "category scheduling, risk_class auto. Check-in opens T-48h before departure IN THE FLIGHT'S timezone.",
+        "category scheduling, risk_class auto. Check-in opens EXACTLY T-48h before departure in the " +
+        "FLIGHT'S timezone (PDT) — fire at that instant, no extra buffer.",
     ].join("\n"),
+    events: [
+      '(confirmation email, episode ep_ua1) "Your flight UA-847 departs SFO 2026-12-02 11:30 PDT" — the user\'s own booking.',
+    ],
   },
 
   // ---- Phase 3: EXE (executor sessions) ------------------------------------

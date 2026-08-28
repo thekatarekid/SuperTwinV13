@@ -49,6 +49,15 @@ export const RUN_ROLES = [
   "classify",
   "adjudicate",
   "chat",
+  // The V13 pass roster (spec §6.3, TRC-03 liveness names these): the roles
+  // the five understanding passes and the consolidation review calls record.
+  // "extract" above already covers the Extract pass.
+  "orient",
+  "critic",
+  "decide",
+  "digest",
+  "assist",
+  "consolidate",
 ] as const;
 
 export type RunRole = (typeof RUN_ROLES)[number];

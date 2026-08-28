@@ -1,52 +1,37 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+// Smoke test for the P0.3 placeholder shell: it renders, shows the app name,
+// and polls the worker's /api/health through workerUrl(). The real V13 UI
+// suites arrive with the P1/P4 rebuild.
+
+import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { App } from "./App";
+import { workerUrl } from "./lib/config";
 
-afterEach(cleanup);
-
-describe("App shell", () => {
-  it("renders every tab in the rail", () => {
-    render(<App />);
-    for (const label of [
-      "Inbox",
-      "Chat",
-      "Entities",
-      "Sessions",
-      "Episodes",
-      "Threads",
-      "Claims",
-      "Spaces",
-      "Tasks",
-      "People",
-      "Settings",
-    ]) {
-      expect(screen.getByRole("button", { name: label })).toBeTruthy();
-    }
+describe("placeholder shell", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        json: async () => ({ status: "ok", version: "13.0.0" }),
+      })),
+    );
   });
 
-  // "Spaces" is back as of item 3.10 — as a filtered view over arcs, not as
-  // the V1 tab this assertion originally retired. Agent and Digest stay gone.
-  it("does not render the removed Agent / Digest tabs", () => {
-    render(<App />);
-    for (const label of ["Agent", "Digest"]) {
-      expect(screen.queryByRole("button", { name: label })).toBeNull();
-    }
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("shows the Chat tab by default", () => {
+  it("renders the app name and reports worker health from /api/health", async () => {
     render(<App />);
-    // The functional Chat tab is the default surface; assert on its stable
-    // static chrome (the "New chat" action) rather than any streamed content.
-    expect(screen.getByRole("button", { name: /New chat/i })).toBeTruthy();
+    expect(screen.getByText("SuperTwinV13")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText("worker ok · v13.0.0")).toBeTruthy();
+    });
+    expect(fetch).toHaveBeenCalledWith(workerUrl("/api/health"));
   });
 
-  it("switches panels when a tab is clicked", () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(
-      screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current"),
-    ).toBe("page");
-    // The Settings surface is mounted — assert its first section heading.
-    expect(screen.getByRole("heading", { name: "Worker" })).toBeTruthy();
+  it("points at the worker's 8013 default base URL", () => {
+    expect(workerUrl("/api/health")).toBe("http://localhost:8013/api/health");
   });
 });

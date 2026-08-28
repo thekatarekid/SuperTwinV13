@@ -52,7 +52,6 @@ import {
   noteIngestedEvent,
 } from "../db/watermarks.js";
 import { enqueueLiveMedia } from "../media/queue.js";
-import { ensureTiers } from "../tiers/ensure.js";
 import { HistoryHealth } from "./history-health.js";
 
 /** Live-ingest nudge debounce (Rev 2 §R2.2): coalesce bursts into one frame. */
@@ -541,7 +540,7 @@ export class Ingestion {
       this.scheduleBackfillSeal();
       return;
     }
-    const seal = markSourceBackfillComplete(this.sourceId);
+    markSourceBackfillComplete(this.sourceId);
 
     // Tiering (item 1.2, arch §9.3 rule 4) hangs off THIS edge, not off the
     // daemon's `backfill_complete` frame: the boot pass in ../index.ts runs
@@ -554,12 +553,8 @@ export class Ingestion {
     // Fire-and-forget on purpose — ingest must never block on a tier pass — and
     // `ensureTiers` never throws (it reports `ok:false`), so the `.catch` is
     // belt-and-braces. Zero LLM calls unless SUPERTWIN_TIER_MODEL is opted in.
-    void ensureTiers({ reason: "backfill_complete" }).catch((err: unknown) => {
-      console.error(
-        `[ingest] tier backfill after seal failed (${seal.sealed}/${seal.streams} streams sealed):`,
-        err,
-      );
-    });
+    // (P0.3) The V11 tier backfill was deleted with the derivation middle; the
+    // V13 stream tiering lands with the P0.4 streams table + P0.5 scheduler.
   }
 
   private writeEvent(e: SourceEvent): void {

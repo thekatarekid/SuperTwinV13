@@ -62,38 +62,6 @@ describe("the offline guard", () => {
 });
 
 describe("npm run eval", () => {
-  it("runs the whole gold set offline and renders the gate report", async () => {
-    const sink = capture();
-    const code = await main([], sink.out);
-    const text = sink.text();
-    expect(text).toContain("fixtures: 1000 loaded");
-    expect(text).toContain("no network calls");
-    expect(text).toContain("GATES (architecture §14.2)");
-    // Every category A–V is authored and runs; nothing is pending any more.
-    expect(text).toContain("cases:    1000 · pass 1000 · fail 0 · pending 0");
-
-    // EVERY CASE AND EVERY MEASURED GATE PASSES — including
-    // `episodes_one_to_one_rate`, §14.2's "1:1 default rate ≥ 60%".
-    //
-    // That gate's history is worth keeping: it first read 1.00 off fourteen
-    // hand-picked one-topic fixtures (a denominator the fixtures chose), then
-    // an honest 41.2% (21 of 51) once every ROUTED session fed it — red not
-    // because the engine was wasteful (it defaulted on 21/21 sessions where
-    // the precondition held) but because the J table is a coverage matrix,
-    // not traffic. The representative-traffic corpus the pinned breach asked
-    // for now exists (`executors/episodes-traffic.ts`): 78 more sessions with
-    // a traffic-shaped mix, routed by the real engine over a real DB, folded
-    // into the same denominator. The rate is measured, not arranged — if the
-    // engine ever starts buying calls on ordinary sessions, this goes red
-    // again, which is the point.
-    expect(text).toContain("episodes_one_to_one_rate");
-    expect(text).not.toContain("breached: episodes_one_to_one_rate");
-    expect(code).toBe(0);
-    // 90s: the gold set now runs ~970 authored cases, most against a fresh
-    // temp SQLite DB with the real migrations, and the whole worker suite runs
-    // this file in parallel with 149 others. ~30s alone, more under load.
-  }, 90_000);
-
   it("goes green on the self-test directory", async () => {
     const sink = capture();
     const code = await main(["--dir", SELFTEST], sink.out);

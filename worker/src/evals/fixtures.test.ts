@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
   CATEGORIES,
   FixtureError,
-  TOTAL_CASES,
   coverageGaps,
   isSelfTestId,
   loadDirectory,
@@ -18,7 +15,6 @@ import {
 } from "./fixtures.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const GOLD = join(ROOT, "evals", "fixtures");
 const SELFTEST = join(ROOT, "evals", "selftest");
 
 /** The evals doc §2 fixture, verbatim, as the base every mutation starts from. */
@@ -139,81 +135,6 @@ describe("the §2 fixture schema", () => {
 
   it("insists the file is named after the id", () => {
     expect(() => loadFixture(join(SELFTEST, "A-901.json"))).not.toThrow();
-  });
-});
-
-describe("the gold fixture set", () => {
-  const loaded = loadDirectory(GOLD);
-
-  it("loads and validates all 1,000 stubs with no errors", () => {
-    expect(loaded.errors.map((e) => e.message)).toEqual([]);
-    expect(loaded.fixtures).toHaveLength(TOTAL_CASES);
-    expect(TOTAL_CASES).toBe(1000);
-  });
-
-  it("matches the §4 coverage table category by category", () => {
-    expect(coverageGaps(loaded.fixtures)).toEqual([]);
-    for (const category of CATEGORIES) {
-      expect(loaded.fixtures.filter((f) => f.category === category.cat)).toHaveLength(category.n);
-    }
-  });
-
-  it("keeps the doc row on every fixture, stub or authored", () => {
-    for (const fixture of loaded.fixtures) {
-      expect(fixture.doc?.given.length ?? 0).toBeGreaterThan(0);
-    }
-  });
-
-  it("reports a stub as a stub and an authored payload as authored", () => {
-    // Every category A–V is filled in (items 0.4–0.7, 1.1–1.8, 2.1, 2.4,
-    // 2.5, 3.1–3.3, 3.6 and the Q tasks corpus). A stub is what makes the
-    // runner report PENDING instead of a pass it did not earn, and there
-    // are none left.
-    const authored = loaded.fixtures.filter((f) => f.stub === false);
-    const stubs = loaded.fixtures.filter((f) => f.stub === true);
-    expect(authored.length + stubs.length).toBe(loaded.fixtures.length);
-    expect(new Set(authored.map((f) => f.category))).toEqual(
-      new Set(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V"]),
-    );
-    for (const fixture of authored) {
-      // An authored fixture asserts something: either it has a body to run, or
-      // its assertion needs no `expect` (the degenerate-input rows freeze the
-      // empty response on purpose).
-      const asserts =
-        fixture.frozen_response.length > 0 ||
-        Object.keys(fixture.expect).length > 0 ||
-        fixture.assert.mode === "no_throw";
-      expect(asserts).toBe(true);
-    }
-  });
-
-  it("carries only gate ids that exist in §14.2", () => {
-    // Enforced by the loader; this asserts the generator actually used some.
-    const gated = loaded.fixtures.filter((f) => f.assert.gate);
-    expect(gated.length).toBeGreaterThan(500);
-  });
-
-  // SKIPPED since P0.1: the V11 golden-evals doc this generator parsed was
-  // retired with the V13 rebrand, and SuperTwinV13_GoldenEvals_V2.md has a
-  // different structure (no '## 5. Cases' tables). The whole frozen fixture
-  // set is deleted in P0.3 and the harness reworked against the V13 docs in
-  // P0.9 — this test goes with it.
-  it.skip("is byte-identical to what the generator produces from the doc", () => {
-    const sample = ["A-001", "M-014", "S-050", "V-015"];
-    for (const id of sample) {
-      const text = readFileSync(join(GOLD, `${id}.json`), "utf8");
-      expect(text.endsWith("\n")).toBe(true);
-      expect(JSON.parse(text).id).toBe(id);
-    }
-    // The doc is the source of truth: if a row changes and the fixtures do not,
-    // the golden set has quietly stopped matching the spec.
-    const check = spawnSync(process.execPath, [join(ROOT, "evals", "generate-fixtures.mjs"), "--check"], {
-      encoding: "utf8",
-    });
-    expect(`${check.stdout}${check.stderr}`.trim()).toBe(
-      "generate-fixtures --check: 1000 fixtures match the doc (1000 authored)",
-    );
-    expect(check.status).toBe(0);
   });
 });
 

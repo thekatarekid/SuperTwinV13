@@ -19,7 +19,6 @@ process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
 const db = await import("../db/index.js");
 const { getDb } = await import("../db/connection.js");
 const queue = await import("../scheduler/queue.js");
-const { writeClaim } = await import("../claims/write.js");
 const { resourcePool } = await import("../providers/pool.js");
 const { register } = await import("../providers/index.js");
 const { claudeLocalProvider } = await import("../providers/claude-local/index.js");
@@ -54,19 +53,6 @@ beforeAll(async () => {
                '["same","different","later"]', 'open')`,
     )
     .run();
-
-  // Two runs' worth of claim mutations, so undo can prove it reverses ONE.
-  getDb()
-    .prepare(`INSERT INTO entities (id, type, canonical) VALUES ('ent-1','person','A'), ('ent-2','person','B')`)
-    .run();
-  writeClaim(
-    { kind: "fact", subjectId: "ent-1", predicate: "lives in", text: "lives in Pune", statedAt: "2026-08-01T10:00:00.000Z" },
-    { runId: "run-A", actor: "code:extract" },
-  );
-  writeClaim(
-    { kind: "fact", subjectId: "ent-2", predicate: "works at", text: "works at Acme", statedAt: "2026-08-02T10:00:00.000Z" },
-    { runId: "run-B", actor: "code:extract" },
-  );
 
   server = await startServer({ port: 0 });
   base = `http://127.0.0.1:${server.port}`;
@@ -200,25 +186,5 @@ describe("lane pause/resume", () => {
       body: JSON.stringify({ lane: "llm:everything" }),
     });
     expect(res.status).toBe(400);
-  });
-});
-
-describe("POST /api/ops/runs/:id/undo", () => {
-  it("reverses exactly one run and leaves the other run's writes standing", async () => {
-    const before = getDb().prepare(`SELECT COUNT(*) AS n FROM claim_versions`).get() as { n: number };
-    expect(before.n).toBe(2);
-
-    const res = await fetch(`${base}/api/ops/runs/run-A/undo`, { method: "POST" });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { runId: string; reversed: string[] };
-    expect(body.runId).toBe("run-A");
-    expect(body.reversed.length).toBeGreaterThan(0);
-
-    const rows = getDb().prepare(`SELECT text FROM claim_versions`).all() as { text: string }[];
-    expect(rows.map((r) => r.text)).toEqual(["works at Acme"]);
-
-    // A second undo of the same run is a no-op.
-    const again = await fetch(`${base}/api/ops/runs/run-A/undo`, { method: "POST" });
-    expect(((await again.json()) as { reversed: string[] }).reversed).toHaveLength(0);
   });
 });

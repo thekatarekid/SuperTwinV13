@@ -498,12 +498,9 @@ describe("import seal ordering (build item 1.1)", () => {
 
     await vi.advanceTimersByTimeAsync(SEAL_MS);
     expect(sealed("alice@x")).toBe(true);
-    // The re-seal re-runs ensureTiers, so the stream is reachable by the
-    // scheduler — tier NULL was the downstream half of this bug.
-    const row = getDb().prepare(`SELECT tier FROM streams WHERE external_key = 'alice@x'`).get() as
-      | { tier: string | null }
-      | undefined;
-    expect(row?.tier).not.toBeNull();
+    // (P0.3) The V11 ensureTiers re-run was pruned with the derivation middle;
+    // V13 stream tiering re-lands with P0.4/P0.5, and its seal-edge coverage
+    // returns with it.
   });
 
   it("converges: each late wave re-seals once, and sealed live traffic never re-arms", async () => {

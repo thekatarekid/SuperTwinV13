@@ -34,6 +34,7 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
@@ -402,6 +403,17 @@ export function publish(root, version, dmgPath, sha) {
   )
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Node realpaths the main module's URL but leaves process.argv[1] as typed, so
+// under a symlinked path (macOS /var/folders -> /private/var/folders temp dirs)
+// the two never match and the CLI silently does nothing. Compare realpaths.
+const invokedAs = (() => {
+  if (!process.argv[1]) return null
+  try {
+    return realpathSync(process.argv[1])
+  } catch {
+    return process.argv[1]
+  }
+})()
+if (invokedAs && fileURLToPath(import.meta.url) === invokedAs) {
   main(process.argv)
 }

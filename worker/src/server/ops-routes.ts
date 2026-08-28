@@ -29,7 +29,6 @@
 
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
-import { undoRun } from "../claims/undo.js";
 import { getDb } from "../db/connection.js";
 import { resourcePool, RESOURCE_LIMITS, type LaneKey } from "../providers/pool.js";
 import {
@@ -262,15 +261,6 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
     }
     resourcePool.resumeLane(body.lane);
     sendJson(res, 200, { ok: true, lane: body.lane, pausedForMs: 0 });
-    return true;
-  }
-
-  // ---- POST /api/ops/runs/:id/undo ----------------------------------------
-  const undo = path.match(/^\/api\/ops\/runs\/([^/]+)\/undo$/);
-  if (method === "POST" && undo) {
-    const runId = decodeURIComponent(undo[1]!);
-    const result = undoRun(runId, { actor: "user" });
-    sendJson(res, 200, result);
     return true;
   }
 

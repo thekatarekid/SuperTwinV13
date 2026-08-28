@@ -120,20 +120,6 @@ import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // V2 product surfaces (§3.2). Each owns its own prefix, takes no deps arg, and
 // returns false for a path it does not claim, exactly like handleOpsRoute.
 import { handleSurfacesRoute } from "./surfaces-routes.js";
-import { handleSessionsV2Route } from "./sessions-routes.js";
-import { handleEntitiesRoute } from "./entities-routes.js";
-import { handleEpisodesRoute } from "./episodes-routes.js";
-import { handleArcsRoute } from "./arcs-routes.js";
-import { handleClaimsRoute } from "./claims-routes.js";
-import { handleSpacesRoute } from "./spaces-routes.js";
-import { handleTasksRoute } from "./tasks-routes.js";
-import { handlePeopleRoute } from "./people-routes.js";
-// Item 2.6 — the reconcile job's manual entry point and its nightly timer.
-import { startNightlyTimer, type ReconcileTimer } from "../reconcile/index.js";
-// The episode stage's scheduled caller — the 14-day aging clock (§11.1 rule 5)
-// and the sealed-session sweep through the real P-EP2 judge.
-import { startEpisodeClock, type EpisodeClock } from "../scheduler/episode-pass.js";
-import { handleReconcileRoute } from "../reconcile/routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -357,17 +343,9 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   // backlog on the throttle from Settings. The semantic indexer keeps the same
   // company — it too is a backlog nobody should have to wait on, and it costs
   // one null per minute while the tier is off.
-  // The nightly reconcile (item 2.6, §8.1) keeps the same company: it ticks,
-  // asks the DB whether a day has passed, and costs nothing when it has not.
-  let nightly: ReconcileTimer | null = null;
-  // The episode clock (§11.1 rule 5) keeps the same company: it ages quiet
-  // episodes once a day and works the queue's episode stage in between.
-  let episodeClock: EpisodeClock | null = null;
   if (opts?.media ?? process.env.NODE_ENV !== "test") {
     startMediaQueue();
     startSemanticIndexer();
-    nightly = startNightlyTimer();
-    episodeClock = startEpisodeClock();
   }
 
   const server = createServer((req, res) => {
@@ -402,8 +380,6 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
             // a half-fetched model leaves only its `.part`.
             stopMediaQueue();
             stopSemanticIndexer();
-            nightly?.stop();
-            episodeClock?.stop();
             abortModelDownloads();
             abortEmbeddingDownload();
             for (const [, ac] of inflight) ac.abort();
@@ -716,14 +692,6 @@ async function handle(
     if (handled) return;
   }
 
-  // --- Reconcile (item 2.6): the manual entry point beside the cohort-boundary
-  // and nightly ones. Same job, same one run id, so a hand-triggered pass is
-  // undoable exactly like a scheduled one.
-  if (path.startsWith("/api/reconcile/")) {
-    const handled = await handleReconcileRoute(req, res);
-    if (handled) return;
-  }
-
   // --- Ops surface (item 4.4): import progress, quarantine browser, question
   // queue, per-lane pause/resume, undo-run. Owns everything under /api/ops/.
   if (path.startsWith("/api/ops/")) {
@@ -754,65 +722,6 @@ async function handle(
   // Coverage strip — polled by every surface.
   if (path === "/api/coverage") {
     const handled = await handleSurfacesRoute(req, res);
-    if (handled) return;
-  }
-
-  // Sessions surface. Claims GET /api/sessions (the segmented sessions page)
-  // and the whole /api/streams/ prefix. The Phase-0 chat list that used to sit
-  // on /api/sessions now answers on /api/chat/sessions, above.
-  if (path === "/api/sessions" || path.startsWith("/api/streams/")) {
-    const handled = await handleSessionsV2Route(req, res);
-    if (handled) return;
-  }
-
-  // Entities + the resolution queue.
-  if (
-    path === "/api/entities" ||
-    path.startsWith("/api/entities/") ||
-    path === "/api/resolution-queue" ||
-    path.startsWith("/api/resolution-queue/")
-  ) {
-    const handled = await handleEntitiesRoute(req, res);
-    if (handled) return;
-  }
-
-  // Episodes.
-  if (path === "/api/episodes" || path.startsWith("/api/episodes/")) {
-    const handled = await handleEpisodesRoute(req, res);
-    if (handled) return;
-  }
-
-  // Arcs (incl. /api/arcs/questions).
-  if (path === "/api/arcs" || path.startsWith("/api/arcs/")) {
-    const handled = await handleArcsRoute(req, res);
-    if (handled) return;
-  }
-
-  // Claims (incl. /api/claims/conflicts).
-  if (path === "/api/claims" || path.startsWith("/api/claims/")) {
-    const handled = await handleClaimsRoute(req, res);
-    if (handled) return;
-  }
-
-  // Spaces + life projects.
-  if (path === "/api/spaces" || path.startsWith("/api/spaces/") || path === "/api/goals") {
-    const handled = await handleSpacesRoute(req, res);
-    if (handled) return;
-  }
-
-  // Tasks + the done-check questions they raise.
-  if (
-    path === "/api/tasks" ||
-    path.startsWith("/api/tasks/") ||
-    path.startsWith("/api/questions/")
-  ) {
-    const handled = await handleTasksRoute(req, res);
-    if (handled) return;
-  }
-
-  // People.
-  if (path === "/api/people" || path.startsWith("/api/people/")) {
-    const handled = await handlePeopleRoute(req, res);
     if (handled) return;
   }
 

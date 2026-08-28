@@ -202,27 +202,6 @@ describe("V2 surface routes are mounted and serving", () => {
     expect(res.status).toBe(404);
   });
 
-  // ---- THE regression -----------------------------------------------------
-  // `/api/sessions` used to reach the Phase-0 chat list, which answers with a
-  // BARE ARRAY of CLI transcripts. The Sessions tab reads `.sessions` off the
-  // response, got `undefined`, and the tab broke — with a 200, not a 404. So
-  // status alone proves nothing here: the SHAPE is the contract.
-  it("GET /api/sessions returns the sessions page OBJECT, not a bare array", async () => {
-    const body = await getPage<{
-      sessions: unknown[];
-      sealedCount: number;
-      sources: unknown[];
-      streams: unknown[];
-    }>("/api/sessions");
-    expect(Array.isArray(body), "/api/sessions regressed to the Phase-0 bare array").toBe(false);
-    expect(typeof body).toBe("object");
-    expect(body).not.toBeNull();
-    expect(Array.isArray(body.sessions)).toBe(true);
-    expect(typeof body.sealedCount).toBe("number");
-    expect(Array.isArray(body.sources)).toBe(true);
-    expect(Array.isArray(body.streams)).toBe(true);
-  });
-
   // The other half of that move: the chat list it displaced still answers, on
   // its new path, in its own (bare-array) shape.
   it("GET /api/chat/sessions still returns the Phase-0 bare array", async () => {
@@ -242,46 +221,4 @@ describe("V2 surface routes are mounted and serving", () => {
     expect(Array.isArray(body.rows)).toBe(true);
   });
 
-  // Surfaces whose page is a keyed object. An EMPTY page is a pass — the claim
-  // is "this route answers in its own shape", not "the DB has rows in it".
-  const PAGES: Array<{
-    path: string;
-    arrays: string[];
-    objects?: string[];
-    numbers?: string[];
-  }> = [
-    { path: "/api/entities", arrays: ["entities"], objects: ["counts"], numbers: ["unresolvedCount"] },
-    { path: "/api/episodes", arrays: ["episodes", "streams"], objects: ["counts"] },
-    { path: "/api/arcs", arrays: ["arcs"], objects: ["counts"] },
-    { path: "/api/claims", arrays: ["groups", "subjects"], objects: ["counts"], numbers: ["conflictCount"] },
-    { path: "/api/spaces", arrays: ["spaces", "notSpaces", "lifeProjects"], objects: ["counts"] },
-    { path: "/api/tasks", arrays: ["tasks", "doneChecks", "waitingOnOthers"] },
-    { path: "/api/people", arrays: ["people"], objects: ["counts"] },
-  ];
-
-  it.each(PAGES)("GET $path returns its page object", async ({ path, arrays, objects, numbers }) => {
-    const body = await getPage<Record<string, unknown>>(path);
-    expect(Array.isArray(body), `${path} returned an array, not a page object`).toBe(false);
-    for (const key of arrays) {
-      expect(Array.isArray(body[key]), `${path} → ${key} is not an array`).toBe(true);
-    }
-    for (const key of objects ?? []) {
-      expect(typeof body[key], `${path} → ${key} is not an object`).toBe("object");
-      expect(body[key], `${path} → ${key} is null`).not.toBeNull();
-    }
-    for (const key of numbers ?? []) {
-      expect(typeof body[key], `${path} → ${key} is not a number`).toBe("number");
-    }
-  });
-
-  // Surfaces whose page IS a list. Empty is the expected state on a fresh DB.
-  it.each([
-    "/api/resolution-queue",
-    "/api/arcs/questions",
-    "/api/claims/conflicts",
-    "/api/goals",
-  ])("GET %s returns a (possibly empty) list", async (path) => {
-    const body = await getPage<unknown[]>(path);
-    expect(Array.isArray(body), `${path} did not return a list`).toBe(true);
-  });
 });

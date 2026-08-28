@@ -157,8 +157,12 @@ const SEEDS: Record<string, FixtureSeed> = {
     state: [
       ROSTER,
       `RETRIEVAL — 1 candidate: ${GOA_CARD}`,
-      "No space exists for birthdays or gifts.",
+      "No space exists for birthdays or gifts. The tick's Hinglish segment covers two topics in two message runs.",
     ].join("\n"),
+    events: [
+      '[same chat, first run] "flights dekh liye kya? 18 dec wali subah 7 baje?"',
+      '[same chat, second run] "waise ma ka birthday bhi aa raha hai 12 tarikh ko, gift socho".',
+    ],
   },
   "TOP-09": {
     state: [
@@ -315,7 +319,9 @@ const SEEDS: Record<string, FixtureSeed> = {
     state: [
       ROSTER,
       `SPACE UNDER DECIDE: ${GOA_CARD}`,
-      "MESSAGE TIMESTAMP: Mon 2026-08-24. The sender is contact:rohan; the message names aditya (the user) as the doer.",
+      "MESSAGE TIMESTAMP: Mon 2026-08-24. That message's week runs Mon 24 · Tue 25 · Wed 26 · Thu 27 · Fri 28 Aug — " +
+        '"friday" in the message is Friday 2026-08-28.',
+      "The sender is contact:rohan; the message names aditya (the user) as the doer.",
       "OPEN TASKS in this space: none.",
     ].join("\n"),
   },
@@ -325,6 +331,8 @@ const SEEDS: Record<string, FixtureSeed> = {
       `SPACE UNDER DECIDE: ${GOA_CARD}`,
       "COMMITTED EPISODE: booking confirmation — flight 6E-334 departs 18 Dec 07:00 from CCU (Kolkata). " +
         "Aditya's home is ~45 min from the airport; a 7am departure means leaving home ~4:30am.",
+      "CAPABILITY NOTE: cab booking runs through the normal transaction path (bookable on approval); " +
+        "researching cab options is a read-only action.",
     ].join("\n"),
   },
   "TSK-03": {

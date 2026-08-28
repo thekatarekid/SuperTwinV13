@@ -11,3 +11,43 @@
 
 export { brainRoot, commitBrain, ensureBrain, resetBrainCacheForTests } from "./root.js";
 export { handleBrainRoute } from "./routes.js";
+
+// ---- The V13 understanding lane (build P1.3) -------------------------------
+export {
+  runJsonPass,
+  modelForPass,
+  stableSystemPrompt,
+  DEFAULT_PASS_MODEL,
+  type JsonPassDeps,
+  type JsonPassResult,
+  type JsonPassSpec,
+} from "./llm.js";
+export {
+  runOrient,
+  parseOrientOutput,
+  resolveEventAliases,
+  type OrientOutput,
+  type OrientRun,
+} from "./orient.js";
+export {
+  runCritic,
+  parseCriticOutput,
+  buildCriticInput,
+  verdictFor,
+  type CriticOutput,
+  type CriticVerdict,
+} from "./critic.js";
+export {
+  commitTick,
+  proposedStatus,
+  SECOND_LOOK_MIN,
+  SECOND_LOOK_MAX,
+  type CommitInput,
+  type CommitReport,
+} from "./commit.js";
+export {
+  runBrainTick,
+  startBrainConsumer,
+  type BrainConsumer,
+  type TickReport,
+} from "./consumer.js";

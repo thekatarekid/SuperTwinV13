@@ -17,9 +17,11 @@
 
 import { registerExecutor } from "../runner.js";
 import { bndExecutor, bndHookAvailable } from "./bnd.js";
+import { criticExecutor, orientExecutor } from "./orient.js";
 import { stubExecutor } from "./stub.js";
 
 export { bndExecutor, bndHookAvailable } from "./bnd.js";
+export { criticExecutor, orientExecutor } from "./orient.js";
 export { stubExecutor } from "./stub.js";
 
 export async function registerProductExecutors(): Promise<void> {
@@ -27,4 +29,7 @@ export async function registerProductExecutors(): Promise<void> {
   if (await bndHookAvailable()) {
     registerExecutor("scheduler.dispatch", bndExecutor);
   }
+  // P1.3: the Orient map pass + the Critic gate (TOP/ASN/CRE/CRI/ROL/AGE…).
+  registerExecutor("orient", orientExecutor);
+  registerExecutor("critic", criticExecutor);
 }

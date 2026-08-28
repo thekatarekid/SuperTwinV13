@@ -19,6 +19,12 @@ export interface FixtureSeed {
   state?: string;
   /** Critic fixtures: the numbered writes to grade (the Setup's referents). */
   items?: string[];
+  /**
+   * Concrete per-event rendering when the doc's single Input line describes
+   * MULTIPLE events (two streams in one tick, a forward then a message) — the
+   * pass needs distinct e-ids to file them separately.
+   */
+  events?: string[];
 }
 
 // ---- Calendar reference ----------------------------------------------------
@@ -98,12 +104,24 @@ const SEEDS: Record<string, FixtureSeed> = {
     state: [
       'SPACE sp_pottery — label "Weekly pottery classes in Ballygunge", life_area Hobbies, ' +
         "status active (the user just APPROVED this proposal; sweep runs at space birth).",
+      "The space was born EMPTY — approval created it with zero episodes. NOTHING below has " +
+        "been filed anywhere yet; every u-item is still sitting in unsorted right now.",
       "UNSORTED inventory (every item must be reviewed by the sweep):",
       '  u1 (3 weeks ago): episode "asked in Family group about pottery class options" — events e_u1.',
       '  u2 (2 weeks ago): episode "compared two pottery studio prices on browser" — events e_u2.',
       '  u3 (1 week ago): episode "screenshot of a pottery class schedule shared in DM" — events e_u3.',
       '  u4 (2 weeks ago): episode "one-off mention of a gym trial" — events e_u4.',
       '  u5 (5 days ago): episode "car insurance promo forward" — events e_u5.',
+    ].join("\n"),
+  },
+  "ASN-10": {
+    state: [
+      ROSTER,
+      "RETRIEVAL — 2 candidates, BOTH active, BOTH in Goa this December:",
+      `  1. ${GOA_CARD}`,
+      '  2. SPACE CANDIDATE sp_goa_wedding — label "Nikhil\'s Goa wedding in December", life_area Social, ' +
+        'status active. Exemplar: ep_430 "wedding outfit shopping". Dates: 19 Dec 2026.',
+      "The message names no date, no people, no trip.",
     ].join("\n"),
   },
   "TOP-04": {
@@ -125,10 +143,25 @@ const SEEDS: Record<string, FixtureSeed> = {
     state: [
       ROSTER,
       `RETRIEVAL — 1 candidate: ${GOA_CARD}`,
-      "THIS TICK CARRIES TWO STREAMS:",
-      '  stream A = group "Goa gang" (Aditya, Karan, Rohan, Tanvi): villa vote messages.',
-      '  stream B = 1:1 DM Rohan→Aditya: "book karu? split later?" (private side-channel about the same trip).',
+      "THIS TICK CARRIES TWO STREAMS (episodes are stream-scoped — no open episode exists in either stream):",
+      '  stream A = group "Goa gang" (Aditya, Karan, Rohan, Tanvi).',
+      "  stream B = 1:1 DM Rohan→Aditya (private side-channel about the same trip).",
     ].join("\n"),
+    events: [
+      '[stream A — group "Goa gang"] Karan: "villa vote final karo — casa menezes 6 votes, sunset villa 3".',
+      '[stream B — DM Rohan→Aditya] Rohan: "book karu? split later?".',
+    ],
+  },
+  "TOP-07": {
+    state: [
+      ROSTER,
+      'SPACE CANDIDATE sp_family — label "Family life and Ma\'s household", life_area Family, status active.',
+      "STREAM: 1:1 DM with Ma (contact:ma).",
+    ].join("\n"),
+    events: [
+      '[forwarded business broadcast] Airtel: "MEGA OFFER! Unlimited 5G data at ₹399 — upgrade today!" (a forward, promotional).',
+      '[Ma\'s own message] Ma: "beta call me tonight".',
+    ],
   },
   "CRE-01": {
     state: [
@@ -169,6 +202,16 @@ const SEEDS: Record<string, FixtureSeed> = {
   },
 
   // ---- Critic: CRI ---------------------------------------------------------
+  "CRI-02": {
+    state:
+      'CANDIDATES IN VIEW: SPACE sp_falcon — label "Falcon project delivery at work", life_area Work, ' +
+      'status active. Exemplars: ep_w1 "sprint review notes", ep_w2 "client demo prep".',
+    items: [
+      'attach episode "lunch plans with the cousins this weekend" to sp_falcon — evidence quote: ' +
+        '"biryani khane chalte hai saturday, cousins bhi aa rahe" (e1), confidence 0.8. ' +
+        "(The quote IS verbatim from e1; the episode content is family lunch plans.)",
+    ],
+  },
   "CRI-04": {
     state: [
       ROSTER,
@@ -206,6 +249,11 @@ const SEEDS: Record<string, FixtureSeed> = {
   "CLM-01": {
     state: [ROSTER, "STREAM: Goa gang group. The message sender is contact:rohan."].join("\n"),
   },
+  "CLM-05": {
+    state:
+      "STREAM: Zepto business account — tier `promotional` (business broadcast). " +
+      "TIER POLICY in force: promotional-tier content never yields claims about the user.",
+  },
   "CLM-08": {
     state: [
       ROSTER,
@@ -239,6 +287,16 @@ const SEEDS: Record<string, FixtureSeed> = {
         "Aditya's home is ~45 min from the airport; a 7am departure means leaving home ~4:30am.",
     ].join("\n"),
   },
+  "TSK-03": {
+    state: [
+      ROSTER,
+      `SPACE UNDER DECIDE: ${GOA_CARD}`,
+      'PLAN STATE: milestone "stay booked" has NO open task. Three shortlisted villas from the last ' +
+        "session carry holds that expire soon. No stay activity for 4 days; the trip is 6 weeks out.",
+      "SUGGESTION BUDGET: 2/day for this space; 1 already used today.",
+      "Nobody asked for anything this tick — any task here would be system-initiated (a plan-gap filler).",
+    ].join("\n"),
+  },
   "TSK-04": {
     state: [
       ROSTER,
@@ -266,6 +324,14 @@ const SEEDS: Record<string, FixtureSeed> = {
       "  3. Research villa options for the trip (read-only research).",
       "  4. Renew the Netflix subscription (payment).",
       "  5. Pick up the laundry (physical errand only the user can do).",
+    ].join("\n"),
+  },
+  "TSK-08": {
+    state: [
+      ROSTER,
+      `SPACE UNDER DECIDE: ${GOA_CARD}`,
+      'OPEN TASKS in this space: tsk_flights_ccu — title "Book flights CCU-GOI", status open, owner self, ' +
+        "category transaction, created yesterday. Tanvi's message is a nudge about THIS listed task.",
     ].join("\n"),
   },
   "TSK-10": {
@@ -322,6 +388,26 @@ const SEEDS: Record<string, FixtureSeed> = {
       '  ch_flights — label "Flights", status active, target 2026-08-29, episodes [ep_f1, ep_f2].',
       '  ch_stay — label "Stay", status active, target 2026-09-10, episodes [ep_v1, ep_v2].',
       'NEW COMMITTED EPISODE ep_f3 (wa): "flights BOOKED — confirmation shared in group, PNR X9K2P".',
+    ].join("\n"),
+  },
+
+  "CHP-05": {
+    state: [
+      `SPACE UNDER DECIDE: ${GOA_CARD}`,
+      "EXISTING CHAPTERS:",
+      '  ch_stay — label "Stay", status active, episodes [ep_v1 "villa chat", ep_v2 "villa browsing"].',
+      "NEW COMMITTED EPISODES this tick:",
+      '  ep_d1 (wa): "Dudhsagar waterfall day-trip plan — jeep safari timings discussed".',
+      '  ep_d2 (browser): "Dudhsagar trek routes and entry tickets browsed".',
+    ].join("\n"),
+  },
+  "CAT-06": {
+    state: [
+      "STREAM TIERS in force (tier policy: promotional-tier content never yields claims about the user):",
+      "  HDFC — tier T2 transactional (bank statements).",
+      "  Zepto — tier T2 transactional (order confirmations). ORDER HISTORY in view: 4 prior coffee " +
+        "orders over the last 3 weeks (e_z1..e_z4) — today's is the 5th.",
+      "  Airtel — tier T4 promotional (marketing broadcasts).",
     ].join("\n"),
   },
 

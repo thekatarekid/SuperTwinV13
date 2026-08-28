@@ -21,8 +21,8 @@ import type { Executor } from "../runner.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { parseOrientOutput, type OrientOutput } from "../../brain/orient.js";
 import { parseCriticOutput, type CriticOutput } from "../../brain/critic.js";
-import { ORIENT_V4 } from "../../prompts/orient.v4.js";
-import { CRITIC_V2 } from "../../prompts/critic.v2.js";
+import { ORIENT_V5 } from "../../prompts/orient.v5.js";
+import { CRITIC_V3 } from "../../prompts/critic.v3.js";
 import { fixtureSeed } from "./seeds.js";
 
 function prose(v: unknown): string {
@@ -117,10 +117,10 @@ export function criticAppliedView(out: CriticOutput): Record<string, unknown> {
 
 export const orientExecutor: Executor = async ({ fixture }) => {
   const seed = fixtureSeed(fixture.id);
-  const user = fixtureUser(fixture.setup, fixture.input_events, undefined, seed?.state);
+  const user = fixtureUser(fixture.setup, seed?.events ?? fixture.input_events, undefined, seed?.state);
   const result = await runJsonPass({
-    pass: ORIENT_V4.pass,
-    system: ORIENT_V4.system,
+    pass: ORIENT_V5.pass,
+    system: ORIENT_V5.system,
     user,
     role: "orient",
     unit: { kind: "eval", id: fixture.id },
@@ -132,7 +132,14 @@ export const orientExecutor: Executor = async ({ fixture }) => {
     output: out
       ? { ...out, applied_by_commit_layer: orientAppliedView(out) }
       : { error: result.error, responses: result.responses },
-    seededContext: seed?.state,
+    seededContext: [
+      seed?.state,
+      seed?.events
+        ? `Concrete event rendering of the Input:\n${seed.events.map((e, i) => `  e${i + 1}: ${e}`).join("\n")}`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n"),
     metrics: { rounds: result.runIds.length },
   };
 };
@@ -140,8 +147,8 @@ export const orientExecutor: Executor = async ({ fixture }) => {
 export const criticExecutor: Executor = async ({ fixture }) => {
   const seed = fixtureSeed(fixture.id);
   const result = await runJsonPass({
-    pass: CRITIC_V2.pass,
-    system: CRITIC_V2.system,
+    pass: CRITIC_V3.pass,
+    system: CRITIC_V3.system,
     user: criticFixtureUser(fixture.setup, fixture.input_events, seed),
     role: "critic",
     unit: { kind: "eval", id: fixture.id },

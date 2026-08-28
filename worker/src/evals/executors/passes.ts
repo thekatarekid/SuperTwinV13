@@ -15,9 +15,9 @@ import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { validateExtractOutput, type ExtractOutput } from "../../prompts/extract.v1.js";
-import { EXTRACT_V4_SYSTEM } from "../../prompts/extract.v4.js";
+import { EXTRACT_V5_SYSTEM } from "../../prompts/extract.v5.js";
 import { validateDecideOutput, type DecideOutput } from "../../prompts/decide.v1.js";
-import { DECIDE_V4_SYSTEM } from "../../prompts/decide.v4.js";
+import { DECIDE_V5_SYSTEM } from "../../prompts/decide.v5.js";
 import { CLOSE_CONFIDENCE_FLOOR } from "../../brain/decide-pass.js";
 import { validateConsolidateOutput, type ConsolidateVerdict } from "../../prompts/consolidate.v1.js";
 import { CONSOLIDATE_V3_SYSTEM } from "../../prompts/consolidate.v3.js";
@@ -78,7 +78,7 @@ export const extractExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "extract",
-    system: EXTRACT_V4_SYSTEM,
+    system: EXTRACT_V5_SYSTEM,
     user,
     role: "extract",
     unit: { kind: "eval", id: fixture.id },
@@ -135,7 +135,7 @@ export const decideExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V4_SYSTEM,
+    system: DECIDE_V5_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },

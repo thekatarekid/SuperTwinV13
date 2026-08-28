@@ -521,3 +521,205 @@ body:not(.tauri) {
   color: var(--ink);
   border-color: var(--ink-2);
 }
+
+/* -- menu bar panel + nudge (P2.3, spec §14.7) ------------------------------ */
+
+body.aux-window {
+  background: transparent;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  height: 100vh;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title {
+  font-weight: 600;
+}
+
+.panel-pause {
+  position: relative;
+}
+
+.panel-pause-menu {
+  position: absolute;
+  right: 0;
+  top: 22px;
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-2, rgba(30, 30, 34, 0.9));
+  border: 1px solid var(--edge, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 10;
+}
+
+.panel-pause-menu button {
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.panel-pause-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.panel h3 {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ink-2);
+  margin: 4px 0 2px;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.panel-row.rowlike {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-row.rowlike:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.panel-row .grow {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-row.dim {
+  opacity: 0.6;
+}
+
+.panel .dot,
+.shelf .dot {
+  color: var(--accent, #6aa7ff);
+  font-size: 9px;
+}
+
+.shelf .dot.pulse {
+  animation: nudge-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes nudge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.panel-today {
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.panel-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-foot input {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-version {
+  color: var(--ink-3, var(--ink-2));
+  font-size: 10px;
+  text-align: center;
+}
+
+/* nudge card */
+
+.nudge {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  height: 100vh;
+  font-size: 13px;
+}
+
+.nudge-chip {
+  font-size: 11px;
+  color: var(--accent, #6aa7ff);
+}
+
+.nudge-intent {
+  font-weight: 600;
+}
+
+.nudge-did,
+.nudge-peek {
+  color: var(--ink-2);
+}
+
+.nudge-peek {
+  border: 1px solid var(--edge, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  padding: 6px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nudge-actions {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.nudge-empty {
+  height: 100vh;
+}
+
+/* in-app nudge surfaces (spec §14.7.8) */
+
+.nudge-banner {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: rgba(106, 167, 255, 0.1);
+  border: 1px solid rgba(106, 167, 255, 0.3);
+  border-radius: 10px;
+  color: inherit;
+  font: inherit;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.nudge-chip-idle {
+  align-self: flex-start;
+  margin-bottom: 4px;
+  cursor: pointer;
+}

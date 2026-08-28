@@ -14,10 +14,16 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   approveProposal,
+  artifactDismiss,
+  artifactGraduate,
+  artifactSeen,
+  artifactSignal,
+  fetchArtifacts,
   fetchHome,
   postCorrection,
   rejectProposal,
   undoCorrection,
+  type ArtifactRow,
   type ClaimRow,
   type HomeData,
   type SpaceRow,
@@ -49,7 +55,8 @@ type ModalState =
   | { type: "task"; task: TaskRow }
   | { type: "space"; space: SpaceRow }
   | { type: "proposal"; proposal: SpaceRow }
-  | { type: "claim"; claim: ClaimRow };
+  | { type: "claim"; claim: ClaimRow }
+  | { type: "artifact"; artifact: ArtifactRow };
 
 interface UndoChip {
   correctionId: string;
@@ -63,6 +70,7 @@ export function App(): JSX.Element {
   const [modal, setModal] = useState<ModalState | null>(null);
   const [lock, setLock] = useState<BarLock | null>(null);
   const [undo, setUndo] = useState<UndoChip | null>(null);
+  const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -70,6 +78,14 @@ export function App(): JSX.Element {
       setError(null);
     } catch {
       setError("worker unreachable");
+    }
+    // The "Prepared for you" shelf (spec §14.7.8) rides the same refresh;
+    // a failure leaves the shelf as-is rather than erroring the shell.
+    try {
+      const { artifacts: rows } = await fetchArtifacts();
+      setArtifacts(rows.filter((a) => a.status === "new" || a.status === "seen"));
+    } catch {
+      // keep the previous shelf
     }
   }, []);
 
@@ -155,6 +171,35 @@ export function App(): JSX.Element {
     }
   }
 
+  // Opening a nudge artifact clears the ● dot EVERYWHERE (spec §14.7.8) —
+  // one artifact, one status, three surfaces.
+  const openArtifact = useCallback(
+    async (artifact: ArtifactRow) => {
+      if (artifact.status === "new") {
+        await artifactSeen(artifact.id).catch(() => {});
+      } else {
+        await artifactSignal(artifact.id, "opened_dwelled").catch(() => {});
+      }
+      setModal({ type: "artifact", artifact });
+      await refresh();
+    },
+    [refresh],
+  );
+
+  async function artifactAction(artifact: ArtifactRow, verb: "dismiss" | "graduate"): Promise<void> {
+    try {
+      if (verb === "dismiss") await artifactDismiss(artifact.id);
+      else await artifactGraduate(artifact.id);
+      setModal(null);
+      await refresh();
+    } catch {
+      setError(`${verb} failed`);
+    }
+  }
+
+  // The newest unseen nudge — the grounded bar's idle chip + shelf pulse.
+  const freshNudge = artifacts.find((a) => a.status === "new") ?? null;
+
   return (
     <div className="shell">
       <div className="nav-row">
@@ -180,6 +225,8 @@ export function App(): JSX.Element {
           <Home
             data={data}
             error={error}
+            prepared={artifacts}
+            onOpenArtifact={(a) => void openArtifact(a)}
             onOpenTask={(task) => setModal({ type: "task", task })}
             onOpenSpace={(space) => setModal({ type: "space", space })}
             onOpenProposal={(proposal) => setModal({ type: "proposal", proposal })}
@@ -207,6 +254,8 @@ export function App(): JSX.Element {
         <SpaceModal
           space={modal.space}
           tasks={data?.today ?? []}
+          nudge={artifacts.find((a) => a.spaceId === modal.space.id && a.status === "new") ?? null}
+          onOpenNudge={(a) => void openArtifact(a)}
           onCorrection={(s) => void correct({ kind: "space", id: modal.space.id }, s)}
           onTellTwin={() => lockTo("space", modal.space.id, modal.space.label)}
           onClose={() => setModal(null)}
@@ -243,6 +292,46 @@ export function App(): JSX.Element {
         </ModalFrame>
       )}
 
+      {modal?.type === "artifact" && (
+        <div className="modal-scrim" onClick={() => setModal(null)} data-testid="modal-scrim">
+          <section
+            className="modal"
+            role="dialog"
+            aria-label={modal.artifact.title}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header>
+              <h2 className="title">{modal.artifact.title}</h2>
+              <span className="chip">◆ {modal.artifact.kind}</span>
+              {modal.artifact.spaceId && <span className="chip">{modal.artifact.spaceId}</span>}
+            </header>
+            {modal.artifact.summary && <p>{modal.artifact.summary}</p>}
+            {modal.artifact.reasoning && (
+              <p style={{ color: "var(--ink-2)" }}>{modal.artifact.reasoning}</p>
+            )}
+            <footer>
+              <button
+                type="button"
+                className="linklike"
+                onClick={() => void artifactAction(modal.artifact, "graduate")}
+              >
+                make it a task
+              </button>
+              <button
+                type="button"
+                className="linklike"
+                onClick={() => void artifactAction(modal.artifact, "dismiss")}
+              >
+                dismiss
+              </button>
+              <button type="button" className="linklike" onClick={() => setModal(null)}>
+                close
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
       {undo && (
         <div className="undo-toast" role="status">
           <span>{undo.summary}</span>
@@ -255,7 +344,14 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      <GroundedBar lock={lock} onUnlock={() => setLock(null)} onTellTwin={tellTwin} />
+      <GroundedBar
+        lock={lock}
+        onUnlock={() => setLock(null)}
+        onTellTwin={tellTwin}
+        nudge={freshNudge}
+        onOpenNudge={(a) => void openArtifact(a)}
+        onNudgeTyped={(a) => void artifactSignal(a.id, "ignored").catch(() => {})}
+      />
     </div>
   );
 }

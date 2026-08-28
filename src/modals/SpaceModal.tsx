@@ -5,12 +5,15 @@
 // §14.4.1): dragging one onto a space card on Home fires the same correction
 // pipeline as everything else (FIX-05).
 
-import type { SpaceRow, TaskRow } from "../lib/api";
+import type { ArtifactRow, SpaceRow, TaskRow } from "../lib/api";
 import { ModalFrame, parseEvidence } from "../components/Modal";
 
 export function SpaceModal(props: {
   space: SpaceRow;
   tasks: TaskRow[];
+  /** Fresh nudge belonging to THIS space (spec §14.7.8 contextual banner). */
+  nudge?: ArtifactRow | null;
+  onOpenNudge?: (artifact: ArtifactRow) => void;
   onCorrection: (structured: Record<string, unknown>) => void;
   onTellTwin: () => void;
   onClose: () => void;
@@ -31,6 +34,17 @@ export function SpaceModal(props: {
       onTellTwin={props.onTellTwin}
       onClose={props.onClose}
     >
+      {props.nudge && (
+        <button
+          type="button"
+          className="nudge-banner"
+          data-testid="space-nudge-banner"
+          onClick={() => props.onOpenNudge?.(props.nudge!)}
+        >
+          ◆ {props.nudge.title}
+          {props.nudge.summary ? ` — ${props.nudge.summary}` : ""} · open
+        </button>
+      )}
       {space.goal && <p>{space.goal}</p>}
       {tasks.length > 0 ? (
         <div>

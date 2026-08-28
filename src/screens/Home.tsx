@@ -8,13 +8,16 @@
 // ===========================================================================
 
 import { useState, type DragEvent } from "react";
-import type { ClaimRow, HomeData, SpaceRow, TaskRow } from "../lib/api";
+import type { ArtifactRow, ClaimRow, HomeData, SpaceRow, TaskRow } from "../lib/api";
 
 const DRAG_MIME = "application/x-supertwin-object";
 
 export interface HomeProps {
   data: HomeData | null;
   error: string | null;
+  /** "Prepared for you" shelf (spec §14.7.8): unexpired assist artifacts. */
+  prepared: ArtifactRow[];
+  onOpenArtifact: (artifact: ArtifactRow) => void;
   onOpenTask: (task: TaskRow) => void;
   onOpenSpace: (space: SpaceRow) => void;
   onOpenProposal: (proposal: SpaceRow) => void;
@@ -51,6 +54,28 @@ export function Home(props: HomeProps): JSX.Element {
 
   return (
     <div>
+      {props.prepared.length > 0 && (
+        <section className="card shelf" aria-label="Prepared for you">
+          <h2>Prepared for you</h2>
+          {props.prepared.map((a) => (
+            <button
+              type="button"
+              className="row"
+              key={a.id}
+              onClick={() => props.onOpenArtifact(a)}
+            >
+              <span className="glyph">◆</span>
+              {a.status === "new" && (
+                <span className="dot pulse" aria-label="new" data-testid="shelf-dot">
+                  ●
+                </span>
+              )}
+              <span>{a.title}</span>
+              {a.summary && <span className="meta">{a.summary}</span>}
+            </button>
+          ))}
+        </section>
+      )}
       <div className="home-grid">
         <section className="card" aria-label="Today">
           <h2>Today</h2>

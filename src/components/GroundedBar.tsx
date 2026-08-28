@@ -9,7 +9,7 @@
 // ===========================================================================
 
 import { useEffect, useRef, useState } from "react";
-import type { TargetKind } from "../lib/api";
+import type { ArtifactRow, TargetKind } from "../lib/api";
 
 export interface BarLock {
   kind: TargetKind;
@@ -22,10 +22,24 @@ export function GroundedBar(props: {
   onUnlock: () => void;
   /** Submit a context-locked utterance; resolves to the "what I did" line. */
   onTellTwin: (lock: BarLock, utterance: string) => Promise<string>;
+  /** Idle chip (spec §14.7.8): the freshest relevant unseen nudge, if any. */
+  nudge?: ArtifactRow | null;
+  onOpenNudge?: (artifact: ArtifactRow) => void;
+  /** Typing anything dismisses the chip silently (zero-cost negative). */
+  onNudgeTyped?: (artifact: ArtifactRow) => void;
 }): JSX.Element {
   const [text, setText] = useState("");
   const [reply, setReply] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const [chipDismissed, setChipDismissed] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // The idle chip: bar focused but EMPTY, no lock, a fresh nudge exists and
+  // typing hasn't silently dismissed it.
+  const chip =
+    focused && text === "" && !props.lock && props.nudge && chipDismissed !== props.nudge.id
+      ? props.nudge
+      : null;
 
   // Entering context-locked state focuses the input (spec §14.8.4).
   useEffect(() => {
@@ -49,6 +63,20 @@ export function GroundedBar(props: {
   return (
     <div className="bar-wrap">
       <div className="bar" aria-label="grounded bar">
+        {chip && (
+          <button
+            type="button"
+            className="chip accent nudge-chip-idle"
+            data-testid="bar-nudge-chip"
+            onMouseDown={(e) => {
+              // Fires before the input loses focus.
+              e.preventDefault();
+              props.onOpenNudge?.(chip);
+            }}
+          >
+            ◆ {chip.title.toLowerCase()}
+          </button>
+        )}
         {props.lock && (
           <div className="lock-chip">
             <span className="chip accent">
@@ -66,9 +94,24 @@ export function GroundedBar(props: {
             props.lock ? "tell the twin what's wrong…" : "Ask, search, or tell me to do something"
           }
           aria-label="ask"
-          onChange={(e) => setText(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onChange={(e) => {
+            // Typing anything dismisses the idle chip silently (§14.7.8).
+            if (chip && e.target.value !== "") {
+              setChipDismissed(chip.id);
+              props.onNudgeTyped?.(chip);
+            }
+            setText(e.target.value);
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
+            if (e.key === "Enter") {
+              if (chip && text === "") {
+                props.onOpenNudge?.(chip);
+                return;
+              }
+              void submit();
+            }
           }}
         />
         {reply && <div className="reply">twin: {reply}</div>}

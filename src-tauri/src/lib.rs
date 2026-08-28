@@ -32,6 +32,8 @@ use tauri_plugin_shell::ShellExt;
 
 // P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
 mod hotkey;
+// P2.3 — menu bar tray (◉◔●⏸), 360px glass panel, transient nudge window.
+mod tray;
 
 /// Roll the worker log over to `worker.log.old` if it already exceeds ~5 MB, so
 /// it never grows unbounded across many app launches. Best-effort: any IO error
@@ -236,6 +238,13 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(WorkerProcess::default())
+        .invoke_handler(tauri::generate_handler![
+            tray::set_tray_state,
+            tray::show_nudge,
+            tray::hide_nudge,
+            tray::hide_panel,
+            tray::open_main,
+        ])
         .setup(|app| {
             // Spawn the Node worker and hold its handle so it can be killed on
             // exit. Defensive — a spawn failure logs and continues; the UI polls
@@ -273,6 +282,11 @@ pub fn run() {
             // P1.7 summon: double-tap right-⌘ (event tap) + ⌘⇧S fallback.
             hotkey::register_fallback_shortcut(handle);
             hotkey::start_double_tap_listener(handle);
+
+            // P2.3 menu bar: template-icon tray (◉◔●⏸) + the 360px glass
+            // panel + the transient nudge window. Best-effort — a failure
+            // logs and the main window still runs.
+            tray::setup(handle);
             Ok(())
         })
         .build(tauri::generate_context!())

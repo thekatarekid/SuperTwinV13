@@ -1,8 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main window. Grants the shell plugin so the worker sidecar can be spawned and managed.",
-  "windows": ["main"],
+  "description": "Default capability for the app windows. Grants the shell plugin so the worker sidecar can be spawned and managed; panel + nudge (P2.3) get the same window/core surface for the tray commands.",
+  "windows": [
+    "main",
+    "panel",
+    "nudge"
+  ],
   "permissions": [
     "core:default",
     "shell:default",

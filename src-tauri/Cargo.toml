@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # macos-private-api: required for the transparent liquid-glass window
 # (tauri.conf.json app.macOSPrivateApi) that vibrancy paints under.
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }

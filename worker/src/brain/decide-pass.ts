@@ -1,19 +1,25 @@
 // ===========================================================================
-// DECIDE pass runner (build P1.4, spec §6.3 REDUCE + §8.4).
+// DECIDE pass runner (build P1.4 → P3.1 full scope, spec §6.3 REDUCE + §8.4).
 //
-// Runs for ONE space over its newly-committed episodes. P1 SCOPE: chapters,
-// tasks, closures and plan are applied; schedules and follow-ups are emitted
-// by the model but HELD as `deferred_outputs` rows — activation is P3's.
+// Runs for ONE space over its newly-committed episodes. P3.1: EVERY section
+// of the output now acts — chapters, tasks, closures, plan, AND schedules +
+// follow-ups (spec §8.4.3/8.4.5, §11.2–11.3). The P1 `deferred_outputs` pen
+// is retired for new emissions; held rows replay via replayDeferredOutputs
+// (decide-apply.ts) when the timer service boots.
 //
 // Application discipline (all in code, never trusted from the model):
 //   - IDEMPOTENT: chapters upsert by id-or-label within the space; tasks
 //     dedupe by open title within the space; the plan only writes on change;
-//     deferred outputs dedupe by payload. A second run on identical state
-//     changes nothing (CON-08 / CHP-06).
+//     a task that already carries a schedule keeps it. A second run on
+//     identical state changes nothing (CON-08 / CHP-06).
 //   - closures: verdict "close" needs confidence ≥ 0.85 to touch the task
 //     (false_auto_close = 0 is a hard gate); anything less is recorded as a
-//     suggest_close decision and mutates nothing.
-//   - suggested tasks: ≤ 2 per day per space, enforced here.
+//     suggest_close decision and mutates nothing. A real 'done' close
+//     enqueues the next-step pass (spec §11.3 trigger b).
+//   - schedules: auto-vs-confirm is evaluateSchedulePolicy — a CODE check
+//     (auto only for auto-class + high confidence + time-bound; recurring
+//     always confirms; past fire times reject).
+//   - suggested tasks: ≤ 2 per day per space; follow-ups ≤ 2 per trigger.
 //   - every mutation writes a decisions row with the old state (reversible).
 // ===========================================================================
 
@@ -22,13 +28,17 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import {
-  validateDecideOutput,
   type DecideChapter,
   type DecideClosure,
-  type DecideOutput,
   type DecideTask,
 } from "../prompts/decide.v1.js";
-import { DECIDE_V7_SYSTEM } from "../prompts/decide.v7.js";
+import {
+  DECIDE_V8_SYSTEM,
+  validateDecideV8Output,
+  type DecideOutputV8,
+} from "../prompts/decide.v8.js";
+import { applyFollowups, applySchedule, emptyScheduleCounts } from "./decide-apply.js";
+import { enqueueNextStep } from "./next-step.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { packEpisodes, packSpaceState } from "./thin-pack.js";
 
@@ -44,12 +54,32 @@ export interface DecideApplied {
   tasksSkipped: number;
   tasksClosed: number;
   closeSuggestions: number;
-  deferredHeld: number;
+  schedulesAuto: number;
+  schedulesProposed: number;
+  schedulesRejected: number;
+  schedulesSkipped: number;
+  followupsCreated: number;
+  followupsSkipped: number;
+  nextStepsEnqueued: number;
   planUpdated: boolean;
 }
 
+export function emptyDecideApplied(): DecideApplied {
+  return {
+    chaptersCreated: 0,
+    chaptersUpdated: 0,
+    tasksCreated: 0,
+    tasksSkipped: 0,
+    tasksClosed: 0,
+    closeSuggestions: 0,
+    ...emptyScheduleCounts(),
+    nextStepsEnqueued: 0,
+    planUpdated: false,
+  };
+}
+
 export interface DecidePassResult {
-  status: JsonPassResult<DecideOutput>["status"];
+  status: JsonPassResult<DecideOutputV8>["status"];
   applied: DecideApplied;
   runIds: string[];
   error?: { code: string; message: string };
@@ -174,6 +204,7 @@ function suggestedToday(spaceId: string): number {
     .prepare(
       `SELECT COUNT(*) AS n FROM tasks
         WHERE space_id = ? AND type = 'suggested'
+          AND created_by = 'decide'
           AND created_at >= strftime('%Y-%m-%dT00:00:00Z','now')`,
     )
     .get(spaceId) as { n: number };
@@ -303,44 +334,11 @@ function applyClosure(
     confidence: closure.confidence,
   });
   applied.tasksClosed += 1;
-}
-
-// ---------------------------------------------------------------------------
-// Apply: deferred outputs (schedules + follow-ups — emitted, HELD)
-// ---------------------------------------------------------------------------
-
-function holdDeferred(
-  spaceId: string,
-  kind: "schedule" | "followup",
-  payload: unknown,
-  runId: string | null,
-  applied: DecideApplied,
-): void {
-  const db = getDb();
-  const json = JSON.stringify(payload);
-  const dupe = db
-    .prepare(
-      `SELECT id FROM deferred_outputs
-        WHERE space_id = ? AND kind = ? AND payload_json = ? AND status = 'deferred'`,
-    )
-    .get(spaceId, kind, json) as { id: string } | undefined;
-  if (dupe) return; // idempotent re-emit
-  const id = mintId("def");
-  db.prepare(
-    `INSERT INTO deferred_outputs (id, space_id, kind, payload_json, created_by)
-     VALUES (?, ?, ?, ?, 'decide')`,
-  ).run(id, spaceId, kind, json);
-  writeDecision({
-    runId,
-    pass: "decide",
-    targetKind: "deferred_output",
-    targetId: id,
-    action: "create",
-    old: null,
-    new: { spaceId, kind, payload },
-    reason: "P1 scope: emitted but held deferred (activates in P3)",
-  });
-  applied.deferredHeld += 1;
+  // Spec §11.3 trigger (b): closure detection saw something completed → the
+  // next-step pass proposes what follows. Cancellations spawn nothing.
+  if (closure.outcome === "done" && enqueueNextStep(task.id, "closure")) {
+    applied.nextStepsEnqueued += 1;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,16 +383,7 @@ export async function runDecidePass(
   episodeIds: readonly string[],
   deps: JsonPassDeps = {},
 ): Promise<DecidePassResult> {
-  const applied: DecideApplied = {
-    chaptersCreated: 0,
-    chaptersUpdated: 0,
-    tasksCreated: 0,
-    tasksSkipped: 0,
-    tasksClosed: 0,
-    closeSuggestions: 0,
-    deferredHeld: 0,
-    planUpdated: false,
-  };
+  const applied = emptyDecideApplied();
   const space = packSpaceState(spaceId);
   if (!space) {
     return {
@@ -412,15 +401,15 @@ export async function runDecidePass(
     ...episodes.map((p) => p.text),
   ].join("\n\n");
 
-  const result = await runJsonPass<DecideOutput>(
+  const result = await runJsonPass<DecideOutputV8>(
     {
       pass: "decide",
-      system: DECIDE_V7_SYSTEM,
+      system: DECIDE_V8_SYSTEM,
       user,
       role: "decide",
       cohortId: null,
       unit: { kind: "decide_space", id: spaceId },
-      validate: validateDecideOutput,
+      validate: validateDecideV8Output,
     },
     deps,
   );
@@ -441,10 +430,12 @@ export async function runDecidePass(
     const id = applyChapter(spaceId, chapter, runId, applied);
     chapterIdByLabel.set(chapter.label.toLowerCase(), id);
   }
+  const now = deps.now?.() ?? new Date();
   for (const task of out.tasks) applyTask(spaceId, task, chapterIdByLabel, runId, applied);
   for (const closure of out.closures) applyClosure(spaceId, closure, runId, applied);
-  for (const schedule of out.schedules) holdDeferred(spaceId, "schedule", schedule, runId, applied);
-  for (const followup of out.followups) holdDeferred(spaceId, "followup", followup, runId, applied);
+  // P3.1: schedules + follow-ups ACT — through the code-side policy gate.
+  for (const schedule of out.schedules) applySchedule(spaceId, schedule, runId, applied, now);
+  applyFollowups(spaceId, out.followups, runId, applied, now);
   applyPlan(spaceId, out.plan, runId, applied);
 
   return {

@@ -16,8 +16,8 @@ import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { validateExtractOutput, type ExtractOutput } from "../../prompts/extract.v1.js";
 import { EXTRACT_V5_SYSTEM } from "../../prompts/extract.v5.js";
-import { validateDecideOutput, type DecideOutput } from "../../prompts/decide.v1.js";
-import { DECIDE_V7_SYSTEM } from "../../prompts/decide.v7.js";
+import { type DecideOutput } from "../../prompts/decide.v1.js";
+import { DECIDE_V8_SYSTEM, validateDecideV8Output } from "../../prompts/decide.v8.js";
 import { CLOSE_CONFIDENCE_FLOOR } from "../../brain/decide-pass.js";
 import { validateConsolidateOutput, type ConsolidateVerdict } from "../../prompts/consolidate.v1.js";
 import { CONSOLIDATE_V3_SYSTEM } from "../../prompts/consolidate.v3.js";
@@ -135,11 +135,11 @@ export const decideExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V7_SYSTEM,
+    system: DECIDE_V8_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },
-    validate: validateDecideOutput,
+    validate: validateDecideV8Output,
   });
   const out = result.output;
   const applied = out ? decideAppliedView(out) : undefined;

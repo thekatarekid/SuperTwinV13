@@ -5,7 +5,7 @@
 //   extract: subject discipline (unknown beats wrong), evidence-gated claim
 //            writes, provisional people, tone; every write a decisions row.
 //   decide:  chapters/tasks/closures/plan applied; schedules + follow-ups
-//            emitted but HELD deferred (P1 scope); closure confidence floor
+//            ACT through the code-side policy gate (P3.1); closure confidence floor
 //            (false_auto_close); suggested-task budget; IDEMPOTENT re-run.
 //   reduce:  group by space → queue → drain; extract grouped per stream.
 // ===========================================================================
@@ -200,16 +200,18 @@ describe("decide pass", () => {
     plan: { next: ["flights (awaiting approval)", "villa shortlist"] },
   });
 
-  it("applies chapters/tasks/closures/plan and HOLDS schedules + follow-ups deferred", async () => {
+  it("applies chapters/tasks/closures/plan AND activates schedules + follow-ups (P3.1)", async () => {
     seedSpace();
     const provider = stubProvider([DECIDE_ANSWER]);
-    const result = await runDecidePass("sp_goa", ["ep_412"], deps(provider));
+    const result = await runDecidePass("sp_goa", ["ep_412"], {
+      ...deps(provider),
+      now: () => new Date("2026-08-29T10:00:00Z"),
+    });
     expect(result.status).toBe("ok");
     expect(result.applied.chaptersCreated).toBe(1);
     expect(result.applied.tasksCreated).toBe(1);
     expect(result.applied.tasksClosed).toBe(1); // only the ≥0.85 closure
     expect(result.applied.closeSuggestions).toBe(1); // the 0.55 one proposes
-    expect(result.applied.deferredHeld).toBe(2); // schedule + followup, HELD
     expect(result.applied.planUpdated).toBe(true);
 
     const db = getDb();
@@ -224,14 +226,36 @@ describe("decide pass", () => {
     expect(cab.status).toBe("open");
     expect(CLOSE_CONFIDENCE_FLOOR).toBe(0.85);
 
-    const deferred = db
-      .prepare(`SELECT kind, status FROM deferred_outputs ORDER BY kind`)
-      .all() as { kind: string; status: string }[];
-    expect(deferred).toEqual([
-      { kind: "followup", status: "deferred" },
-      { kind: "schedule", status: "deferred" },
-    ]);
-    // NO task/schedule was activated from the deferred pen.
+    // The schedule had no matching task → conservative carrier, CONFIRM only
+    // (unknown risk is never auto), and NOTHING went to the deferred pen.
+    expect(result.applied.schedulesAuto).toBe(0);
+    expect(result.applied.schedulesProposed).toBe(1);
+    const carrier = db
+      .prepare(`SELECT risk_class, status, schedule_json FROM tasks WHERE title = 'web check-in'`)
+      .get() as { risk_class: string; status: string; schedule_json: string };
+    expect(carrier.risk_class).toBe("advise-only");
+    expect(carrier.status).toBe("open"); // confirm mode never silently schedules
+    expect(JSON.parse(carrier.schedule_json)).toMatchObject({ mode: "confirm", proposed: true });
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM deferred_outputs WHERE kind IN ('schedule','followup')`).get() as { n: number }).n,
+    ).toBe(0);
+
+    // The follow-up became a task with its "because:" spine visible.
+    expect(result.applied.followupsCreated).toBe(1);
+    const villa = db
+      .prepare(`SELECT type, evidence_json, created_by FROM tasks WHERE title = 'Shortlist villas'`)
+      .get() as { type: string; evidence_json: string; created_by: string };
+    expect(villa.type).toBe("suggested");
+    expect(villa.evidence_json).toContain("because: flights booked");
+    expect(villa.created_by).toBe("decide_followup");
+
+    // The 'done' closure queued the next-step pass (spec §11.3 trigger b).
+    expect(result.applied.nextStepsEnqueued).toBe(1);
+    const nextStep = db
+      .prepare(`SELECT task_id, status FROM deferred_outputs WHERE kind = 'next_step'`)
+      .get() as { task_id: string; status: string };
+    expect(nextStep).toEqual({ task_id: "tsk_pool", status: "deferred" });
+
     const flightTask = db
       .prepare(`SELECT chapter_id, evidence_json FROM tasks WHERE title LIKE 'Book flights%'`)
       .get() as { chapter_id: string | null; evidence_json: string };
@@ -245,7 +269,8 @@ describe("decide pass", () => {
 
   it("is idempotent: a second run with the identical answer changes nothing (CHP-06/CON-08)", async () => {
     seedSpace();
-    await runDecidePass("sp_goa", ["ep_412"], deps(stubProvider([DECIDE_ANSWER])));
+    const clock = { now: () => new Date("2026-08-29T10:00:00Z") };
+    await runDecidePass("sp_goa", ["ep_412"], { ...deps(stubProvider([DECIDE_ANSWER])), ...clock });
     const db = getDb();
     const snapshot = {
       chapters: (db.prepare(`SELECT COUNT(*) AS n FROM chapters`).get() as { n: number }).n,
@@ -253,10 +278,18 @@ describe("decide pass", () => {
       deferred: (db.prepare(`SELECT COUNT(*) AS n FROM deferred_outputs`).get() as { n: number }).n,
       plan: (db.prepare(`SELECT plan_json FROM spaces WHERE id = 'sp_goa'`).get() as { plan_json: string }).plan_json,
     };
-    const second = await runDecidePass("sp_goa", ["ep_412"], deps(stubProvider([DECIDE_ANSWER])));
+    const second = await runDecidePass("sp_goa", ["ep_412"], {
+      ...deps(stubProvider([DECIDE_ANSWER])),
+      ...clock,
+    });
     expect(second.applied.chaptersCreated).toBe(0);
     expect(second.applied.tasksCreated).toBe(0);
-    expect(second.applied.deferredHeld).toBe(0);
+    expect(second.applied.schedulesAuto).toBe(0);
+    expect(second.applied.schedulesProposed).toBe(0);
+    expect(second.applied.schedulesSkipped).toBe(1); // carrier already scheduled
+    expect(second.applied.followupsCreated).toBe(0);
+    expect(second.applied.followupsSkipped).toBe(1); // open by title
+    expect(second.applied.nextStepsEnqueued).toBe(0); // tsk_pool already closed
     expect(second.applied.planUpdated).toBe(false);
     expect({
       chapters: (db.prepare(`SELECT COUNT(*) AS n FROM chapters`).get() as { n: number }).n,

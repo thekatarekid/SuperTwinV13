@@ -11,7 +11,7 @@
 // ===========================================================================
 
 import { enqueueDecide, claimDecideBatch, finishDecide, releaseDecide, type DecidePriority } from "./decide-queue.js";
-import { runDecidePass, type DecidePassResult } from "./decide-pass.js";
+import { emptyDecideApplied, runDecidePass, type DecidePassResult } from "./decide-pass.js";
 import { runExtractPass, type ExtractPassResult } from "./extract-pass.js";
 import type { JsonPassDeps } from "./llm.js";
 import { getDb } from "../db/connection.js";
@@ -70,16 +70,7 @@ export async function drainDecideQueue(
           spaceId: row.spaceId,
           result: {
             status: "failed",
-            applied: {
-              chaptersCreated: 0,
-              chaptersUpdated: 0,
-              tasksCreated: 0,
-              tasksSkipped: 0,
-              tasksClosed: 0,
-              closeSuggestions: 0,
-              deferredHeld: 0,
-              planUpdated: false,
-            },
+            applied: emptyDecideApplied(),
             runIds: [],
             error: { code: "reduce_throw", message: err instanceof Error ? err.message : String(err) },
           } satisfies DecidePassResult,

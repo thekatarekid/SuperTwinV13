@@ -1,0 +1,25 @@
+{
+  "id": "CRI-07",
+  "category": "CRI",
+  "title": "Catches fabricated evidence",
+  "pass": "critic",
+  "mode": "live",
+  "setup": "seeded decision quotes text that appears in no cited event.",
+  "input_events": [
+    "decision + raw events."
+  ],
+  "expected": "reject, `fabricated-evidence` named.",
+  "wrong": [
+    {
+      "label": "quote-blindness",
+      "assert_absent": "the 'quote-blindness' failure mode"
+    }
+  ],
+  "gates": [
+    "evidence_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRI-07 · Catches fabricated evidence"
+  }
+}

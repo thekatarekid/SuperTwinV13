@@ -1,0 +1,25 @@
+{
+  "id": "AGE-01",
+  "category": "AGE",
+  "title": "Band D: claims yes, tasks never",
+  "pass": "scheduler.backfill",
+  "mode": "live",
+  "setup": "backfill \"Everything\"; 3-year-old messages: \"book the andaman tickets by friday!\" (long done).",
+  "input_events": [
+    "band D batch."
+  ],
+  "expected": "claims/narrative extracted (travelled to Andaman 2023, with whom); ZERO tasks; the trip may seed a past-trip memory, not a space.",
+  "wrong": [
+    {
+      "label": "time-traveler-tasks",
+      "assert_absent": "2023 deadlines in today's list"
+    }
+  ],
+  "gates": [
+    "band_policy_compliance"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "AGE-01 · Band D: claims yes, tasks never"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "CRE-09",
+  "category": "CRE",
+  "title": "Evidence quote must be real",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "judge cross-checks quotes against input events.",
+  "input_events": [
+    "any proposal case."
+  ],
+  "expected": "every evidence quote is verbatim (modulo whitespace) from a cited event id.",
+  "wrong": [
+    {
+      "label": "fabricated-evidence",
+      "assert_absent": "paraphrase presented as quote, or wrong event id) — hard fail"
+    }
+  ],
+  "gates": [
+    "evidence_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-09 · Evidence quote must be real"
+  }
+}

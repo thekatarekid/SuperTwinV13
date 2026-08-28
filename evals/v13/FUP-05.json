@@ -1,0 +1,26 @@
+{
+  "id": "FUP-05",
+  "category": "FUP",
+  "title": "Follow-up chain has a visible spine",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "chain: flights → check-in → cab → packing list over 3 weeks.",
+  "input_events": [
+    "UI/state inspection."
+  ],
+  "expected": "each link shows its \"because\"; the chain renders coherently in the space; deleting one link doesn't orphan the others' provenance.",
+  "wrong": [
+    {
+      "label": "random-tasks-feel",
+      "assert_absent": "chain without visible causality"
+    }
+  ],
+  "gates": [
+    "followup_quality",
+    "provenance_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FUP-05 · Follow-up chain has a visible spine"
+  }
+}

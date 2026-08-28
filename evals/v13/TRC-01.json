@@ -1,0 +1,25 @@
+{
+  "id": "TRC-01",
+  "category": "TRC",
+  "title": "Every run leaves a complete trace (code)",
+  "pass": "traces",
+  "mode": "code",
+  "setup": "one full tick + one executor run + one assist evaluation.",
+  "input_events": [
+    "trace store inspection."
+  ],
+  "expected": "every model call has {run_id, pass, model, prompt_version, system prompt, packed context, raw output, parsed result, repair count, verdicts, 4-way tokens, cost, latency, caller}; zero anonymous calls.",
+  "wrong": [
+    {
+      "label": "ghost-call",
+      "assert_absent": "any model invocation without a trace) — hard fail"
+    }
+  ],
+  "gates": [
+    "trace_coverage"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TRC-01 · Every run leaves a complete trace (code)"
+  }
+}

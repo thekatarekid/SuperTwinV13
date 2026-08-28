@@ -1,0 +1,26 @@
+{
+  "id": "CRI-06",
+  "category": "CRI",
+  "title": "Rejects generic labels",
+  "pass": "critic",
+  "mode": "live",
+  "setup": "seeded proposal labeled \"Travel\".",
+  "input_events": [
+    "proposal."
+  ],
+  "expected": "reject with label rule cited; suggests nothing (critic never rewrites).",
+  "wrong": [
+    {
+      "label": "label-rewrite",
+      "assert_absent": "critic authors a new label — role violation"
+    }
+  ],
+  "gates": [
+    "label_quality",
+    "role_separation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRI-06 · Rejects generic labels"
+  }
+}

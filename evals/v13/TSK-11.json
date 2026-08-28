@@ -1,0 +1,26 @@
+{
+  "id": "TSK-11",
+  "category": "TSK",
+  "title": "Abandoned cart → gentle suggested task, not pressure",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "keyboard space (CRE-03) active; cart page seen twice.",
+  "input_events": [
+    "screen segment: cart abandoned third time."
+  ],
+  "expected": "at most one suggested task (\"decide on the keyboard — cart price ₹7,400, in stock\"), marked suggested.",
+  "wrong": [
+    {
+      "label": "salesman-mode",
+      "assert_absent": "urgent explicit task; repeated daily nagging"
+    }
+  ],
+  "gates": [
+    "suggestion_rate",
+    "tone"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-11 · Abandoned cart → gentle suggested task, not pressure"
+  }
+}

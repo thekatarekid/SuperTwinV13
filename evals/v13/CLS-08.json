@@ -1,0 +1,25 @@
+{
+  "id": "CLS-08",
+  "category": "CLS",
+  "title": "Failed payment reopens",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "task auto-closed on \"Payment successful\" (CLS-03 pattern).",
+  "input_events": [
+    "next day screen: \"Payment failed — refund initiated\" for the same order id (bridge match)."
+  ],
+  "expected": "task reopened with the failure evidence, urgency raised.",
+  "wrong": [
+    {
+      "label": "closed-forever",
+      "assert_absent": "contradicting evidence ignored post-close"
+    }
+  ],
+  "gates": [
+    "temporal_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-08 · Failed payment reopens"
+  }
+}

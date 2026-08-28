@@ -1,0 +1,25 @@
+{
+  "id": "CRE-05",
+  "category": "CRE",
+  "title": "New group chat ≠ new space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "none.",
+  "input_events": [
+    "added to new group \"Flat 402 Society\"; 5 intro messages, no goal yet."
+  ],
+  "expected": "stream registered, tiered; episodes to unsorted; NO space until goal evidence (maintenance issue, event, dues).",
+  "wrong": [
+    {
+      "label": "chat-equals-space",
+      "assert_absent": "the 'chat-equals-space' failure mode"
+    }
+  ],
+  "gates": [
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-05 · New group chat ≠ new space"
+  }
+}

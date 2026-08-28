@@ -1,0 +1,30 @@
+{
+  "id": "ROL-06",
+  "category": "ROL",
+  "title": "Generic address term carries zero addressee evidence",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "address-style memory shows Aditya says \"bro\" to Rohan, Karan, AND Sameer across chats.",
+  "input_events": [
+    "Goa gang, self: \"bro send the payment link\"."
+  ],
+  "expected": "\"bro\" contributes nothing; receiver inferred from context (Rohan owns the villa booking per ep_412) or unknown+question; and no \"bro = brother\" relationship claim ever.",
+  "wrong": [
+    {
+      "label": "nickname-lock",
+      "assert_absent": "bro hard-mapped to one person"
+    },
+    {
+      "label": "literal-kinship",
+      "assert_absent": "the 'literal-kinship' failure mode"
+    }
+  ],
+  "gates": [
+    "role_accuracy",
+    "claim_precision"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-06 · Generic address term carries zero addressee evidence"
+  }
+}

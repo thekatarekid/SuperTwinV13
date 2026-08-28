@@ -1,0 +1,26 @@
+{
+  "id": "CLM-13",
+  "category": "CLM",
+  "title": "Cross-source claim confirmation raises confidence",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "claim \"planning Goa 18–21 Dec\" (conf 0.85, WhatsApp evidence).",
+  "input_events": [
+    "browser segment: flight search CCU-GOI 18 Dec + calendar-like screen note."
+  ],
+  "expected": "reinforcement with cross-source evidence appended; confidence ↑.",
+  "wrong": [
+    {
+      "label": "source-silo",
+      "assert_absent": "parallel duplicate claim from browser data"
+    }
+  ],
+  "gates": [
+    "claim_dedup",
+    "cross_source_binding"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-13 · Cross-source claim confirmation raises confidence"
+  }
+}

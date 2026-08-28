@@ -1,0 +1,30 @@
+{
+  "id": "ASN-09",
+  "category": "ASN",
+  "title": "Sweep files old episodes at space birth",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "unsorted has 3 pottery episodes over 3 weeks; user just approved proposed space `sp_pottery`.",
+  "input_events": [
+    "sweep runs."
+  ],
+  "expected": "all 3 unsorted episodes reviewed and attached with evidence; unrelated unsorted items untouched.",
+  "wrong": [
+    {
+      "label": "sweep-vacuum",
+      "assert_absent": "attaches unrelated unsorted items"
+    },
+    {
+      "label": "sweep-skip",
+      "assert_absent": "leaves the 3 orphaned"
+    }
+  ],
+  "gates": [
+    "sweep_recall",
+    "sweep_precision"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-09 · Sweep files old episodes at space birth"
+  }
+}

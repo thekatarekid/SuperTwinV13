@@ -1,0 +1,25 @@
+{
+  "id": "TSK-02",
+  "category": "TSK",
+  "title": "Implicit task from entailment",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "`sp_goa_dec`; flight booked 18 Dec 07:00 CCU.",
+  "input_events": [
+    "booking confirmation episode."
+  ],
+  "expected": "implicit task \"arrange ~4:30am airport cab for 18 Dec\", category scheduling, risk `approve-final` (booking) or `auto` (research options), marked implicit.",
+  "wrong": [
+    {
+      "label": "literalist",
+      "assert_absent": "no task because nobody said \"book a cab\""
+    }
+  ],
+  "gates": [
+    "implicit_recall"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-02 · Implicit task from entailment"
+  }
+}

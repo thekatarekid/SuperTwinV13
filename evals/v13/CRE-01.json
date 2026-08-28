@@ -1,0 +1,30 @@
+{
+  "id": "CRE-01",
+  "category": "CRE",
+  "title": "Strong multi-signal evidence → propose with specific label",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "no matching space; unsorted holds one prior trek mention.",
+  "input_events": [
+    "Goa gang: \"lets do the hampi trek 2nd weekend of oct, karan check trains\" + browser: hampi searches same evening."
+  ],
+  "expected": "proposal with 4–8 word specific label (\"Hampi trek with Goa gang in October\"), life area Travel, type fields set, evidence from BOTH sources; status `proposed` (propose-only mode).",
+  "wrong": [
+    {
+      "label": "generic-label",
+      "assert_absent": "\"Trek\", \"Travel plans\""
+    },
+    {
+      "label": "auto-create",
+      "assert_absent": "skips proposal status"
+    }
+  ],
+  "gates": [
+    "label_quality",
+    "proposal_precision"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-01 · Strong multi-signal evidence → propose with specific label"
+  }
+}

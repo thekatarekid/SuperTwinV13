@@ -1,0 +1,25 @@
+{
+  "id": "TSK-06",
+  "category": "TSK",
+  "title": "Relative dates resolve against message time",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "message ts = Tue 2026-08-25.",
+  "input_events": [
+    "\"pay the maintenance by day after\"."
+  ],
+  "expected": "due 2026-08-27, timezone-correct.",
+  "wrong": [
+    {
+      "label": "date-drift",
+      "assert_absent": "resolved against processing time on a delayed backfill — sibling case AGE-03 covers band B"
+    }
+  ],
+  "gates": [
+    "field_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-06 · Relative dates resolve against message time"
+  }
+}

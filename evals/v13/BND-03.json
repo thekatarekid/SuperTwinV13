@@ -1,0 +1,26 @@
+{
+  "id": "BND-03",
+  "category": "BND",
+  "title": "Mid-conversation cut is harmless",
+  "pass": "scheduler.dispatch",
+  "mode": "code",
+  "setup": "ep_412 \"villa shortlist\" open in sp_goa_dec.",
+  "input_events": [
+    "villa discussion runs 12:03–12:08 — window cuts it at 12:05 (5 msgs) and 12:10 (6 msgs)."
+  ],
+  "expected": "both bundles' Orient calls join ep_412; one episode, one space; summaries cumulative.",
+  "wrong": [
+    {
+      "label": "cut-fork",
+      "assert_absent": "second bundle opens a new episode/space because the cut looked like a boundary"
+    }
+  ],
+  "gates": [
+    "continuity_rate",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BND-03 · Mid-conversation cut is harmless"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "ASN-07",
+  "category": "ASN",
+  "title": "Dormant space reactivates",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_gym` (Health) dormant 45 days.",
+  "input_events": [
+    "DM Priya: \"gym se din se bunk maar raha hai tu, monday se wapis?\""
+  ],
+  "expected": "attach to `sp_gym` and mark reactivation signal; no new space.",
+  "wrong": [
+    {
+      "label": "zombie-duplicate",
+      "assert_absent": "new \"gym restart\" space beside the dormant one"
+    }
+  ],
+  "gates": [
+    "reactivation_rate",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-07 · Dormant space reactivates"
+  }
+}

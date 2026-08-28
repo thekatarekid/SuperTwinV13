@@ -1,0 +1,26 @@
+{
+  "id": "ROL-08",
+  "category": "ROL",
+  "title": "Reply-chain beats content ambiguity",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "Goa gang; two questions pending: e10 (Rohan: \"villa A or B?\") and e11 (Tanvi: \"cab share from airport?\").",
+  "input_events": [
+    "Karan: \"yes\" as a structural reply to e11."
+  ],
+  "expected": "assent binds to the cab question (reply marker, code-fetched), not the villa vote.",
+  "wrong": [
+    {
+      "label": "nearest-question",
+      "assert_absent": "binds to e10 by recency"
+    }
+  ],
+  "gates": [
+    "role_accuracy",
+    "signal_interpretation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-08 · Reply-chain beats content ambiguity"
+  }
+}

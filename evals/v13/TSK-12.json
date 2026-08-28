@@ -1,0 +1,26 @@
+{
+  "id": "TSK-12",
+  "category": "TSK",
+  "title": "Deadline extraction from screen content",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_falcon.",
+  "input_events": [
+    "screen segment: Jira board visible, \"FALCON-231 due Aug 29, assignee: Aditya\"."
+  ],
+  "expected": "task mirrored with source screen evidence, due Aug 29, category creation/work, dedup against existing if present.",
+  "wrong": [
+    {
+      "label": "screen-blindness",
+      "assert_absent": "structured on-screen commitments ignored"
+    }
+  ],
+  "gates": [
+    "task_recall",
+    "cross_source_binding"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-12 · Deadline extraction from screen content"
+  }
+}

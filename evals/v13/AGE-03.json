@@ -1,0 +1,26 @@
+{
+  "id": "AGE-03",
+  "category": "AGE",
+  "title": "Band B: still-open evidence is the only task license",
+  "pass": "scheduler.backfill",
+  "mode": "live",
+  "setup": "3-month-old thread: Aditya promised to send Karan a photographer's contact; no evidence it was ever sent (searched).",
+  "input_events": [
+    "band B batch."
+  ],
+  "expected": "one task (\"send photographer contact to Karan\") flagged stale-but-open, evidence = promise + absence of fulfillment; a companion closed-loop case (AGE-03b: contact was sent 2 days later) yields NO task.",
+  "wrong": [
+    {
+      "label": "stale-spam",
+      "assert_absent": "every old promise resurrected without checking fulfillment"
+    }
+  ],
+  "gates": [
+    "band_policy_compliance",
+    "closure_recall"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "AGE-03 · Band B: still-open evidence is the only task license"
+  }
+}

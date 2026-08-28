@@ -1,0 +1,25 @@
+{
+  "id": "CLS-06",
+  "category": "CLS",
+  "title": "Similar-but-different completion doesn't close",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "open tasks: \"pay electricity bill\" and \"pay maintenance\".",
+  "input_events": [
+    "\"maintenance paid ✅\" (two-sided w/ society receipt)."
+  ],
+  "expected": "only maintenance closes; electricity untouched.",
+  "wrong": [
+    {
+      "label": "nearest-close",
+      "assert_absent": "wrong task closed on lexical similarity"
+    }
+  ],
+  "gates": [
+    "false_auto_close"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-06 · Similar-but-different completion doesn't close"
+  }
+}

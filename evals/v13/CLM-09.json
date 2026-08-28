@@ -1,0 +1,25 @@
+{
+  "id": "CLM-09",
+  "category": "CLM",
+  "title": "Temporal validity on life changes",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "claim: \"Aditya lives in Kolkata\".",
+  "input_events": [
+    "self in Family group: \"shifting to bangalore on the 1st, flat is finalized\"."
+  ],
+  "expected": "new fact with valid_from = the 1st; old claim scheduled to end, both preserved in history.",
+  "wrong": [
+    {
+      "label": "timeless-model",
+      "assert_absent": "two contradictory active facts"
+    }
+  ],
+  "gates": [
+    "temporal_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-09 · Temporal validity on life changes"
+  }
+}

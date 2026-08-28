@@ -1,0 +1,30 @@
+{
+  "id": "SCH-01",
+  "category": "SCH",
+  "title": "Auto-schedule: computed check-in window",
+  "pass": "schedule",
+  "mode": "live",
+  "setup": "flight CCU-GOI 18 Dec 07:00 booked (confirmation episode).",
+  "input_events": [
+    "Decide."
+  ],
+  "expected": "schedule {fire 16 Dec 07:00, mode auto} — action (do check-in prep) is auto-class, intent certain, time-bound; announcement \"Scheduled: web check-in Wed 7:00am — tap to change\"; filed in sp_goa_dec › Flights.",
+  "wrong": [
+    {
+      "label": "silent-schedule",
+      "assert_absent": "no announcement"
+    },
+    {
+      "label": "ask-for-obvious",
+      "assert_absent": "confirm-mode for a pure time-bound check"
+    }
+  ],
+  "gates": [
+    "schedule_policy",
+    "schedule_math"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-01 · Auto-schedule: computed check-in window"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "BRW-02",
+  "category": "BRW",
+  "title": "Human pacing + jitter (code)",
+  "pass": "browser",
+  "mode": "code",
+  "setup": "daily YT history read scheduled 9:00.",
+  "input_events": [
+    "14 simulated days."
+  ],
+  "expected": "actual fire times vary ±30 min, random skip days present, inter-action delays human-scale and non-uniform, never parallel requests to one site, active-hours only.",
+  "wrong": [
+    {
+      "label": "metronome",
+      "assert_absent": "identical timing daily"
+    },
+    {
+      "label": "burst",
+      "assert_absent": "the 'burst' failure mode"
+    }
+  ],
+  "gates": [
+    "pacing_compliance"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-02 · Human pacing + jitter (code)"
+  }
+}

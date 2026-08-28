@@ -1,0 +1,25 @@
+{
+  "id": "TIM-01",
+  "category": "TIM",
+  "title": "Relative → absolute at message time",
+  "pass": "time",
+  "mode": "live",
+  "setup": "message ts Tue 2026-08-25 21:40 IST.",
+  "input_events": [
+    "\"pay maintenance by day after\"."
+  ],
+  "expected": "due 2026-08-27 (IST), original phrase stored; justification shows the anchor.",
+  "wrong": [
+    {
+      "label": "processing-time-anchor",
+      "assert_absent": "resolved against when the tick ran"
+    }
+  ],
+  "gates": [
+    "time_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TIM-01 · Relative → absolute at message time"
+  }
+}

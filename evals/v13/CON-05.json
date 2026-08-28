@@ -1,0 +1,30 @@
+{
+  "id": "CON-05",
+  "category": "CON",
+  "title": "Flag-triggered review is scoped and prompt",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "CRI-05 flag fired at 14:02.",
+  "input_events": [
+    "consolidation scheduler state."
+  ],
+  "expected": "review of exactly the flagged pair runs within minutes; untouched spaces not loaded.",
+  "wrong": [
+    {
+      "label": "flag-rot",
+      "assert_absent": "flag waits for the hourly roll"
+    },
+    {
+      "label": "scope-explosion",
+      "assert_absent": "full-graph pass triggered"
+    }
+  ],
+  "gates": [
+    "flag_latency",
+    "cost_per_event"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-05 · Flag-triggered review is scoped and prompt"
+  }
+}

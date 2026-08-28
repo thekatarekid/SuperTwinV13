@@ -1,0 +1,26 @@
+{
+  "id": "TSK-13",
+  "category": "TSK",
+  "title": "Group commitment with self as counterparty",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_diwali; roster complete.",
+  "input_events": [
+    "self: \"theek hai, main sabke gifts order kar dunga, sab log list bhejo by sunday\"."
+  ],
+  "expected": "TWO linked items: Aditya's task (\"order gifts\", blocked_by lists) + monitoring item (\"collect lists from Rohan/Tanvi/Karan by Sunday\") with per-person state.",
+  "wrong": [
+    {
+      "label": "half-loop",
+      "assert_absent": "only Aditya's task; the waiting-on-others half dropped"
+    }
+  ],
+  "gates": [
+    "implicit_recall",
+    "loop_completeness"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-13 · Group commitment with self as counterparty"
+  }
+}

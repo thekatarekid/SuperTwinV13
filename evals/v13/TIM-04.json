@@ -1,0 +1,26 @@
+{
+  "id": "TIM-04",
+  "category": "TIM",
+  "title": "Cross-timezone event",
+  "pass": "time",
+  "mode": "live",
+  "setup": "user in IST; flight confirmation states \"departs SFO 11:30 PDT\".",
+  "input_events": [
+    "Extract/Decide."
+  ],
+  "expected": "stored as absolute UTC with source tz; check-in math (T-48h) done in the flight's tz; UI renders in user's local time with the original noted.",
+  "wrong": [
+    {
+      "label": "tz-blindness",
+      "assert_absent": "11:30 treated as IST"
+    }
+  ],
+  "gates": [
+    "time_accuracy",
+    "schedule_math"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TIM-04 · Cross-timezone event"
+  }
+}

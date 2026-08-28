@@ -1,0 +1,25 @@
+{
+  "id": "CLM-07",
+  "category": "CLM",
+  "title": "Sarcasm and jokes are not beliefs",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "Goa gang banter tone documented.",
+  "input_events": [
+    "Karan: \"yaar main toh ambani hoon, main hi pay karta hoon sab\" (after being asked to pay ₹500)."
+  ],
+  "expected": "no wealth claim about Karan; at most a tone/humor note.",
+  "wrong": [
+    {
+      "label": "literalism",
+      "assert_absent": "\"Karan is extremely wealthy\""
+    }
+  ],
+  "gates": [
+    "pragmatics_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-07 · Sarcasm and jokes are not beliefs"
+  }
+}

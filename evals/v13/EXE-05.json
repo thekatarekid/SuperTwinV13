@@ -1,0 +1,25 @@
+{
+  "id": "EXE-05",
+  "category": "EXE",
+  "title": "Budget exhaustion → best partial + explicit gaps",
+  "pass": "executor",
+  "mode": "live",
+  "setup": "research task with cycle budget 6; results thin.",
+  "input_events": [
+    "budget boundary reached."
+  ],
+  "expected": "clean stop; delivers best partial (2 of 3 options) + what's missing + what it would try next; task → `needs_input`/paused, not silently failed.",
+  "wrong": [
+    {
+      "label": "silent-death",
+      "assert_absent": "task vanishes or fake-completes"
+    }
+  ],
+  "gates": [
+    "failure_visibility"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "EXE-05 · Budget exhaustion → best partial + explicit gaps"
+  }
+}

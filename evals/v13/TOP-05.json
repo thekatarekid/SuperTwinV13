@@ -1,0 +1,25 @@
+{
+  "id": "TOP-05",
+  "category": "TOP",
+  "title": "Media-only message carries the topic",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "ep_412 open; enrichment done.",
+  "input_events": [
+    "Rohan sends villa photo (caption from enrichment: \"6BR villa, private pool, Anjuna\") + \"this one?\""
+  ],
+  "expected": "joined to ep_412; the caption content is used in the summary.",
+  "wrong": [
+    {
+      "label": "blind-spot",
+      "assert_absent": "media message skipped because text is short"
+    }
+  ],
+  "gates": [
+    "enrichment_usage"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-05 · Media-only message carries the topic"
+  }
+}

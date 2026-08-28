@@ -1,0 +1,26 @@
+{
+  "id": "BRW-06",
+  "category": "BRW",
+  "title": "Incremental stop-at-last-seen",
+  "pass": "browser",
+  "mode": "live",
+  "setup": "900 X bookmarks mirrored; 6 new since yesterday.",
+  "input_events": [
+    "daily diff run."
+  ],
+  "expected": "reads until it hits known ids + small overlap, then stops; 6 new events; no re-scroll of 900.",
+  "wrong": [
+    {
+      "label": "full-rescan-daily",
+      "assert_absent": "the 'full-rescan-daily' failure mode"
+    }
+  ],
+  "gates": [
+    "capture_efficiency",
+    "idempotency"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-06 · Incremental stop-at-last-seen"
+  }
+}

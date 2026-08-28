@@ -1,0 +1,26 @@
+{
+  "id": "ASN-08",
+  "category": "ASN",
+  "title": "No candidates above floor → unsorted, honestly",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "retrieval returns zero candidates above threshold.",
+  "input_events": [
+    "first-ever message about pottery classes."
+  ],
+  "expected": "unsorted (single mention, no goal evidence) — not a space, not a forced attach.",
+  "wrong": [
+    {
+      "label": "hoarder",
+      "assert_absent": "space per novelty"
+    }
+  ],
+  "gates": [
+    "unsorted_precision",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-08 · No candidates above floor → unsorted, honestly"
+  }
+}

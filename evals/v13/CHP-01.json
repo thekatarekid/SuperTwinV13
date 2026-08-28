@@ -1,0 +1,29 @@
+{
+  "id": "CHP-01",
+  "category": "CHP",
+  "title": "Chapters form from mixed-source episodes",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_goa_dec holds 5 episodes: flights chat (wa), flight-search browsing (browser), villa chat (wa), villa browsing (browser), packing chat (wa).",
+  "input_events": [
+    "Decide runs with all five."
+  ],
+  "expected": "chapters ≈ Flights {flights chat + flight browsing}, Stay {villa chat + villa browsing}, Packing {packing chat}. Cross-stream grouping happens HERE, with all evidence present.",
+  "wrong": [
+    {
+      "label": "stream-chapters",
+      "assert_absent": "chapters mirror streams: \"WhatsApp\", \"Browser\""
+    },
+    {
+      "label": "chapter-per-episode",
+      "assert_absent": "the 'chapter-per-episode' failure mode"
+    }
+  ],
+  "gates": [
+    "chapter_quality"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CHP-01 · Chapters form from mixed-source episodes"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "FIX-03",
+  "category": "FIX",
+  "title": "\"she's my cousin, not a coworker\"",
+  "pass": "feedback",
+  "mode": "live",
+  "setup": "Riya claimed as coworker (wrong).",
+  "input_events": [
+    "utterance on Riya's person card."
+  ],
+  "expected": "relationship claim superseded (old gets validity end), circle moves to family; dependent judgments (tone, applicability) shift; correction evented.",
+  "wrong": [
+    {
+      "label": "silent-overwrite",
+      "assert_absent": "old claim deleted from history"
+    }
+  ],
+  "gates": [
+    "temporal_integrity",
+    "correction_parse_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FIX-03 · \"she's my cousin, not a coworker\""
+  }
+}

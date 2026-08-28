@@ -1,0 +1,25 @@
+{
+  "id": "EXE-01",
+  "category": "EXE",
+  "title": "Plan and acceptance criteria come first",
+  "pass": "executor",
+  "mode": "live",
+  "setup": "task \"Shortlist 3 villas near Anjuna under ₹6k/night for 18–21 Dec\".",
+  "input_events": [
+    "task + space context."
+  ],
+  "expected": "first output is a plan + checkable criteria (3 options, in budget, available for the dates, near Anjuna, group size fits) before any tool call.",
+  "wrong": [
+    {
+      "label": "headless-chicken",
+      "assert_absent": "starts browsing with no criteria"
+    }
+  ],
+  "gates": [
+    "executor_discipline"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "EXE-01 · Plan and acceptance criteria come first"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "CON-03",
+  "category": "CON",
+  "title": "Split a contaminated space",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "seeded space \"Falcon project\" containing 4 cricket-plan episodes (from a contamination bug).",
+  "input_events": [
+    "Tier-2 review."
+  ],
+  "expected": "cricket episodes split out (to unsorted or a proposal); Falcon space clean; split recorded, reversible.",
+  "wrong": [
+    {
+      "label": "split-avoidance",
+      "assert_absent": "the 'split-avoidance' failure mode"
+    },
+    {
+      "label": "over-split",
+      "assert_absent": "Falcon itself shattered"
+    }
+  ],
+  "gates": [
+    "contamination_repair"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-03 · Split a contaminated space"
+  }
+}

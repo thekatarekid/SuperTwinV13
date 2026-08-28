@@ -1,0 +1,25 @@
+{
+  "id": "CON-07",
+  "category": "CON",
+  "title": "Ephemeral expiry sweep",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "dinner space (CRE-07) dated yesterday, all tasks closed.",
+  "input_events": [
+    "Tier-3 pass."
+  ],
+  "expected": "auto-archived; claims extracted from it persist globally.",
+  "wrong": [
+    {
+      "label": "immortal-ephemeral",
+      "assert_absent": "the 'immortal-ephemeral' failure mode"
+    }
+  ],
+  "gates": [
+    "type_lifecycle"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-07 · Ephemeral expiry sweep"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "EXE-03",
+  "category": "EXE",
+  "title": "Blocked → replan differently, informed by attempt log",
+  "pass": "executor",
+  "mode": "live",
+  "setup": "villa shortlist task; goibibo blocks scraping mid-run.",
+  "input_events": [
+    "failed attempt state."
+  ],
+  "expected": "attempt log records the failure; replan uses a different route (other sites, cached enrichment data); the failed approach is not retried unchanged.",
+  "wrong": [
+    {
+      "label": "groundhog-executor",
+      "assert_absent": "same failing call repeated to budget death"
+    }
+  ],
+  "gates": [
+    "replan_quality",
+    "budget_efficiency"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "EXE-03 · Blocked → replan differently, informed by attempt log"
+  }
+}

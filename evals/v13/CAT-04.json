@@ -1,0 +1,30 @@
+{
+  "id": "CAT-04",
+  "category": "CAT",
+  "title": "Digest pass output contract",
+  "pass": "digest",
+  "mode": "live",
+  "setup": "Cat-2 group \"School Batch 2014\" (never replied), band C, one month = 240 messages incl. a reunion plan and Dev's job change.",
+  "input_events": [
+    "one Digest call for the month-chunk."
+  ],
+  "expected": "3–5 sentence stream summary + claims only about known/CRM people (Dev changed jobs — evidence-quoted) + recurrence candidates; ZERO episodes, tasks, spaces. Claims still pass Critic.",
+  "wrong": [
+    {
+      "label": "digest-inflation",
+      "assert_absent": "tasks/spaces from a digested stream"
+    },
+    {
+      "label": "known-people-miss",
+      "assert_absent": "Dev's job change dropped"
+    }
+  ],
+  "gates": [
+    "band_policy_compliance",
+    "claim_recall"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CAT-04 · Digest pass output contract"
+  }
+}

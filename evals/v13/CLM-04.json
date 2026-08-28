@@ -1,0 +1,25 @@
+{
+  "id": "CLM-04",
+  "category": "CLM",
+  "title": "Reinforcement, not duplication",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "clm_2231: \"Rohan tracks flight prices\" (conf 0.7).",
+  "input_events": [
+    "Rohan shares a price-drop alert again."
+  ],
+  "expected": "`reinforces:clm_2231`, confidence rises; NO new near-duplicate claim.",
+  "wrong": [
+    {
+      "label": "claim-mitosis",
+      "assert_absent": "the 8-copies-of-one-bill defect class"
+    }
+  ],
+  "gates": [
+    "claim_dedup"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-04 · Reinforcement, not duplication"
+  }
+}

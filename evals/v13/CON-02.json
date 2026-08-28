@@ -1,0 +1,25 @@
+{
+  "id": "CON-02",
+  "category": "CON",
+  "title": "Do NOT merge similar-but-distinct spaces",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "`sp_goa_dec` (trip) and `sp_goa_wedding` (Sameer's wedding).",
+  "input_events": [
+    "Tier-2 rolling review."
+  ],
+  "expected": "no merge; optionally a \"related\" link.",
+  "wrong": [
+    {
+      "label": "false-merge",
+      "assert_absent": "HARD FAIL (a wrong merge destroys"
+    }
+  ],
+  "gates": [
+    "false_auto_merge"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-02 · Do NOT merge similar-but-distinct spaces"
+  }
+}

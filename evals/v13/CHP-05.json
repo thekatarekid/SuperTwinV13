@@ -1,0 +1,25 @@
+{
+  "id": "CHP-05",
+  "category": "CHP",
+  "title": "Chapter split only on real divergence",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "Stay chapter contains villa hunting; new episodes discuss a separate day-trip plan (Dudhsagar).",
+  "input_events": [
+    "Decide."
+  ],
+  "expected": "new chapter \"Day trips\" (genuinely distinct sub-goal); villas stay in Stay.",
+  "wrong": [
+    {
+      "label": "mono-chapter",
+      "assert_absent": "day trips crammed into Stay) — and its sibling `nervous-chapter` (a chapter per villa"
+    }
+  ],
+  "gates": [
+    "chapter_quality"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CHP-05 · Chapter split only on real divergence"
+  }
+}

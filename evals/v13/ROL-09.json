@@ -1,0 +1,30 @@
+{
+  "id": "ROL-09",
+  "category": "ROL",
+  "title": "Provisional person from a kid mention",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "Family group; no \"Vivaan\" anywhere.",
+  "input_events": [
+    "Isha: \"Vivaan ke school ka annual day 5th Sept ko hai, sab aana\" · Ma: \"he's performing!! 🥹\"."
+  ],
+  "expected": "provisional person Vivaan created (no identifiers; anchors: Isha's mentions, Family group; likely Isha's son — stated with confidence, not certainty); \"he\" → Vivaan; event claim + family task suggestion; person visible in People.",
+  "wrong": [
+    {
+      "label": "mention-drop",
+      "assert_absent": "no entity"
+    },
+    {
+      "label": "relationship-overclaim",
+      "assert_absent": "asserts \"Isha's son\" at conf 1.0"
+    }
+  ],
+  "gates": [
+    "crm_coverage",
+    "confidence_calibration"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-09 · Provisional person from a kid mention"
+  }
+}

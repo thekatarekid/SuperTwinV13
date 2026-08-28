@@ -1,0 +1,26 @@
+{
+  "id": "CIR-03",
+  "category": "CIR",
+  "title": "Circle gates broadcast applicability",
+  "pass": "circles",
+  "mode": "live",
+  "setup": "identical text in two streams: \"society water tank cleaning sunday, keep buckets filled\" in Sunrise Apartments 402 (never replied, 180 members) AND Ma saying \"sunday ko paani nahi aayega, bucket bhar lena\" in Family.",
+  "input_events": [
+    "both bundles same tick."
+  ],
+  "expected": "society version → low-key note at most (never-replied + acquaintance-scale group); Ma's version → a real reminder task (family circle + direct address). Model states the applicability reasoning.",
+  "wrong": [
+    {
+      "label": "broadcast-task-spam",
+      "assert_absent": "society task created with same weight"
+    }
+  ],
+  "gates": [
+    "task_precision",
+    "circle_applicability"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CIR-03 · Circle gates broadcast applicability"
+  }
+}

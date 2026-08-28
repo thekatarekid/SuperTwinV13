@@ -1,0 +1,25 @@
+{
+  "id": "BND-06",
+  "category": "BND",
+  "title": "Live preempts backfill",
+  "pass": "scheduler.dispatch",
+  "mode": "code",
+  "setup": "backfill saturating all CLI slots.",
+  "input_events": [
+    "live message arrives: Rohan: \"flight prices dropped, book NOW?\"."
+  ],
+  "expected": "live bundle dispatches in the next window ahead of every backfill batch; backfill resumes after.",
+  "wrong": [
+    {
+      "label": "queue-blind",
+      "assert_absent": "live waits behind backfill"
+    }
+  ],
+  "gates": [
+    "latency_live_p95"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BND-06 · Live preempts backfill"
+  }
+}

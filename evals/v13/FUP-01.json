@@ -1,0 +1,30 @@
+{
+  "id": "FUP-01",
+  "category": "FUP",
+  "title": "After executor completion",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "executor booked flights (user approved payment).",
+  "input_events": [
+    "next-step pass."
+  ],
+  "expected": "proposes check-in schedule (auto) + cab task (confirm) + nudges Karan-status monitoring; each carries \"because: flights booked ✓\".",
+  "wrong": [
+    {
+      "label": "dead-end",
+      "assert_absent": "nothing follows"
+    },
+    {
+      "label": "followup-flood",
+      "assert_absent": ">2 proposals"
+    }
+  ],
+  "gates": [
+    "followup_quality",
+    "suggestion_rate"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FUP-01 · After executor completion"
+  }
+}

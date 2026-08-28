@@ -1,0 +1,29 @@
+{
+  "id": "CON-04",
+  "category": "CON",
+  "title": "Dormancy without deletion",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "`sp_gym` no activity 30 days, no open dated tasks.",
+  "input_events": [
+    "Tier-2 review."
+  ],
+  "expected": "marked dormant (not archived, not deleted); reactivation rule intact (ASN-07).",
+  "wrong": [
+    {
+      "label": "hoarder-active",
+      "assert_absent": "everything stays active forever"
+    },
+    {
+      "label": "grave-digger",
+      "assert_absent": "archived/deleted with open loops"
+    }
+  ],
+  "gates": [
+    "dormancy_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-04 · Dormancy without deletion"
+  }
+}

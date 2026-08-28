@@ -1,0 +1,26 @@
+{
+  "id": "FUP-02",
+  "category": "FUP",
+  "title": "After user self-completion",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "closure detection sees user booked the villa themselves (confirmation email on screen).",
+  "input_events": [
+    "next-step pass."
+  ],
+  "expected": "task closed with evidence; follow-ups: advance-payment reminder (from the booking's stated terms) + villa address → cab planning; provenance visible.",
+  "wrong": [
+    {
+      "label": "credit-blindness",
+      "assert_absent": "system re-proposes booking the villa"
+    }
+  ],
+  "gates": [
+    "closure_recall",
+    "followup_quality"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FUP-02 · After user self-completion"
+  }
+}

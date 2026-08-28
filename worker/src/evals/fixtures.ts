@@ -1,137 +1,131 @@
 // ===========================================================================
-// [CODE] Eval fixture schema + loader — evals doc §1–§3.
+// [CODE] V13 eval fixture schema + loader — GoldenEvals V2 header, build P0.9.
 //
-// One row of `SuperTwinV13_GoldenEvals_V2.md` materialises to one fixture at
-// `evals/fixtures/<ID>.json`, in EXACTLY the shape of evals doc §2. This module
-// is the only place that shape is known, and it validates on every read.
+// One case of `SuperTwinV13_GoldenEvals_V1.md` / `_V2.md` materialises to one
+// fixture at `evals/v13/<ID>.json` in the shape the V2 doc's header shows:
+// `{ id, pass, mode, setup, input_events, expected, wrong[], gates[] }`.
 //
-// The loader is deliberately unforgiving. A fixture that is slightly wrong is
-// worse than a fixture that is missing: a missing one is a visible hole in the
-// coverage table, a wrong one silently scores a gate. So every field is checked
-// and every problem is reported with its JSON path and the file it came from —
-// all of them at once, because fixing one typo per run is nobody's afternoon.
+// There is NO `frozen_response`. Model-facing cases run against the real model
+// (the executor drives the real pass, which drives the real `claude` CLI) and
+// are graded by an LLM judge against the case's `expected` rubric plus code
+// assertions for `wrong[]`. Deterministic cases (`mode: "code"`) are asserted
+// purely by the executor's code.
+//
+// `setup` / `expected` may be a structured object (the header's full example)
+// or a compact prose rubric (how the doc writes its cases); `input_events` is
+// a list of events, each either structured or prose. The judge consumes both
+// forms; a code executor that needs structure demands it and fails loudly on
+// prose.
+//
+// The loader stays unforgiving: every field checked, every problem reported
+// with its JSON path and file, all at once.
 // ===========================================================================
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
-import { isGateId } from "./gates.js";
+/** Live cases go to the model + judge; code cases are asserted by code alone. */
+export const FIXTURE_MODES = ["live", "code"] as const;
+export type FixtureMode = (typeof FIXTURE_MODES)[number];
 
-/** evals doc §3. */
-export const ASSERT_MODES = [
-  "exact",
-  "set_equal",
-  "contains",
-  "absent",
-  "state",
-  "no_throw",
-  "budget",
-] as const;
-export type AssertMode = (typeof ASSERT_MODES)[number];
+export interface CategoryInfo {
+  /** Three-letter id prefix, e.g. "ROL". */
+  cat: string;
+  name: string;
+  /** Case count per the doc's category table. */
+  n: number;
+  /** Which eval doc defines it. */
+  doc: "V1" | "V2";
+  /** The pass/executor key its cases run against. */
+  pass: string;
+}
 
-/** Which scheduling regime the case is posed in. */
-export const RUN_MODES = ["bootstrap", "backfill", "steady", "live"] as const;
-export type RunMode = (typeof RUN_MODES)[number];
-
-/** evals doc §4 — the 22 categories and their case counts. */
-export const CATEGORIES: readonly { cat: string; name: string; n: number; layer: string }[] = [
-  { cat: "A", name: "INGEST", n: 30, layer: "ingest" },
-  { cat: "B", name: "TIERS", n: 50, layer: "tiers" },
-  { cat: "C", name: "ENRICH", n: 40, layer: "enrichment" },
-  { cat: "D", name: "SESS-CONV", n: 75, layer: "sessions" },
-  { cat: "E", name: "SESS-OTHER", n: 40, layer: "sessions" },
-  { cat: "F", name: "SESS-OPS", n: 40, layer: "sessions" },
-  { cat: "G", name: "IDENTITY", n: 70, layer: "entities" },
-  { cat: "H", name: "MENTIONS", n: 40, layer: "mentions" },
-  { cat: "I", name: "EDGES", n: 40, layer: "edges" },
-  { cat: "J", name: "EPISODES", n: 55, layer: "episodes" },
-  { cat: "K", name: "BRIDGES", n: 30, layer: "bridges" },
-  { cat: "L", name: "ARCS", n: 45, layer: "arcs" },
-  { cat: "M", name: "CLAIMS", n: 95, layer: "claims" },
-  { cat: "N", name: "LOOPS", n: 75, layer: "loops" },
-  { cat: "O", name: "PARTY", n: 45, layer: "party" },
-  { cat: "P", name: "PROMOTION", n: 50, layer: "promotion" },
-  { cat: "Q", name: "TASKS", n: 30, layer: "tasks" },
-  { cat: "R", name: "WRITE", n: 40, layer: "write" },
-  { cat: "S", name: "WIRE", n: 50, layer: "wire" },
-  { cat: "T", name: "SCHED", n: 30, layer: "scheduler" },
-  { cat: "U", name: "ACCT", n: 15, layer: "accounting" },
-  { cat: "V", name: "CALIB", n: 15, layer: "calib" },
+/**
+ * V1 doc categories (SEG skipped — BND replaces it) + V2 doc categories.
+ * Counts come from each doc's category table.
+ */
+export const CATEGORIES: readonly CategoryInfo[] = [
+  // -- GoldenEvals V1 (skip SEG) --
+  { cat: "TOP", name: "Episode formation & topic split", n: 10, doc: "V1", pass: "orient" },
+  { cat: "ASN", name: "Space match / attach", n: 14, doc: "V1", pass: "orient" },
+  { cat: "CRE", name: "Space proposal", n: 10, doc: "V1", pass: "orient" },
+  { cat: "CRI", name: "Critic gate", n: 8, doc: "V1", pass: "critic" },
+  { cat: "CLM", name: "Extract — claims", n: 13, doc: "V1", pass: "extract" },
+  { cat: "TSK", name: "Decide — task extraction", n: 13, doc: "V1", pass: "decide" },
+  { cat: "CLS", name: "Decide — closure detection", n: 8, doc: "V1", pass: "decide" },
+  { cat: "CON", name: "Consolidation (Tier 2/3)", n: 8, doc: "V1", pass: "consolidate" },
+  { cat: "EXE", name: "Executor (agentic)", n: 6, doc: "V1", pass: "executor" },
+  { cat: "AGE", name: "Age-band backfill policy", n: 4, doc: "V1", pass: "scheduler.backfill" },
+  // -- GoldenEvals V2 --
+  { cat: "BND", name: "Delta bundling, cursors, dispatch", n: 6, doc: "V2", pass: "scheduler.dispatch" },
+  { cat: "ROL", name: "People role resolution", n: 10, doc: "V2", pass: "orient+extract" },
+  { cat: "CIR", name: "Circles & relationship value", n: 4, doc: "V2", pass: "circles" },
+  { cat: "CAT", name: "Category 1/2, promotion, Digest", n: 6, doc: "V2", pass: "digest" },
+  { cat: "CHP", name: "Chapters", n: 6, doc: "V2", pass: "decide" },
+  { cat: "AST", name: "Assist lane", n: 9, doc: "V2", pass: "assist" },
+  { cat: "SCH", name: "Scheduled / routine tasks", n: 8, doc: "V2", pass: "schedule" },
+  { cat: "FUP", name: "Follow-up tasks", n: 5, doc: "V2", pass: "decide" },
+  { cat: "USR", name: "User-created objects & grounded bar", n: 6, doc: "V2", pass: "user-objects" },
+  { cat: "FIX", name: "“Tell the twin” correction parsing", n: 6, doc: "V2", pass: "feedback" },
+  { cat: "BRW", name: "SuperTwin Browser agent + capture", n: 8, doc: "V2", pass: "browser" },
+  { cat: "TIM", name: "Time resolution", n: 4, doc: "V2", pass: "time" },
+  { cat: "TRC", name: "Traces & liveness", n: 3, doc: "V2", pass: "traces" },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);
 
-const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.cat));
+const BY_CAT = new Map(CATEGORIES.map((c) => [c.cat, c]));
 
-export interface FixtureStream {
-  alias: string;
-  name: string;
-  kind: string;
-  participants: string[];
+export function categoryInfo(cat: string): CategoryInfo | undefined {
+  return BY_CAT.get(cat);
 }
 
-export interface FixtureEvent {
-  n: number;
-  ts: string;
-  who: string;
-  text: string;
-  [extra: string]: unknown;
-}
-
-export interface FixtureGiven {
-  /** `"a1=Pranjali Sachdeva"` — alias to roster label. */
-  roster: string[];
-  streams: FixtureStream[];
-  events: FixtureEvent[];
-  open: { episodes: unknown[]; loops: unknown[] };
-  db: { entities: unknown[]; claims: unknown[]; arcs: unknown[] };
-}
-
-export interface FixtureAssert {
-  mode: AssertMode;
-  /** Fields the set comparison projects onto. Absent = every expected key. */
-  on?: string[];
-  /** A §14.2 gate id, validated against the registry. null = feeds no gate. */
-  gate?: string | null;
-  /**
-   * `budget` bounds, keyed by metric name. Not in evals doc §2 (which shows no
-   * budget example) — §3 defines the mode as "a measured value is within
-   * bound", and the bound has to live somewhere.
-   */
-  bound?: Record<string, { max?: number; min?: number }>;
+/** A named failure mode asserted absent — a hit is a hard fail. */
+export interface WrongMode {
+  /** Stable kebab-ish label, e.g. "task-theft". */
+  label: string;
+  /** What must not appear, prose. The judge and code both assert against it. */
+  assert_absent: string;
 }
 
 export interface Fixture {
+  /** `ROL-01`. */
   id: string;
+  /** Id prefix — `ROL`. Derived, but stored for greppability. */
   category: string;
-  layer: string;
-  /** Prompt id (`P-CL1`) or `[CODE]` for a deterministic row. */
-  call: string;
-  mode: RunMode;
-  given: FixtureGiven;
-  /** The frozen model verdict — what makes the suite runnable with no network. */
-  frozen_response: string;
-  expect: Record<string, unknown>;
-  assert: FixtureAssert;
-  /** Generated from the doc table, not yet filled in with real payloads. */
-  stub?: boolean;
-  /** The doc row this fixture came from, kept verbatim for the human. */
-  doc?: { given: string; expect: string; assert: string };
+  /** The doc's case title. */
+  title: string;
+  /** Executor key — which pass runs this case (`orient`, `scheduler.dispatch`, …). */
+  pass: string;
+  mode: FixtureMode;
+  /** World state before. Structured object or prose rubric. */
+  setup: unknown;
+  /** Events/state fed in. Each element structured or prose. */
+  input_events: unknown[];
+  /** Expected behaviour (not exact strings). Structured or prose rubric. */
+  expected: unknown;
+  wrong: WrongMode[];
+  /** Gate ids this case feeds (see gates.ts — hard gates asserted, rest tracked). */
+  gates: string[];
+  /** Where the case came from. */
+  source: { doc: "V1" | "V2"; section: string };
+  /** Self-test fixtures never count toward doc coverage. */
+  selftest?: boolean;
 }
 
-/** Every key the schema knows. Anything else is a typo, and typos fail loudly. */
 const FIXTURE_KEYS = new Set([
   "id",
   "category",
-  "layer",
-  "call",
+  "title",
+  "pass",
   "mode",
-  "given",
-  "frozen_response",
-  "expect",
-  "assert",
-  "stub",
-  "doc",
+  "setup",
+  "input_events",
+  "expected",
+  "wrong",
+  "gates",
+  "source",
+  "selftest",
 ]);
 
 export class FixtureError extends Error {
@@ -145,61 +139,13 @@ export class FixtureError extends Error {
   }
 }
 
-/**
- * `M-014`. Numbers 900+ are a reserved block for the harness's own self-test
- * fixtures — they are real fixtures, validated by the same loader, but they are
- * not gold cases and never count towards the §4 coverage table.
- */
-const ID_RE = /^[A-V]-\d{3}$/;
-
-export function isSelfTestId(id: string): boolean {
-  return ID_RE.test(id) && Number(id.slice(2)) >= 900;
-}
-
-const ROSTER_RE = /^(?:self|[a-z][0-9a-z]*)=.+$/;
-const LAYER_RE = /^[a-z][a-z0-9_]*$/;
+const ID_RE = /^[A-Z]{3}-\d{2}$/;
+const PASS_RE = /^[a-z][a-z0-9.+_-]*$/;
+const GATE_RE = /^[a-z][a-z0-9_]*$/;
+const LABEL_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-class Checker {
-  readonly problems: string[] = [];
-
-  fail(path: string, msg: string): void {
-    this.problems.push(`${path} ${msg}`);
-  }
-
-  str(v: unknown, path: string): string {
-    if (typeof v !== "string") {
-      this.fail(path, `must be a string, got ${describe(v)}`);
-      return "";
-    }
-    return v;
-  }
-
-  array(v: unknown, path: string): unknown[] {
-    if (!Array.isArray(v)) {
-      this.fail(path, `must be an array, got ${describe(v)}`);
-      return [];
-    }
-    return v;
-  }
-
-  record(v: unknown, path: string): Record<string, unknown> {
-    if (!isRecord(v)) {
-      this.fail(path, `must be an object, got ${describe(v)}`);
-      return {};
-    }
-    return v;
-  }
-
-  strArray(v: unknown, path: string): string[] {
-    const arr = this.array(v, path);
-    const out: string[] = [];
-    arr.forEach((item, i) => out.push(this.str(item, `${path}[${i}]`)));
-    return out;
-  }
 }
 
 function describe(v: unknown): string {
@@ -208,203 +154,138 @@ function describe(v: unknown): string {
   return typeof v;
 }
 
-function checkGiven(c: Checker, raw: unknown): FixtureGiven {
-  const g = c.record(raw, "given");
-  const roster = c.strArray(g.roster, "given.roster");
-  roster.forEach((entry, i) => {
-    if (entry && !ROSTER_RE.test(entry)) {
-      c.fail(`given.roster[${i}]`, `must look like "a1=Name", got ${JSON.stringify(entry)}`);
+class Checker {
+  readonly problems: string[] = [];
+  fail(path: string, msg: string): void {
+    this.problems.push(`${path} ${msg}`);
+  }
+  str(v: unknown, path: string): string {
+    if (typeof v !== "string") {
+      this.fail(path, `must be a string, got ${describe(v)}`);
+      return "";
     }
-  });
-
-  const streams = c.array(g.streams, "given.streams").map((s, i) => {
-    const rec = c.record(s, `given.streams[${i}]`);
-    return {
-      alias: c.str(rec.alias, `given.streams[${i}].alias`),
-      name: c.str(rec.name, `given.streams[${i}].name`),
-      kind: c.str(rec.kind, `given.streams[${i}].kind`),
-      participants: c.strArray(rec.participants, `given.streams[${i}].participants`),
-    };
-  });
-
-  const seen = new Set<number>();
-  const events = c.array(g.events, "given.events").map((e, i) => {
-    const rec = c.record(e, `given.events[${i}]`);
-    const n = rec.n;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
-      c.fail(`given.events[${i}].n`, `must be a positive integer, got ${describe(n)}`);
-    } else if (seen.has(n)) {
-      c.fail(`given.events[${i}].n`, `duplicate event number ${n}`);
-    } else {
-      seen.add(n);
+    return v;
+  }
+  array(v: unknown, path: string): unknown[] {
+    if (!Array.isArray(v)) {
+      this.fail(path, `must be an array, got ${describe(v)}`);
+      return [];
     }
-    return {
-      ...rec,
-      n: typeof n === "number" ? n : 0,
-      ts: c.str(rec.ts, `given.events[${i}].ts`),
-      who: c.str(rec.who, `given.events[${i}].who`),
-      text: c.str(rec.text, `given.events[${i}].text`),
-    } as FixtureEvent;
-  });
-
-  const open = c.record(g.open, "given.open");
-  const db = c.record(g.db, "given.db");
-  return {
-    roster,
-    streams,
-    events,
-    open: {
-      episodes: c.array(open.episodes, "given.open.episodes"),
-      loops: c.array(open.loops, "given.open.loops"),
-    },
-    db: {
-      entities: c.array(db.entities, "given.db.entities"),
-      claims: c.array(db.claims, "given.db.claims"),
-      arcs: c.array(db.arcs, "given.db.arcs"),
-    },
-  };
+    return v;
+  }
+  record(v: unknown, path: string): Record<string, unknown> {
+    if (!isRecord(v)) {
+      this.fail(path, `must be an object, got ${describe(v)}`);
+      return {};
+    }
+    return v;
+  }
 }
 
-function checkAssert(c: Checker, raw: unknown): FixtureAssert {
-  const a = c.record(raw, "assert");
-  const mode = c.str(a.mode, "assert.mode") as AssertMode;
-  if (mode && !(ASSERT_MODES as readonly string[]).includes(mode)) {
-    c.fail("assert.mode", `must be one of ${ASSERT_MODES.join(" ")}, got ${JSON.stringify(mode)}`);
-  }
-
-  let on: string[] | undefined;
-  if (a.on !== undefined) {
-    on = c.strArray(a.on, "assert.on");
-    if (on.length === 0) c.fail("assert.on", "must be a non-empty array when present");
-    if (new Set(on).size !== on.length) c.fail("assert.on", "must not repeat a field");
-  }
-
-  let gate: string | null | undefined;
-  if (a.gate !== undefined) {
-    if (a.gate === null) {
-      gate = null;
-    } else {
-      gate = c.str(a.gate, "assert.gate");
-      if (gate && !isGateId(gate)) {
-        c.fail("assert.gate", `${JSON.stringify(gate)} is not a gate in architecture §14.2`);
-      }
-    }
-  }
-
-  let bound: FixtureAssert["bound"];
-  if (a.bound !== undefined) {
-    const rec = c.record(a.bound, "assert.bound");
-    bound = {};
-    for (const [key, value] of Object.entries(rec)) {
-      const b = c.record(value, `assert.bound.${key}`);
-      const entry: { max?: number; min?: number } = {};
-      for (const side of ["max", "min"] as const) {
-        if (b[side] === undefined) continue;
-        if (typeof b[side] !== "number" || !Number.isFinite(b[side])) {
-          c.fail(`assert.bound.${key}.${side}`, `must be a finite number, got ${describe(b[side])}`);
-        } else {
-          entry[side] = b[side] as number;
-        }
-      }
-      if (entry.max === undefined && entry.min === undefined) {
-        c.fail(`assert.bound.${key}`, "needs a max or a min");
-      }
-      bound[key] = entry;
-    }
-  }
-  if (mode === "budget" && (!bound || Object.keys(bound).length === 0)) {
-    c.fail("assert.bound", "is required for mode 'budget'");
-  }
-
-  const out: FixtureAssert = { mode };
-  if (on) out.on = on;
-  if (gate !== undefined) out.gate = gate;
-  if (bound) out.bound = bound;
-  return out;
+/** True when the value carries content for a judge/executor to work with. */
+function hasContent(v: unknown): boolean {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (isRecord(v)) return Object.keys(v).length > 0;
+  return true;
 }
 
-/** Validates one parsed fixture object. Throws `FixtureError` listing everything wrong. */
+/** Validates one parsed fixture. Throws `FixtureError` listing everything wrong. */
 export function validateFixture(raw: unknown, file: string): Fixture {
   const c = new Checker();
   const o = c.record(raw, "<root>");
   if (c.problems.length > 0) throw new FixtureError(file, c.problems);
 
   for (const key of Object.keys(o)) {
-    if (!FIXTURE_KEYS.has(key)) c.fail(key, "is not a field of the §2 fixture schema");
+    if (!FIXTURE_KEYS.has(key)) c.fail(key, "is not a field of the V13 fixture schema");
   }
 
   const id = c.str(o.id, "id");
-  if (id && !ID_RE.test(id)) c.fail("id", `must look like "M-014", got ${JSON.stringify(id)}`);
+  if (id && !ID_RE.test(id)) c.fail("id", `must look like "ROL-01", got ${JSON.stringify(id)}`);
   const category = c.str(o.category, "category");
-  if (category && !CATEGORY_IDS.has(category)) {
-    c.fail("category", `${JSON.stringify(category)} is not one of the 22 categories in §4`);
+  const prefix = id.slice(0, 3);
+
+  let selftest: boolean | undefined;
+  if (o.selftest !== undefined) {
+    if (typeof o.selftest !== "boolean") c.fail("selftest", `must be a boolean, got ${describe(o.selftest)}`);
+    else selftest = o.selftest;
   }
-  if (id && category && ID_RE.test(id) && id[0] !== category) {
+
+  if (category && ID_RE.test(id) && category !== prefix) {
     c.fail("category", `${JSON.stringify(category)} does not match the id prefix of ${id}`);
   }
-
-  const layer = c.str(o.layer, "layer");
-  if (layer && !LAYER_RE.test(layer)) c.fail("layer", `must be a lowercase token, got ${JSON.stringify(layer)}`);
-
-  const call = c.str(o.call, "call");
-  if (call.trim() === "") c.fail("call", "must not be blank — use \"[CODE]\" for a deterministic row");
-
-  const mode = c.str(o.mode, "mode") as RunMode;
-  if (mode && !(RUN_MODES as readonly string[]).includes(mode)) {
-    c.fail("mode", `must be one of ${RUN_MODES.join(" ")}, got ${JSON.stringify(mode)}`);
+  if (category && !selftest && !BY_CAT.has(category)) {
+    c.fail("category", `${JSON.stringify(category)} is not a category of either eval doc (and not selftest)`);
   }
 
-  const given = checkGiven(c, o.given);
-  const frozen = typeof o.frozen_response === "string" ? o.frozen_response : "";
-  if (typeof o.frozen_response !== "string") {
-    c.fail("frozen_response", `must be a string, got ${describe(o.frozen_response)}`);
-  }
-  const expect = c.record(o.expect, "expect");
-  const assertion = checkAssert(c, o.assert);
+  const title = c.str(o.title, "title");
+  if (title.trim() === "") c.fail("title", "must not be blank");
 
-  let stub: boolean | undefined;
-  if (o.stub !== undefined) {
-    if (typeof o.stub !== "boolean") c.fail("stub", `must be a boolean, got ${describe(o.stub)}`);
-    else stub = o.stub;
+  const pass = c.str(o.pass, "pass");
+  if (pass && !PASS_RE.test(pass)) c.fail("pass", `must be a lowercase pass key, got ${JSON.stringify(pass)}`);
+
+  const mode = c.str(o.mode, "mode") as FixtureMode;
+  if (mode && !(FIXTURE_MODES as readonly string[]).includes(mode)) {
+    c.fail("mode", `must be one of ${FIXTURE_MODES.join(" ")}, got ${JSON.stringify(mode)}`);
   }
 
-  let doc: Fixture["doc"];
-  if (o.doc !== undefined) {
-    const d = c.record(o.doc, "doc");
-    doc = {
-      given: c.str(d.given, "doc.given"),
-      expect: c.str(d.expect, "doc.expect"),
-      assert: c.str(d.assert, "doc.assert"),
-    };
+  if (!hasContent(o.setup)) c.fail("setup", "must carry content (prose or structured)");
+  const inputEvents = c.array(o.input_events, "input_events");
+  if (inputEvents.length === 0) c.fail("input_events", "must have at least one event");
+  if (!hasContent(o.expected)) c.fail("expected", "must carry content (prose or structured)");
+
+  const wrong: WrongMode[] = c.array(o.wrong, "wrong").map((w, i) => {
+    const rec = c.record(w, `wrong[${i}]`);
+    const label = c.str(rec.label, `wrong[${i}].label`);
+    if (label && !LABEL_RE.test(label)) {
+      c.fail(`wrong[${i}].label`, `must be a kebab-case label, got ${JSON.stringify(label)}`);
+    }
+    const absent = c.str(rec.assert_absent, `wrong[${i}].assert_absent`);
+    if (absent.trim() === "") c.fail(`wrong[${i}].assert_absent`, "must not be blank");
+    for (const key of Object.keys(rec)) {
+      if (key !== "label" && key !== "assert_absent") c.fail(`wrong[${i}].${key}`, "is not a field of a wrong mode");
+    }
+    return { label, assert_absent: absent };
+  });
+  {
+    const seen = new Set<string>();
+    wrong.forEach((w, i) => {
+      if (seen.has(w.label)) c.fail(`wrong[${i}].label`, `duplicate label ${JSON.stringify(w.label)}`);
+      seen.add(w.label);
+    });
   }
 
-  // `no_throw` asserts on the absence of an exception and `budget` on measured
-  // metrics — neither needs an `expect` body. Every other mode compares against
-  // one, and an empty one would silently pass.
-  const expectOptional = assertion.mode === "no_throw" || assertion.mode === "budget";
-  if (!stub && !expectOptional && Object.keys(expect).length === 0) {
-    c.fail("expect", `is empty — a '${assertion.mode}' assertion has nothing to compare`);
-  }
+  const gates = c.array(o.gates, "gates").map((g, i) => {
+    const gate = c.str(g, `gates[${i}]`);
+    if (gate && !GATE_RE.test(gate)) c.fail(`gates[${i}]`, `must be a snake_case gate id, got ${JSON.stringify(gate)}`);
+    return gate;
+  });
+
+  const src = c.record(o.source, "source");
+  const doc = c.str(src.doc, "source.doc");
+  if (doc !== "V1" && doc !== "V2") c.fail("source.doc", `must be "V1" or "V2", got ${JSON.stringify(doc)}`);
+  const section = c.str(src.section, "source.section");
 
   if (c.problems.length > 0) throw new FixtureError(file, c.problems);
 
   const fixture: Fixture = {
     id,
     category,
-    layer,
-    call,
+    title,
+    pass,
     mode,
-    given,
-    frozen_response: frozen,
-    expect,
-    assert: assertion,
+    setup: o.setup,
+    input_events: inputEvents,
+    expected: o.expected,
+    wrong,
+    gates,
+    source: { doc: doc as "V1" | "V2", section },
   };
-  if (stub !== undefined) fixture.stub = stub;
-  if (doc) fixture.doc = doc;
+  if (selftest !== undefined) fixture.selftest = selftest;
   return fixture;
 }
 
-/** Parses + validates. JSON syntax errors carry the file name too. */
 export function parseFixture(text: string, file: string): Fixture {
   let raw: unknown;
   try {
@@ -430,18 +311,29 @@ export interface LoadReport {
   files: number;
 }
 
-/** Loads every `*.json` under `dir`, sorted by id. Never throws on a bad one —
- * it collects, so the caller can print all of them and exit once. */
+/**
+ * Loads every `*.json` under `dir` (one level of subdirectories included, so
+ * `evals/v13/selftest/` rides along), sorted by id. Collects errors instead of
+ * throwing, so the caller prints all of them and exits once.
+ */
 export function loadDirectory(dir: string): LoadReport {
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .sort();
+  const paths: string[] = [];
+  for (const entry of readdirSync(dir).sort()) {
+    const path = join(dir, entry);
+    const stat = statSync(path);
+    if (stat.isDirectory()) {
+      for (const sub of readdirSync(path).sort()) {
+        if (sub.endsWith(".json")) paths.push(join(path, sub));
+      }
+    } else if (entry.endsWith(".json")) {
+      paths.push(path);
+    }
+  }
+
   const fixtures: Fixture[] = [];
   const errors: FixtureError[] = [];
   const seen = new Map<string, string>();
-  for (const file of files) {
-    const path = join(dir, file);
-    if (!statSync(path).isFile()) continue;
+  for (const path of paths) {
     try {
       const fixture = loadFixture(path);
       const prior = seen.get(fixture.id);
@@ -457,20 +349,20 @@ export function loadDirectory(dir: string): LoadReport {
     }
   }
   fixtures.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { fixtures, errors, files: files.length };
+  return { fixtures, errors, files: paths.length };
 }
 
-/** Per-category counts against the evals doc §4 coverage table. */
+/** Per-category counts against the docs' category tables. */
 export function coverageGaps(fixtures: readonly Fixture[]): string[] {
   const counts = new Map<string, number>();
   for (const f of fixtures) {
-    if (isSelfTestId(f.id)) continue;
+    if (f.selftest) continue;
     counts.set(f.category, (counts.get(f.category) ?? 0) + 1);
   }
   const gaps: string[] = [];
   for (const c of CATEGORIES) {
     const have = counts.get(c.cat) ?? 0;
-    if (have !== c.n) gaps.push(`${c.cat} (${c.name}): ${have} fixtures, §4 says ${c.n}`);
+    if (have !== c.n) gaps.push(`${c.cat} (${c.name}): ${have} fixtures, the ${c.doc} doc says ${c.n}`);
   }
   return gaps;
 }

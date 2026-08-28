@@ -1,0 +1,26 @@
+{
+  "id": "CIR-02",
+  "category": "CIR",
+  "title": "Important-services circle from sparse signals",
+  "pass": "circles",
+  "mode": "live",
+  "setup": "unsaved number; 5 messages over 6 months: \"aunty maid coming at 4\", \"salary 6000 for feb\".",
+  "input_events": [
+    "circle inference."
+  ],
+  "expected": "classified important-services (maid), person record with role; payment recurrence candidate detected; NOT acquaintance-junk.",
+  "wrong": [
+    {
+      "label": "sparse-equals-spam",
+      "assert_absent": "the 'sparse-equals-spam' failure mode"
+    }
+  ],
+  "gates": [
+    "circle_accuracy",
+    "recurrence_detection"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CIR-02 · Important-services circle from sparse signals"
+  }
+}

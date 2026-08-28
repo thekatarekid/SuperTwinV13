@@ -1,0 +1,29 @@
+{
+  "id": "CLS-05",
+  "category": "CLS",
+  "title": "Cancellation closes as cancelled, not done",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_goa_dec with open tasks.",
+  "input_events": [
+    "group consensus: \"dec nahi ho payega guys, jan mein plan karte hain\"."
+  ],
+  "expected": "tasks closed as `cancelled`; space marked dormant/re-scoped with a question (\"re-plan for Jan?\"); NOT marked done.",
+  "wrong": [
+    {
+      "label": "false-victory",
+      "assert_absent": "done"
+    },
+    {
+      "label": "zombie-tasks",
+      "assert_absent": "left open forever"
+    }
+  ],
+  "gates": [
+    "closure_semantics"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-05 · Cancellation closes as cancelled, not done"
+  }
+}

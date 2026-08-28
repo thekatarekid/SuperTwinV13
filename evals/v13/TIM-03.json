@@ -1,0 +1,26 @@
+{
+  "id": "TIM-03",
+  "category": "TIM",
+  "title": "Backfilled \"Friday\" resolves into the past",
+  "pass": "time",
+  "mode": "live",
+  "setup": "band-B backfill; message dated 2026-05-12 (Tue): \"send the deck by friday\".",
+  "input_events": [
+    "Decide with band policy."
+  ],
+  "expected": "resolves to 2026-05-15; closure-checked (was it sent?); surfaces as stale-open task ONLY if unfulfilled evidence holds; never as \"due Friday\".",
+  "wrong": [
+    {
+      "label": "date-drift",
+      "assert_absent": "resolved to next Friday from today"
+    }
+  ],
+  "gates": [
+    "time_accuracy",
+    "band_policy_compliance"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TIM-03 · Backfilled \"Friday\" resolves into the past"
+  }
+}

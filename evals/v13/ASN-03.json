@@ -1,0 +1,26 @@
+{
+  "id": "ASN-03",
+  "category": "ASN",
+  "title": "Cross-source attach via bridge",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` created from WhatsApp only.",
+  "input_events": [
+    "browser segment: goibibo Goa hotel pages, dates 18–21 Dec (bridge: destination+dates)."
+  ],
+  "expected": "attach to `sp_goa_dec`; evidence cites the URL + date match.",
+  "wrong": [
+    {
+      "label": "source-silo",
+      "assert_absent": "browser research → unsorted or a new \"Goa hotels\" space"
+    }
+  ],
+  "gates": [
+    "cross_source_binding",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-03 · Cross-source attach via bridge"
+  }
+}

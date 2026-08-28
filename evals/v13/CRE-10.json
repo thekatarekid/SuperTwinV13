@@ -1,0 +1,25 @@
+{
+  "id": "CRE-10",
+  "category": "CRE",
+  "title": "Propose-only mode is honored",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "system in propose-only mode (P1).",
+  "input_events": [
+    "overwhelming evidence for a new space."
+  ],
+  "expected": "status `proposed`, review-queue entry; world model gains no active space until approval.",
+  "wrong": [
+    {
+      "label": "mode-violation",
+      "assert_absent": "space activated without approval"
+    }
+  ],
+  "gates": [
+    "mode_compliance"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-10 · Propose-only mode is honored"
+  }
+}

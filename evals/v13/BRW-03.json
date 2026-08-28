@@ -1,0 +1,25 @@
+{
+  "id": "BRW-03",
+  "category": "BRW",
+  "title": "Agent tabs never touch user tabs",
+  "pass": "browser",
+  "mode": "live",
+  "setup": "user reading an article in the SuperTwin browser; agent job fires.",
+  "input_events": [
+    "concurrent run."
+  ],
+  "expected": "agent works in its own tabs; user's tab never navigated/focused/closed; replay log shows the isolation.",
+  "wrong": [
+    {
+      "label": "tab-hijack",
+      "assert_absent": "hard fail"
+    }
+  ],
+  "gates": [
+    "tab_isolation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-03 · Agent tabs never touch user tabs"
+  }
+}

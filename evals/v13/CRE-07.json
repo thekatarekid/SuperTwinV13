@@ -1,0 +1,25 @@
+{
+  "id": "CRE-07",
+  "category": "CRE",
+  "title": "Ephemeral space typed and expiring",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "none.",
+  "input_events": [
+    "\"dinner at ministry of crab tonight 9pm? book for 4\"."
+  ],
+  "expected": "proposal (or direct task if policy prefers) typed `ephemeral, short_term`; auto-archive after the date passes.",
+  "wrong": [
+    {
+      "label": "immortal-dinner",
+      "assert_absent": "permanent space for one dinner"
+    }
+  ],
+  "gates": [
+    "type_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-07 · Ephemeral space typed and expiring"
+  }
+}

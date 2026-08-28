@@ -1,0 +1,25 @@
+{
+  "id": "TSK-10",
+  "category": "TSK",
+  "title": "Recurring obligation becomes a recurring task",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_money; 3 months of rent-payment evidence (band B/C claims).",
+  "input_events": [
+    "rent reminder from landlord."
+  ],
+  "expected": "recurring task template (monthly, 1st), this month's instance created, category transaction, approve-final.",
+  "wrong": [
+    {
+      "label": "groundhog-task",
+      "assert_absent": "fresh unrelated task each month, no recurrence"
+    }
+  ],
+  "gates": [
+    "recurrence_detection"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-10 · Recurring obligation becomes a recurring task"
+  }
+}

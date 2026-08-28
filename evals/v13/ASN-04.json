@@ -1,0 +1,26 @@
+{
+  "id": "ASN-04",
+  "category": "ASN",
+  "title": "Two similar spaces — pick by discriminating evidence",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` (trip with friends, Dec) AND `sp_goa_wedding` (Sameer's Goa wedding, Jan).",
+  "input_events": [
+    "\"haldi is on the 9th, book the jan 8 flight\"."
+  ],
+  "expected": "attach to `sp_goa_wedding`; justification cites the discriminator (haldi/Jan).",
+  "wrong": [
+    {
+      "label": "nearest-neighbor-sloppiness",
+      "assert_absent": "filed to sp_goa_dec on the word \"Goa\""
+    }
+  ],
+  "gates": [
+    "assignment_accuracy",
+    "discriminator_use"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-04 · Two similar spaces — pick by discriminating evidence"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "AST-05",
+  "category": "AST",
+  "title": "Artifact durability + graduation",
+  "pass": "assist",
+  "mode": "live",
+  "setup": "villa comparison nudge dismissed at 10am.",
+  "input_events": [
+    "at 9pm user opens menu bar → Prepared list → reopens the comparison, edits filters, asks a follow-up."
+  ],
+  "expected": "artifact was retained (dismissed ≠ deleted); reopening + editing = graded positive signals; artifact graduates to a durable task in sp_goa_dec via the normal gate, provenance intact.",
+  "wrong": [
+    {
+      "label": "ephemeral-delete",
+      "assert_absent": "dismissed artifact gone"
+    },
+    {
+      "label": "ungated-graduation",
+      "assert_absent": "durable write skipping Critic"
+    }
+  ],
+  "gates": [
+    "artifact_retention",
+    "write_gate_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "AST-05 · Artifact durability + graduation"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "TOP-09",
+  "category": "TOP",
+  "title": "Same topic in two chats stays two episodes, one space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` exists.",
+  "input_events": [
+    "two segments same tick: Goa gang group (villa vote) + DM Rohan (private: \"book karu? split later?\")."
+  ],
+  "expected": "2 episodes (episodes are stream-scoped), both attached to `sp_goa_dec`.",
+  "wrong": [
+    {
+      "label": "per-chat-fork",
+      "assert_absent": "a second Goa space for the DM — the chat=space fallacy"
+    },
+    {
+      "label": "stream-merge",
+      "assert_absent": "one episode spanning chats"
+    }
+  ],
+  "gates": [
+    "over_creation",
+    "cross_stream_binding"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-09 · Same topic in two chats stays two episodes, one space"
+  }
+}

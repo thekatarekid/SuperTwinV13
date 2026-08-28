@@ -1,0 +1,25 @@
+{
+  "id": "TSK-05",
+  "category": "TSK",
+  "title": "A question is not yet a task",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_goa_dec.",
+  "input_events": [
+    "Tanvi: \"should we also do a scuba slot?\""
+  ],
+  "expected": "open question on the space (or a discussion item) — no task until someone commits.",
+  "wrong": [
+    {
+      "label": "eager-tasker",
+      "assert_absent": "\"Book scuba\" task from a question"
+    }
+  ],
+  "gates": [
+    "task_precision"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-05 · A question is not yet a task"
+  }
+}

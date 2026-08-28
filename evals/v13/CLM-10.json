@@ -1,0 +1,25 @@
+{
+  "id": "CLM-10",
+  "category": "CLM",
+  "title": "Opinion vs fact separation",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "none.",
+  "input_events": [
+    "Sameer: \"the falcon deadline is march 3. honestly the architecture is a mess\"."
+  ],
+  "expected": "fact (deadline, high conf) + opinion (Sameer's, about architecture) as distinct kinds.",
+  "wrong": [
+    {
+      "label": "kind-blur",
+      "assert_absent": "opinion stored as fact"
+    }
+  ],
+  "gates": [
+    "kind_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-10 · Opinion vs fact separation"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "CHP-03",
+  "category": "CHP",
+  "title": "Dated chapter = milestone",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_goa_dec chapters Flights (target Aug 29), Stay (target Sep 10).",
+  "input_events": [
+    "Decide after flights book."
+  ],
+  "expected": "Flights chapter marked complete ✓ (milestone semantics); space progress reflects it; no separate \"milestone\" object created.",
+  "wrong": [
+    {
+      "label": "dual-bookkeeping",
+      "assert_absent": "milestones tracked apart from chapters"
+    }
+  ],
+  "gates": [
+    "chapter_quality"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CHP-03 · Dated chapter = milestone"
+  }
+}

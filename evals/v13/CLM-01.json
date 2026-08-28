@@ -1,0 +1,29 @@
+{
+  "id": "CLM-01",
+  "category": "CLM",
+  "title": "Explicit preference, resolved third person",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "roster resolved.",
+  "input_events": [
+    "Rohan: \"aisle seat always, i hate climbing over people\"."
+  ],
+  "expected": "preference claim, subject `contact:rohan`, text in third person (\"Rohan prefers aisle seats\"), evidence quote, confidence ≥0.85.",
+  "wrong": [
+    {
+      "label": "alias-leak",
+      "assert_absent": "\"r1 prefers…\""
+    },
+    {
+      "label": "first-person-corruption",
+      "assert_absent": "attributed to Aditya — the V11 roster bug"
+    }
+  ],
+  "gates": [
+    "claim_subject_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-01 · Explicit preference, resolved third person"
+  }
+}

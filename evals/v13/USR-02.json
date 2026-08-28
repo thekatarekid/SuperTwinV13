@@ -1,0 +1,26 @@
+{
+  "id": "USR-02",
+  "category": "USR",
+  "title": "\"remind me to renew car insurance next week\"",
+  "pass": "user-objects",
+  "mode": "live",
+  "setup": "sp_money exists; last year's renewal claim (band C) exists.",
+  "input_events": [
+    "the bar utterance."
+  ],
+  "expected": "task created, filed into sp_money (match, not new space), due resolved to a concrete date, schedule confirm-suggested; linked to the known recurrence.",
+  "wrong": [
+    {
+      "label": "bar-space-spam",
+      "assert_absent": "new \"Car insurance\" space beside sp_money"
+    }
+  ],
+  "gates": [
+    "assignment_accuracy",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "USR-02 · \"remind me to renew car insurance next week\""
+  }
+}

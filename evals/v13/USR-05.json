@@ -1,0 +1,26 @@
+{
+  "id": "USR-05",
+  "category": "USR",
+  "title": "Grounded action routes to executor",
+  "pass": "user-objects",
+  "mode": "live",
+  "setup": "villa comparison artifact exists.",
+  "input_events": [
+    "bar: \"book the 2nd option for 18-21 dec\"."
+  ],
+  "expected": "executor task created in sp_goa_dec › Stay with the artifact as context; runs to the payment boundary; approval card; bar thread shows live progress.",
+  "wrong": [
+    {
+      "label": "chat-only-theater",
+      "assert_absent": "bar replies conversationally without creating the task"
+    }
+  ],
+  "gates": [
+    "action_routing",
+    "risky_without_token"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "USR-05 · Grounded action routes to executor"
+  }
+}

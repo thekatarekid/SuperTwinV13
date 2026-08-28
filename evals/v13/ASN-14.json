@@ -1,0 +1,25 @@
+{
+  "id": "ASN-14",
+  "category": "ASN",
+  "title": "Group participant shift doesn't fork the space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec`; Karan leaves the group, a new member Dev joins.",
+  "input_events": [
+    "continued trip planning with new roster."
+  ],
+  "expected": "same space; roster change noted; Dev added to participants.",
+  "wrong": [
+    {
+      "label": "roster-fork",
+      "assert_absent": "new space because participants changed"
+    }
+  ],
+  "gates": [
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-14 · Group participant shift doesn't fork the space"
+  }
+}

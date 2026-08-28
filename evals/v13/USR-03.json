@@ -1,0 +1,26 @@
+{
+  "id": "USR-03",
+  "category": "USR",
+  "title": "Ambiguous filing asks once",
+  "pass": "user-objects",
+  "mode": "live",
+  "setup": "sp_goa_dec and sp_goa_wedding both active.",
+  "input_events": [
+    "bar: \"add task: buy sunscreen for goa\"."
+  ],
+  "expected": "one targeted question (\"For the Dec trip or the wedding?\") with one-tap answers; task held, not misfiled.",
+  "wrong": [
+    {
+      "label": "coin-flip-filing",
+      "assert_absent": "the 'coin-flip-filing' failure mode"
+    }
+  ],
+  "gates": [
+    "question_quality",
+    "guess_rate"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "USR-03 · Ambiguous filing asks once"
+  }
+}

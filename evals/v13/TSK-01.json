@@ -1,0 +1,30 @@
+{
+  "id": "TSK-01",
+  "category": "TSK",
+  "title": "Explicit task with owner and due",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "`sp_goa_dec` active.",
+  "input_events": [
+    "Rohan: \"aditya book the villa advance by friday, 8k\"."
+  ],
+  "expected": "explicit task, owner self, due Friday (resolved to date), category transaction, risk `approve-final`, amount captured, in sp_goa_dec.",
+  "wrong": [
+    {
+      "label": "owner-blur",
+      "assert_absent": "task assigned to nobody/Rohan"
+    },
+    {
+      "label": "due-drop",
+      "assert_absent": "the 'due-drop' failure mode"
+    }
+  ],
+  "gates": [
+    "task_recall",
+    "field_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-01 · Explicit task with owner and due"
+  }
+}

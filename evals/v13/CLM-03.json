@@ -1,0 +1,29 @@
+{
+  "id": "CLM-03",
+  "category": "CLM",
+  "title": "Contradiction updates, never overwrites",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "existing claim clm_88: \"Aditya is vegetarian\" (2024, conf 0.9).",
+  "input_events": [
+    "self: \"started eating chicken for protein, coach ke orders\"."
+  ],
+  "expected": "new claim with `relation: contradicts:clm_88`, valid_from today; judge resolves supersede (old claim gets validity end, not deletion).",
+  "wrong": [
+    {
+      "label": "silent-overwrite",
+      "assert_absent": "clm_88 deleted"
+    },
+    {
+      "label": "contradiction-blindness",
+      "assert_absent": "both active, no link"
+    }
+  ],
+  "gates": [
+    "temporal_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-03 · Contradiction updates, never overwrites"
+  }
+}

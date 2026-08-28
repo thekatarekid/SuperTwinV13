@@ -1,0 +1,25 @@
+{
+  "id": "CLS-04",
+  "category": "CLS",
+  "title": "Partial completion does not close",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "task \"Book flights for all 4\".",
+  "input_events": [
+    "\"booked mine and tanvi's, karan and rohan pending\"."
+  ],
+  "expected": "task stays open; progress note 2/4; sub-state updated.",
+  "wrong": [
+    {
+      "label": "partial-close",
+      "assert_absent": "the 'partial-close' failure mode"
+    }
+  ],
+  "gates": [
+    "false_auto_close"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-04 · Partial completion does not close"
+  }
+}

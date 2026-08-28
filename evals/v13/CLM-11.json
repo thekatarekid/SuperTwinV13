@@ -1,0 +1,26 @@
+{
+  "id": "CLM-11",
+  "category": "CLM",
+  "title": "Health facts extracted carefully, evidence-tight",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "DM with Ma.",
+  "input_events": [
+    "self: \"doctor said mild vitamin D deficiency, monthly supplement li hai\"."
+  ],
+  "expected": "health fact with exact quote evidence, conf high; no speculative expansion (no \"has health issues\" generalization).",
+  "wrong": [
+    {
+      "label": "diagnosis-inflation",
+      "assert_absent": "the 'diagnosis-inflation' failure mode"
+    }
+  ],
+  "gates": [
+    "evidence_integrity",
+    "sensitivity_handling"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-11 · Health facts extracted carefully, evidence-tight"
+  }
+}

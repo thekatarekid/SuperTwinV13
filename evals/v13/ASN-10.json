@@ -1,0 +1,26 @@
+{
+  "id": "ASN-10",
+  "category": "ASN",
+  "title": "Ambiguity between two spaces → question, not guess",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` and `sp_goa_wedding` both active.",
+  "input_events": [
+    "\"book the goa cab\" (no date, no names)."
+  ],
+  "expected": "unsorted or held with a targeted question (\"Cab for the Dec trip or the wedding?\"); no attach ≥0.6.",
+  "wrong": [
+    {
+      "label": "coin-flip",
+      "assert_absent": "silent attach to either"
+    }
+  ],
+  "gates": [
+    "question_quality",
+    "assignment_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-10 · Ambiguity between two spaces → question, not guess"
+  }
+}

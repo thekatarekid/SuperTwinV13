@@ -1,0 +1,30 @@
+{
+  "id": "BND-05",
+  "category": "BND",
+  "title": "Max-size split with predecessor context",
+  "pass": "scheduler.dispatch",
+  "mode": "code",
+  "setup": "band-D backfill; one chat-month bundle would be 18k events.",
+  "input_events": [
+    "the oversized delta."
+  ],
+  "expected": "split into capped parts; each successor's dispatch carries the predecessor part's summary; Digest output is cumulative, not amnesiac.",
+  "wrong": [
+    {
+      "label": "context-amnesia",
+      "assert_absent": "the 'context-amnesia' failure mode"
+    },
+    {
+      "label": "unbounded-prompt",
+      "assert_absent": "the 'unbounded-prompt' failure mode"
+    }
+  ],
+  "gates": [
+    "prompt_size_max",
+    "continuity_rate"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BND-05 · Max-size split with predecessor context"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "SCH-03",
+  "category": "SCH",
+  "title": "Lead-time computation: traffic before flight",
+  "pass": "schedule",
+  "mode": "live",
+  "setup": "flight 6pm from CCU; home→airport typically 75 min; user prefers 2h buffer (claim).",
+  "input_events": [
+    "Decide."
+  ],
+  "expected": "traffic-check task ~1:30–2pm (derived arithmetic shown in justification), then cab preparation sized to live traffic; mode auto for the check, approve-final for booking.",
+  "wrong": [
+    {
+      "label": "magic-numbers",
+      "assert_absent": "fire time with no derivation"
+    },
+    {
+      "label": "check-too-late",
+      "assert_absent": "the 'check-too-late' failure mode"
+    }
+  ],
+  "gates": [
+    "schedule_math",
+    "schedule_policy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-03 · Lead-time computation: traffic before flight"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "STB-02",
+  "category": "STB",
+  "title": "Harness self-test — live case graded satisfied by the stub judge",
+  "pass": "selftest.stub",
+  "mode": "live",
+  "setup": "harness self-test; the stub pass plants a verdict marker the stub judge reads",
+  "input_events": [
+    {
+      "stub": {
+        "output": { "marker": "verdict:satisfied", "claims": [{ "kind": "habit", "subject": "a1" }] }
+      }
+    }
+  ],
+  "expected": "the judge grades the planted output as satisfied with zero wrong hits",
+  "wrong": [
+    { "label": "task-theft", "assert_absent": "a task owned by self that belongs to someone else" }
+  ],
+  "gates": ["false_receiver_assignment"],
+  "source": { "doc": "V2", "section": "harness self-test" },
+  "selftest": true
+}

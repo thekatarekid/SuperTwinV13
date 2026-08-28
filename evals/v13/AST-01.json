@@ -1,0 +1,30 @@
+{
+  "id": "AST-01",
+  "category": "AST",
+  "title": "Intent inference + the right preparation (options, not cart)",
+  "pass": "assist",
+  "mode": "live",
+  "setup": "sp_goa_dec active; screen: user has 4 goibibo villa tabs over 12 min.",
+  "input_events": [
+    "assist evaluation."
+  ],
+  "expected": "intent \"comparing Goa villas for the Dec trip\"; preparation = cross-site comparison (goibibo + airbnb + booking) against known budget ₹6k/night — NOT a cart (user is comparing, not buying); nudge shows intent + what was done + Goa trip › Stay chip.",
+  "wrong": [
+    {
+      "label": "premature-cart",
+      "assert_absent": "the 'premature-cart' failure mode"
+    },
+    {
+      "label": "template-help",
+      "assert_absent": "generic \"want help browsing?\""
+    }
+  ],
+  "gates": [
+    "assist_precision",
+    "nudge_anatomy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "AST-01 · Intent inference + the right preparation (options, not cart)"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "ROL-05",
+  "category": "ROL",
+  "title": "Ambiguous pronoun → unknown + question",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "Goa gang; both Tanvi and a new member Riya active.",
+  "input_events": [
+    "Karan: \"she said she'll transfer her share tonight\" (no reply marker, both women messaged recently)."
+  ],
+  "expected": "subject unknown + hint (Tanvi|Riya), question queued; NO payment-claim attributed to either.",
+  "wrong": [
+    {
+      "label": "coin-flip-pronoun",
+      "assert_absent": "hard fail"
+    }
+  ],
+  "gates": [
+    "guess_rate"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-05 · Ambiguous pronoun → unknown + question"
+  }
+}

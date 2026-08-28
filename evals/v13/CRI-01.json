@@ -1,0 +1,26 @@
+{
+  "id": "CRI-01",
+  "category": "CRI",
+  "title": "Catches duplicate-space proposal",
+  "pass": "critic",
+  "mode": "live",
+  "setup": "`sp_goa_dec` exists; Orient (seeded faulty output) proposed \"December Goa vacation planning\".",
+  "input_events": [
+    "Orient decisions + retrieval showing the near-duplicate."
+  ],
+  "expected": "`reject` or `downgrade` with reason naming sp_goa_dec.",
+  "wrong": [
+    {
+      "label": "rubber-stamp",
+      "assert_absent": "commit"
+    }
+  ],
+  "gates": [
+    "critic_catch_rate",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRI-01 · Catches duplicate-space proposal"
+  }
+}

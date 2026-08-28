@@ -1,0 +1,34 @@
+{
+  "id": "BND-01",
+  "category": "BND",
+  "title": "Window cut, one bundle per active stream",
+  "pass": "scheduler.dispatch",
+  "mode": "code",
+  "setup": "cursors current; window = 5 min.",
+  "input_events": [
+    "12:00–12:05: 7 msgs in Goa gang, 2 msgs in Ma DM, 9 screen snapshots on `Chrome¦goibibo`, nothing else."
+  ],
+  "expected": "exactly 3 bundles at 12:05, keyed by stream; all 18 events covered; cursors advance only on successful dispatch.",
+  "wrong": [
+    {
+      "label": "time-blender",
+      "assert_absent": "one mega-bundle"
+    },
+    {
+      "label": "stream-shatter",
+      "assert_absent": "per-event bundles"
+    },
+    {
+      "label": "cursor-skip",
+      "assert_absent": "cursor advances past undispatched events"
+    }
+  ],
+  "gates": [
+    "containment",
+    "bundle_purity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BND-01 · Window cut, one bundle per active stream"
+  }
+}

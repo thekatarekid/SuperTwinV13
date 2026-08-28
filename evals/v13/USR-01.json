@@ -1,0 +1,30 @@
+{
+  "id": "USR-01",
+  "category": "USR",
+  "title": "\"plan a hampi trek with the goa gang for 2nd weekend of oct\"",
+  "pass": "user-objects",
+  "mode": "live",
+  "setup": "unsorted holds one old trek mention + 2 hampi browsing episodes.",
+  "input_events": [
+    "the bar utterance."
+  ],
+  "expected": "space created ACTIVE immediately (user-created skips proposal); sweep pulls the 3 related items in; Plan pass drafts goal/chapters (Travel, Stay, Gear?)/first tasks; everything presented for one-pass edit; `created_by: user`.",
+  "wrong": [
+    {
+      "label": "propose-user-object",
+      "assert_absent": "user's own space queued for approval"
+    },
+    {
+      "label": "empty-shell",
+      "assert_absent": "space created with no sweep/plan"
+    }
+  ],
+  "gates": [
+    "user_object_latency",
+    "sweep_recall"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "USR-01 · \"plan a hampi trek with the goa gang for 2nd weekend of oct\""
+  }
+}

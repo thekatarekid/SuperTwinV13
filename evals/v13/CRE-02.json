@@ -1,0 +1,25 @@
+{
+  "id": "CRE-02",
+  "category": "CRE",
+  "title": "One-off curiosity is not a space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "nothing related.",
+  "input_events": [
+    "browser: 12 minutes reading about mechanical keyboards, never again."
+  ],
+  "expected": "unsorted. No proposal.",
+  "wrong": [
+    {
+      "label": "hobby-hallucination",
+      "assert_absent": "proposes \"Mechanical keyboard purchase\" space"
+    }
+  ],
+  "gates": [
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-02 · One-off curiosity is not a space"
+  }
+}

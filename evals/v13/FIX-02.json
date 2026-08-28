@@ -1,0 +1,30 @@
+{
+  "id": "FIX-02",
+  "category": "FIX",
+  "title": "\"we cancelled goa, planning jan instead\"",
+  "pass": "feedback",
+  "mode": "live",
+  "setup": "sp_goa_dec active, 4 open tasks.",
+  "input_events": [
+    "utterance on the space."
+  ],
+  "expected": "tasks closed as CANCELLED (not done); space dormant/re-scoped; offer: \"start a Jan version?\"; nothing deleted.",
+  "wrong": [
+    {
+      "label": "false-victory",
+      "assert_absent": "done"
+    },
+    {
+      "label": "overzealous-delete",
+      "assert_absent": "the 'overzealous-delete' failure mode"
+    }
+  ],
+  "gates": [
+    "closure_semantics",
+    "reversibility"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FIX-02 · \"we cancelled goa, planning jan instead\""
+  }
+}

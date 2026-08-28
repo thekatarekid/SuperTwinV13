@@ -1,0 +1,25 @@
+{
+  "id": "TIM-02",
+  "category": "TIM",
+  "title": "Render-relative at view time",
+  "pass": "time",
+  "mode": "live",
+  "setup": "task due 2026-08-27; today is 08-26, then 08-28.",
+  "input_events": [
+    "UI render on both days."
+  ],
+  "expected": "\"tomorrow\" then \"1 day overdue\" — computed at render; stored value unchanged.",
+  "wrong": [
+    {
+      "label": "stale-relative",
+      "assert_absent": "stored \"tomorrow\" string"
+    }
+  ],
+  "gates": [
+    "time_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TIM-02 · Render-relative at view time"
+  }
+}

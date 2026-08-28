@@ -1,0 +1,26 @@
+{
+  "id": "ASN-06",
+  "category": "ASN",
+  "title": "Someone else's plan is not the user's space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "party model active; no related space.",
+  "input_events": [
+    "DM Tanvi: \"im planning ladakh with my office friends in oct, so excited\"."
+  ],
+  "expected": "no space for Aditya; a CRM-side note/claim about Tanvi's trip; optionally unsorted episode.",
+  "wrong": [
+    {
+      "label": "identity-theft",
+      "assert_absent": "creates \"Ladakh trip\" space for Aditya — \"8 spaces that were other people's lives\""
+    }
+  ],
+  "gates": [
+    "party_accuracy",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-06 · Someone else's plan is not the user's space"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "STB-03",
+  "category": "STB",
+  "title": "Harness self-test — gate observations feed hard gates",
+  "pass": "selftest.stub",
+  "mode": "code",
+  "setup": "harness self-test; the stub run reports extra gate measurements",
+  "input_events": [
+    {
+      "stub": {
+        "output": { "double_ingest": 0 },
+        "gate_observations": [
+          { "gateId": "idempotency", "passed": true, "counted": true },
+          { "gateId": "trace_coverage", "passed": true, "counted": true }
+        ]
+      }
+    }
+  ],
+  "expected": "idempotency and trace_coverage read pass from the observations",
+  "wrong": [
+    { "label": "double-ingest", "assert_absent": "an event ingested twice under one content_hash" }
+  ],
+  "gates": ["containment"],
+  "source": { "doc": "V2", "section": "harness self-test" },
+  "selftest": true
+}

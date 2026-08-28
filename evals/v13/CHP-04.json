@@ -1,0 +1,25 @@
+{
+  "id": "CHP-04",
+  "category": "CHP",
+  "title": "New episode routes to the right existing chapter",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "chapters Flights ✓, Stay (active).",
+  "input_events": [
+    "new browser episode: airbnb.com Anjuna listings."
+  ],
+  "expected": "episode attaches to Stay; no new chapter.",
+  "wrong": [
+    {
+      "label": "chapter-spam",
+      "assert_absent": "\"Airbnb research\" chapter beside Stay"
+    }
+  ],
+  "gates": [
+    "chapter_stability"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CHP-04 · New episode routes to the right existing chapter"
+  }
+}

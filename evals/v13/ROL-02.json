@@ -1,0 +1,25 @@
+{
+  "id": "ROL-02",
+  "category": "ROL",
+  "title": "Unaddressed group message → receiver = audience",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "Goa gang.",
+  "input_events": [
+    "Tanvi: \"guys weather forecast says rain 18th, carry jackets\"."
+  ],
+  "expected": "receiver = whole audience; a packing note lands for everyone incl. self; no per-person misassignment.",
+  "wrong": [
+    {
+      "label": "phantom-addressee",
+      "assert_absent": "invents a single receiver"
+    }
+  ],
+  "gates": [
+    "role_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-02 · Unaddressed group message → receiver = audience"
+  }
+}

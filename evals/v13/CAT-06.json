@@ -1,0 +1,30 @@
+{
+  "id": "CAT-06",
+  "category": "CAT",
+  "title": "Transactional tier extraction policy",
+  "pass": "digest",
+  "mode": "live",
+  "setup": "HDFC (transactional), Zepto (transactional), Airtel (promotional).",
+  "input_events": [
+    "HDFC statement, Zepto order confirmation (5th coffee order in 3 weeks), Airtel \"You LOVE unlimited data!\"."
+  ],
+  "expected": "HDFC/Zepto → facts + recurrences (coffee habit claim allowed WITH repetition evidence); Airtel → nothing; no preference claims from any marketing copy.",
+  "wrong": [
+    {
+      "label": "ad-preference",
+      "assert_absent": "the 'ad-preference' failure mode"
+    },
+    {
+      "label": "single-order-preference",
+      "assert_absent": "the 'single-order-preference' failure mode"
+    }
+  ],
+  "gates": [
+    "ad_immunity",
+    "habit_evidence_floor"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CAT-06 · Transactional tier extraction policy"
+  }
+}

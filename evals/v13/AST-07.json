@@ -1,0 +1,25 @@
+{
+  "id": "AST-07",
+  "category": "AST",
+  "title": "Assist reads fresh memory, not stale",
+  "pass": "assist",
+  "mode": "live",
+  "setup": "3 min ago the understanding lane committed \"budget revised to ₹8k/night\" from chat.",
+  "input_events": [
+    "assist prepares the villa comparison now."
+  ],
+  "expected": "comparison uses ₹8k (fresh world model), not the old ₹6k; trace shows the world-model slice retrieved.",
+  "wrong": [
+    {
+      "label": "stale-read",
+      "assert_absent": "the 'stale-read' failure mode"
+    }
+  ],
+  "gates": [
+    "assist_freshness"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "AST-07 · Assist reads fresh memory, not stale"
+  }
+}

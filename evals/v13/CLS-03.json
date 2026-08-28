@@ -1,0 +1,26 @@
+{
+  "id": "CLS-03",
+  "category": "CLS",
+  "title": "Payment receipt on screen closes the transaction task",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "open task \"Renew car insurance\".",
+  "input_events": [
+    "screen segment: insurer page \"Payment successful · Policy renewed to Aug 2027\" + confirmation email visible."
+  ],
+  "expected": "auto-close with screen evidence; renewal date becomes next year's recurrence seed.",
+  "wrong": [
+    {
+      "label": "receipt-blindness",
+      "assert_absent": "the 'receipt-blindness' failure mode"
+    }
+  ],
+  "gates": [
+    "closure_recall",
+    "cross_source_binding"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-03 · Payment receipt on screen closes the transaction task"
+  }
+}

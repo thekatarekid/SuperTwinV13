@@ -1,0 +1,30 @@
+{
+  "id": "BRW-04",
+  "category": "BRW",
+  "title": "Domain skill reuse, LLM only on breakage",
+  "pass": "browser",
+  "mode": "live",
+  "setup": "x.com bookmarks domain skill exists (selectors + captured GraphQL shapes).",
+  "input_events": [
+    "10 daily runs; on day 7 X ships a DOM change."
+  ],
+  "expected": "days 1–6 replay deterministically (near-zero tokens); day 7 detects breakage → LLM-guided re-derivation → skill updated → day 8 cheap again.",
+  "wrong": [
+    {
+      "label": "groundhog-llm",
+      "assert_absent": "full LLM drive every day"
+    },
+    {
+      "label": "silent-rot",
+      "assert_absent": "day 7 returns empty without flagging"
+    }
+  ],
+  "gates": [
+    "skill_reuse_rate",
+    "capture_reliability"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-04 · Domain skill reuse, LLM only on breakage"
+  }
+}

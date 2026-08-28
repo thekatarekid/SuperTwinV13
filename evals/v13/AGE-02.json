@@ -1,0 +1,30 @@
+{
+  "id": "AGE-02",
+  "category": "AGE",
+  "title": "Band C: recurrence becomes a future task template",
+  "pass": "scheduler.backfill",
+  "mode": "live",
+  "setup": "14-month-old insurance renewal messages (band C).",
+  "input_events": [
+    "band C batch."
+  ],
+  "expected": "recurrence detected (annual, ~Sept); recurring template created; next instance lands in Today when due window opens; no task dated in the past.",
+  "wrong": [
+    {
+      "label": "recurrence-blindness",
+      "assert_absent": "the 'recurrence-blindness' failure mode"
+    },
+    {
+      "label": "past-dated-task",
+      "assert_absent": "the 'past-dated-task' failure mode"
+    }
+  ],
+  "gates": [
+    "recurrence_detection",
+    "band_policy_compliance"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "AGE-02 · Band C: recurrence becomes a future task template"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "FUP-03",
+  "category": "FUP",
+  "title": "Trivial closure → no follow-up ceremony",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "task \"reply to Priya\" closed.",
+  "input_events": [
+    "next-step pass."
+  ],
+  "expected": "nothing. Not every closure deserves a next step.",
+  "wrong": [
+    {
+      "label": "chain-mania",
+      "assert_absent": "follow-ups manufactured for trivial tasks"
+    }
+  ],
+  "gates": [
+    "followup_restraint"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FUP-03 · Trivial closure → no follow-up ceremony"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "CRE-04",
+  "category": "CRE",
+  "title": "An ad is never a space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "Zepto stream tier `promotional`.",
+  "input_events": [
+    "\"FLAT 40% OFF on your next 3 orders! 🎉\"."
+  ],
+  "expected": "nothing. No space, no task, no claim.",
+  "wrong": [
+    {
+      "label": "ad-space",
+      "assert_absent": "the 'ad-space' failure mode"
+    },
+    {
+      "label": "ad-task",
+      "assert_absent": "\"Claim 40% off\") — the Airtel-credit-card defect class"
+    }
+  ],
+  "gates": [
+    "ad_immunity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-04 · An ad is never a space"
+  }
+}

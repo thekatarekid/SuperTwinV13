@@ -1,0 +1,23 @@
+{
+  "id": "STB-01",
+  "category": "STB",
+  "title": "Harness self-test — code case passes on a clean stub run",
+  "pass": "selftest.stub",
+  "mode": "code",
+  "setup": "harness self-test; no product state",
+  "input_events": [
+    {
+      "stub": {
+        "output": { "bundles": 3, "covered": 18 },
+        "metrics": { "containment": 1 }
+      }
+    }
+  ],
+  "expected": "the stub pass returns ok with its scripted output",
+  "wrong": [
+    { "label": "phantom-violation", "assert_absent": "any violation reported by a clean run" }
+  ],
+  "gates": ["containment"],
+  "source": { "doc": "V2", "section": "harness self-test" },
+  "selftest": true
+}

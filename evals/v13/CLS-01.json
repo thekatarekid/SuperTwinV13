@@ -1,0 +1,25 @@
+{
+  "id": "CLS-01",
+  "category": "CLS",
+  "title": "Two-sided confirmation auto-closes",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "open task \"Pay Diwali pool ₹2,000 to Tanvi\".",
+  "input_events": [
+    "self: \"done, sent 2k\" + Tanvi: \"got it! ✅\"."
+  ],
+  "expected": "auto-close, confidence ≥0.85, both quotes as evidence.",
+  "wrong": [
+    {
+      "label": "close-blindness",
+      "assert_absent": "stays open) — but see CLS-02 for the graver inverse"
+    }
+  ],
+  "gates": [
+    "closure_recall"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-01 · Two-sided confirmation auto-closes"
+  }
+}

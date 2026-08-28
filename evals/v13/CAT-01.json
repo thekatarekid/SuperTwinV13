@@ -1,0 +1,30 @@
+{
+  "id": "CAT-01",
+  "category": "CAT",
+  "title": "Chat category by user-reply (pure code)",
+  "pass": "digest",
+  "mode": "code",
+  "setup": "40 streams; 12 have ≥1 user message ever; 3 business streams (HDFC OTPs, Zepto orders, Airtel promos).",
+  "input_events": [
+    "category assignment."
+  ],
+  "expected": "12 replied + HDFC + Zepto (transactional) → Cat 1; Airtel promo + never-replied groups → Cat 2. Assignment is code-only (asserted: zero model calls for chat categorization).",
+  "wrong": [
+    {
+      "label": "model-where-code-works",
+      "assert_absent": "the 'model-where-code-works' failure mode"
+    },
+    {
+      "label": "promo-in-cat1",
+      "assert_absent": "the 'promo-in-cat1' failure mode"
+    }
+  ],
+  "gates": [
+    "cat_accuracy",
+    "cost_per_event"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CAT-01 · Chat category by user-reply (pure code)"
+  }
+}

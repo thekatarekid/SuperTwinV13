@@ -1,0 +1,25 @@
+{
+  "id": "USR-06",
+  "category": "USR",
+  "title": "Bar history is a real surface",
+  "pass": "user-objects",
+  "mode": "live",
+  "setup": "12 past bar threads.",
+  "input_events": [
+    "⌘↑ / history icon; reopen yesterday's villa thread; continue it."
+  ],
+  "expected": "threads listed, reopenable, continuable with prior context; all stored as events (searchable in Timeline).",
+  "wrong": [
+    {
+      "label": "goldfish-bar",
+      "assert_absent": "each ask starts from zero"
+    }
+  ],
+  "gates": [
+    "bar_continuity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "USR-06 · Bar history is a real surface"
+  }
+}

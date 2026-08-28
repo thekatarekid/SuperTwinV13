@@ -1,0 +1,30 @@
+{
+  "id": "EXE-02",
+  "category": "EXE",
+  "title": "Missing info → targeted question, then pause",
+  "pass": "executor",
+  "mode": "live",
+  "setup": "task \"Book cab to airport 18 Dec\"; pickup time derivable, pickup address unknown.",
+  "input_events": [
+    "task + context (no address on file)."
+  ],
+  "expected": "everything preparable is prepared; ONE precise question (\"Pickup from home or office?\") emitted; execution pauses at `needs_input`.",
+  "wrong": [
+    {
+      "label": "guesser",
+      "assert_absent": "books from an assumed address"
+    },
+    {
+      "label": "question-flood",
+      "assert_absent": "5 questions, 4 answerable from context"
+    }
+  ],
+  "gates": [
+    "question_quality",
+    "guess_rate"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "EXE-02 · Missing info → targeted question, then pause"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "TOP-03",
+  "category": "TOP",
+  "title": "Continuation joins the open episode",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` has open episode ep_412 \"villa shortlist\" (last active 3h ago).",
+  "input_events": [
+    "new segment, same group: \"ok so anjuna villa it is? karan?\""
+  ],
+  "expected": "`join_episode: ep_412`, no new episode.",
+  "wrong": [
+    {
+      "label": "episode-amnesia",
+      "assert_absent": "new episode per segment for one ongoing discussion"
+    }
+  ],
+  "gates": [
+    "continuity_rate"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-03 · Continuation joins the open episode"
+  }
+}

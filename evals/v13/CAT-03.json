@@ -1,0 +1,26 @@
+{
+  "id": "CAT-03",
+  "category": "CAT",
+  "title": "Engagement instantly promotes Cat 2 → Cat 1",
+  "pass": "digest",
+  "mode": "live",
+  "setup": "\"Sunrise Apartments 402\" is Cat 2, digested only.",
+  "input_events": [
+    "user replies for the first time: \"is the plumber contact still valid? my kitchen sink is leaking\"."
+  ],
+  "expected": "stream promotes to Cat 1 immediately; retroactive full processing queued for its recent history; the plumber question spawns a real task/space path; promotion is logged.",
+  "wrong": [
+    {
+      "label": "caste-system",
+      "assert_absent": "stream stuck in Cat 2 despite engagement"
+    }
+  ],
+  "gates": [
+    "promotion_latency",
+    "containment"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CAT-03 · Engagement instantly promotes Cat 2 → Cat 1"
+  }
+}

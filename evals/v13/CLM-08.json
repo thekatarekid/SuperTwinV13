@@ -1,0 +1,25 @@
+{
+  "id": "CLM-08",
+  "category": "CLM",
+  "title": "Relationship claims from context",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "roster has Ma.",
+  "input_events": [
+    "Ma: \"your cousin Aarav is coming for diwali, he cleared CA finals\"."
+  ],
+  "expected": "CRM person Aarav (no contact info) with relationship `cousin of Aditya`, fact \"cleared CA finals\", linked to Ma as source.",
+  "wrong": [
+    {
+      "label": "mention-drop",
+      "assert_absent": "third-party people without contacts ignored"
+    }
+  ],
+  "gates": [
+    "crm_coverage"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-08 · Relationship claims from context"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "ASN-01",
+  "category": "ASN",
+  "title": "Attach with exemplar-based candidates",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "40 spaces exist; retrieval surfaces top 3 candidates with exemplars, `sp_goa_dec` among them.",
+  "input_events": [
+    "segment: \"18th flight is 7am, karan book your ticket\"."
+  ],
+  "expected": "attach to `sp_goa_dec`, confidence ≥0.85, evidence quote present.",
+  "wrong": [
+    {
+      "label": "candidate-blindness",
+      "assert_absent": "proposes new despite exact-fit candidate — V1's core defect"
+    }
+  ],
+  "gates": [
+    "assignment_accuracy",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-01 · Attach with exemplar-based candidates"
+  }
+}

@@ -1,155 +1,162 @@
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CATEGORIES,
-  FixtureError,
   coverageGaps,
-  isSelfTestId,
+  FixtureError,
   loadDirectory,
-  loadFixture,
   parseFixture,
+  TOTAL_CASES,
   validateFixture,
 } from "./fixtures.js";
+import { goodFixture } from "./testutil.js";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const SELFTEST = join(ROOT, "evals", "selftest");
+describe("validateFixture", () => {
+  it("accepts the V2-header shape (structured or prose)", () => {
+    const f = validateFixture(goodFixture(), "x.json");
+    expect(f.id).toBe("ROL-01");
+    expect(f.wrong[0]!.label).toBe("task-theft");
+  });
 
-/** The evals doc §2 fixture, verbatim, as the base every mutation starts from. */
-function docExample(): Record<string, unknown> {
-  return {
-    id: "M-014",
-    category: "M",
-    layer: "claims",
-    call: "P-CL1",
-    mode: "steady",
-    given: {
-      roster: ["a1=Pranjali Sachdeva", "a3=ACT broadband [thg]"],
-      streams: [{ alias: "c1", name: "Pranjali", kind: "dm", participants: ["self", "a1"] }],
-      events: [
-        { n: 1, ts: "2026-08-12T21:10+05:30", who: "a1", text: "i've started bhangra classes on saturdays" },
-      ],
-      open: { episodes: [], loops: [] },
-      db: { entities: [], claims: [], arcs: [] },
-    },
-    frozen_response: "H|1|a1|1p|0.95|-|Attends bhangra classes on Saturdays",
-    expect: {
-      claims: [
+  it("accepts a prose-only doc-materialized case", () => {
+    const f = validateFixture(
+      goodFixture({ setup: "cursors current; window = 5 min", input_events: ["7 msgs in Goa gang"], expected: "3 bundles" }),
+      "x.json",
+    );
+    expect(f.input_events).toEqual(["7 msgs in Goa gang"]);
+  });
+
+  it("collects every problem at once", () => {
+    try {
+      validateFixture(
         {
-          kind: "habit",
-          subject: "a1",
-          attribution: "1p",
-          text: "Attends bhangra classes on Saturdays",
-          party_pair: "oo",
-          evidence: [1],
+          id: "bad",
+          category: "ZZZ",
+          title: "",
+          pass: "Orient!",
+          mode: "frozen",
+          setup: "",
+          input_events: [],
+          expected: null,
+          wrong: [{ label: "Bad Label", assert_absent: "" }],
+          gates: ["Not_A_Gate"],
+          source: { doc: "V3", section: 1 },
+          frozen_response: "gone",
         },
-      ],
-      loops: [],
-    },
-    assert: {
-      mode: "set_equal",
-      on: ["kind", "subject", "attribution", "party_pair"],
-      gate: "claim_subject_accuracy",
-    },
-  };
-}
-
-function problemsOf(mutate: (f: Record<string, unknown>) => void): string[] {
-  const fixture = docExample();
-  mutate(fixture);
-  try {
-    validateFixture(fixture, "test.json");
-  } catch (err) {
-    if (err instanceof FixtureError) return err.problems;
-    throw err;
-  }
-  return [];
-}
-
-describe("the §2 fixture schema", () => {
-  it("accepts the evals doc's own example unchanged", () => {
-    const fixture = validateFixture(docExample(), "M-014.json");
-    expect(fixture.id).toBe("M-014");
-    expect(fixture.assert.mode).toBe("set_equal");
-    expect(fixture.assert.gate).toBe("claim_subject_accuracy");
-    expect(fixture.given.events[0]!.n).toBe(1);
+        "bad.json",
+      );
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      const e = err as FixtureError;
+      expect(e).toBeInstanceOf(FixtureError);
+      const text = e.problems.join("\n");
+      for (const needle of [
+        "frozen_response",
+        "id must look like",
+        "title",
+        "pass",
+        "mode",
+        "setup",
+        "input_events",
+        "expected",
+        "wrong[0].label",
+        "wrong[0].assert_absent",
+        "gates[0]",
+        "source.doc",
+      ]) {
+        expect(text).toContain(needle.split(" ")[0]!);
+      }
+    }
   });
 
-  it("rejects a field that is not in §2 — a typo is not a fixture", () => {
-    expect(problemsOf((f) => (f.expects = {}))).toEqual(["expects is not a field of the §2 fixture schema"]);
+  it("rejects a category that does not match the id prefix", () => {
+    expect(() => validateFixture(goodFixture({ category: "TOP" }), "x.json")).toThrow(/does not match the id prefix/);
   });
 
-  it("rejects a bad id, an unknown category, and a mismatched pair", () => {
-    expect(problemsOf((f) => (f.id = "m-14"))[0]).toContain("must look like");
-    expect(problemsOf((f) => (f.category = "Z"))[0]).toContain("not one of the 22 categories");
-    expect(problemsOf((f) => (f.category = "N"))[0]).toContain("does not match the id prefix");
+  it("rejects duplicate wrong labels", () => {
+    expect(() =>
+      validateFixture(
+        goodFixture({
+          wrong: [
+            { label: "task-theft", assert_absent: "a" },
+            { label: "task-theft", assert_absent: "b" },
+          ],
+        }),
+        "x.json",
+      ),
+    ).toThrow(/duplicate label/);
   });
 
-  it("rejects a roster entry that is not alias=name", () => {
-    expect(problemsOf((f) => ((f.given as { roster: string[] }).roster = ["Pranjali"]))[0]).toContain(
-      'must look like "a1=Name"',
-    );
+  it("allows an unknown category prefix only for selftest fixtures", () => {
+    expect(() => validateFixture(goodFixture({ id: "STB-01", category: "STB" }), "x.json")).toThrow(/not a category/);
+    const f = validateFixture(goodFixture({ id: "STB-01", category: "STB", selftest: true }), "x.json");
+    expect(f.selftest).toBe(true);
   });
 
-  it("rejects duplicate and non-positive event numbers", () => {
-    const dupe = problemsOf((f) => {
-      const given = f.given as { events: unknown[] };
-      given.events = [
-        { n: 1, ts: "t", who: "a1", text: "x" },
-        { n: 1, ts: "t", who: "a1", text: "y" },
-      ];
-    });
-    expect(dupe).toEqual(["given.events[1].n duplicate event number 1"]);
-    expect(problemsOf((f) => ((f.given as { events: unknown[] }).events = [{ n: 0, ts: "t", who: "a", text: "b" }]))[0])
-      .toContain("positive integer");
-  });
-
-  it("rejects an assertion mode outside §3 and a gate outside §14.2", () => {
-    expect(problemsOf((f) => ((f.assert as { mode: string }).mode = "roughly"))[0]).toContain("must be one of");
-    expect(problemsOf((f) => ((f.assert as { gate: string }).gate = "vibes"))[0]).toContain(
-      "is not a gate in architecture §14.2",
-    );
-  });
-
-  it("requires a bound on budget and an expect on everything that compares", () => {
-    expect(problemsOf((f) => ((f.assert as { mode: string }).mode = "budget"))).toContain(
-      "assert.bound is required for mode 'budget'",
-    );
-    expect(problemsOf((f) => (f.expect = {}))[0]).toContain("has nothing to compare");
-  });
-
-  it("reports every problem at once, not just the first", () => {
-    const problems = problemsOf((f) => {
-      f.id = "nope";
-      f.mode = "whenever";
-      (f.assert as { mode: string }).mode = "roughly";
-    });
-    expect(problems.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it("names the file in a JSON syntax error", () => {
-    expect(() => parseFixture("{ not json", "B-001.json")).toThrow(/B-001\.json: invalid fixture/);
-  });
-
-  it("insists the file is named after the id", () => {
-    expect(() => loadFixture(join(SELFTEST, "A-901.json"))).not.toThrow();
+  it("rejects JSON that is not valid", () => {
+    expect(() => parseFixture("{nope", "x.json")).toThrow(/not valid JSON/);
   });
 });
 
-describe("the self-test fixture set", () => {
-  it("loads the 10 hand-written fixtures and covers all 7 assertion modes", () => {
-    const loaded = loadDirectory(SELFTEST);
-    expect(loaded.errors).toEqual([]);
-    expect(loaded.fixtures).toHaveLength(10);
-    const modes = new Set(loaded.fixtures.map((f) => f.assert.mode));
-    expect([...modes].sort()).toEqual(["absent", "budget", "contains", "exact", "no_throw", "set_equal", "state"]);
+describe("loadDirectory", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("uses the reserved 900+ block so it never counts as coverage", () => {
-    const loaded = loadDirectory(SELFTEST);
-    expect(loaded.fixtures.every((f) => isSelfTestId(f.id))).toBe(true);
-    expect(coverageGaps(loaded.fixtures)).toHaveLength(CATEGORIES.length);
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "evals-"));
+    dirs.push(dir);
+    return dir;
+  }
+
+  it("loads fixtures one level deep, sorted, with duplicate-id detection", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "ROL-02.json"), JSON.stringify(goodFixture({ id: "ROL-02" })));
+    mkdirSync(join(dir, "selftest"));
+    writeFileSync(
+      join(dir, "selftest", "STB-01.json"),
+      JSON.stringify(goodFixture({ id: "STB-01", category: "STB", selftest: true })),
+    );
+    writeFileSync(join(dir, "ROL-01.json"), JSON.stringify(goodFixture()));
+    const report = loadDirectory(dir);
+    expect(report.errors).toEqual([]);
+    expect(report.fixtures.map((f) => f.id)).toEqual(["ROL-01", "ROL-02", "STB-01"]);
+  });
+
+  it("reports a file whose name disagrees with its id", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "ROL-09.json"), JSON.stringify(goodFixture({ id: "ROL-01" })));
+    const report = loadDirectory(dir);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]!.message).toContain("named ROL-01.json");
+  });
+
+  it("collects errors instead of throwing", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "ROL-01.json"), "{broken");
+    writeFileSync(join(dir, "ROL-02.json"), JSON.stringify(goodFixture({ id: "ROL-02" })));
+    const report = loadDirectory(dir);
+    expect(report.errors).toHaveLength(1);
+    expect(report.fixtures).toHaveLength(1);
+  });
+});
+
+describe("coverage", () => {
+  it("the category table totals 175 cases (94 from V1 minus SEG, 81 from V2)", () => {
+    expect(TOTAL_CASES).toBe(175);
+    expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(94);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(81);
+    expect(CATEGORIES.some((c) => c.cat === "SEG")).toBe(false);
+    expect(CATEGORIES.some((c) => c.cat === "BND")).toBe(true);
+  });
+
+  it("coverageGaps ignores selftest fixtures and reports shortfalls", () => {
+    const gaps = coverageGaps([goodFixture(), goodFixture({ id: "STB-01", category: "STB", selftest: true })]);
+    expect(gaps.find((g) => g.startsWith("ROL"))).toContain("1 fixtures");
+    expect(gaps.some((g) => g.startsWith("STB"))).toBe(false);
   });
 });

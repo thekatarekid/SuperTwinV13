@@ -1,0 +1,25 @@
+{
+  "id": "ASN-05",
+  "category": "ASN",
+  "title": "Personal banter does not contaminate a project space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_falcon` (Work) with exemplars.",
+  "input_events": [
+    "Project Falcon group: 6 messages memes/lunch jokes, 2 messages \"standup moved to 11\"."
+  ],
+  "expected": "standup episode → `sp_falcon`; banter → unsorted/none. Space receives ONLY the standup episode.",
+  "wrong": [
+    {
+      "label": "contamination",
+      "assert_absent": "memes inside sp_falcon — the \"paneer biryani under goodnight\" defect class"
+    }
+  ],
+  "gates": [
+    "contamination"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-05 · Personal banter does not contaminate a project space"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "ASN-02",
+  "category": "ASN",
+  "title": "Below confidence floor → unsorted, not attach",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "candidates: `sp_goa_dec`, `sp_gym` (weak matches).",
+  "input_events": [
+    "DM Priya: \"we should do that thing we talked about sometime\"."
+  ],
+  "expected": "unsorted with a clarifying question queued; confidence <0.6 honestly stated; NO attach.",
+  "wrong": [
+    {
+      "label": "forced-filing",
+      "assert_absent": "attached anywhere at fabricated confidence"
+    },
+    {
+      "label": "confidence-inflation",
+      "assert_absent": "the 'confidence-inflation' failure mode"
+    }
+  ],
+  "gates": [
+    "unsorted_precision",
+    "confidence_calibration"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-02 · Below confidence floor → unsorted, not attach"
+  }
+}

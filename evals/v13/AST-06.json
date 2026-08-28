@@ -1,0 +1,25 @@
+{
+  "id": "AST-06",
+  "category": "AST",
+  "title": "Graded engagement, not binary",
+  "pass": "assist",
+  "mode": "live",
+  "setup": "three artifacts: A opened 2s and closed; B opened, dwelled 90s; C edited and re-run.",
+  "input_events": [
+    "reconcile."
+  ],
+  "expected": "signal ordering C > B > A recorded as distinct weights; suppression math uses the graded values.",
+  "wrong": [
+    {
+      "label": "binary-reconcile",
+      "assert_absent": "open = accepted, else rejected"
+    }
+  ],
+  "gates": [
+    "reconcile_grading"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "AST-06 · Graded engagement, not binary"
+  }
+}

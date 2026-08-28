@@ -1,0 +1,29 @@
+{
+  "id": "FIX-06",
+  "category": "FIX",
+  "title": "Contextual chips are contextual",
+  "pass": "feedback",
+  "mode": "live",
+  "setup": "open ··· on a task, a claim, and a space proposal.",
+  "input_events": [
+    "render check."
+  ],
+  "expected": "task → `Not mine` `Already done`; claim → `Not true` `Outdated`; proposal → `Merge into…`; never more than 3; menu is always Edit · Remove · Tell the twin.",
+  "wrong": [
+    {
+      "label": "mega-menu",
+      "assert_absent": "the 8-option list"
+    },
+    {
+      "label": "wrong-chips",
+      "assert_absent": "claim chips on a task"
+    }
+  ],
+  "gates": [
+    "ui_contract"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FIX-06 · Contextual chips are contextual"
+  }
+}

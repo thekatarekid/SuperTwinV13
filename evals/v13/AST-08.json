@@ -1,0 +1,26 @@
+{
+  "id": "AST-08",
+  "category": "AST",
+  "title": "Deadline urgency handled by assist in seconds",
+  "pass": "assist",
+  "mode": "live",
+  "setup": "quiet system.",
+  "input_events": [
+    "Rohan DM: \"villa advance by 5pm TODAY or we lose it\" (sent 2:10pm)."
+  ],
+  "expected": "assist reacts within seconds: nudge with intent + prepared payment page up to the risk line + the 5pm deadline surfaced; understanding lane still files it durably in its next window.",
+  "wrong": [
+    {
+      "label": "urgent-queued",
+      "assert_absent": "help arrives at the next 5-min window or later"
+    }
+  ],
+  "gates": [
+    "latency_assist",
+    "nudge_anatomy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "AST-08 · Deadline urgency handled by assist in seconds"
+  }
+}

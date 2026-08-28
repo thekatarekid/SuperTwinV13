@@ -1,0 +1,25 @@
+{
+  "id": "SCH-04",
+  "category": "SCH",
+  "title": "Recurring brief = confirm, never auto",
+  "pass": "schedule",
+  "mode": "live",
+  "setup": "user asked the bar twice this week for \"AI news roundup\".",
+  "input_events": [
+    "pattern detection."
+  ],
+  "expected": "suggestion card: \"Want a daily AI news brief? Proposed 8:30am\" — editable, starts only on confirm; never silently begins recurring.",
+  "wrong": [
+    {
+      "label": "subscription-creep",
+      "assert_absent": "recurring job auto-started) — hard fail"
+    }
+  ],
+  "gates": [
+    "schedule_policy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-04 · Recurring brief = confirm, never auto"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "TOP-10",
+  "category": "TOP",
+  "title": "Part 2 continues part 1's episode",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "screen part-1 segment (falcon-spec.doc, 2h) processed into ep_509 in `sp_falcon`.",
+  "input_events": [
+    "successor segment (same doc, `predecessor_id` set), 40 more minutes of edits."
+  ],
+  "expected": "joins ep_509; summary reflects cumulative progress.",
+  "wrong": [
+    {
+      "label": "part-amnesia",
+      "assert_absent": "new unrelated episode; predecessor summary ignored"
+    }
+  ],
+  "gates": [
+    "continuity_rate"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-10 · Part 2 continues part 1's episode"
+  }
+}

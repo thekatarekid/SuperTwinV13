@@ -1,0 +1,30 @@
+{
+  "id": "SCH-08",
+  "category": "SCH",
+  "title": "Scheduler resilience (code)",
+  "pass": "schedule",
+  "mode": "code",
+  "setup": "machine asleep at a fire time; also one task's executor crashes mid-run.",
+  "input_events": [
+    "wake + recovery."
+  ],
+  "expected": "missed fire executes on wake with \"late\" flag if still valid, skips with note if window passed; crashed run resumes or restarts idempotently; both traced.",
+  "wrong": [
+    {
+      "label": "lost-fire",
+      "assert_absent": "the 'lost-fire' failure mode"
+    },
+    {
+      "label": "double-fire",
+      "assert_absent": "the 'double-fire' failure mode"
+    }
+  ],
+  "gates": [
+    "scheduler_reliability",
+    "idempotency"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-08 · Scheduler resilience (code)"
+  }
+}

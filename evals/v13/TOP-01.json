@@ -1,0 +1,34 @@
+{
+  "id": "TOP-01",
+  "category": "TOP",
+  "title": "One conversation, two topics → split by message ranges",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "spaces `sp_goa_dec` (Travel, with exemplars), `sp_diwali` (People, open episode ep_881).",
+  "input_events": [
+    "Goa gang segment, 13 messages: e1–e11 trip dates/flights, e2+e3 Diwali pool interleaved."
+  ],
+  "expected": "exactly 2 episodes with message ranges; e3 (\"paying pool tonight. rohan share flight link\") legitimately in both; both attach to existing spaces.",
+  "wrong": [
+    {
+      "label": "over-split",
+      "assert_absent": "3+ episodes"
+    },
+    {
+      "label": "mono-blob",
+      "assert_absent": "1 episode, pool messages contaminate Goa"
+    },
+    {
+      "label": "space-spam",
+      "assert_absent": "any new space proposed"
+    }
+  ],
+  "gates": [
+    "assignment_accuracy",
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-01 · One conversation, two topics → split by message ranges"
+  }
+}

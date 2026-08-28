@@ -1,0 +1,25 @@
+{
+  "id": "CON-06",
+  "category": "CON",
+  "title": "Claim compression preserves evidence chains",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "14 reinforcements of \"Rohan tracks flight prices\" over 6 months.",
+  "input_events": [
+    "Tier-3 deep pass."
+  ],
+  "expected": "compressed to one claim with aggregated evidence summary + retained event id list; confidence reflects history.",
+  "wrong": [
+    {
+      "label": "evidence-amputation",
+      "assert_absent": "event ids dropped → \"why?\" breaks"
+    }
+  ],
+  "gates": [
+    "evidence_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-06 · Claim compression preserves evidence chains"
+  }
+}

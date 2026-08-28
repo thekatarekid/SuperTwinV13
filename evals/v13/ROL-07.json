@@ -1,0 +1,25 @@
+{
+  "id": "ROL-07",
+  "category": "ROL",
+  "title": "Discriminating nickname, learned then used",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "6 prior observations: in Falcon group, \"boss\" is only ever used addressing Sameer.",
+  "input_events": [
+    "Falcon group, self: \"boss can we push the demo to Friday?\""
+  ],
+  "expected": "receiver = Sameer via address-style memory (discriminating, this group), stated as the basis; task/monitoring routed accordingly.",
+  "wrong": [
+    {
+      "label": "style-amnesia",
+      "assert_absent": "unknown despite 6 observations"
+    }
+  ],
+  "gates": [
+    "role_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-07 · Discriminating nickname, learned then used"
+  }
+}

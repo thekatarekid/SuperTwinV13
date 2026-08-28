@@ -1,0 +1,25 @@
+{
+  "id": "ASN-11",
+  "category": "ASN",
+  "title": "Work-doc screen segment routes by content, not app",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_falcon` (Work), `sp_goa_dec` (Travel).",
+  "input_events": [
+    "screen segment: Google Docs open, but the document is \"Goa itinerary draft\"."
+  ],
+  "expected": "attach to `sp_goa_dec` — content over app identity.",
+  "wrong": [
+    {
+      "label": "app-stereotype",
+      "assert_absent": "Docs → work space"
+    }
+  ],
+  "gates": [
+    "assignment_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-11 · Work-doc screen segment routes by content, not app"
+  }
+}

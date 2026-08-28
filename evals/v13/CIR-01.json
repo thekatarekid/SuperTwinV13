@@ -1,0 +1,26 @@
+{
+  "id": "CIR-01",
+  "category": "CIR",
+  "title": "Low-reply family group still ranks top",
+  "pass": "circles",
+  "mode": "live",
+  "setup": "Family group — user replied 4 times in 90 days; \"College Memes\" group — user replied 40 times. Content: Ma shares a doctor appointment; memes group shares memes.",
+  "input_events": [
+    "circle inference + a same-day processing queue containing both."
+  ],
+  "expected": "Family → family circle, high value (content: kin terms, care topics; contact names \"Ma\", \"Papa\"); memes → friends/acquaintance; Ma's appointment out-prioritizes memes despite 10x reply gap; brief includes the appointment.",
+  "wrong": [
+    {
+      "label": "volume-equals-value",
+      "assert_absent": "the core failure this category exists for"
+    }
+  ],
+  "gates": [
+    "circle_accuracy",
+    "priority_quality"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CIR-01 · Low-reply family group still ranks top"
+  }
+}

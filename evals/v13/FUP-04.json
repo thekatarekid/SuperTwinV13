@@ -1,0 +1,25 @@
+{
+  "id": "FUP-04",
+  "category": "FUP",
+  "title": "Follow-up respects risk policy",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "rent paid (closure).",
+  "input_events": [
+    "next-step pass proposes next month's recurring reminder."
+  ],
+  "expected": "recurring template = confirm mode (recurring commitment rule), even though the parent closed cleanly.",
+  "wrong": [
+    {
+      "label": "policy-drift",
+      "assert_absent": "recurrence auto-started because parent was routine"
+    }
+  ],
+  "gates": [
+    "schedule_policy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FUP-04 · Follow-up respects risk policy"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "TSK-03",
+  "category": "TSK",
+  "title": "Suggested task from plan gap, capped and marked",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "sp_goa_dec plan: milestone \"stay booked\" has no open task; suggestion budget 2/day, 1 used.",
+  "input_events": [
+    "tick with no new stay activity for 4 days, trip 6 weeks out."
+  ],
+  "expected": "≤1 suggested task (\"resume villa shortlist — 3 options expire soon\"), clearly `type: suggested`, evidence = plan gap + date pressure.",
+  "wrong": [
+    {
+      "label": "suggestion-flood",
+      "assert_absent": ">cap"
+    },
+    {
+      "label": "unmarked-suggestion",
+      "assert_absent": "dressed as explicit"
+    }
+  ],
+  "gates": [
+    "suggestion_rate",
+    "suggestion_acceptance"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-03 · Suggested task from plan gap, capped and marked"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "CAT-02",
+  "category": "CAT",
+  "title": "Browser domain category",
+  "pass": "digest",
+  "mode": "live",
+  "setup": "history contains goibibo.com (14 visits, typed, 6 min dwell), a tracker redirect chain (0.4s dwells), news.ycombinator.com (bookmarked).",
+  "input_events": [
+    "per-domain categorization."
+  ],
+  "expected": "goibibo + HN → Cat 1; tracker chain → Cat 2/dropped by gate; ambiguous domains get one cached cheap call, never repeated calls.",
+  "wrong": [
+    {
+      "label": "tracker-as-interest",
+      "assert_absent": "\"user interested in adclick.doubleclick\""
+    }
+  ],
+  "gates": [
+    "cat_accuracy",
+    "ad_immunity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CAT-02 · Browser domain category"
+  }
+}

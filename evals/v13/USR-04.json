@@ -1,0 +1,25 @@
+{
+  "id": "USR-04",
+  "category": "USR",
+  "title": "Grounded chat answers with citations",
+  "pass": "user-objects",
+  "mode": "live",
+  "setup": "full world model.",
+  "input_events": [
+    "bar: \"what did rohan say about the villa budget?\""
+  ],
+  "expected": "answer quotes the actual messages with source chips (tap → Timeline/modal); retrieval over events + episodes; no uncited assertions.",
+  "wrong": [
+    {
+      "label": "hallucinated-recall",
+      "assert_absent": "paraphrase with no evidence link) — hard fail"
+    }
+  ],
+  "gates": [
+    "grounding_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "USR-04 · Grounded chat answers with citations"
+  }
+}

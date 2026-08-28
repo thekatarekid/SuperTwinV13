@@ -1,0 +1,29 @@
+{
+  "id": "TRC-02",
+  "category": "TRC",
+  "title": "why? → trace, end to end",
+  "pass": "traces",
+  "mode": "live",
+  "setup": "the villa task exists.",
+  "input_events": [
+    "user opens task → \"why?\" → trace link."
+  ],
+  "expected": "chain task → Decide decision → trace (exact prompt + context + output) → source events, all clickable; the packed context shown is byte-what-the-model-saw.",
+  "wrong": [
+    {
+      "label": "broken-chain",
+      "assert_absent": "any hop missing"
+    },
+    {
+      "label": "trace-summary-only",
+      "assert_absent": "paraphrase instead of actual prompt"
+    }
+  ],
+  "gates": [
+    "provenance_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TRC-02 · why? → trace, end to end"
+  }
+}

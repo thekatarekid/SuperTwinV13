@@ -1,0 +1,25 @@
+{
+  "id": "CON-08",
+  "category": "CON",
+  "title": "Idempotency — a second run changes nothing",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "world model immediately after CON-01..07 have run clean.",
+  "input_events": [
+    "rerun Tier-2 + Tier-3 on identical state."
+  ],
+  "expected": "zero mutations (byte-identical world model).",
+  "wrong": [
+    {
+      "label": "churn",
+      "assert_absent": "merges/splits oscillate run to run — space-flapping"
+    }
+  ],
+  "gates": [
+    "idempotency"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-08 · Idempotency — a second run changes nothing"
+  }
+}

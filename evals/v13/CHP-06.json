@@ -1,0 +1,25 @@
+{
+  "id": "CHP-06",
+  "category": "CHP",
+  "title": "Chapters idempotent across reruns",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "stable space state, chapters formed.",
+  "input_events": [
+    "Decide re-runs on identical state (no new episodes)."
+  ],
+  "expected": "zero chapter mutations; byte-identical structure.",
+  "wrong": [
+    {
+      "label": "chapter-churn",
+      "assert_absent": "relabel/regroup each run"
+    }
+  ],
+  "gates": [
+    "idempotency"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CHP-06 · Chapters idempotent across reruns"
+  }
+}

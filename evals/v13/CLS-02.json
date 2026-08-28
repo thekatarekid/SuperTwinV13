@@ -1,0 +1,25 @@
+{
+  "id": "CLS-02",
+  "category": "CLS",
+  "title": "One-sided intent NEVER auto-closes",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "same open task.",
+  "input_events": [
+    "self: \"paying pool tonight pakka\"."
+  ],
+  "expected": "`suggest_close` at most, confidence ≤0.6, surfaced as \"looks done — confirm?\".",
+  "wrong": [
+    {
+      "label": "eager-close",
+      "assert_absent": "auto-close on intent) — HARD FAIL, silent data loss"
+    }
+  ],
+  "gates": [
+    "false_auto_close"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-02 · One-sided intent NEVER auto-closes"
+  }
+}

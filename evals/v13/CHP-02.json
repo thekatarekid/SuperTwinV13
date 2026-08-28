@@ -1,0 +1,25 @@
+{
+  "id": "CHP-02",
+  "category": "CHP",
+  "title": "Simple space gets no chapters",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "space \"Pay September rent\" — one episode, one task.",
+  "input_events": [
+    "Decide."
+  ],
+  "expected": "zero chapters; task attaches to the space directly.",
+  "wrong": [
+    {
+      "label": "ceremony",
+      "assert_absent": "chapters manufactured for a single-shot space"
+    }
+  ],
+  "gates": [
+    "chapter_restraint"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CHP-02 · Simple space gets no chapters"
+  }
+}

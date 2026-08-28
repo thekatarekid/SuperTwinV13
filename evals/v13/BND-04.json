@@ -1,0 +1,30 @@
+{
+  "id": "BND-04",
+  "category": "BND",
+  "title": "Backfill wave orphan scan",
+  "pass": "scheduler.dispatch",
+  "mode": "code",
+  "setup": "WhatsApp 90d backfill; wave 1 (400 events) lands and processes; wave 2 (3,100 older events) lands 20 min later.",
+  "input_events": [
+    "both waves."
+  ],
+  "expected": "watermark waits for source completion; orphan scan re-queues wave 2; final containment ≥95% of 3,500; no event double-ingested (content_hash idempotency).",
+  "wrong": [
+    {
+      "label": "watermark-lie",
+      "assert_absent": "the 'watermark-lie' failure mode"
+    },
+    {
+      "label": "double-ingest",
+      "assert_absent": "the 'double-ingest' failure mode"
+    }
+  ],
+  "gates": [
+    "containment",
+    "idempotency"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BND-04 · Backfill wave orphan scan"
+  }
+}

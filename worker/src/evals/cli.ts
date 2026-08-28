@@ -1,47 +1,44 @@
 // ===========================================================================
-// [CODE] `npm run eval` — the CI entry point for the golden set (item 0.6).
+// [CODE] `npm run eval` — the entry point for the V13 golden set (build P0.9).
 //
-//   npm run eval                        frozen mode, evals/fixtures, all cases
-//   npm run eval -- --dir evals/selftest --measured
-//   npm run eval -- --only M,N --max-diff-lines 20
-//   npm run eval -- --live --live-module ./my-invoker.js
+//   npm run eval                          every fixture in evals/v13 (live)
+//   npm run eval -- --cat ROL,BND         only those categories
+//   npm run eval -- --id ROL-01           one case
+//   npm run eval -- --dir evals/v13/selftest --judge stub
+//   npm run eval -- --liveness            TRC-03 pass-liveness job
+//   npm run eval -- --materialize         re-emit evals/v13 from the docs
 //
-// FROZEN MODE MAKES NO NETWORK CALL. That is not a convention here, it is
-// enforced: the guard below replaces fetch, net.connect, tls.connect and
-// http(s).request with functions that throw. If any executor ever reaches for
-// the network in CI, the case fails loudly instead of quietly going online.
+// LIVE BY CONSTRUCTION: model-facing cases run the real pass, which runs the
+// real `claude` CLI, and are graded by the haiku judge. There is no frozen
+// mode. Deterministic cases (`mode: "code"`) never touch a model.
 //
-// Exit codes: 0 clean · 1 a case failed or a §14.2 gate was breached ·
-//             2 a fixture did not load or coverage is short of §4 ·
-//             3 the run could not be set up (bad flag, live with no invoker).
+// Exit codes: 0 clean · 1 a case failed or a hard gate breached ·
+//             2 a fixture did not load / coverage short of the docs ·
+//             3 the run could not be set up (bad flag).
 // ===========================================================================
 
-import http from "node:http";
-import https from "node:https";
-import net from "node:net";
 import { dirname, resolve } from "node:path";
-import tls from "node:tls";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// Side-effect import: registers the executors that drive real product code.
-// Without it every category would be PENDING, which is the runner's correct
-// behaviour and the wrong thing for the CI entry point to report.
-import "./executors/index.js";
-import { coverageGaps, loadDirectory, TOTAL_CASES, type Fixture } from "./fixtures.js";
+import { registerProductExecutors } from "./executors/index.js";
+import { coverageGaps, loadDirectory, type Fixture } from "./fixtures.js";
+import { haikuJudge, stubJudge, type Judge } from "./judge.js";
+import { assessLiveness, collectRunCounts, renderLiveness } from "./liveness.js";
+import { materialize } from "./materialize.js";
 import { renderReport, verdict } from "./report.js";
-import { runSuite, type EvalMode, type LiveInvoker } from "./runner.js";
+import { runSuite } from "./runner.js";
 
 export interface CliOptions {
-  mode: EvalMode;
   dir: string;
-  only: string[] | null;
+  cats: string[] | null;
   ids: string[] | null;
+  judge: "haiku" | "stub" | "none";
   hideNoDataGates: boolean;
-  maxDiffLines: number;
   checkCoverage: boolean;
-  liveModule: string | null;
-  /** Also fail on a pending case or an unmeasured gate. For the day the layers land. */
+  /** Also fail on a pending case or an unmeasured hard gate. */
   strict: boolean;
+  liveness: boolean;
+  materialize: boolean;
 }
 
 export function repoRoot(): string {
@@ -51,15 +48,15 @@ export function repoRoot(): string {
 
 export function parseArgs(argv: readonly string[]): CliOptions {
   const options: CliOptions = {
-    mode: "frozen",
-    dir: process.env.EVAL_FIXTURES ?? resolve(repoRoot(), "evals", "fixtures"),
-    only: null,
+    dir: process.env.EVAL_FIXTURES ?? resolve(repoRoot(), "evals", "v13"),
+    cats: null,
     ids: null,
+    judge: "haiku",
     hideNoDataGates: false,
-    maxDiffLines: 0,
     checkCoverage: true,
-    liveModule: null,
     strict: false,
+    liveness: false,
+    materialize: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
@@ -70,18 +67,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       return value;
     };
     switch (arg) {
-      case "--frozen":
-        options.mode = "frozen";
-        break;
-      case "--live":
-        options.mode = "live";
-        break;
-      case "--dir":
-        options.dir = resolve(process.cwd(), next());
-        options.checkCoverage = false;
-        break;
+      case "--cat":
       case "--only":
-        options.only = next()
+        options.cats = next()
           .split(",")
           .map((c) => c.trim().toUpperCase())
           .filter(Boolean);
@@ -94,11 +82,20 @@ export function parseArgs(argv: readonly string[]): CliOptions {
           .filter(Boolean);
         options.checkCoverage = false;
         break;
+      case "--dir":
+        options.dir = resolve(process.cwd(), next());
+        options.checkCoverage = false;
+        break;
+      case "--judge": {
+        const judge = next();
+        if (judge !== "haiku" && judge !== "stub" && judge !== "none") {
+          throw new Error(`--judge must be haiku|stub|none, got ${judge}`);
+        }
+        options.judge = judge;
+        break;
+      }
       case "--measured":
         options.hideNoDataGates = true;
-        break;
-      case "--max-diff-lines":
-        options.maxDiffLines = Number(next());
         break;
       case "--no-coverage":
         options.checkCoverage = false;
@@ -106,8 +103,11 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--strict":
         options.strict = true;
         break;
-      case "--live-module":
-        options.liveModule = next();
+      case "--liveness":
+        options.liveness = true;
+        break;
+      case "--materialize":
+        options.materialize = true;
         break;
       default:
         throw new Error(`unknown flag ${arg}`);
@@ -116,60 +116,26 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   return options;
 }
 
-type Restore = () => void;
-
-/**
- * Replaces every outbound transport with a thrower. Returns the undo, so tests
- * can prove the guard bites and then put the process back.
- */
-export function installOfflineGuard(): Restore {
-  const boom = (what: string) => (): never => {
-    throw new Error(`offline eval run attempted a network call via ${what}`);
-  };
-  const g = globalThis as { fetch?: unknown };
-  const originals = {
-    fetch: g.fetch,
-    netConnect: net.connect,
-    netCreate: net.createConnection,
-    socketConnect: net.Socket.prototype.connect,
-    tlsConnect: tls.connect,
-    httpRequest: http.request,
-    httpsRequest: https.request,
-  };
-  g.fetch = boom("fetch");
-  (net as { connect: unknown }).connect = boom("net.connect");
-  (net as { createConnection: unknown }).createConnection = boom("net.createConnection");
-  (net.Socket.prototype as { connect: unknown }).connect = boom("net.Socket.connect");
-  (tls as { connect: unknown }).connect = boom("tls.connect");
-  (http as { request: unknown }).request = boom("http.request");
-  (https as { request: unknown }).request = boom("https.request");
-  return () => {
-    g.fetch = originals.fetch;
-    (net as { connect: unknown }).connect = originals.netConnect;
-    (net as { createConnection: unknown }).createConnection = originals.netCreate;
-    (net.Socket.prototype as { connect: unknown }).connect = originals.socketConnect;
-    (tls as { connect: unknown }).connect = originals.tlsConnect;
-    (http as { request: unknown }).request = originals.httpRequest;
-    (https as { request: unknown }).request = originals.httpsRequest;
-  };
-}
-
 export function selectFixtures(fixtures: readonly Fixture[], options: CliOptions): Fixture[] {
+  // Self-test fixtures (evals/v13/selftest/) prove the harness, not the
+  // product: they run only when the load found nothing else — i.e. when their
+  // directory was targeted with --dir.
+  const onlySelftest = fixtures.every((f) => f.selftest === true);
   return fixtures.filter((f) => {
-    if (options.only && !options.only.includes(f.category)) return false;
+    if (f.selftest && !onlySelftest) return false;
+    if (options.cats && !options.cats.includes(f.category)) return false;
     if (options.ids && !options.ids.includes(f.id)) return false;
     return true;
   });
 }
 
-async function loadLiveInvoker(modulePath: string): Promise<LiveInvoker> {
-  const url = pathToFileURL(resolve(process.cwd(), modulePath)).href;
-  const mod = (await import(url)) as { default?: unknown; invoke?: unknown };
-  const candidate = mod.invoke ?? mod.default;
-  if (typeof candidate !== "function") {
-    throw new Error(`${modulePath} must export a LiveInvoker as \`invoke\` or as its default`);
-  }
-  return candidate as LiveInvoker;
+async function runLiveness(out: (line: string) => void): Promise<number> {
+  // The DB module resolves the production home (SUPERTWIN_HOME) itself.
+  const { getDb } = await import("../db/connection.js");
+  const counts = collectRunCounts(getDb());
+  const report = assessLiveness(counts);
+  out(renderLiveness(report));
+  return report.ok ? 0 : 1;
 }
 
 export async function main(argv: readonly string[], out: (line: string) => void = console.log): Promise<number> {
@@ -181,6 +147,19 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     return 3;
   }
 
+  if (options.materialize) {
+    try {
+      const result = materialize(repoRoot());
+      out(`eval: materialized ${result.written.length} fixtures into evals/v13/`);
+      return 0;
+    } catch (err) {
+      out(`eval: materialize failed — ${(err as Error).message}`);
+      return 2;
+    }
+  }
+
+  if (options.liveness) return runLiveness(out);
+
   const loaded = loadDirectory(options.dir);
   if (loaded.errors.length > 0) {
     out(`eval: ${loaded.errors.length} fixture(s) failed validation in ${options.dir}`);
@@ -191,53 +170,29 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     out(`eval: no fixtures found in ${options.dir}`);
     return 2;
   }
-
   if (options.checkCoverage) {
     const gaps = coverageGaps(loaded.fixtures);
     if (gaps.length > 0) {
-      out(`eval: fixture coverage does not match evals doc §4 (${TOTAL_CASES} cases)`);
+      out("eval: fixture coverage does not match the eval docs");
       for (const gap of gaps) out(`  - ${gap}`);
       return 2;
     }
   }
 
-  let live: LiveInvoker | undefined;
-  if (options.mode === "live") {
-    if (!options.liveModule) {
-      out(
-        "eval: --live needs a model invoker. Pass --live-module <path> exporting a LiveInvoker.\n" +
-          "      Frozen mode is the CI mode and needs nothing.",
-      );
-      return 3;
-    }
-    try {
-      live = await loadLiveInvoker(options.liveModule);
-    } catch (err) {
-      out(`eval: ${(err as Error).message}`);
-      return 3;
-    }
-  }
+  await registerProductExecutors();
 
-  const restore = options.mode === "frozen" ? installOfflineGuard() : null;
-  let suite;
-  try {
-    suite = await runSuite(selectFixtures(loaded.fixtures, options), { mode: options.mode, live });
-  } finally {
-    restore?.();
-  }
+  let judge: Judge | undefined;
+  if (options.judge === "haiku") judge = haikuJudge();
+  else if (options.judge === "stub") judge = stubJudge;
 
-  out(
-    renderReport(suite, loaded.fixtures, options.dir, {
-      hideNoDataGates: options.hideNoDataGates,
-      maxDiffLines: options.maxDiffLines,
-    }),
-  );
+  const suite = await runSuite(selectFixtures(loaded.fixtures, options), { judge });
+  out(renderReport(suite, options.dir, { hideNoDataGates: options.hideNoDataGates }));
 
   let ok = verdict(suite).ok;
   if (options.strict) {
-    const unmeasured = suite.gates.filter((g) => g.status === "no_data").length;
+    const unmeasured = suite.gates.filter((g) => g.hard && g.status === "no_data").length;
     if (suite.totals.pending > 0 || unmeasured > 0) {
-      out(`eval --strict: ${suite.totals.pending} pending case(s), ${unmeasured} unmeasured gate(s)`);
+      out(`eval --strict: ${suite.totals.pending} pending case(s), ${unmeasured} unmeasured hard gate(s)`);
       ok = false;
     }
   }

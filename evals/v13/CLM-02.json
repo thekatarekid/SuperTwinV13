@@ -1,0 +1,26 @@
+{
+  "id": "CLM-02",
+  "category": "CLM",
+  "title": "Unknown subject beats wrong",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "group with an unresolved participant (+91-98xxx not in roster).",
+  "input_events": [
+    "unknown number: \"my daughter got into NID!\"."
+  ],
+  "expected": "subject `unknown` with hint (phone), question queued for identity; claim held provisional.",
+  "wrong": [
+    {
+      "label": "nearest-name-guess",
+      "assert_absent": "attributed to Tanvi because she talks most"
+    }
+  ],
+  "gates": [
+    "claim_subject_accuracy",
+    "question_quality"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-02 · Unknown subject beats wrong"
+  }
+}

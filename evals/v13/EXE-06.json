@@ -1,0 +1,25 @@
+{
+  "id": "EXE-06",
+  "category": "EXE",
+  "title": "Self-verification catches its own miss",
+  "pass": "executor",
+  "mode": "live",
+  "setup": "draft-reply task; criteria include \"answers all 3 of Sameer's questions\".",
+  "input_events": [
+    "first draft answers 2 of 3."
+  ],
+  "expected": "verification against criteria catches the miss; loop revises; final draft covers all 3; then `approve-final` card for sending.",
+  "wrong": [
+    {
+      "label": "self-satisfied",
+      "assert_absent": "first draft shipped unverified"
+    }
+  ],
+  "gates": [
+    "verification_efficacy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "EXE-06 · Self-verification catches its own miss"
+  }
+}

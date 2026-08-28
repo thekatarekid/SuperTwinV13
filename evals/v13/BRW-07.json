@@ -1,0 +1,26 @@
+{
+  "id": "BRW-07",
+  "category": "BRW",
+  "title": "Claude Code JSONL adapter (zero-risk source)",
+  "pass": "browser",
+  "mode": "live",
+  "setup": "`~/.claude/projects/` holds 3 session files; one is actively being appended.",
+  "input_events": [
+    "file-watch adapter."
+  ],
+  "expected": "backfill parses all sessions into events (prompts, responses, tool calls, ts); live tail picks up appends within seconds; malformed lines quarantined not crashed; no network calls at all.",
+  "wrong": [
+    {
+      "label": "partial-parse-drop",
+      "assert_absent": "unparseable line kills the file"
+    }
+  ],
+  "gates": [
+    "containment",
+    "adapter_robustness"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-07 · Claude Code JSONL adapter (zero-risk source)"
+  }
+}

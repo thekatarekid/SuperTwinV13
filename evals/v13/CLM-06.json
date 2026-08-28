@@ -1,0 +1,25 @@
+{
+  "id": "CLM-06",
+  "category": "CLM",
+  "title": "Purchase history yields facts, not manufactured tastes",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "Zepto order confirmations (tier transactional).",
+  "input_events": [
+    "6 orders over 3 weeks, 5 contain coffee."
+  ],
+  "expected": "fact claims per order allowed; a habit/preference claim (\"buys coffee weekly\") ONLY with the repetition cited as evidence, conf moderate.",
+  "wrong": [
+    {
+      "label": "single-order-preference",
+      "assert_absent": "one purchase → \"prefers X\""
+    }
+  ],
+  "gates": [
+    "habit_evidence_floor"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-06 · Purchase history yields facts, not manufactured tastes"
+  }
+}

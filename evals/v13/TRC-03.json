@@ -1,0 +1,25 @@
+{
+  "id": "TRC-03",
+  "category": "TRC",
+  "title": "Liveness: no dead passes (code)",
+  "pass": "traces",
+  "mode": "code",
+  "setup": "system running 48h with normal activity.",
+  "input_events": [
+    "liveness check."
+  ],
+  "expected": "every registered pass (Orient, Critic, Extract, Decide, Digest-if-backfill, Assist-eval) shows production runs in the window; a pass with tests but zero runs fails the check loudly.",
+  "wrong": [
+    {
+      "label": "dead-code-green",
+      "assert_absent": "the V11 failure: 6 of 11 prompts never ran while CI stayed green"
+    }
+  ],
+  "gates": [
+    "pass_liveness"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "TRC-03 · Liveness: no dead passes (code)"
+  }
+}

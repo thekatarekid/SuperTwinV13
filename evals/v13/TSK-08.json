@@ -1,0 +1,25 @@
+{
+  "id": "TSK-08",
+  "category": "TSK",
+  "title": "Duplicate task reinforces, never re-creates",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "open task \"Book flights CCU-GOI\" exists.",
+  "input_events": [
+    "Tanvi next day: \"flights book hue kya??\"."
+  ],
+  "expected": "no new task; existing task gets urgency bump + evidence appended; optional nudge.",
+  "wrong": [
+    {
+      "label": "task-mitosis",
+      "assert_absent": "the 8-loops-for-one-bill defect class"
+    }
+  ],
+  "gates": [
+    "task_dedup"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-08 · Duplicate task reinforces, never re-creates"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "CRI-04",
+  "category": "CRI",
+  "title": "Does not over-block good writes",
+  "pass": "critic",
+  "mode": "live",
+  "setup": "6 clean, well-evidenced Orient decisions (from TOP-01).",
+  "input_events": [
+    "decisions."
+  ],
+  "expected": "all 6 `commit`; zero rejections.",
+  "wrong": [
+    {
+      "label": "paranoid-gate",
+      "assert_absent": "rejecting sound writes — a critic that blocks everything is as useless as none"
+    }
+  ],
+  "gates": [
+    "critic_false_block_rate"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRI-04 · Does not over-block good writes"
+  }
+}

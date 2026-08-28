@@ -1,0 +1,26 @@
+{
+  "id": "ROL-10",
+  "category": "ROL",
+  "title": "Retroactive receiver confirmation",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "yesterday's decision: \"book the court\" receiver inferred = Karan at 0.65 (second-look queued).",
+  "input_events": [
+    "today, Karan: \"court booked for sat 7am ✅\"."
+  ],
+  "expected": "the earlier receiver decision is confirmed/upgraded (revision recorded, evidence appended); the booking task closes with two-sided evidence.",
+  "wrong": [
+    {
+      "label": "frozen-decision",
+      "assert_absent": "yesterday's 0.65 never revisited"
+    }
+  ],
+  "gates": [
+    "second_look_efficacy",
+    "closure_recall"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-10 · Retroactive receiver confirmation"
+  }
+}

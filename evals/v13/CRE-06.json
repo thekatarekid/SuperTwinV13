@@ -1,0 +1,30 @@
+{
+  "id": "CRE-06",
+  "category": "CRE",
+  "title": "Recurring pattern proposes a recurring space",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "claims show quarterly HDFC FD renewals (backfill band C).",
+  "input_events": [
+    "FD maturity reminder message."
+  ],
+  "expected": "proposal \"HDFC FD renewals\" with `cadence: recurring`, life area Money.",
+  "wrong": [
+    {
+      "label": "one-shot-typing",
+      "assert_absent": "one_time type"
+    },
+    {
+      "label": "recurrence-blindness",
+      "assert_absent": "the 'recurrence-blindness' failure mode"
+    }
+  ],
+  "gates": [
+    "type_accuracy",
+    "recurrence_detection"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-06 · Recurring pattern proposes a recurring space"
+  }
+}

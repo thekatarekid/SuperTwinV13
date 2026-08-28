@@ -1,0 +1,25 @@
+{
+  "id": "TSK-04",
+  "category": "TSK",
+  "title": "Someone else's task is not yours",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "party model; sp_goa_dec.",
+  "input_events": [
+    "\"karan book YOUR ticket, rest of us are done\"."
+  ],
+  "expected": "no task for Aditya; optionally a monitoring item (\"Karan's ticket pending\") on the space.",
+  "wrong": [
+    {
+      "label": "task-theft",
+      "assert_absent": "Aditya's task list gets \"book Karan's ticket\""
+    }
+  ],
+  "gates": [
+    "party_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-04 · Someone else's task is not yours"
+  }
+}

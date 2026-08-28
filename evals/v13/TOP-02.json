@@ -1,0 +1,25 @@
+{
+  "id": "TOP-02",
+  "category": "TOP",
+  "title": "Single-topic segment stays whole",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` exists.",
+  "input_events": [
+    "18 messages, all villa discussion — prices, photos, votes."
+  ],
+  "expected": "exactly 1 episode, attached to `sp_goa_dec`, confidence ≥0.85.",
+  "wrong": [
+    {
+      "label": "nervous-splitter",
+      "assert_absent": "splitting on sub-threads: price vs photos) — the #1 fragmentation seed"
+    }
+  ],
+  "gates": [
+    "over_split_rate"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-02 · Single-topic segment stays whole"
+  }
+}

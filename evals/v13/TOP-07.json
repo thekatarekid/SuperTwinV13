@@ -1,0 +1,30 @@
+{
+  "id": "TOP-07",
+  "category": "TOP",
+  "title": "Forwarded ad inside a personal chat is not a topic",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "DM Ma; `sp_family` space.",
+  "input_events": [
+    "Ma forwards an Airtel offer broadcast, then: \"beta call me tonight\"."
+  ],
+  "expected": "1 episode (call request); the forward is marked promotional context, no episode, no space, no task.",
+  "wrong": [
+    {
+      "label": "ad-topic",
+      "assert_absent": "episode/space for the offer"
+    },
+    {
+      "label": "caring-blindness",
+      "assert_absent": "missing \"call me tonight\""
+    }
+  ],
+  "gates": [
+    "ad_immunity",
+    "task_recall"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-07 · Forwarded ad inside a personal chat is not a topic"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "FIX-05",
+  "category": "FIX",
+  "title": "Drag = correction",
+  "pass": "feedback",
+  "mode": "live",
+  "setup": "episode misfiled in sp_falcon.",
+  "input_events": [
+    "user drags it to sp_sideproject."
+  ],
+  "expected": "same correction pipeline as text (move event, exemplar update, eval draft) — no dialog; undo chip.",
+  "wrong": [
+    {
+      "label": "ui-only-move",
+      "assert_absent": "moved visually, world model/exemplars unchanged"
+    }
+  ],
+  "gates": [
+    "correction_parse_accuracy",
+    "promotion_loop_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FIX-05 · Drag = correction"
+  }
+}

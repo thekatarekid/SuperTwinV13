@@ -1,0 +1,25 @@
+{
+  "id": "BRW-05",
+  "category": "BRW",
+  "title": "Captured-API replay over DOM walking",
+  "pass": "browser",
+  "mode": "live",
+  "setup": "first villa-compare run captured goibibo's own listing XHR.",
+  "input_events": [
+    "subsequent scheduled read."
+  ],
+  "expected": "in-page fetch of the recorded endpoint with the browser's own cookies/headers; DOM scraping only as fallback; result identical to UI truth.",
+  "wrong": [
+    {
+      "label": "synthetic-fetch",
+      "assert_absent": "requests outside the browser context with copied cookies"
+    }
+  ],
+  "gates": [
+    "capture_quietness"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-05 · Captured-API replay over DOM walking"
+  }
+}

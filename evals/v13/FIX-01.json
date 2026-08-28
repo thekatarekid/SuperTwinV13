@@ -1,0 +1,26 @@
+{
+  "id": "FIX-01",
+  "category": "FIX",
+  "title": "\"this is karan's task, not mine\"",
+  "pass": "feedback",
+  "mode": "live",
+  "setup": "task \"book badminton court\" owner=self (misassigned).",
+  "input_events": [
+    "the utterance, context-locked to the task."
+  ],
+  "expected": "parsed → wrong_person; owner → Karan (our side: monitoring item); applied immediately + undo chip; correction event; eval case auto-drafted with the original context.",
+  "wrong": [
+    {
+      "label": "parse-to-nothing",
+      "assert_absent": "generic acknowledgment, no mutation"
+    }
+  ],
+  "gates": [
+    "correction_parse_accuracy",
+    "promotion_loop_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FIX-01 · \"this is karan's task, not mine\""
+  }
+}

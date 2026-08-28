@@ -1,0 +1,30 @@
+{
+  "id": "SCH-05",
+  "category": "SCH",
+  "title": "Daily commitments brief content",
+  "pass": "schedule",
+  "mode": "live",
+  "setup": "confirmed daily brief 8am; today holds: pool payment due, villa approval pending, Ma's birthday in 2 days, check-in fires tomorrow.",
+  "input_events": [
+    "brief generation."
+  ],
+  "expected": "all four present, prioritized, each with source chips; delivered as a nudge + Today; skips gracefully when there's genuinely nothing.",
+  "wrong": [
+    {
+      "label": "empty-filler",
+      "assert_absent": "padding on a quiet day"
+    },
+    {
+      "label": "commitment-miss",
+      "assert_absent": "pool payment absent"
+    }
+  ],
+  "gates": [
+    "brief_recall",
+    "brief_precision"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-05 · Daily commitments brief content"
+  }
+}

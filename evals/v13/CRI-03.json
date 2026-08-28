@@ -1,0 +1,25 @@
+{
+  "id": "CRI-03",
+  "category": "CRI",
+  "title": "Catches confidence inflation",
+  "pass": "critic",
+  "mode": "live",
+  "setup": "seeded attach at confidence 0.92 whose only evidence is \"hmm ok\".",
+  "input_events": [
+    "decisions + evidence."
+  ],
+  "expected": "verdict challenges the confidence; downgrade or reject.",
+  "wrong": [
+    {
+      "label": "calibration-blindness",
+      "assert_absent": "the 'calibration-blindness' failure mode"
+    }
+  ],
+  "gates": [
+    "confidence_calibration"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRI-03 · Catches confidence inflation"
+  }
+}

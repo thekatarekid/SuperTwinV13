@@ -1,0 +1,26 @@
+{
+  "id": "SCH-07",
+  "category": "SCH",
+  "title": "Brief time learns from behavior",
+  "pass": "schedule",
+  "mode": "live",
+  "setup": "brief fires 8:00; user opens it ~9:40 daily for 2 weeks.",
+  "input_events": [
+    "Tier-2/learning review."
+  ],
+  "expected": "suggestion \"Move your brief to 9:30?\" — moved only on confirm; the learning is from read-time telemetry.",
+  "wrong": [
+    {
+      "label": "silent-reschedule",
+      "assert_absent": "the 'silent-reschedule' failure mode"
+    }
+  ],
+  "gates": [
+    "schedule_policy",
+    "reconcile_grading"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-07 · Brief time learns from behavior"
+  }
+}

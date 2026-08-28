@@ -1,0 +1,25 @@
+{
+  "id": "ASN-12",
+  "category": "ASN",
+  "title": "Repeat browsing binds to the open task, not a new thread",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` has open task \"shortlist villas\"; villa pages visited 3 days ago.",
+  "input_events": [
+    "browser segment: 4th visit to the same villa pages."
+  ],
+  "expected": "attach to `sp_goa_dec`, linked to the shortlist task's context; visit_count noted.",
+  "wrong": [
+    {
+      "label": "groundhog-day",
+      "assert_absent": "each revisit a fresh episode with no linkage"
+    }
+  ],
+  "gates": [
+    "continuity_rate"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-12 · Repeat browsing binds to the open task, not a new thread"
+  }
+}

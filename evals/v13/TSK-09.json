@@ -1,0 +1,25 @@
+{
+  "id": "TSK-09",
+  "category": "TSK",
+  "title": "Ad CTA is not a task",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "Airtel tier promotional.",
+  "input_events": [
+    "\"Your Airtel Axis Credit Card is READY! Claim now!\"."
+  ],
+  "expected": "zero tasks.",
+  "wrong": [
+    {
+      "label": "ad-task",
+      "assert_absent": "the exact defect V11 shipped"
+    }
+  ],
+  "gates": [
+    "ad_immunity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TSK-09 · Ad CTA is not a task"
+  }
+}

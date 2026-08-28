@@ -1,0 +1,25 @@
+{
+  "id": "CRE-08",
+  "category": "CRE",
+  "title": "Proposal carries complete type + area fields",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "none.",
+  "input_events": [
+    "sustained visa-application discussion + document scans on screen."
+  ],
+  "expected": "proposal with all fields: label, life_area (Admin/Travel), activity, term, persistence, cadence, and a first plan draft.",
+  "wrong": [
+    {
+      "label": "bare-proposal",
+      "assert_absent": "label only, fields defaulted blindly"
+    }
+  ],
+  "gates": [
+    "schema_completeness"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-08 · Proposal carries complete type + area fields"
+  }
+}

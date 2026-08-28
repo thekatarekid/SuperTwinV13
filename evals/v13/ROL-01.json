@@ -1,0 +1,124 @@
+{
+  "id": "ROL-01",
+  "category": "ROL",
+  "title": "@mention receiver + no task theft",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "rohan",
+        "name": "Rohan Mehta"
+      },
+      {
+        "id": "tanvi",
+        "name": "Tanvi S"
+      },
+      {
+        "id": "k1",
+        "name": "Karan"
+      }
+    ],
+    "stream": {
+      "key": "goa-gang@g.us",
+      "type": "wa.group",
+      "tier": "personal-group",
+      "audience": [
+        "self",
+        "rohan",
+        "tanvi",
+        "k1"
+      ]
+    },
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "exemplars": [
+          "dates 18-21 Dec locked",
+          "flight compare CCU-GOI"
+        ]
+      }
+    ],
+    "open_tasks": [],
+    "claims": []
+  },
+  "input_events": [
+    {
+      "n": 1,
+      "ts": "2026-08-26T10:02+05:30",
+      "sender": "rohan",
+      "text": "@Karan bhai book your ticket today, price badh raha hai"
+    },
+    {
+      "n": 2,
+      "ts": "10:03",
+      "sender": "k1",
+      "text": "haan aaj pakka"
+    },
+    {
+      "n": 3,
+      "ts": "10:04",
+      "sender": "rohan",
+      "text": "aditya tu ho gaya na?"
+    },
+    {
+      "n": 4,
+      "ts": "10:05",
+      "sender": "self",
+      "text": "yes done last night"
+    }
+  ],
+  "expected": {
+    "roles": {
+      "e1": {
+        "receiver": [
+          "k1"
+        ],
+        "basis": "@mention (structural)"
+      },
+      "e3": {
+        "receiver": [
+          "self"
+        ],
+        "basis": "named address"
+      }
+    },
+    "tasks": [
+      {
+        "owner": "k1_monitoring_only",
+        "note": "no task for self"
+      }
+    ],
+    "closures": [
+      {
+        "task": "self flight booking",
+        "verdict": "close",
+        "evidence": "e4 'done last night' + e3 question"
+      }
+    ]
+  },
+  "wrong": [
+    {
+      "label": "task-theft",
+      "assert_absent": "a 'book ticket' task owned by self"
+    },
+    {
+      "label": "receiver-blur",
+      "assert_absent": "e1 receiver = whole group"
+    }
+  ],
+  "gates": [
+    "false_receiver_assignment",
+    "party_accuracy",
+    "closure_recall"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-01 · @mention receiver + no task theft (full fixture in the doc header)"
+  }
+}

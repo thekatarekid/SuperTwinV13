@@ -1,0 +1,25 @@
+{
+  "id": "CAT-05",
+  "category": "CAT",
+  "title": "Enrichment ordering policy (code-asserted)",
+  "pass": "digest",
+  "mode": "code",
+  "setup": "backfill running: Cat-1 data 60% done; Cat-1 media queue 300 items; Cat-2 media queue 900 items.",
+  "input_events": [
+    "scheduler state over a simulated hour."
+  ],
+  "expected": "CLI slots serve only Cat-1 (data + media) until Cat-1 fully completes; then Cat-2 data (Digest); Cat-2 media last and lazily; whisper (local) runs throughout; a live event preempts all.",
+  "wrong": [
+    {
+      "label": "slot-leak",
+      "assert_absent": "any Cat-2 media call while Cat-1 pending"
+    }
+  ],
+  "gates": [
+    "ordering_compliance"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "CAT-05 · Enrichment ordering policy (code-asserted)"
+  }
+}

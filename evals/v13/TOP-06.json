@@ -1,0 +1,30 @@
+{
+  "id": "TOP-06",
+  "category": "TOP",
+  "title": "Gradual topic drift splits at the shift",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "DM with Sameer; space `sp_falcon` (Work).",
+  "input_events": [
+    "20 messages: 12 about Falcon deadlines drifting into 8 about weekend cricket plans."
+  ],
+  "expected": "2 episodes; split point within ±2 messages of the actual shift; cricket → unsorted or People (not Falcon).",
+  "wrong": [
+    {
+      "label": "work-bleed",
+      "assert_absent": "cricket inside sp_falcon"
+    },
+    {
+      "label": "over-split",
+      "assert_absent": ">2 episodes"
+    }
+  ],
+  "gates": [
+    "split_point_accuracy",
+    "contamination"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-06 · Gradual topic drift splits at the shift"
+  }
+}

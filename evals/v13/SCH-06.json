@@ -1,0 +1,26 @@
+{
+  "id": "SCH-06",
+  "category": "SCH",
+  "title": "Backfilled past deadline never schedules",
+  "pass": "schedule",
+  "mode": "live",
+  "setup": "band-B backfill: 2-month-old \"web check-in opens 5 June\".",
+  "input_events": [
+    "Decide with band policy."
+  ],
+  "expected": "no schedule (date past); closure check instead; at most the airline preference claim.",
+  "wrong": [
+    {
+      "label": "time-traveler-schedule",
+      "assert_absent": "hard fail"
+    }
+  ],
+  "gates": [
+    "band_policy_compliance",
+    "schedule_math"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "SCH-06 · Backfilled past deadline never schedules"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "CRI-02",
+  "category": "CRI",
+  "title": "Catches contamination attach",
+  "pass": "critic",
+  "mode": "live",
+  "setup": "seeded Orient output attaches lunch-plans episode to `sp_falcon`.",
+  "input_events": [
+    "decisions + episode content."
+  ],
+  "expected": "`downgrade_to_unsorted` citing evidence mismatch.",
+  "wrong": [
+    {
+      "label": "rubber-stamp",
+      "assert_absent": "the 'rubber-stamp' failure mode"
+    }
+  ],
+  "gates": [
+    "contamination"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRI-02 · Catches contamination attach"
+  }
+}

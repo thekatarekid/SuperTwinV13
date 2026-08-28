@@ -1,0 +1,25 @@
+{
+  "id": "TOP-08",
+  "category": "TOP",
+  "title": "Hinglish topic split",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "`sp_goa_dec` exists.",
+  "input_events": [
+    "mixed Hinglish segment: \"flights dekh liye kya? ... waise ma ka birthday bhi aa raha hai 12 tarikh ko, gift socho\"."
+  ],
+  "expected": "2 episodes — Goa (attach), Ma's birthday gift (propose or attach if `sp_ma_bday` exists in sibling variant).",
+  "wrong": [
+    {
+      "label": "romanized-blur",
+      "assert_absent": "single episode because language mixing confused the split"
+    }
+  ],
+  "gates": [
+    "multilingual_accuracy"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-08 · Hinglish topic split"
+  }
+}

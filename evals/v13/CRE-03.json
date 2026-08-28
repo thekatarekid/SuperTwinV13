@@ -1,0 +1,30 @@
+{
+  "id": "CRE-03",
+  "category": "CRE",
+  "title": "Repetition across days crosses the threshold",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "unsorted: keyboard reading day 1, day 4 (price comparisons), day 6 (cart page on screen).",
+  "input_events": [
+    "day 6 segment."
+  ],
+  "expected": "NOW propose (\"Buy a mechanical keyboard\") citing the 3-occasion pattern + cart evidence.",
+  "wrong": [
+    {
+      "label": "threshold-blindness",
+      "assert_absent": "still unsorted after clear buying intent"
+    },
+    {
+      "label": "premature",
+      "assert_absent": "proposed on day 1 in sibling case"
+    }
+  ],
+  "gates": [
+    "proposal_recall",
+    "proposal_precision"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CRE-03 · Repetition across days crosses the threshold"
+  }
+}

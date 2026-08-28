@@ -1,0 +1,30 @@
+{
+  "id": "ROL-04",
+  "category": "ROL",
+  "title": "Pronoun chain across speakers",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "Family group; Isha = sister.",
+  "input_events": [
+    "Ma: \"Isha ka convocation 14th ko hai\" · Papa: \"she also needs the car that morning\" · self: \"I'll drop her\"."
+  ],
+  "expected": "\"she\"/\"her\" → Isha (conf ≥0.8); task \"drop Isha at convocation, 14th\" owner self; claim on Isha (convocation on the 14th).",
+  "wrong": [
+    {
+      "label": "pronoun-drift",
+      "assert_absent": "her → Ma"
+    },
+    {
+      "label": "unknown-overuse",
+      "assert_absent": "resolvable pronoun left unknown"
+    }
+  ],
+  "gates": [
+    "pronoun_accuracy",
+    "claim_subject_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-04 · Pronoun chain across speakers"
+  }
+}

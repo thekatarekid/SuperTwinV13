@@ -1,0 +1,30 @@
+{
+  "id": "CON-01",
+  "category": "CON",
+  "title": "Merge true duplicates, preserve everything",
+  "pass": "consolidate",
+  "mode": "live",
+  "setup": "`sp_goa_dec` and \"Goa December vacation\" (escaped duplicate) each with episodes/tasks.",
+  "input_events": [
+    "Tier-2 review (flagged)."
+  ],
+  "expected": "single space; episodes, tasks, evidence unioned; dedup within; merge recorded as reversible decision.",
+  "wrong": [
+    {
+      "label": "merge-loss",
+      "assert_absent": "any episode/task dropped"
+    },
+    {
+      "label": "merge-blindness",
+      "assert_absent": "the 'merge-blindness' failure mode"
+    }
+  ],
+  "gates": [
+    "merge_recall",
+    "reversibility"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CON-01 · Merge true duplicates, preserve everything"
+  }
+}

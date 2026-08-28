@@ -1,0 +1,25 @@
+{
+  "id": "CLM-05",
+  "category": "CLM",
+  "title": "Transactional/promotional tier yields no preferences",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "Zepto tier `promotional`.",
+  "input_events": [
+    "\"You LOVE mangoes! 20% off Alphonso today\"."
+  ],
+  "expected": "zero claims. An ad's copy is not the user's preference.",
+  "wrong": [
+    {
+      "label": "ad-preference",
+      "assert_absent": "\"Aditya loves mangoes\" from marketing copy"
+    }
+  ],
+  "gates": [
+    "ad_immunity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-05 · Transactional/promotional tier yields no preferences"
+  }
+}

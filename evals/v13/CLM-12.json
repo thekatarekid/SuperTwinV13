@@ -1,0 +1,25 @@
+{
+  "id": "CLM-12",
+  "category": "CLM",
+  "title": "Workflow claim from screen behavior",
+  "pass": "extract",
+  "mode": "live",
+  "setup": "2 weeks of screen segments: every morning — Gmail, then Sheet \"Falcon burn\", then Slack.",
+  "input_events": [
+    "consolidated pattern context + today's segment."
+  ],
+  "expected": "workflow claim (\"Morning routine: email → burn sheet → Slack\") citing the repetition.",
+  "wrong": [
+    {
+      "label": "single-day-workflow",
+      "assert_absent": "claimed from one occurrence"
+    }
+  ],
+  "gates": [
+    "habit_evidence_floor"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLM-12 · Workflow claim from screen behavior"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "ASN-13",
+  "category": "ASN",
+  "title": "Transactional stream tier caps extraction",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "HDFC stream tiered `transactional`; `sp_money` exists.",
+  "input_events": [
+    "HDFC: credit card statement message."
+  ],
+  "expected": "attach to `sp_money` as a record; statement facts fine; NO preference/belief claims, no promotional tasks.",
+  "wrong": [
+    {
+      "label": "bank-spam",
+      "assert_absent": "statement lines becoming multiple episodes/spaces"
+    }
+  ],
+  "gates": [
+    "tier_policy_compliance"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "ASN-13 · Transactional stream tier caps extraction"
+  }
+}

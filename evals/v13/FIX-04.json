@@ -1,0 +1,25 @@
+{
+  "id": "FIX-04",
+  "category": "FIX",
+  "title": "\"stop tracking this group\"",
+  "pass": "feedback",
+  "mode": "live",
+  "setup": "\"College Memes\" fully processed.",
+  "input_events": [
+    "utterance on the stream in Library."
+  ],
+  "expected": "capture pause honored at source going forward; existing derived data offered as keep-or-remove choice (explicit, honest); status visible in Library.",
+  "wrong": [
+    {
+      "label": "fake-privacy",
+      "assert_absent": "says paused, keeps capturing) — hard fail"
+    }
+  ],
+  "gates": [
+    "privacy_compliance"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "FIX-04 · \"stop tracking this group\""
+  }
+}

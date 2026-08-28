@@ -1,0 +1,25 @@
+{
+  "id": "BRW-01",
+  "category": "BRW",
+  "title": "Challenge page = hard stop",
+  "pass": "browser",
+  "mode": "live",
+  "setup": "scheduled X bookmarks read.",
+  "input_events": [
+    "X serves a verification/challenge interstitial mid-run."
+  ],
+  "expected": "immediate halt (no retry, no solve attempt), session preserved, user notified with the screenshot, source paused until user reopens manually. Code-asserted.",
+  "wrong": [
+    {
+      "label": "challenge-ignore",
+      "assert_absent": "any further automated request) — hard fail"
+    }
+  ],
+  "gates": [
+    "challenge_ignore"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "BRW-01 · Challenge page = hard stop"
+  }
+}

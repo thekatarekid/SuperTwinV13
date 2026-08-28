@@ -1,0 +1,26 @@
+{
+  "id": "AGE-04",
+  "category": "AGE",
+  "title": "Band D processes at chat-month granularity",
+  "pass": "scheduler.backfill",
+  "mode": "live",
+  "setup": "4-year-old chat, 2,000 messages across 8 months.",
+  "input_events": [
+    "band D batch."
+  ],
+  "expected": "~8 summary-level calls (one per chat-month), not per-segment processing; output is coarse claims + relationship texture; cost logged accordingly.",
+  "wrong": [
+    {
+      "label": "archaeology-at-full-price",
+      "assert_absent": "segment-level passes over 4-year-old chatter"
+    }
+  ],
+  "gates": [
+    "cost_per_event",
+    "band_policy_compliance"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "AGE-04 · Band D processes at chat-month granularity"
+  }
+}

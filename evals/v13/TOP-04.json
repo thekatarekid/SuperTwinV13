@@ -1,0 +1,30 @@
+{
+  "id": "TOP-04",
+  "category": "TOP",
+  "title": "Emoji-only and sticker messages belong",
+  "pass": "orient",
+  "mode": "live",
+  "setup": "ep_412 open.",
+  "input_events": [
+    "segment: Karan: \"🔥🔥\", Tanvi: 👍 reaction to villa link, one sticker."
+  ],
+  "expected": "joined to ep_412 as agreement signals; no episode of their own; noted as assent in summary.",
+  "wrong": [
+    {
+      "label": "noise-drop",
+      "assert_absent": "discarded"
+    },
+    {
+      "label": "noise-inflate",
+      "assert_absent": "own episode/claim \"Karan loves fire\""
+    }
+  ],
+  "gates": [
+    "containment",
+    "signal_interpretation"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "TOP-04 · Emoji-only and sticker messages belong"
+  }
+}

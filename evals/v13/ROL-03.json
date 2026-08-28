@@ -1,0 +1,30 @@
+{
+  "id": "ROL-03",
+  "category": "ROL",
+  "title": "Mentioned receiver vs mentioned third party (set test)",
+  "pass": "orient+extract",
+  "mode": "live",
+  "setup": "Goa gang (audience: self, rohan, tanvi, k1). CRM knows \"Dev\" (not in group).",
+  "input_events": [
+    "Rohan: \"tanvi ask dev if his anjuna villa contact is still active\"."
+  ],
+  "expected": "tanvi = receiver (in audience); dev = mentioned third party (code: not in audience); a task for Tanvi (monitoring only for us); Dev's villa contact noted on his CRM record.",
+  "wrong": [
+    {
+      "label": "membership-guess",
+      "assert_absent": "model, not code, decides in/out of audience"
+    },
+    {
+      "label": "third-party-task",
+      "assert_absent": "task assigned to Dev in our system as if actionable"
+    }
+  ],
+  "gates": [
+    "role_accuracy",
+    "crm_coverage"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "ROL-03 · Mentioned receiver vs mentioned third party (set test)"
+  }
+}

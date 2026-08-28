@@ -1,0 +1,25 @@
+{
+  "id": "CLS-07",
+  "category": "CLS",
+  "title": "User \"mark done\" is learned, not just recorded",
+  "pass": "decide",
+  "mode": "live",
+  "setup": "user marks \"call the plumber\" done with note \"he came by himself\".",
+  "input_events": [
+    "the app interaction event."
+  ],
+  "expected": "closed; correction drafted into the golden set (closure evidence pattern the system missed).",
+  "wrong": [
+    {
+      "label": "learn-nothing",
+      "assert_absent": "no correction record"
+    }
+  ],
+  "gates": [
+    "promotion_loop_integrity"
+  ],
+  "source": {
+    "doc": "V1",
+    "section": "CLS-07 · User \"mark done\" is learned, not just recorded"
+  }
+}

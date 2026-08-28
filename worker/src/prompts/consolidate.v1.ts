@@ -30,6 +30,12 @@ export interface ConsolidateVerdict {
   splitSpace: string | null;
   confidence: number;
   reason: string | null;
+  /** consolidate.v2: lifecycle outcomes alongside the verdict. */
+  stateChanges: { space: string; set: "dormant" | "archived" }[];
+  /** consolidate.v2: aggregated summary when evidence is folded together. */
+  evidenceSummary: string | null;
+  /** consolidate.v2: every event id a compressed claim still cites. */
+  retainedEventIds: string[];
 }
 
 export function validateConsolidateOutput(parsed: unknown): ConsolidateVerdict {
@@ -44,6 +50,16 @@ export function validateConsolidateOutput(parsed: unknown): ConsolidateVerdict {
     typeof r.confidence === "number" && Number.isFinite(r.confidence)
       ? Math.max(0, Math.min(1, r.confidence))
       : 0;
+  const stateChanges: { space: string; set: "dormant" | "archived" }[] = [];
+  if (Array.isArray(r.state_changes)) {
+    for (const s of r.state_changes) {
+      if (typeof s !== "object" || s === null) continue;
+      const o = s as Record<string, unknown>;
+      const space = typeof o.space === "string" && o.space !== "" ? o.space : null;
+      const set = o.set === "dormant" || o.set === "archived" ? o.set : null;
+      if (space && set) stateChanges.push({ space, set });
+    }
+  }
   return {
     verdict,
     survivor: typeof r.survivor === "string" && r.survivor !== "" ? r.survivor : null,
@@ -51,5 +67,13 @@ export function validateConsolidateOutput(parsed: unknown): ConsolidateVerdict {
       typeof r.split_space === "string" && r.split_space !== "" ? r.split_space : null,
     confidence,
     reason: typeof r.reason === "string" && r.reason !== "" ? r.reason : null,
+    stateChanges,
+    evidenceSummary:
+      typeof r.evidence_summary === "string" && r.evidence_summary !== ""
+        ? r.evidence_summary
+        : null,
+    retainedEventIds: Array.isArray(r.retained_event_ids)
+      ? r.retained_event_ids.filter((x): x is string => typeof x === "string")
+      : [],
   };
 }

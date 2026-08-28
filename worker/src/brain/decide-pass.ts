@@ -28,7 +28,7 @@ import {
   type DecideOutput,
   type DecideTask,
 } from "../prompts/decide.v1.js";
-import { DECIDE_V2_SYSTEM } from "../prompts/decide.v2.js";
+import { DECIDE_V3_SYSTEM } from "../prompts/decide.v3.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { packEpisodes, packSpaceState } from "./thin-pack.js";
 
@@ -415,7 +415,7 @@ export async function runDecidePass(
   const result = await runJsonPass<DecideOutput>(
     {
       pass: "decide",
-      system: DECIDE_V2_SYSTEM,
+      system: DECIDE_V3_SYSTEM,
       user,
       role: "decide",
       cohortId: null,

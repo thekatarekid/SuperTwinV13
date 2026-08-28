@@ -24,10 +24,10 @@ import { appStateGet, appStateSet } from "../db/ingest.js";
 import { runJsonPass, type JsonPassDeps } from "../brain/llm.js";
 import { packEpisode, packSpaceState } from "../brain/thin-pack.js";
 import {
-  CONSOLIDATE_V1_SYSTEM,
   validateConsolidateOutput,
   type ConsolidateVerdict,
 } from "../prompts/consolidate.v1.js";
+import { CONSOLIDATE_V2_SYSTEM } from "../prompts/consolidate.v2.js";
 import {
   SWEEP_REVIEW_V1_SYSTEM,
   validateSweepReviewOutput,
@@ -107,7 +107,7 @@ async function judgePair(
   const result = await runJsonPass<ConsolidateVerdict>(
     {
       pass: "consolidate",
-      system: CONSOLIDATE_V1_SYSTEM,
+      system: CONSOLIDATE_V2_SYSTEM,
       user,
       role: "consolidate",
       cohortId: null,

@@ -30,7 +30,9 @@ export function fixtureUser(
   const lines: string[] = [`[BAND] ${band.letter} ${band.lane}   [MODE] propose-only`];
   if (band.policy) lines.push(band.policy);
   if (setup !== undefined && setup !== null && setup !== "") {
-    lines.push(`[SETUP] ${prose(setup)}`);
+    // Labelled the way the packer labels it: this prose IS the retrieval
+    // result — existing spaces named here are live attach candidates.
+    lines.push(`[EXISTING STATE + CANDIDATE SPACES] ${prose(setup)}`);
   }
   lines.push(`[NEW BUNDLE] ${inputEvents.length} events`);
   inputEvents.forEach((e, i) => lines.push(`  e${i + 1}: ${prose(e)}`));

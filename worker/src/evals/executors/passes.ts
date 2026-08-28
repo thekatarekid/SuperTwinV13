@@ -15,13 +15,11 @@ import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { validateExtractOutput } from "../../prompts/extract.v1.js";
-import { EXTRACT_V2_SYSTEM } from "../../prompts/extract.v2.js";
+import { EXTRACT_V3_SYSTEM } from "../../prompts/extract.v3.js";
 import { validateDecideOutput } from "../../prompts/decide.v1.js";
-import { DECIDE_V2_SYSTEM } from "../../prompts/decide.v2.js";
-import {
-  CONSOLIDATE_V1_SYSTEM,
-  validateConsolidateOutput,
-} from "../../prompts/consolidate.v1.js";
+import { DECIDE_V3_SYSTEM } from "../../prompts/decide.v3.js";
+import { validateConsolidateOutput } from "../../prompts/consolidate.v1.js";
+import { CONSOLIDATE_V2_SYSTEM } from "../../prompts/consolidate.v2.js";
 import { DIGEST_V1_SYSTEM, parseDigestV1, type DigestParse } from "../../prompts/digest.v1.js";
 import { bandPolicyLine } from "../../packer/index.js";
 import { fixtureUser } from "./orient.js";
@@ -58,7 +56,7 @@ export const extractExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "extract",
-    system: EXTRACT_V2_SYSTEM,
+    system: EXTRACT_V3_SYSTEM,
     user,
     role: "extract",
     unit: { kind: "eval", id: fixture.id },
@@ -80,7 +78,7 @@ export const decideExecutor: Executor = async ({ fixture }) => {
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V2_SYSTEM,
+    system: DECIDE_V3_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },
@@ -111,7 +109,7 @@ export const consolidateExecutor: Executor = async ({ fixture }) => {
   const user = parts.join("\n");
   const result = await runJsonPass({
     pass: "consolidate",
-    system: CONSOLIDATE_V1_SYSTEM,
+    system: CONSOLIDATE_V2_SYSTEM,
     user,
     role: "consolidate",
     unit: { kind: "eval", id: fixture.id },
@@ -139,6 +137,30 @@ export const backfillExecutor: Executor = async ({ fixture }) => {
         ? [`historical content under review: ${fixture.setup}`, ...fixture.input_events]
         : fixture.input_events,
   };
+  const band = fixtureBand(fixture);
+  if (band.letter === "D") {
+    // Band D processes at chat-month granularity through the DIGEST pass
+    // (spec §5.3/§8.5): coarse claims + narrative, structurally incapable of
+    // emitting tasks or spaces. One exemplar call proves the path; the
+    // chat-month plan is code (one call per month named in the setup).
+    const monthsMatch = /(\d+)\s*month/i.exec(
+      typeof fixture.setup === "string" ? fixture.setup : "",
+    );
+    const plannedCalls = monthsMatch ? Number(monthsMatch[1]) : 1;
+    const digest = await digestPromptExecutor({ fixture: merged });
+    return {
+      ok: digest.ok !== false,
+      output: {
+        granularity: "chat-month (Digest pass — no tasks, no spaces by construction)",
+        plannedDigestCalls: plannedCalls,
+        exemplarDigest: digest.output,
+      },
+      metrics: { ...(digest.metrics ?? {}), planned_digest_calls: plannedCalls } as Record<string, number>,
+      notes: [
+        `band D: ${plannedCalls} chat-month Digest call(s) planned; one exemplar executed live`,
+      ],
+    };
+  }
   const [claims, decisions] = [
     await extractExecutor({ fixture: merged }),
     await decideExecutor({ fixture: merged }),
@@ -340,7 +362,7 @@ const digestPromptExecutor: Executor = async ({ fixture }) => {
   const band = fixtureBand(fixture);
   const user = [
     fixtureUser(fixture.setup, fixture.input_events, band),
-    "[NOTE] The SETUP block above IS the month of stream history, as prose — synthesize the digest from it as given.",
+    "[NOTE] The state block above IS the month of stream history, as prose — synthesize the digest from it as given.",
   ].join("\n");
   const result = await runJsonPass<DigestParse>({
     pass: "digest",

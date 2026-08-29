@@ -9,7 +9,7 @@
 // ~36-per-chat shape of the two healthy installs.
 // ===========================================================================
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +41,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Only the re-arm test installs a fake clock; restoring unconditionally keeps
+  // a failure there from leaking faked timers into the rest of the file.
+  vi.useRealTimers();
   closeDb();
   delete process.env.SUPERTWIN_DB_PATH;
   rmSync(tmpDir, { recursive: true, force: true });
@@ -236,16 +239,32 @@ describe("shallow-bootstrap detection", () => {
   });
 
   it("does not judge while history is still landing — a late wave re-arms it", async () => {
+    // The ONE test in this file with an upper bound on elapsed time: it asserts
+    // that no verdict has been reached YET, so a slow tick fails it where a slow
+    // tick merely delays every other test here. Real sleeps cannot carry that
+    // assertion — sleep(QUIET_MS / 2) guarantees "at least 10ms", never "under
+    // 20ms", and on a contended 2-core runner a 10ms sleep lands well past the
+    // window. (Verified: with the box loaded it fails roughly one run in five.)
+    //
+    // So drive the quiet window off a FAKE clock instead. Half a window is then
+    // exactly half a window, whatever the machine is doing, and no widening of
+    // the numbers is needed. Only the timer functions are faked — Date, promises
+    // and the microtask queue stay real, so the synchronous better-sqlite3
+    // writes below behave exactly as they do in production.
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+    });
     const h = start();
     writeShape(h, { chats: 89, messages: 305, single: 61 });
     // Keep the import "alive" across more than a full quiet window, the way a
     // real sync's chunks do. The verdict must wait for actual silence.
     for (let i = 0; i < 4; i += 1) {
-      await sleep(QUIET_MS / 2);
+      await vi.advanceTimersByTimeAsync(QUIET_MS / 2);
       h.adapter.emitEvent(historical(200 + i, 0));
       expect(depthFrames(h.frames)).toHaveLength(0);
     }
-    await settle();
+    // Now let the silence actually fall: one full window with nothing landing.
+    await vi.advanceTimersByTimeAsync(QUIET_MS + SETTLE_MS);
     expect(depthFrames(h.frames)).toHaveLength(1);
   });
 

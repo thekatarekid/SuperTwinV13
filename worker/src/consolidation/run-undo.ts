@@ -89,11 +89,18 @@ function hydrate(r: Record<string, unknown>): DecisionRow {
   };
 }
 
-/** Every decision one run wrote, newest first — undo unwinds in that order. */
+/**
+ * Every decision one run wrote, newest first — undo unwinds in that order.
+ *
+ * Tie-broken on `rowid` (insertion order), not `id`. One run writes its whole
+ * batch inside a single millisecond, so `created_at` cannot separate them and
+ * the random-hex `id` was shuffling the unwind order — which silently broke
+ * the "a merge is undone before the moves that fed it" guarantee below.
+ */
 export function decisionsForRun(runId: string): DecisionRow[] {
   const rows = getDb()
     .prepare(
-      `SELECT * FROM decisions WHERE run_id = ? ORDER BY created_at DESC, id DESC`,
+      `SELECT * FROM decisions WHERE run_id = ? ORDER BY created_at DESC, rowid DESC`,
     )
     .all(runId) as Record<string, unknown>[];
   return rows.map(hydrate);

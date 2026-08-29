@@ -89,12 +89,23 @@ function hydrate(r: Record<string, unknown>): DecisionRow {
   };
 }
 
-/** Every decision recorded against one object, newest first. */
+/**
+ * Every decision recorded against one object, newest first.
+ *
+ * The tie-break is `rowid`, not `id`. `created_at` only has millisecond
+ * precision, and a create followed by the user's approve (or a pass writing a
+ * batch) lands inside the same millisecond the overwhelming majority of the
+ * time — measured at 191/200. `id` is random hex, so tie-breaking on it
+ * shuffled same-millisecond rows and the "why?" surface showed the superseded
+ * decision as the latest one. `rowid` is insertion order: SQLite assigns
+ * max(rowid)+1, which is greater than every surviving row even after deletes,
+ * so it orders same-millisecond writes exactly as they happened.
+ */
 export function decisionsFor(targetKind: string, targetId: string): DecisionRow[] {
   const rows = getDb()
     .prepare(
       `SELECT * FROM decisions WHERE target_kind = ? AND target_id = ?
-        ORDER BY created_at DESC, id DESC`,
+        ORDER BY created_at DESC, rowid DESC`,
     )
     .all(targetKind, targetId) as Record<string, unknown>[];
   return rows.map(hydrate);

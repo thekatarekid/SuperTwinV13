@@ -182,7 +182,9 @@ export function seedReviewFixture(): { space_id: string; decision_id: string; tr
   if (existing) {
     const dec = db
       .prepare(
-        `SELECT id, run_id FROM decisions WHERE target_kind = 'space' AND target_id = ? ORDER BY created_at LIMIT 1`,
+        // rowid, not id: same-millisecond writes need insertion order to pick
+        // the ORIGINAL create decision rather than a random one of the batch.
+        `SELECT id, run_id FROM decisions WHERE target_kind = 'space' AND target_id = ? ORDER BY created_at, rowid LIMIT 1`,
       )
       .get(existing.id) as { id: string; run_id: string | null } | undefined;
     const trc = db

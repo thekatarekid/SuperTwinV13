@@ -32,4 +32,4 @@ Nothing here is ever removed.
 | 13.4.4 | — | no artifact — fix bump |
 | 13.4.5 | — | no artifact — fix bump |
 | 13.4.6 | — | no artifact — fix bump |
-| 13.4.7 | — | pending |
+| 13.4.7 | 992 MB | `f31d40dc3a71ee653e425c292c3bc256afd6131145af07a601312e4f8c1ecc1d` |

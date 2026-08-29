@@ -30,3 +30,4 @@ Nothing here is ever removed.
 | 13.4.2 | — | no artifact — fix bump |
 | 13.4.3 | — | no artifact — fix bump |
 | 13.4.4 | — | no artifact — fix bump |
+| 13.4.5 | — | no artifact — fix bump |

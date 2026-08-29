@@ -42,6 +42,7 @@ const { closeDb } = await import("../db/connection.js");
 const { runMigrations } = await import("../db/index.js");
 const {
   ACTIVE_EMBEDDING_MODEL_KEY,
+  BUNDLED_EMBEDDING_MODEL_ID,
   DEFAULT_EMBEDDING_MODEL_ID,
   EMBEDDING_MODEL,
   EMBEDDING_MODEL_E5_BASE,
@@ -181,11 +182,20 @@ describe("the catalogue", () => {
   it("has exactly one bundled entry and exactly one recommendation", () => {
     const models = listEmbeddingModels();
     expect(models.filter((m) => m.bundled).map((m) => m.id)).toEqual([
-      DEFAULT_EMBEDDING_MODEL_ID,
+      BUNDLED_EMBEDDING_MODEL_ID,
     ]);
     expect(models.filter((m) => m.recommended).map((m) => m.id)).toEqual([
       EMBEDDING_MODEL_GEMMA.id,
     ]);
+  });
+
+  it("defaults to EmbeddingGemma, and bundles the smaller encoder as the floor", () => {
+    // The default is what this build wants to be running; the bundled one is
+    // what it can always run with no network at all. They are deliberately not
+    // the same model — see retrieval/default-model.ts.
+    expect(DEFAULT_EMBEDDING_MODEL_ID).toBe(EMBEDDING_MODEL_GEMMA.id);
+    expect(BUNDLED_EMBEDDING_MODEL_ID).toBe(EMBEDDING_MODEL.id);
+    expect(EMBEDDING_MODEL_GEMMA.bundled).toBe(false);
   });
 
   it("pins a real length and a real sha256 on every file", () => {
@@ -207,7 +217,9 @@ describe("the catalogue", () => {
 
 describe("which model is active", () => {
   it("is the bundled one until something says otherwise", () => {
-    expect(activeEmbeddingModelId()).toBe(DEFAULT_EMBEDDING_MODEL_ID);
+    // NOT the default: the default's weights may not be here yet, and this
+    // function's contract is that what it names can always be loaded.
+    expect(activeEmbeddingModelId()).toBe(BUNDLED_EMBEDDING_MODEL_ID);
     expect(activeEmbeddingModel()).toBe(EMBEDDING_MODEL);
   });
 
@@ -223,7 +235,7 @@ describe("which model is active", () => {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .run(ACTIVE_EMBEDDING_MODEL_KEY, "some/model-from-a-later-build");
-    expect(activeEmbeddingModelId()).toBe(DEFAULT_EMBEDDING_MODEL_ID);
+    expect(activeEmbeddingModelId()).toBe(BUNDLED_EMBEDDING_MODEL_ID);
   });
 
   it("refuses to point at something that is not in the catalogue", () => {

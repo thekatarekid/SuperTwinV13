@@ -42,6 +42,7 @@ import { getDb } from "../db/connection.js";
 import { logExtractionRun, type LogRunParams } from "../db/index.js";
 import { recordRun, type RecordRunParams, type RunRole } from "../db/run-accounting.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
+import { reasoningForPass } from "../brain/reasoning.js";
 import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
 import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
 import { parseWire } from "../wire/index.js";
@@ -341,7 +342,7 @@ export class PromptRunner {
             // with a fixed output grammar gains nothing from reasoning tokens.
             plainCompletion: true,
             maxTurns: 1,
-            thinkingBudget: "off",
+            ...reasoningForPass(spec.callType, spec.model ?? ""),
             allowedTools: [],
             model: spec.model,
             cwd: spec.cwd,

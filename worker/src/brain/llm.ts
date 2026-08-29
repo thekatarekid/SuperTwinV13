@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
+import { reasoningForPass } from "./reasoning.js";
 import { logExtractionRun, type LogRunParams } from "../db/index.js";
 import { recordRun, type RecordRunParams, type RunRole } from "../db/run-accounting.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
@@ -334,7 +335,10 @@ async function callOnce<T>(
           systemPromptFile: systemFile,
           plainCompletion: true,
           maxTurns: 1,
-          thinkingBudget: "off",
+          // The step's reasoning dial (Settings › Intelligence). `off` — the
+          // default, and every step until someone changes one — resolves to
+          // exactly the flags this call has always sent.
+          ...reasoningForPass(spec.pass, model),
           allowedTools: [],
           model,
           timeoutMs: spec.timeoutMs,

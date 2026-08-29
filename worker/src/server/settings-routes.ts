@@ -56,6 +56,16 @@ import {
 import { lastT3Report, lastT3RunAt, T3_EVAL_DUE_KEY } from "../consolidation/t3.js";
 import { homeRoot } from "../home.js";
 import { dayFilePath } from "../traces/store.js";
+import {
+  discoverClaudeModels,
+  type ClaudeModelInfo,
+  type ModelCatalog,
+} from "../providers/claude-local/discovery.js";
+import {
+  DEFAULT_STEP_THINKING,
+  isThinkingLevel,
+  thinkingKeyFor,
+} from "../brain/reasoning.js";
 
 // ---- keys ------------------------------------------------------------------
 
@@ -106,10 +116,60 @@ export const INTELLIGENCE_STEPS: readonly IntelligenceStep[] = [
   { key: "digest-line.v1", label: "Digest lines / tiering", group: "Utility", recommended: "haiku" },
 ] as const;
 
-/** The pickable classes for a V13 step (CLI aliases the runner accepts). */
+/**
+ * The pickable classes for a V13 step, as the 13.4.1 build had them.
+ *
+ * KEPT ONLY as the answer of last resort. Three bare family names is what
+ * defect 6 was: it does not say which version will run, what it costs, or
+ * whether the model has a reasoning dial. The picker is now served from
+ * `modelCatalog()` below — the models this machine's `claude` can actually
+ * reach, read out of the CLI — and these three stay valid ids because every
+ * install that predates the fix has one of them persisted.
+ */
 export const STEP_MODEL_OPTIONS = ["haiku", "sonnet", "opus"] as const;
 
 export const DEFAULT_STEP_MODEL = "haiku";
+
+/** app_state key holding the last successful discovery, so a cold worker is instant. */
+export const MODEL_CATALOG_CACHE_KEY = "intelligence.model_catalog";
+
+/**
+ * Every model the picker may offer, discovered from the CLI when that works
+ * and served from the curated registry when it does not — with `mode` saying
+ * which, because a stale list shown as a live one is the thing this replaced.
+ *
+ * The last DISCOVERED answer is remembered in app_state: a worker that just
+ * started, or one whose `claude` moved, still shows the real list rather than
+ * silently dropping to the curated one.
+ */
+export function modelCatalog(): ModelCatalog {
+  const live = discoverClaudeModels();
+  if (live.mode === "discovered") {
+    try {
+      appStateSet(MODEL_CATALOG_CACHE_KEY, JSON.stringify(live));
+    } catch {
+      // No database yet — the catalogue is still perfectly usable.
+    }
+    return live;
+  }
+  try {
+    const cached: unknown = JSON.parse(appStateGet(MODEL_CATALOG_CACHE_KEY) ?? "null");
+    const models = (cached as ModelCatalog | null)?.models;
+    if (Array.isArray(models) && models.length > 0) {
+      // Remembered, not re-read: said plainly, with the reason this boot could
+      // not reach the CLI.
+      return { ...(cached as ModelCatalog), mode: "cached", error: live.error };
+    }
+  } catch {
+    // Unparseable cache — the curated list is the honest answer.
+  }
+  return live;
+}
+
+/** The catalogue row for an id, or null. Ids are catalogue keys, never free text. */
+function findModel(catalog: ModelCatalog, id: string): ClaudeModelInfo | null {
+  return catalog.models.find((m) => m.id === id) ?? null;
+}
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -363,16 +423,48 @@ export async function handleSettingsRoute(
       `SELECT COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS calls
          FROM traces WHERE created_at >= ? AND (pass = ? OR pass LIKE ?)`,
     );
+    const catalog = modelCatalog();
     sendJson(res, 200, {
       default_model: DEFAULT_STEP_MODEL,
+      default_thinking: DEFAULT_STEP_THINKING,
+      // The old three-string list, still sent so an older shell keeps working.
       options: STEP_MODEL_OPTIONS,
+      // What the picker actually renders: versioned ids, prices, reasoning
+      // levels — and where the list came from.
+      discovery: {
+        mode: catalog.mode,
+        source: catalog.source,
+        error: catalog.error,
+        discovered_at: catalog.discoveredAt,
+      },
+      models: catalog.models.map((m) => ({
+        id: m.id,
+        label: m.label,
+        family: m.family,
+        alias: m.alias,
+        resolves_to: m.resolvesTo,
+        input_per_mtok: m.inputPerMTok,
+        output_per_mtok: m.outputPerMTok,
+        thinking_levels: m.thinkingLevels,
+        default_thinking: m.defaultThinking,
+        effort: m.effort,
+        context_window: m.contextWindow,
+      })),
       eval_gated: true,
       steps: INTELLIGENCE_STEPS.map((s) => {
         const stem = s.key.split(".")[0]!;
         const c = costFor.get(since, s.key, `${stem}.%`) as { cost: number; calls: number };
+        const selected = appStateGet(`selected_model_${s.key}`) ?? DEFAULT_STEP_MODEL;
+        const levels = findModel(catalog, selected)?.thinkingLevels ?? [];
+        const stored = appStateGet(thinkingKeyFor(s.key));
         return {
           ...s,
-          selected: appStateGet(`selected_model_${s.key}`) ?? DEFAULT_STEP_MODEL,
+          selected,
+          // A level the current model does not offer reads as "off" rather
+          // than as a selection the runner would silently drop.
+          thinking:
+            isThinkingLevel(stored) && levels.includes(stored) ? stored : DEFAULT_STEP_THINKING,
+          thinking_levels: levels,
           enabled: appStateGet(`process_enabled_${s.key}`) !== "0",
           cost_7d_usd: c.cost,
           calls_7d: c.calls,
@@ -394,15 +486,27 @@ export async function handleSettingsRoute(
       // read by the runners; here we only persist and record it.
       appStateSet(`process_enabled_${step.key}`, body.enabled ? "1" : "0");
     }
+    const catalog = modelCatalog();
     if (body?.model !== undefined) {
       const model = String(body.model);
-      if (!(STEP_MODEL_OPTIONS as readonly string[]).includes(model)) {
-        sendJson(res, 400, { error: `model must be one of ${STEP_MODEL_OPTIONS.join(", ")}` });
+      // Validated against the list the picker was SERVED, not against three
+      // hardcoded family names — otherwise every real model the CLI can reach
+      // is rejected at the edge, which is half of what defect 6 was.
+      if (!findModel(catalog, model)) {
+        sendJson(res, 400, { error: `model must be one this build can reach: ${model}` });
         return true;
       }
       const before = appStateGet(`selected_model_${step.key}`) ?? DEFAULT_STEP_MODEL;
       if (before !== model) {
         appStateSet(`selected_model_${step.key}`, model);
+        // A model change can invalidate the reasoning level: the new model may
+        // not offer the one that was set. Clearing it here is what keeps the
+        // stored pair (model, level) one the runner can actually send.
+        const kept = findModel(catalog, model)?.thinkingLevels ?? [];
+        const heldLevel = appStateGet(thinkingKeyFor(step.key));
+        if (isThinkingLevel(heldLevel) && !kept.includes(heldLevel)) {
+          appStateSet(thinkingKeyFor(step.key), DEFAULT_STEP_THINKING);
+        }
         // Eval-gated (spec §18): every model change is a decision row AND
         // marks the golden set due — the harness runs it before the change
         // is considered shipped, and reverts on regression.
@@ -414,6 +518,36 @@ export async function handleSettingsRoute(
           old: { model: before },
           new: { model },
           reason: `user picked ${model} for ${step.label} (rec: ${step.recommended})`,
+        });
+        appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
+      }
+    }
+    if (body?.thinking !== undefined) {
+      const thinking = String(body.thinking);
+      const model = appStateGet(`selected_model_${step.key}`) ?? DEFAULT_STEP_MODEL;
+      const levels = findModel(catalog, model)?.thinkingLevels ?? [];
+      if (!isThinkingLevel(thinking) || !levels.includes(thinking)) {
+        sendJson(res, 400, {
+          error:
+            levels.length === 0
+              ? `${model} has no reasoning levels`
+              : `thinking must be one of ${levels.join(", ")}`,
+        });
+        return true;
+      }
+      const before = appStateGet(thinkingKeyFor(step.key)) ?? DEFAULT_STEP_THINKING;
+      if (before !== thinking) {
+        appStateSet(thinkingKeyFor(step.key), thinking);
+        // Same gate as the model: how hard a step thinks changes what it
+        // answers, so it is a decision row and it marks the golden set due.
+        writeDecision({
+          pass: "user",
+          targetKind: "setting",
+          targetId: thinkingKeyFor(step.key),
+          action: "update",
+          old: { thinking: before },
+          new: { thinking },
+          reason: `user set ${step.label} reasoning to ${thinking} on ${model}`,
         });
         appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
       }

@@ -788,11 +788,41 @@ export interface IntelligenceStepRow {
   enabled: boolean;
   cost_7d_usd: number;
   calls_7d: number;
+  /** The step's reasoning level, "off" unless someone raised it. */
+  thinking?: string;
+  /** What the SELECTED model offers. Empty = it has no reasoning dial. */
+  thinking_levels?: string[];
+}
+
+/** One model the local `claude` can actually reach (worker discovery). */
+export interface ModelOptionRow {
+  id: string;
+  label: string;
+  family: string;
+  alias: boolean;
+  resolves_to: string | null;
+  /** USD per million tokens. Null when the catalogue does not price it. */
+  input_per_mtok: number | null;
+  output_per_mtok: number | null;
+  thinking_levels: string[];
+  default_thinking: string | null;
+  effort: boolean;
+  context_window: number | null;
 }
 
 export interface IntelligenceSettings {
   default_model: string;
+  default_thinking?: string;
+  /** The 13.4.1 three-string list; kept only so an older shell still renders. */
   options: string[];
+  /** Where the model list came from, and whether it is the live one. */
+  discovery?: {
+    mode: "discovered" | "cached" | "fallback";
+    source: string;
+    error: string | null;
+    discovered_at: string;
+  };
+  models?: ModelOptionRow[];
   eval_gated: boolean;
   steps: IntelligenceStepRow[];
 }
@@ -802,13 +832,32 @@ export const fetchSettingsIntelligence = (): Promise<IntelligenceSettings> =>
 export const saveIntelligenceStep = (patch: {
   step: string;
   model?: string;
+  thinking?: string;
   enabled?: boolean;
 }): Promise<{ step: string; ok: boolean }> =>
   request("/api/settings/intelligence", post(patch));
 
+// ---- Model files on disk: embeddings + whisper -----------------------------
+//
+// Both registries answer the same four questions per row — is it here, how big
+// is it, is it the one in use, and is something being fetched right now — so
+// the UI renders them through one component and this section types them the
+// same way.
+
+/** A fetch in flight for one model, or the failure the last attempt ended in. */
+export interface ModelDownloadRow {
+  status: "downloading" | "error";
+  receivedBytes: number;
+  totalBytes: number | null;
+  error: string | null;
+  /** Embedding downloads are several files; this names the one in flight. */
+  file?: string;
+}
+
 export interface EmbeddingModelRow {
   id: string;
   label: string;
+  note?: string;
   dim: number;
   bytes: number;
   bundled: boolean;
@@ -816,13 +865,69 @@ export interface EmbeddingModelRow {
   active: boolean;
   present: boolean;
   indexed: number;
+  upstream?: string | null;
+  download?: (ModelDownloadRow & { modelId: string }) | null;
+  /** Bytes actually on disk right now, summed over the model's files. */
+  files?: { path: string; bytes: number; present: boolean; bytesOnDisk: number | null }[];
 }
 
-export const fetchEmbeddingModels = (): Promise<{
+export interface EmbeddingRegistry {
   active: string;
+  /** What this build wants to be running (EmbeddingGemma 300M). */
+  default?: string;
   models: EmbeddingModelRow[];
-  swap: { phase: string; embedded?: number; total?: number } | null;
-}> => request("/api/retrieval/semantic/models");
+  swap: { phase: string; toModel?: string; embedded?: number; total?: number } | null;
+  error?: string;
+}
+
+/**
+ * POST a registry action and return the registry it answers with — INCLUDING
+ * the refusal bodies (409: "that is the model the index is built on"). A
+ * download button that swallowed those would leave the user staring at a row
+ * that did not change and no reason why.
+ */
+async function registryPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(workerUrl(path), post(body));
+  const parsed = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok && !parsed.error) throw new Error(`${path} -> ${res.status}`);
+  return parsed;
+}
+
+export const fetchEmbeddingModels = (): Promise<EmbeddingRegistry> =>
+  request("/api/retrieval/semantic/models");
+export const downloadEmbeddingModel = (id: string): Promise<EmbeddingRegistry> =>
+  registryPost("/api/retrieval/semantic/models/download", { id });
+export const cancelEmbeddingModelDownload = (id: string): Promise<EmbeddingRegistry> =>
+  registryPost("/api/retrieval/semantic/models/cancel", { id });
+export const deleteEmbeddingModel = (id: string): Promise<EmbeddingRegistry> =>
+  registryPost("/api/retrieval/semantic/models/delete", { id });
+export const activateEmbeddingModel = (id: string): Promise<EmbeddingRegistry> =>
+  registryPost("/api/retrieval/semantic/models/activate", { id });
+
+export interface WhisperModelRow {
+  id: string;
+  label: string;
+  bytes: number;
+  bundled: boolean;
+  present: boolean;
+  bytesOnDisk: number | null;
+  selected: boolean;
+  download: (ModelDownloadRow & { id: string }) | null;
+}
+
+export interface MediaToolsReport {
+  models: WhisperModelRow[];
+  modelsDir: string;
+  error?: string;
+}
+
+export const fetchMediaTools = (): Promise<MediaToolsReport> => request("/api/media/tools");
+export const downloadWhisperModel = (id: string): Promise<MediaToolsReport> =>
+  registryPost("/api/media/models/download", { id });
+export const cancelWhisperModelDownload = (id: string): Promise<MediaToolsReport> =>
+  registryPost("/api/media/models/cancel", { id });
+export const deleteWhisperModel = (id: string): Promise<MediaToolsReport> =>
+  registryPost("/api/media/models/delete", { id });
 
 export interface MediaSettings {
   describe_enabled: boolean;

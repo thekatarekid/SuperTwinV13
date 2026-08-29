@@ -3,29 +3,81 @@
 // token-metered image/video describers, frame sampling, link fetching, and
 // the backfill throughput knobs.
 //
-// Moved out of the monolithic Settings.tsx unchanged.
+// WHAT WAS BROKEN (defect 7). Whisper was ONE DROPDOWN over seven model names.
+// It let you select `large-v3` — 3 GB — that was not on the machine and never
+// would be, said nothing about which models were actually on disk, and gave no
+// way to fetch one or to reclaim the space a 1.6 GB model was sitting on. The
+// worker has had download/cancel/delete since v5 §4; the dropdown called none
+// of them.
+//
+// It is the same list-with-controls the encoder registry uses now — literally
+// the same component (ModelList) and the same polling — because "what is on
+// disk, what is in use, fetch it, drop it" is one problem, not two.
+//
+// The default stays large-v3-turbo-q5_0: it is the one bundled inside the .app.
 // ===========================================================================
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchSettingsMedia, saveSettingsMedia, type MediaSettings } from "../../lib/api";
+import {
+  cancelWhisperModelDownload,
+  deleteWhisperModel,
+  downloadWhisperModel,
+  fetchMediaTools,
+  fetchSettingsMedia,
+  saveSettingsMedia,
+  type MediaSettings,
+  type MediaToolsReport,
+} from "../../lib/api";
+import { ModelList, type ModelRowView } from "./ModelList";
 import { rowStyle, Toggle } from "./shared";
 
-const WHISPER_OPTIONS = [
-  "tiny",
-  "base",
-  "small",
-  "medium-q5_0",
-  "large-v3-turbo-q5_0",
-  "large-v3-turbo",
-  "large-v3-q5_0",
-];
+/** How often the list re-reads itself while a model is being fetched. */
+const PROGRESS_POLL_MS = 1000;
 
 export function EnrichmentPanel(): JSX.Element {
   const [s, setS] = useState<MediaSettings | null>(null);
+  const [tools, setTools] = useState<MediaToolsReport | null>(null);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshTools = useCallback(async () => {
+    try {
+      setTools(await fetchMediaTools());
+    } catch {
+      setTools(null);
+    }
+  }, []);
+
   useEffect(() => {
     void fetchSettingsMedia().then(setS).catch(() => {});
-  }, []);
+    void refreshTools();
+  }, [refreshTools]);
+
+  // A whisper model is up to 3 GB; progress is polled off the GET rather than
+  // held open on the POST, so without this the bar would never move.
+  useEffect(() => {
+    if (!tools?.models.some((m) => m.download?.status === "downloading")) return;
+    timer.current = setTimeout(() => void refreshTools(), PROGRESS_POLL_MS);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [tools, refreshTools]);
+
+  const act = useCallback(
+    async (fn: (id: string) => Promise<MediaToolsReport>, id: string) => {
+      try {
+        const next = await fn(id);
+        setToolsError(next.error ?? null);
+        if (next.models) setTools({ ...(tools ?? next), ...next });
+        else await refreshTools();
+      } catch (err) {
+        setToolsError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [refreshTools, tools],
+  );
+
   if (!s) return <p className="empty">loading…</p>;
   const save = async (patch: Partial<MediaSettings>): Promise<void> => {
     setS(await saveSettingsMedia(patch));
@@ -48,19 +100,44 @@ export function EnrichmentPanel(): JSX.Element {
     <div>
       <h2>Enrichment — media &amp; links</h2>
       <h3>Voice &amp; audio (local whisper — zero tokens)</h3>
-      <div style={rowStyle}>
-        <span>Whisper model</span>
-        <select
-          value={s.whisper_model}
-          onChange={(e) => void save({ whisper_model: e.target.value })}
-        >
-          {WHISPER_OPTIONS.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      </div>
+      {tools ? (
+        <ModelList
+          activeWord="in use"
+          error={toolsError}
+          dir={tools.modelsDir}
+          rows={tools.models.map(
+            (m): ModelRowView => ({
+              id: m.id,
+              label: m.label,
+              note: m.id,
+              bytes: m.bytes,
+              bytesOnDisk: m.bytesOnDisk,
+              present: m.present,
+              active: m.selected,
+              bundled: m.bundled,
+              chips: [
+                ...(m.selected ? [{ text: "in use", accent: true }] : []),
+                ...(m.bundled ? [{ text: "bundled" }] : []),
+              ],
+              download: m.download ?? null,
+            }),
+          )}
+          onDownload={(id) => void act(downloadWhisperModel, id)}
+          onCancel={(id) => void act(cancelWhisperModelDownload, id)}
+          onDelete={(id) => void act(deleteWhisperModel, id)}
+          // Selecting a whisper model is a media SETTING, not a registry
+          // action — it goes through the same POST it always did, and only a
+          // model that is actually on disk can be selected at all.
+          onActivate={(id) =>
+            void save({ whisper_model: id }).then(refreshTools)
+          }
+        />
+      ) : (
+        <div style={rowStyle}>
+          <span>Whisper model</span>
+          <span className="meta">model list unavailable — {s.whisper_model} selected</span>
+        </div>
+      )}
       <Toggle label="Voice notes / audio attachments" checked={s.voice_notes_enabled} onChange={(v) => void save({ voice_notes_enabled: v })} />
       <Toggle label="Audio track inside videos" checked={s.video_audio_enabled} onChange={(v) => void save({ video_audio_enabled: v })} />
       <h3>Images &amp; video (token-metered)</h3>

@@ -27,6 +27,7 @@ import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { getSelectedModel } from "../db/settings.js";
 import { runJsonPass } from "../brain/llm.js";
+import { reasoningForPass } from "../brain/reasoning.js";
 import {
   BAR_ACTION_V2_INSTRUCTIONS,
   BAR_ACTION_V2_VERSION,
@@ -172,7 +173,7 @@ export const answerViaModel: BarModelCall = async (user) => {
         systemPromptFile: systemFile,
         plainCompletion: true,
         maxTurns: 1,
-        thinkingBudget: "off",
+        ...reasoningForPass("chat", getSelectedModel("chat") || "haiku"),
         allowedTools: [],
         model: getSelectedModel("chat") || "haiku",
         timeoutMs: 120_000,

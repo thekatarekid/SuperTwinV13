@@ -32,6 +32,7 @@ import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.j
 import type { Provider, ProviderStreamEvent, Usage } from "../providers/types.js";
 import { annotateTrace, withTraceContext } from "../traces/context.js";
 import { extractJson, modelForPass, stableSystemPrompt } from "../brain/llm.js";
+import { reasoningForPass } from "../brain/reasoning.js";
 import {
   DEFAULT_EXECUTOR_BUDGET,
   EXECUTOR_V1,
@@ -401,6 +402,7 @@ export async function runExecutorTask(
             allowedTools: registry.allowedToolNames(),
             systemPromptFile: systemPromptFileFor(system),
             maxTurns: budget.maxTurns,
+            ...reasoningForPass(EXECUTOR_V1.pass, modelForPass(EXECUTOR_V1.pass)),
             model: modelForPass(EXECUTOR_V1.pass),
             timeoutMs: deps.timeoutMs,
             onEvent,

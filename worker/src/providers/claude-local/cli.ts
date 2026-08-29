@@ -54,6 +54,13 @@ export const THINKING_BUDGET_TOKENS: Record<ThinkingBudget, number> = {
 };
 
 /**
+ * The levels `claude --effort` accepts. "off" is deliberately absent: the CLI
+ * has no "no effort" level, so a step set to off simply passes no flag (and
+ * plain completion still pins MAX_THINKING_TOKENS to 0).
+ */
+export const EFFORT_LEVELS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
+
+/**
  * Directories the CLI must never be pointed at (arch §4.1.4). macOS protects
  * ~/Documents, ~/Desktop and ~/Downloads with TCC; a child of the ad-hoc-signed
  * .app that starts its scan there blocks in a single openat() with NO output
@@ -211,6 +218,7 @@ export function buildCliArgs(opts: {
   plainCompletion?: boolean;
   skipUserSettings?: boolean;
   model?: string;
+  effort?: string;
 }): string[] {
   const {
     allowedTools,
@@ -220,6 +228,7 @@ export function buildCliArgs(opts: {
     plainCompletion,
     skipUserSettings,
     model,
+    effort,
   } = opts;
   const cliArgs = [
     "--print",
@@ -251,6 +260,13 @@ export function buildCliArgs(opts: {
   // behavior byte-identical to before the picker (eval-safe).
   if (typeof model === "string" && model.trim().length > 0) {
     cliArgs.push("--model", model.trim());
+  }
+  // Reasoning level, for the models that take one. Only ever pushed when the
+  // caller resolved it against the model's own capabilities (settings-routes
+  // reads them out of the CLI's catalogue), so a model with no `--effort`
+  // never sees the flag; omitted, the argv is what it always was.
+  if (typeof effort === "string" && EFFORT_LEVELS.includes(effort)) {
+    cliArgs.push("--effort", effort);
   }
   if (resumeId) cliArgs.push("--resume", resumeId);
   if (appendSystemPrompt && appendSystemPrompt.length) {

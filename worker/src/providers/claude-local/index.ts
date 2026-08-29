@@ -149,6 +149,7 @@ class ClaudeLocalProvider implements Provider {
       plainCompletion = false,
       skipUserSettings = false,
       thinkingBudget,
+      effort,
       duplicateInstructions,
       timeoutMs = DEFAULT_TIMEOUT_MS,
       model,
@@ -239,6 +240,7 @@ class ClaudeLocalProvider implements Provider {
       plainCompletion,
       skipUserSettings,
       thinkingBudget,
+      effort,
       model,
       timeoutMs,
       onEvent,
@@ -268,6 +270,7 @@ class ClaudeLocalProvider implements Provider {
         plainCompletion,
         skipUserSettings,
         thinkingBudget,
+        effort,
         model,
         timeoutMs,
         onEvent,
@@ -299,6 +302,7 @@ class ClaudeLocalProvider implements Provider {
     plainCompletion?: boolean;
     skipUserSettings?: boolean;
     thinkingBudget?: ThinkingBudget;
+    effort?: Exclude<ThinkingBudget, "off">;
     model?: string;
     timeoutMs: number;
     onEvent: (e: ProviderStreamEvent) => void;
@@ -316,6 +320,7 @@ class ClaudeLocalProvider implements Provider {
       plainCompletion,
       skipUserSettings,
       thinkingBudget,
+      effort,
       model,
       timeoutMs,
       onEvent,
@@ -343,6 +348,7 @@ class ClaudeLocalProvider implements Provider {
         plainCompletion,
         skipUserSettings,
         model,
+        effort,
       });
 
       let child: ChildProcessWithoutNullStreams;

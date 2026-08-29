@@ -109,6 +109,15 @@ export interface SendOptions {
    */
   thinkingBudget?: ThinkingBudget;
   /**
+   * Reasoning level for the models that have one (`--effort`). Separate from
+   * `thinkingBudget` on purpose: the newer models take a named effort level and
+   * ignore MAX_THINKING_TOKENS, the older ones are the other way round, and the
+   * catalogue read out of the CLI (claude-local/discovery.ts) is what says
+   * which a given model is. Omitted passes NO flag — byte-identical to the
+   * behaviour before the per-step reasoning picker existed.
+   */
+  effort?: Exclude<ThinkingBudget, "off">;
+  /**
    * Pass the instruction block TWICE — once via `--append-system-prompt` and
    * once as the head of stdin (§4.1.1). Defaults to `plainCompletion`, and is
    * skipped on a resume (where the CLI drops --append-system-prompt anyway, so

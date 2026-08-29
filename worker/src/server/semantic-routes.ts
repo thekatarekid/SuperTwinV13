@@ -42,10 +42,15 @@ import {
   type EmbeddingDownload,
 } from "../retrieval/downloads.js";
 import {
+  DEFAULT_EMBEDDING_MODEL_ID,
   findEmbeddingModel,
   listEmbeddingModels,
   type EmbeddingModelSpec,
 } from "../retrieval/model-registry.js";
+import {
+  adoptDefaultEmbeddingModel,
+  markEmbeddingModelChosenByUser,
+} from "../retrieval/default-model.js";
 import {
   cancelEmbeddingSwap,
   embeddingSwapState,
@@ -108,6 +113,8 @@ export interface EmbeddingModelReport {
 /** GET /api/retrieval/semantic/models — the picker, the downloads, the swap. */
 export interface EmbeddingRegistryReport {
   active: string;
+  /** What this build wants to be running — see retrieval/default-model.ts. */
+  default: string;
   models: EmbeddingModelReport[];
   swap: EmbeddingSwapState | null;
   benchmark: BenchmarkResult | null;
@@ -160,6 +167,7 @@ function registryReport(): EmbeddingRegistryReport {
   const activeId = activeEmbeddingModel().id;
   return {
     active: activeId,
+    default: DEFAULT_EMBEDDING_MODEL_ID,
     models: listEmbeddingModels().map((spec) => modelReport(spec, activeId)),
     swap: embeddingSwapState(),
     benchmark: lastBenchmark(),
@@ -186,6 +194,11 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 
 /** Load the model that just landed, and get the index moving. */
 async function afterDownload(): Promise<void> {
+  // A download is the moment the DEFAULT encoder can become reachable, so this
+  // is where an install is moved onto it — instantly on an empty index, and
+  // through the background swap when there is one to re-embed. It is a no-op
+  // for every other model, and for an install whose user has picked one.
+  adoptDefaultEmbeddingModel();
   // Find out whether the files actually load before Settings claims the tier
   // is on; four files existing is not the same as a working encoder.
   await ensureEmbeddingModel();
@@ -349,11 +362,16 @@ export async function handleSemanticRoute(
       return true;
     }
     if (spec.id === activeEmbeddingModel().id) {
+      markEmbeddingModelChosenByUser();
       sendJson(res, 200, registryReport());
       return true;
     }
     try {
       startEmbeddingSwap(spec.id);
+      // Recorded only once the swap actually started: a refused activation
+      // (weights not here, another swap running) is not a choice, and marking
+      // it as one would wedge the install off the default for good.
+      markEmbeddingModelChosenByUser();
     } catch (err) {
       sendJson(res, 409, {
         error: err instanceof Error ? err.message : String(err),

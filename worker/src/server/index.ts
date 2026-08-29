@@ -116,6 +116,7 @@ import {
   startSemanticIndexer,
   stopSemanticIndexer,
 } from "../retrieval/indexer.js";
+import { seedActiveEmbeddingModel } from "../retrieval/default-model.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleOpsRoute } from "./ops-routes.js";
 import { handleScreenRoute } from "./screen-routes.js";
@@ -371,6 +372,15 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   if (opts?.media ?? process.env.NODE_ENV !== "test") {
     startMediaQueue();
     startSemanticIndexer();
+    // Write the active encoder down explicitly, and move this install onto the
+    // default one if its weights are already here (retrieval/default-model.ts).
+    // Safe on an empty index, and routed through the background swap when
+    // there is one — never a silent flip.
+    try {
+      seedActiveEmbeddingModel();
+    } catch {
+      // A boot must not fail over which encoder is preferred.
+    }
   }
 
   const server = createServer((req, res) => {

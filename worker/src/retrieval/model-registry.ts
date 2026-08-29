@@ -295,7 +295,28 @@ export const EMBEDDING_MODELS: readonly EmbeddingModelSpec[] = [
   EMBEDDING_MODEL_BGE_M3,
 ];
 
-export const DEFAULT_EMBEDDING_MODEL_ID = EMBEDDING_MODEL.id;
+/**
+ * The DEFAULT encoder: EmbeddingGemma 300M.
+ *
+ * It used to be the bundled E5 Small, and that was the wrong default — E5
+ * Small is what ships so that a cold machine with no network can still answer,
+ * not what this build wants to be running. Gemma is the better retriever on
+ * the corpus this app indexes, and it is what a fresh install is steered onto:
+ * the registry reports it as the default, Settings leads with it, and
+ * `adoptDefaultEmbeddingModel()` (retrieval/default-model.ts) moves an install
+ * onto it the moment its weights are on disk — through the background swap
+ * when there is already an index to re-embed.
+ */
+export const DEFAULT_EMBEDDING_MODEL_ID = EMBEDDING_MODEL_GEMMA.id;
+
+/**
+ * The encoder that ships INSIDE the .app, and therefore the only one that can
+ * answer with no network at all. It is what `activeEmbeddingModelId()` falls
+ * back to, because that function's contract is "never returns something the
+ * runtime cannot load" — and on a fresh install the default's weights are not
+ * here yet.
+ */
+export const BUNDLED_EMBEDDING_MODEL_ID = EMBEDDING_MODEL.id;
 
 export function listEmbeddingModels(): readonly EmbeddingModelSpec[] {
   return EMBEDDING_MODELS;
@@ -323,23 +344,33 @@ export function embeddingModelSpecBytes(spec: EmbeddingModelSpec): number {
 
 export const ACTIVE_EMBEDDING_MODEL_KEY = "retrieval.embedding_model";
 
-/**
- * The active model's id. Falls back to the bundled default for every reading
- * that is not a catalogue id — no stored value, an id from a build that
- * offered a model this one does not, a hand-edited row. There is no state in
- * which this returns something the runtime cannot load.
- */
-export function activeEmbeddingModelId(): string {
+/** The stored choice, or null when nothing valid is stored. */
+export function storedEmbeddingModelId(): string | null {
   try {
     const row = getDb()
       .prepare(`SELECT value FROM app_state WHERE key = ?`)
       .get(ACTIVE_EMBEDDING_MODEL_KEY) as { value: string | null } | undefined;
-    return findEmbeddingModel(row?.value)?.id ?? DEFAULT_EMBEDDING_MODEL_ID;
+    return findEmbeddingModel(row?.value)?.id ?? null;
   } catch {
-    // No database yet (early boot, a unit test): the bundled default is the
-    // only answer that is always true.
-    return DEFAULT_EMBEDDING_MODEL_ID;
+    // No database yet (early boot, a unit test).
+    return null;
   }
+}
+
+/**
+ * The active model's id. Falls back to the BUNDLED encoder for every reading
+ * that is not a catalogue id — no stored value, an id from a build that
+ * offered a model this one does not, a hand-edited row.
+ *
+ * Note the fallback is the bundled one and NOT `DEFAULT_EMBEDDING_MODEL_ID`:
+ * the default is what this build wants to run, the bundled one is what it can
+ * always run, and this function's contract is that there is no state in which
+ * it returns something the runtime cannot load. Moving an install from the one
+ * to the other is `adoptDefaultEmbeddingModel()`'s job, and it only does it
+ * once the weights are actually here.
+ */
+export function activeEmbeddingModelId(): string {
+  return storedEmbeddingModelId() ?? BUNDLED_EMBEDDING_MODEL_ID;
 }
 
 /** The active spec. Never null, for the reason above. */

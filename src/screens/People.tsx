@@ -1,6 +1,11 @@
 // ===========================================================================
 // People view — build P4.2, spec §7.3 / §14.4.1.
 //
+// A top-level nav destination (Home · Timeline · Library · People · Settings).
+// It used to hang off the bottom of Library's scroll, which was wrong twice
+// over: People is not a capture source, and it was unreachable without
+// scrolling past three of them.
+//
 // The CRM: everyone the twin knows, grouped by circle (partner · family ·
 // close friends · … · businesses · no circle yet). Direct manipulation IS
 // correction: dragging a person between circle groups posts
@@ -94,10 +99,12 @@ export function People(props: {
 
   if (error) {
     return (
-      <section className="card" aria-label="People">
-        <h2>People</h2>
-        <p>{error}</p>
-      </section>
+      <div className="people-screen">
+        <section className="card" aria-label="People">
+          <h2>People</h2>
+          <p>{error}</p>
+        </section>
+      </div>
     );
   }
 
@@ -106,8 +113,9 @@ export function People(props: {
   for (const p of people ?? []) grouped.get(p.circle ?? "unassigned")!.push(p);
 
   return (
-    <section className="card people" aria-label="People">
-      <h2>People</h2>
+    <div className="people-screen">
+      <section className="card people" aria-label="People">
+        <h2>People</h2>
 
       {questions.length > 0 && (
         <div aria-label="merge questions">
@@ -192,6 +200,7 @@ export function People(props: {
           </button>
         </div>
       )}
-    </section>
+      </section>
+    </div>
   );
 }

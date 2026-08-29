@@ -5,12 +5,16 @@
 //                                          the cross-source header chip
 //   GET  /api/library/chats                streams: label, tier badge,
 //                                          category, per-chat knows-from,
-//                                          today count, pause state
+//                                          today count, pause state, and the
+//                                          last-message preview the chat-inbox
+//                                          list renders
 //   GET  /api/library/browser              today's domains, recent visit
 //                                          chains (dwell + filing chips),
 //                                          bookmark shelf
 //   GET  /api/library/screen?day=YYYY-MM-DD day strip (hour buckets) +
-//                                          session cards for that day
+//                                          session cards for that day, grouped
+//                                          BY APP (bundle_id) and then by the
+//                                          document/window inside each app
 //   POST /api/library/streams/:id/pause    {paused} → capture pause flip
 //                                          (decision row; ingest drops)
 //   POST /api/library/screen/delete        {start_ts, end_ts, stream_key?}
@@ -58,8 +62,18 @@ interface ChatRow {
   last_ts: string | null;
   today_count: number;
   event_count: number;
+  /** Last message preview — what the chat-inbox list shows under the name. */
+  last_text: string | null;
+  last_kind: string | null;
+  last_from_me: number | null;
 }
 
+/**
+ * One row per stream of a source, ordered newest-first — the conversation list
+ * of the Library's chat inbox. The two correlated sub-selects pull the newest
+ * event's text/kind for the preview line; a media-only message has no text, so
+ * the UI turns `last_kind` into a "📷 Photo"-style label rather than a blank.
+ */
 function libraryChats(sourceId: string): ChatRow[] {
   return getDb()
     .prepare(
@@ -69,7 +83,14 @@ function libraryChats(sourceId: string): ChatRow[] {
               MAX(e.ts) AS last_ts,
               SUM(CASE WHEN e.ts >= strftime('%Y-%m-%dT00:00:00.000Z','now') THEN 1 ELSE 0 END)
                 AS today_count,
-              COUNT(e.id) AS event_count
+              COUNT(e.id) AS event_count,
+              (SELECT e2.text FROM events e2 WHERE e2.stream_id = s.id
+                ORDER BY e2.ts DESC, e2.id DESC LIMIT 1) AS last_text,
+              (SELECT e2.kind FROM events e2 WHERE e2.stream_id = s.id
+                ORDER BY e2.ts DESC, e2.id DESC LIMIT 1) AS last_kind,
+              (SELECT CASE WHEN e2.actor = 'self' THEN 1 ELSE 0 END FROM events e2
+                WHERE e2.stream_id = s.id
+                ORDER BY e2.ts DESC, e2.id DESC LIMIT 1) AS last_from_me
          FROM streams s
          LEFT JOIN events e ON e.stream_id = s.id
         WHERE s.source_id = ?
@@ -79,11 +100,32 @@ function libraryChats(sourceId: string): ChatRow[] {
     .all(sourceId) as ChatRow[];
 }
 
+/** Total events a source has ever landed — "is anything flowing at all?". */
+function sourceEventCount(sourceType: string): number {
+  return (
+    (
+      getDb()
+        .prepare(`SELECT COUNT(*) AS n FROM events WHERE source_type = ?`)
+        .get(sourceType) as { n: number } | undefined
+    )?.n ?? 0
+  );
+}
+
 interface VisitRow {
   id: string;
   ts: string;
   stream_key: string;
   payload_json: string | null;
+}
+
+/** Hostname of a URL, without `www.`; null when it isn't parseable. */
+function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
 }
 
 function libraryBrowser(): {
@@ -96,17 +138,30 @@ function libraryBrowser(): {
     space_label: string | null;
   }[];
   bookmarks: { ts: string; url: string; title: string | null; folder: string | null }[];
+  event_count: number;
 } {
   const db = getDb();
-  const domains = db
+  // Today's domains. A visit whose payload carries no `domain` still has a URL,
+  // and a host read off the URL beats bucketing every such visit under "?".
+  const todayVisits = db
     .prepare(
-      `SELECT COALESCE(json_extract(payload_json,'$.domain'),'?') AS domain, COUNT(*) AS visits
+      `SELECT json_extract(payload_json,'$.domain') AS domain,
+              json_extract(payload_json,'$.url')    AS url
          FROM events
         WHERE source_type = 'browser' AND kind = 'browser.visit'
           AND ts >= strftime('%Y-%m-%dT00:00:00.000Z','now')
-        GROUP BY domain ORDER BY visits DESC LIMIT 12`,
+        LIMIT 20000`,
     )
-    .all() as { domain: string; visits: number }[];
+    .all() as { domain: string | null; url: string | null }[];
+  const domainCounts = new Map<string, number>();
+  for (const v of todayVisits) {
+    const key = v.domain?.trim() || hostOf(v.url) || "?";
+    domainCounts.set(key, (domainCounts.get(key) ?? 0) + 1);
+  }
+  const domains = [...domainCounts.entries()]
+    .map(([domain, visits]) => ({ domain, visits }))
+    .sort((a, b) => b.visits - a.visits || a.domain.localeCompare(b.domain))
+    .slice(0, 12);
 
   // Recent chains: the last 8 tab-chain stream keys, each with its visits.
   const keys = db
@@ -165,34 +220,81 @@ function libraryBrowser(): {
     };
   });
 
-  return { domains_today: domains, chains, bookmarks };
+  return {
+    domains_today: domains,
+    chains,
+    bookmarks,
+    event_count: sourceEventCount("browser"),
+  };
 }
 
 export interface ScreenSession {
   stream_key: string;
   app: string;
+  /** The app's bundle id — the identity the Screen view groups on. */
+  bundle_id: string;
+  /** Document / window inside the app, when the capture named one. */
+  doc: string | null;
   started_at: string;
   ended_at: string;
   minutes: number;
   event_count: number;
 }
 
-/** Group one day's screen events into session cards (gap/app split). */
+/** One document (window/tab) inside an app, with the sessions that touched it. */
+export interface ScreenDocGroup {
+  doc: string | null;
+  minutes: number;
+  event_count: number;
+  sessions: ScreenSession[];
+}
+
+/** One app's whole day: minutes, captures, and its documents. */
+export interface ScreenAppGroup {
+  bundle_id: string;
+  app: string;
+  minutes: number;
+  event_count: number;
+  session_count: number;
+  docs: ScreenDocGroup[];
+}
+
+/**
+ * How a screen capture names the app it came from. The sidecar's snapshot
+ * payload (adapters/screen/envelope.ts) spells these `app_name` / `bundle_id` /
+ * `window_title` / `doc_key`; `app` and `title` are the older/fixture spelling
+ * and stay supported so a mixed log still renders names instead of stream keys.
+ */
+function screenIdentity(r: VisitRow): { app: string; bundleId: string; doc: string | null } {
+  const p = r.payload_json ? (JSON.parse(r.payload_json) as Record<string, unknown>) : {};
+  const bundleId =
+    (typeof p.bundle_id === "string" && p.bundle_id) || r.stream_key.split("¦")[0] || r.stream_key;
+  const app =
+    (typeof p.app_name === "string" && p.app_name) ||
+    (typeof p.app === "string" && p.app) ||
+    (typeof p.title === "string" && p.title) ||
+    bundleId;
+  const doc =
+    (typeof p.window_title === "string" && p.window_title) ||
+    (typeof p.doc_key === "string" && p.doc_key) ||
+    null;
+  return { app, bundleId, doc };
+}
+
+/** Group one day's screen events into session cards (gap/stream split). */
 export function screenSessions(rows: VisitRow[]): ScreenSession[] {
   const sessions: ScreenSession[] = [];
   let current: (ScreenSession & { lastMs: number }) | null = null;
   for (const r of rows) {
     const ms = new Date(r.ts).getTime();
-    const p = r.payload_json ? (JSON.parse(r.payload_json) as Record<string, unknown>) : {};
-    const app =
-      (typeof p.app === "string" && p.app) ||
-      (typeof p.title === "string" && p.title) ||
-      r.stream_key;
+    const { app, bundleId, doc } = screenIdentity(r);
     if (!current || current.stream_key !== r.stream_key || ms - current.lastMs > SCREEN_SESSION_GAP_MS) {
       if (current) sessions.push(stripSession(current));
       current = {
         stream_key: r.stream_key,
         app,
+        bundle_id: bundleId,
+        doc,
         started_at: r.ts,
         ended_at: r.ts,
         minutes: 0,
@@ -217,6 +319,8 @@ function stripSession(s: ScreenSession & { lastMs: number }): ScreenSession {
   return {
     stream_key: s.stream_key,
     app: s.app,
+    bundle_id: s.bundle_id,
+    doc: s.doc,
     started_at: s.started_at,
     ended_at: s.ended_at,
     minutes,
@@ -224,11 +328,55 @@ function stripSession(s: ScreenSession & { lastMs: number }): ScreenSession {
   };
 }
 
+/**
+ * Roll session cards up BY APP, then by document inside the app — the shape the
+ * Library's Screen view renders (an app is what a person remembers doing; a
+ * flat list of 40 four-minute sessions is not). Apps sort by time spent, docs
+ * and sessions newest-first inside them.
+ */
+export function groupScreenSessionsByApp(sessions: ScreenSession[]): ScreenAppGroup[] {
+  const apps = new Map<string, ScreenAppGroup>();
+  for (const s of sessions) {
+    let app = apps.get(s.bundle_id);
+    if (!app) {
+      app = {
+        bundle_id: s.bundle_id,
+        app: s.app,
+        minutes: 0,
+        event_count: 0,
+        session_count: 0,
+        docs: [],
+      };
+      apps.set(s.bundle_id, app);
+    }
+    app.minutes += s.minutes;
+    app.event_count += s.event_count;
+    app.session_count++;
+    let doc = app.docs.find((d) => d.doc === s.doc);
+    if (!doc) {
+      doc = { doc: s.doc, minutes: 0, event_count: 0, sessions: [] };
+      app.docs.push(doc);
+    }
+    doc.minutes += s.minutes;
+    doc.event_count += s.event_count;
+    doc.sessions.push(s);
+  }
+  const byNewest = (a: ScreenSession, b: ScreenSession): number =>
+    b.started_at.localeCompare(a.started_at);
+  for (const app of apps.values()) {
+    for (const doc of app.docs) doc.sessions.sort(byNewest);
+    app.docs.sort((a, b) => b.minutes - a.minutes);
+  }
+  return [...apps.values()].sort((a, b) => b.minutes - a.minutes || b.event_count - a.event_count);
+}
+
 function libraryScreen(day: string): {
   day: string;
   hours: number[];
   sessions: ScreenSession[];
+  apps: ScreenAppGroup[];
   paused: boolean;
+  event_count: number;
 } {
   const db = getDb();
   const rows = db
@@ -249,7 +397,17 @@ function libraryScreen(day: string): {
         .prepare(`SELECT value FROM app_state WHERE key = ?`)
         .get(pausedKey("screen")) as { value: string } | undefined
     )?.value === "1";
-  return { day, hours, sessions: screenSessions(rows), paused };
+  const sessions = screenSessions(rows);
+  return {
+    day,
+    hours,
+    sessions,
+    apps: groupScreenSessionsByApp(sessions),
+    paused,
+    // Across the WHOLE log, not just this day: a source with captures from
+    // yesterday is connected even when today's strip is empty.
+    event_count: sourceEventCount("screen"),
+  };
 }
 
 /**
@@ -267,7 +425,11 @@ export async function handleLibraryRoute(req: IncomingMessage, res: ServerRespon
 
   if (req.method === "GET" && path === "/api/library/chats") {
     const source = url.searchParams.get("source") ?? "whatsapp";
-    sendJson(res, 200, { streams: libraryChats(source) });
+    sendJson(res, 200, {
+      source_id: source,
+      streams: libraryChats(source),
+      event_count: sourceEventCount(source),
+    });
     return true;
   }
 

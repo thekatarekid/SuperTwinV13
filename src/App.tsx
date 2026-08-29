@@ -2,7 +2,8 @@
 // SuperTwinV13 shell — build P1.7 (spec §14.1, §14.2, §14.4, §14.6).
 //
 // Translucent liquid-glass main window: top-center pill nav (Home · Timeline
-// · Library · Settings, ⌘1-4), the Home sections, the one modal system, the
+// · Library · People · Settings, ⌘1-5), the Home sections, the one modal
+// system, the
 // grounded bar (collapsed + context-locked states), and the feedback loop —
 // every correction path (drag, chips, "Tell the twin") posts through
 // /api/corrections and surfaces an undo chip.
@@ -37,6 +38,7 @@ import { AccessibilityOnboarding } from "./components/AccessibilityOnboarding";
 import { GroundedBar, type BarLock } from "./components/GroundedBar";
 import { Home } from "./screens/Home";
 import { Library } from "./screens/Library";
+import { People } from "./screens/People";
 import { Timeline } from "./screens/Timeline";
 import { Settings } from "./screens/Settings";
 import { ArtifactModal } from "./modals/ArtifactModal";
@@ -49,6 +51,7 @@ const TABS = [
   { id: "home", label: "⌂ Home" },
   { id: "timeline", label: "◷ Timeline" },
   { id: "library", label: "▤ Library" },
+  { id: "people", label: "◍ People" },
   { id: "settings", label: "⚙ Settings" },
 ] as const;
 
@@ -105,7 +108,7 @@ export function App(): JSX.Element {
         else void hideMainWindow();
         return;
       }
-      if (e.metaKey && e.key >= "1" && e.key <= "4") {
+      if (e.metaKey && e.key >= "1" && e.key <= "5") {
         const next = TABS[Number(e.key) - 1];
         if (next) {
           e.preventDefault();
@@ -259,7 +262,10 @@ export function App(): JSX.Element {
           />
         )}
         {tab === "timeline" && <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />}
-        {tab === "library" && <Library onTellTwinPerson={(id, label) => lockTo("person", id, label)} />}
+        {tab === "library" && <Library />}
+        {tab === "people" && (
+          <People onTellTwin={(id, label) => lockTo("person", id, label)} />
+        )}
         {tab === "settings" && <Settings />}
       </main>
 

@@ -126,6 +126,26 @@ describe("GET /api/library/chats", () => {
       event_count: 2,
     });
   });
+
+  it("carries the last-message preview the chat-inbox list renders", async () => {
+    appendEvents(
+      [
+        env("whatsapp", "goa@g.us", "2026-08-28T10:00:00.000Z", "older"),
+        env("whatsapp", "goa@g.us", "2026-08-28T11:00:00.000Z", "pool villa?"),
+      ],
+      NOW,
+    );
+    const { body } = await get("/api/library/chats");
+    const b = body as {
+      source_id: string;
+      event_count: number;
+      streams: { last_text: string | null; last_kind: string | null }[];
+    };
+    expect(b.source_id).toBe("whatsapp");
+    expect(b.event_count).toBe(2);
+    expect(b.streams[0].last_text).toBe("pool villa?");
+    expect(b.streams[0].last_kind).toBe("whatsapp.message");
+  });
 });
 
 describe("GET /api/library/browser", () => {
@@ -185,6 +205,54 @@ describe("GET /api/library/screen", () => {
   it("rejects a malformed day", async () => {
     const { status } = await get("/api/library/screen?day=nope");
     expect(status).toBe(400);
+  });
+
+  it("names apps from the sidecar's own payload and groups sessions BY APP", async () => {
+    // The real screenwatch payload (adapters/screen/envelope.ts) spells these
+    // `app_name`/`bundle_id`/`window_title`, and its stream key is
+    // `bundleId¦docKey` — before this the view showed raw stream keys.
+    appendEvents(
+      [
+        env("screen", "com.figma.Desktop¦mocks", "2026-08-28T13:20:00.000Z", "mocks", "screen.snapshot", {
+          bundle_id: "com.figma.Desktop",
+          app_name: "Figma",
+          window_title: "v13 mocks",
+          doc_key: "mocks",
+        }),
+        env("screen", "com.figma.Desktop¦mocks", "2026-08-28T13:40:00.000Z", "more", "screen.snapshot", {
+          bundle_id: "com.figma.Desktop",
+          app_name: "Figma",
+          window_title: "v13 mocks",
+          doc_key: "mocks",
+        }),
+        env("screen", "com.figma.Desktop¦specs", "2026-08-28T14:10:00.000Z", "specs", "screen.snapshot", {
+          bundle_id: "com.figma.Desktop",
+          app_name: "Figma",
+          window_title: "specs",
+          doc_key: "specs",
+        }),
+      ],
+      NOW,
+    );
+    const { body } = await get("/api/library/screen?day=2026-08-28");
+    const s = body as {
+      sessions: { app: string; bundle_id: string; doc: string | null }[];
+      apps: {
+        bundle_id: string;
+        app: string;
+        minutes: number;
+        session_count: number;
+        docs: { doc: string | null; sessions: unknown[] }[];
+      }[];
+      event_count: number;
+    };
+    expect(s.sessions[0].app).toBe("Figma");
+    expect(s.sessions[0].bundle_id).toBe("com.figma.Desktop");
+    expect(s.apps).toHaveLength(1);
+    // 3 sessions: the two "v13 mocks" captures sit 20 min apart, past the gap.
+    expect(s.apps[0]).toMatchObject({ bundle_id: "com.figma.Desktop", app: "Figma", session_count: 3 });
+    expect(s.apps[0].docs.map((d) => d.doc)).toEqual(["v13 mocks", "specs"]);
+    expect(s.event_count).toBe(3);
   });
 
   it("splits sessions on a 15-minute gap in the same app", () => {

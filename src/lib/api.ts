@@ -243,10 +243,20 @@ export interface ChatStreamRow {
   last_ts: string | null;
   today_count: number;
   event_count: number;
+  /** Newest message preview for the conversation list (may be absent). */
+  last_text?: string | null;
+  last_kind?: string | null;
+  last_from_me?: number | null;
 }
 
-export const fetchLibraryChats = (): Promise<{ streams: ChatStreamRow[] }> =>
-  request("/api/library/chats");
+export interface LibraryChats {
+  source_id?: string;
+  streams: ChatStreamRow[];
+  event_count?: number;
+}
+
+export const fetchLibraryChats = (source?: string): Promise<LibraryChats> =>
+  request(`/api/library/chats${source ? `?source=${encodeURIComponent(source)}` : ""}`);
 
 export interface BrowserChainVisit {
   ts: string;
@@ -265,6 +275,8 @@ export interface LibraryBrowser {
     space_label: string | null;
   }[];
   bookmarks: { ts: string; url: string; title: string | null; folder: string | null }[];
+  /** Total browser events ever captured — 0 means "not connected yet". */
+  event_count?: number;
 }
 
 export const fetchLibraryBrowser = (): Promise<LibraryBrowser> => request("/api/library/browser");
@@ -272,17 +284,39 @@ export const fetchLibraryBrowser = (): Promise<LibraryBrowser> => request("/api/
 export interface ScreenSessionCard {
   stream_key: string;
   app: string;
+  bundle_id?: string;
+  doc?: string | null;
   started_at: string;
   ended_at: string;
   minutes: number;
   event_count: number;
 }
 
+export interface ScreenDocGroup {
+  doc: string | null;
+  minutes: number;
+  event_count: number;
+  sessions: ScreenSessionCard[];
+}
+
+export interface ScreenAppGroup {
+  bundle_id: string;
+  app: string;
+  minutes: number;
+  event_count: number;
+  session_count: number;
+  docs: ScreenDocGroup[];
+}
+
 export interface LibraryScreen {
   day: string;
   hours: number[];
   sessions: ScreenSessionCard[];
+  /** Sessions rolled up by app (bundle id), then by document. */
+  apps?: ScreenAppGroup[];
   paused: boolean;
+  /** Total screen captures ever — 0 means "nothing captured yet". */
+  event_count?: number;
 }
 
 export const fetchLibraryScreen = (day?: string): Promise<LibraryScreen> =>
@@ -308,6 +342,110 @@ export const deleteScreenSpan = (req: {
   end_ts: string;
   stream_key?: string;
 }): Promise<{ report: CascadeReport }> => request("/api/library/screen/delete", post(req));
+
+// ---- Source connect + chat inbox (Library subtabs, spec §14.3.2) -----------
+
+/** Import-range enum the source adapters accept (worker adapters/types.ts). */
+export const IMPORT_RANGES = [
+  "24h",
+  "7d",
+  "30d",
+  "90d",
+  "180d",
+  "1y",
+  "2y",
+  "5y",
+  "all",
+] as const;
+
+export type ImportRange = (typeof IMPORT_RANGES)[number];
+
+export const RANGE_LABELS: Record<ImportRange, string> = {
+  "24h": "last 24 hours",
+  "7d": "last 7 days",
+  "30d": "last 30 days",
+  "90d": "last 3 months",
+  "180d": "last 6 months",
+  "1y": "last year",
+  "2y": "last 2 years",
+  "5y": "last 5 years",
+  all: "everything WhatsApp will give",
+};
+
+export type SourceState =
+  | "starting"
+  | "need_pairing"
+  | "pairing"
+  | "connected"
+  | "syncing"
+  | "online"
+  | "reconnecting"
+  | "logged_out"
+  | "error";
+
+export interface SourceStatus {
+  state: SourceState;
+  paired: boolean;
+  paused: boolean;
+  pushName?: string;
+  importDone?: boolean;
+  importRange?: string;
+  progress?: { chatsDone?: number; chatsTotal?: number; messages?: number; done?: boolean };
+  lastError?: { code: string; message: string } | null;
+}
+
+export const fetchSourceStatus = (source: string): Promise<SourceStatus> =>
+  request(`/api/sources/${encodeURIComponent(source)}/status`);
+
+export const pairSource = (source: string): Promise<{ ok: boolean }> =>
+  request(`/api/sources/${encodeURIComponent(source)}/pair`, post({}));
+
+export const importSource = (source: string, range: ImportRange): Promise<{ ok: boolean }> =>
+  request(`/api/sources/${encodeURIComponent(source)}/import`, post({ range }));
+
+export const extendSource = (source: string, range: ImportRange): Promise<{ ok: boolean }> =>
+  request(`/api/sources/${encodeURIComponent(source)}/extend`, post({ range }));
+
+export const pauseSource = (source: string, paused: boolean): Promise<{ ok: boolean }> =>
+  request(`/api/sources/${encodeURIComponent(source)}/pause`, post({ paused }));
+
+/** One message row of the chat pane (`/api/inbox/chats/:id/messages`). */
+export interface InboxMessageRow {
+  id: string;
+  ts: string | null;
+  kind: string | null;
+  text: string | null;
+  fromMe: boolean;
+  actorName: string | null;
+  mediaUrl?: string;
+  mediaDescription?: string | null;
+  transcript?: string | null;
+  revokedAt?: string | null;
+}
+
+export const fetchChatMessages = (
+  streamId: string,
+  before?: string,
+): Promise<InboxMessageRow[]> =>
+  request(
+    `/api/inbox/chats/${encodeURIComponent(streamId)}/messages${
+      before ? `?before=${encodeURIComponent(before)}` : ""
+    }`,
+  );
+
+export interface BrowserStatus {
+  available: boolean;
+  running: boolean;
+  killSwitch: boolean;
+  profileDir?: string;
+  sessions?: { service: string; ok: boolean }[];
+}
+
+export const fetchBrowserStatus = (): Promise<BrowserStatus> => request("/api/browser/status");
+
+/** Chromium's own "import from Chrome" UI — history, bookmarks, passwords. */
+export const browserImportChrome = (): Promise<{ ok: boolean }> =>
+  request("/api/browser/import-chrome", post({}));
 
 // ---- Assist artifacts + nudges (P2.2/P2.3, spec §10.5 / §14.7) -------------
 
@@ -714,9 +852,15 @@ export const saveSettingsAssist = (
 
 export interface GraduationSettings {
   mode: "propose" | "auto";
+  /** What a fresh install does — "auto" since the auto-create default landed. */
+  default_mode?: "propose" | "auto";
   reverted: boolean;
   required_days: number;
   consecutive_green: number;
+  /** Proposals seen across the reported window (informational). */
+  window_proposals?: number;
+  /** Below this many, the over-creation percentage is noise, not a signal. */
+  min_proposals?: number;
   window: {
     day: string;
     proposals: number;

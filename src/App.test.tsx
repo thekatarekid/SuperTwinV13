@@ -13,13 +13,14 @@ afterEach(() => {
 });
 
 describe("shell", () => {
-  it("renders the top-center pill nav with the four tabs", async () => {
+  it("renders the top-center pill nav with the five tabs", async () => {
     stubWorker();
     render(<App />);
     const nav = screen.getByRole("navigation", { name: "primary" });
     expect(nav.textContent).toContain("Home");
     expect(nav.textContent).toContain("Timeline");
     expect(nav.textContent).toContain("Library");
+    expect(nav.textContent).toContain("People");
     expect(nav.textContent).toContain("Settings");
     await waitFor(() => expect(screen.getByText("Book villa")).toBeTruthy());
   });

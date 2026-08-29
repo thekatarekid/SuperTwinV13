@@ -40,9 +40,21 @@ let tmpDir: string;
 let mediaDir: string;
 let calls: string;
 let audio: string;
+let savedTmpdir: string | undefined;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "st-media-transcribe-"));
+  // transcribe.ts scratch-mounts its WAVs under os.tmpdir(), and "leaves no
+  // temp WAVs behind" asserts by COUNTING supertwin-whisper-* dirs there. That
+  // is a shared, machine-global namespace: hallucination.test.ts also calls
+  // transcribeMedia, runs in a sibling vitest worker process, and its transient
+  // dirs were being counted here — so the assertion failed for another file's
+  // activity. Point os.tmpdir() at a private directory for the duration of each
+  // test (Node reads TMPDIR on every call) so the count only ever sees our own.
+  savedTmpdir = process.env.TMPDIR;
+  const privateTmp = join(tmpDir, "tmp");
+  mkdirSync(privateTmp, { recursive: true });
+  process.env.TMPDIR = privateTmp;
   mediaDir = join(tmpDir, "media", "chat");
   mkdirSync(mediaDir, { recursive: true });
   process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
@@ -65,6 +77,8 @@ afterEach(() => {
   delete process.env.SUPERTWIN_HOME;
   delete process.env.SUPERTWIN_FFMPEG_BIN;
   delete process.env.SUPERTWIN_WHISPER_BIN;
+  if (savedTmpdir === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = savedTmpdir;
   rmSync(tmpDir, { recursive: true, force: true });
 });
 

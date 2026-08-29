@@ -8,6 +8,12 @@
 //   npm run eval -- --liveness            TRC-03 pass-liveness job
 //   npm run eval -- --materialize         re-emit evals/v13 from the docs
 //
+// ISOLATED BY CONSTRUCTION: a fixture run gets its OWN home (a temp
+// SUPERTWIN_HOME, printed at the top of the report) and refuses to start when
+// the environment points at ~/SuperTwinV13 — see evals/home.ts for the leak
+// this closes. `--allow-production-home` waives it, loudly, for the rare case
+// where you actually want fixture data in your own SuperTwin.
+//
 // LIVE BY CONSTRUCTION: model-facing cases run the real pass, which runs the
 // real `claude` CLI, and are graded by the haiku judge. There is no frozen
 // mode. Deterministic cases (`mode: "code"`) never touch a model.
@@ -22,6 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { registerProductExecutors } from "./executors/index.js";
 import { coverageGaps, loadDirectory, type Fixture } from "./fixtures.js";
+import { ALLOW_PRODUCTION_FLAG, establishEvalHome, EvalHomeLeakError } from "./home.js";
 import { haikuJudge, stubJudge, type Judge } from "./judge.js";
 import { assessLiveness, collectRunCounts, renderLiveness } from "./liveness.js";
 import { materialize } from "./materialize.js";
@@ -39,6 +46,8 @@ export interface CliOptions {
   strict: boolean;
   liveness: boolean;
   materialize: boolean;
+  /** Waive the eval-home boundary and seed fixtures into ~/SuperTwinV13. */
+  allowProductionHome: boolean;
 }
 
 export function repoRoot(): string {
@@ -57,6 +66,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     strict: false,
     liveness: false,
     materialize: false,
+    allowProductionHome: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
@@ -109,6 +119,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--materialize":
         options.materialize = true;
         break;
+      case ALLOW_PRODUCTION_FLAG:
+        options.allowProductionHome = true;
+        break;
       default:
         throw new Error(`unknown flag ${arg}`);
     }
@@ -130,7 +143,11 @@ export function selectFixtures(fixtures: readonly Fixture[], options: CliOptions
 }
 
 async function runLiveness(out: (line: string) => void): Promise<number> {
-  // The DB module resolves the production home (SUPERTWIN_HOME) itself.
+  // Deliberately NOT sandboxed, and the one path that isn't: TRC-03 asks
+  // whether every pass has run IN PRODUCTION inside the window, so it must
+  // read the production home the DB module resolves on its own. It is a pure
+  // count over extraction_runs — it registers no executors and seeds nothing,
+  // which is why it is safe where a fixture run is not.
   const { getDb } = await import("../db/connection.js");
   const counts = collectRunCounts(getDb());
   const report = assessLiveness(counts);
@@ -179,33 +196,56 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     }
   }
 
-  // Live-by-construction: the passes resolve the default provider from the
-  // registry exactly as production does, so the CLI performs production's
-  // registration step (worker/src/index.ts does the same at boot).
-  const [{ register }, { claudeLocalProvider }] = await Promise.all([
-    import("../providers/registry.js"),
-    import("../providers/claude-local/index.js"),
-  ]);
-  register(claudeLocalProvider);
-
-  await registerProductExecutors();
-
-  let judge: Judge | undefined;
-  if (options.judge === "haiku") judge = haikuJudge();
-  else if (options.judge === "stub") judge = stubJudge;
-
-  const suite = await runSuite(selectFixtures(loaded.fixtures, options), { judge });
-  out(renderReport(suite, options.dir, { hideNoDataGates: options.hideNoDataGates }));
-
-  let ok = verdict(suite).ok;
-  if (options.strict) {
-    const unmeasured = suite.gates.filter((g) => g.hard && g.status === "no_data").length;
-    if (suite.totals.pending > 0 || unmeasured > 0) {
-      out(`eval --strict: ${suite.totals.pending} pending case(s), ${unmeasured} unmeasured hard gate(s)`);
-      ok = false;
+  // ISOLATION FIRST — before a single executor is wired, let alone run. The
+  // fixture seeds write through getDb(), so the data root has to be pointed
+  // somewhere disposable BEFORE anything can touch it.
+  let home;
+  try {
+    home = establishEvalHome({ allowProductionHome: options.allowProductionHome });
+  } catch (err) {
+    if (err instanceof EvalHomeLeakError) {
+      out(`eval: ${err.message}`);
+      return 3;
     }
+    throw err;
   }
-  return ok ? 0 : 1;
+  out(
+    home.production
+      ? `eval: ${ALLOW_PRODUCTION_FLAG} — seeding fixtures into your REAL home ${home.dbPath}`
+      : `eval home: ${home.home}${home.ephemeral ? " (temporary, deleted after the run)" : ""}`,
+  );
+
+  try {
+    // Live-by-construction: the passes resolve the default provider from the
+    // registry exactly as production does, so the CLI performs production's
+    // registration step (worker/src/index.ts does the same at boot).
+    const [{ register }, { claudeLocalProvider }] = await Promise.all([
+      import("../providers/registry.js"),
+      import("../providers/claude-local/index.js"),
+    ]);
+    register(claudeLocalProvider);
+
+    await registerProductExecutors();
+
+    let judge: Judge | undefined;
+    if (options.judge === "haiku") judge = haikuJudge();
+    else if (options.judge === "stub") judge = stubJudge;
+
+    const suite = await runSuite(selectFixtures(loaded.fixtures, options), { judge });
+    out(renderReport(suite, options.dir, { hideNoDataGates: options.hideNoDataGates }));
+
+    let ok = verdict(suite).ok;
+    if (options.strict) {
+      const unmeasured = suite.gates.filter((g) => g.hard && g.status === "no_data").length;
+      if (suite.totals.pending > 0 || unmeasured > 0) {
+        out(`eval --strict: ${suite.totals.pending} pending case(s), ${unmeasured} unmeasured hard gate(s)`);
+        ok = false;
+      }
+    }
+    return ok ? 0 : 1;
+  } finally {
+    home.dispose();
+  }
 }
 
 const invokedDirectly =

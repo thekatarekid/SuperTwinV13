@@ -15,6 +15,7 @@
 //     P1.x tasks land them, exactly the way BND does.
 // ===========================================================================
 
+import { assertEvalDbIsolated } from "../home.js";
 import { registerExecutor } from "../runner.js";
 import { bndExecutor, bndHookAvailable } from "./bnd.js";
 import { criticExecutor, orientExecutor } from "./orient.js";
@@ -67,6 +68,13 @@ import {
 } from "./p4.js";
 
 export async function registerProductExecutors(): Promise<void> {
+  // CONTAINMENT CHOKEPOINT. Almost every executor below seeds rows through
+  // getDb(), and getDb() falls through to ~/SuperTwinV13/supertwinv13.db when
+  // nothing sandboxes it — which is exactly how fixture events ("Rohan: villa
+  // advance by 5pm", villas.example) reached a real user's Timeline. Wiring
+  // these executors while pointed at the production DB is refused here, so the
+  // leak cannot come back by someone forgetting the CLI's setup step.
+  assertEvalDbIsolated("registerProductExecutors()");
   registerExecutor("selftest.stub", stubExecutor);
   if (await bndHookAvailable()) {
     registerExecutor("scheduler.dispatch", bndExecutor);

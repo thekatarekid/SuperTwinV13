@@ -1,9 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { closeDb } from "../../db/connection.js";
 import { goodFixture } from "../testutil.js";
 import { registeredPasses } from "../runner.js";
 import { bndExecutor, bndHookAvailable, BND_HOOK_EXPORT, BND_HOOK_MODULE, resetBndHookCache } from "./bnd.js";
 import { registerProductExecutors } from "./index.js";
+
+// registerProductExecutors() refuses to wire the DB-touching executors while
+// the resolved DB is the user's real home (evals/home.ts). Sandbox this suite
+// the way the CLI sandboxes a run.
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), "supertwin-bndexec-"));
+  process.env.SUPERTWIN_HOME = tmpDir;
+  process.env.SUPERTWIN_DB_PATH = join(tmpDir, "st.db");
+  closeDb();
+});
+
+afterEach(() => {
+  closeDb();
+  delete process.env.SUPERTWIN_HOME;
+  delete process.env.SUPERTWIN_DB_PATH;
+  rmSync(tmpDir, { recursive: true, force: true });
+});
 
 const bndFixture = () =>
   goodFixture({ id: "BND-01", category: "BND", pass: "scheduler.dispatch", mode: "code" });

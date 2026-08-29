@@ -1,7 +1,7 @@
 {
   "name": "supertwinv13",
   "private": true,
-  "version": "13.4.6",
+  "version": "13.4.7",
   "type": "module",
   "workspaces": [
     "worker"

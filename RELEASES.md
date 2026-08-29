@@ -32,3 +32,4 @@ Nothing here is ever removed.
 | 13.4.4 | — | no artifact — fix bump |
 | 13.4.5 | — | no artifact — fix bump |
 | 13.4.6 | — | no artifact — fix bump |
+| 13.4.7 | — | pending |

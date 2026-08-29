@@ -9,26 +9,66 @@ export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/** The app command (src-tauri/src/opener.rs) that hands a URL to the OS. */
+const OPEN_EXTERNAL_COMMAND = "open_external";
+
+function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 /**
  * Open a URL outside the webview (P2.1: the Accessibility deep link into
- * System Settings). Inside Tauri this goes through the shell plugin (the
- * default capability includes `open`); in a plain browser it falls back to
- * window.open, which is inert for OS-scheme URLs — fine for dev.
+ * System Settings).
+ *
+ * Inside Tauri this goes through the app's own `open_external` command, NOT
+ * `shell.open()`: the shell plugin validates JS opens against an OpenScope
+ * whose default regex only admits `mailto:` / `tel:` / `http(s)://`, so the
+ * `x-apple.systempreferences:` deep link was rejected outright. The plugin is
+ * still tried as a fallback (it works for ordinary web links).
+ *
+ * This REJECTS when nothing could open the URL. The previous version
+ * swallowed every error and fell through to `window.open`, which is a silent
+ * no-op for OS-scheme URLs in WKWebView — that is the whole reason "Open
+ * System Settings" appeared to do nothing. Callers must render the failure.
  */
 export async function openExternal(url: string): Promise<void> {
   if (isTauri()) {
+    const failures: string[] = [];
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke(OPEN_EXTERNAL_COMMAND, { url });
+      return;
+    } catch (err) {
+      failures.push(`app opener: ${errorText(err)}`);
+    }
     try {
       const { open } = await import("@tauri-apps/plugin-shell");
       await open(url);
       return;
-    } catch {
-      // fall through to window.open
+    } catch (err) {
+      failures.push(`shell plugin: ${errorText(err)}`);
     }
+    throw new Error(failures.join(" · "));
+  }
+
+  // Plain browser (dev server / tests): only web URLs can be handed to the
+  // browser. window.open is inert for OS-scheme URLs, so say so rather than
+  // pretending the click worked.
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error(
+      `${url} can only be opened by the desktop app, not a browser tab`,
+    );
   }
   try {
     window.open(url, "_blank", "noopener");
-  } catch {
-    // opening must never throw into the UI
+  } catch (err) {
+    throw new Error(errorText(err));
   }
 }
 

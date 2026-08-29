@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the app windows. Grants the shell plugin so the worker sidecar can be spawned and managed; panel + nudge (P2.3) get the same window/core surface for the tray commands.",
+  "description": "Default capability for the app windows. Grants the shell plugin so the worker sidecar can be spawned and managed; panel + nudge (P2.3) get the same window/core surface for the tray commands. `shell:allow-open` covers the http(s)/mailto fallback path of openExternal() — the macOS System Settings deep link goes through the app's own `open_external` command instead, because the plugin's JS open-scope only admits mailto/tel/http(s).",
   "windows": [
     "main",
     "panel",
@@ -10,6 +10,7 @@
   "permissions": [
     "core:default",
     "shell:default",
+    "shell:allow-open",
     "shell:allow-spawn",
     "shell:allow-kill",
     "core:window:allow-hide",

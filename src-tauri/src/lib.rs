@@ -32,6 +32,9 @@ use tauri_plugin_shell::ShellExt;
 
 // P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
 mod hotkey;
+// P2.1 — hand a URL to the OS (the Accessibility System Settings deep link).
+// The JS `shell.open()` scope rejects `x-apple.systempreferences:`; see opener.rs.
+mod opener;
 // P2.3 — menu bar tray (◉◔●⏸), 360px glass panel, transient nudge window.
 mod tray;
 
@@ -239,6 +242,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(WorkerProcess::default())
         .invoke_handler(tauri::generate_handler![
+            opener::open_external,
             tray::set_tray_state,
             tray::show_nudge,
             tray::hide_nudge,

@@ -16,7 +16,11 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { handleLibraryRoute, screenSessions } from "./library-routes.js";
 
-const NOW = Date.parse("2026-08-28T12:00:00.000Z");
+// Midday UTC of the REAL current day: the route computes "today" with
+// SQLite's 'now' (the actual system clock), so a hard-pinned date makes the
+// suite fail the moment the clock crosses UTC midnight past the pin. Events
+// seeded at NOW-<minutes> stay inside today for any run time of day.
+const NOW = Date.parse(`${new Date().toISOString().slice(0, 10)}T12:00:00.000Z`);
 
 let tmpDir: string;
 let server: Server;

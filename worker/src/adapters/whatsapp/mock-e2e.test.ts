@@ -14,41 +14,17 @@
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { spawn as nodeSpawn, spawnSync } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { mintApprovalToken } from "../../approvals/tokens.js";
 import { Ingestion } from "../../ingest/index.js";
 import type { StatusUpdate } from "../types.js";
 import { WhatsAppAdapter } from "./adapter.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(__dirname, "..", "..", "..", "..");
-const GO_DIR = join(REPO, "sources", "whatsapp-go");
-
-const goAvailable =
-  spawnSync("go", ["version"], { encoding: "utf8" }).status === 0 &&
-  existsSync(join(GO_DIR, "go.mod"));
-
-/** Build the daemon once per run into a temp path. */
-let builtBin: string | null = null;
-function buildDaemon(): string {
-  if (builtBin) return builtBin;
-  const out = join(mkdtempSync(join(tmpdir(), "wa-go-bin-")), "whatsapp-go");
-  const res = spawnSync("go", ["build", "-o", out, "."], {
-    cwd: GO_DIR,
-    encoding: "utf8",
-  });
-  if (res.status !== 0) {
-    throw new Error(`go build failed: ${res.stderr}`);
-  }
-  builtBin = out;
-  return out;
-}
+import { buildDaemon, GO_DIR, goAvailable } from "../../testing/go-daemon.js";
 
 let tmpDir: string;
 
@@ -96,7 +72,7 @@ describe.skipIf(!goAvailable)("real --mock daemon e2e (P0.6)", () => {
   it(
     "import 90d achieves ≥95% ingest containment; tokened send round-trips; replay refused",
     async () => {
-      const bin = buildDaemon();
+      const bin = await buildDaemon();
       const adapter = new WhatsAppAdapter({
         binPath: bin,
         mock: true,
@@ -190,7 +166,7 @@ describe.skipIf(!goAvailable)("real --mock daemon e2e (P0.6)", () => {
   it(
     "the send-refusal fixture refuses every send (SEND_REFUSED, no echo)",
     async () => {
-      const bin = buildDaemon();
+      const bin = await buildDaemon();
       const fixture = join(GO_DIR, "fixtures", "send-refusal.json");
       expect(existsSync(fixture)).toBe(true);
 

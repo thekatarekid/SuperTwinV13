@@ -13,11 +13,9 @@
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
@@ -35,24 +33,7 @@ import type {
 } from "../providers/types.js";
 import { handleSourceRoute } from "./whatsapp-routes.js";
 import { handleExecutorRoute, type ExecutorRouteDeps } from "./executor-routes.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(__dirname, "..", "..", "..");
-const GO_DIR = join(REPO, "sources", "whatsapp-go");
-
-const goAvailable =
-  spawnSync("go", ["version"], { encoding: "utf8" }).status === 0 &&
-  existsSync(join(GO_DIR, "go.mod"));
-
-let builtBin: string | null = null;
-function buildDaemon(): string {
-  if (builtBin) return builtBin;
-  const out = join(mkdtempSync(join(tmpdir(), "wa-go-bin-")), "whatsapp-go");
-  const res = spawnSync("go", ["build", "-o", out, "."], { cwd: GO_DIR, encoding: "utf8" });
-  if (res.status !== 0) throw new Error(`go build failed: ${res.stderr}`);
-  builtBin = out;
-  return out;
-}
+import { buildDaemon, goAvailable } from "../testing/go-daemon.js";
 
 // ---- scripted model transport ---------------------------------------------
 
@@ -236,7 +217,7 @@ describe.skipIf(!goAvailable)("P3.5 demo path (stubbed models + real --mock daem
 
       // 3. Boot the REAL daemon in --mock mode behind the real adapter.
       const adapter = new WhatsAppAdapter({
-        binPath: buildDaemon(),
+        binPath: await buildDaemon(),
         mock: true,
         home: tmpDir,
         autoRestart: false,

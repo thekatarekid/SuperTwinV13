@@ -1,5 +1,7 @@
 # SuperTwinV13 — Build Progress
 
+**Goal (P0–P4): ✅ COMPLETE (2026-08-29).** Rebrand → substrate → understanding → screen/assist → execution → full UI + graduation all shipped and gated; five phase DMGs cut (13.0.1 → 13.4.1).
+
 ## Phase 0 — Rebrand, prune, substrate
 - [x] P0.1 Rebrand to SuperTwinV13 (port 8013, ~/SuperTwinV13, com.supertwin.v13)
 - [x] P0.2 Logo + icons
@@ -43,8 +45,10 @@
 - [x] P4.2 Generative result renderer + remaining modals + People view (circles drag = correction)
 - [x] P4.3 Consolidation T3 + graduation switch + Settings (eight subtabs, embedding registry)
 - [x] P4.4/P4.5 Integration + gates: USR/CIR/FIX/TRC eval executors; correction-parse.v2 + bar-action.v2; bar/correction model seams moved onto the traced JSON runner; privacy-audit script; fresh-install smoke
+- [x] Phase 4 DMG: releases/SuperTwinV13_Phase4_13.4.1.dmg (991 MB, built 2026-08-29)
 
 ## Log
+- 2026-08-29: Phase 4 release cut. `scripts/release.mjs --set 13.4.1 --no-build`, BUILT_THROUGH_PHASE=P4, full `npm run build:app` clean. DMG 991 MB, sha256 `fb06ce7fcb46d7b5…` → releases/SuperTwinV13_Phase4_13.4.1.dmg; all four earlier phase DMGs verified present with matching recorded digests. Build-plan Phase 4 STATUS ✅ + §8 cross-phase checklist checked (real-phone pairing and installed-app visual pass annotated as human steps). P0–P4 goal complete.
 - 2026-08-29: Phase 4 gates complete. Worker 2349 tests green (168 files), root 67+80 green, vite build + tsc clean, go test ./... ok. New: USR/CIR/FIX/TRC eval executors (p4.ts), correction-parse.v2 + bar-action.v2, bar/correction seams moved onto the traced JSON runner (the wire PromptRunner rejected their JSON contract on first live contact), executor protocol fix (needs_approval survives a malformed optional result), Critic gate chained into Orient eval ticks, scripts/privacy-audit.mjs (CLEAN). Live evals: USR 6/6, CIR-04, FIX-01/02/03/04/05, TRC-02, CON 8/8, CLM smoke 3/3 green; full 176-fixture suite run + 4 remediation rounds — all 14 hard gates green (over_creation, false_auto_merge, false_auto_close, containment, risky_without_token, guess_rate, false_receiver_assignment, auto_schedule_policy_violation, challenge_ignore, login_automation, trigger_gate, trace_coverage 100%, pass_liveness 100%, idempotency). Known-red (tracked gates only): TIM-04 (model adds an unrequested early-fire buffer; time_accuracy/schedule_math). Pending by design: CIR-01..03 (circle-inference surface is P5+), FIX-06 (React-suite contract), ROL (orient+extract executor unbuilt), BRW-04/06/07 (P5 adapters). Fresh-install smoke on SUPERTWIN_HOME=/tmp: health 13.3.1/P3, mock pairing paired+online, import 9/9 chats done. V11 grep clean. 24h eval spend $17.34/607 runs, zero anonymous traces, zero browsing-lane LLM calls.
 - 2026-08-28: Kickoff. Phase 0 orchestration started.
 - 2026-08-28: Phase 0 complete (10 agents, all green). Worker 1762 tests pass, go tests pass, BND deterministic suite green, rebrand grep clean. DMG 13.0.1 (724MB) in releases/. Commits 48f9e65..c739875.

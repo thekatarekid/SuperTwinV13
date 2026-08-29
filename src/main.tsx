@@ -14,6 +14,8 @@ import "@fontsource/figtree/700.css";
 // P1.7 design tokens + app chrome (hand-written, no framework).
 import "./styles/tokens.css";
 import "./styles/app.css";
+// Screen-scoped chrome that owns its own rules (Settings subtab row).
+import "./styles/settings.css";
 
 // Inside Tauri the body stays transparent (vibrancy paints beneath it);
 // in a plain browser app.css supplies the stand-in gradient.

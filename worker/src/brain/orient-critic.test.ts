@@ -170,7 +170,7 @@ describe("parseCriticOutput + verdictFor", () => {
 });
 
 describe("runBrainTick — full tick with stubbed provider", () => {
-  it("commits episodes, proposes spaces (NEVER active), files unsorted, marks dispatched", async () => {
+  it("commits episodes, creates spaces at the born-status, files unsorted, marks dispatched", async () => {
     const bundle = seedBundle([
       "guys lets lock goa 18-21 dec",
       "did anyone pay the diwali pool??",
@@ -221,19 +221,22 @@ describe("runBrainTick — full tick with stubbed provider", () => {
       summary: string;
     }[];
     expect(eps).toHaveLength(3); // new episode + proposal episode + unsorted episode
-    // Propose-only: the proposal space exists and is 'proposed', never active.
+    // Auto-create (the default): the new space is born ACTIVE. The born-status
+    // comes from proposedStatus() alone — never from the model — and flips to
+    // 'proposed' only while the user has propose-only on (Settings › General).
     const spaces = db.prepare(`SELECT label, status FROM spaces`).all() as {
       label: string;
       status: string;
     }[];
-    expect(spaces).toEqual([{ label: "Goa trip in December", status: "proposed" }]);
+    expect(spaces).toEqual([{ label: "Goa trip in December", status: "active" }]);
     // Unsorted row for e3.
     expect(db.prepare(`SELECT COUNT(*) AS n FROM unsorted`).get()).toEqual({ n: 1 });
     // Every derived-object change wrote a decisions row.
     const decisions = db
       .prepare(`SELECT target_kind, action FROM decisions ORDER BY created_at`)
       .all() as { target_kind: string; action: string }[];
-    expect(decisions.some((d) => d.target_kind === "space" && d.action === "propose")).toBe(true);
+    // Auto-create records a 'create'; propose-only would record a 'propose'.
+    expect(decisions.some((d) => d.target_kind === "space" && d.action === "create")).toBe(true);
     expect(decisions.filter((d) => d.target_kind === "episode")).not.toHaveLength(0);
     // The bundle is marked dispatched (cursor moved, events stamped).
     expect(
@@ -313,10 +316,12 @@ describe("runBrainTick — full tick with stubbed provider", () => {
     const eps = db.prepare(`SELECT summary FROM episodes`).all() as { summary: string }[];
     expect(eps.map((e) => e.summary)).toEqual(["overlaps sp_other"]);
     expect(report.commit?.rejected).toBe(1);
-    // flag_overlap: committed as proposed + T2 review queued immediately.
+    // flag_overlap: committed at the born-status (active, under the default)
+    // AND queued for T2 review immediately — the overlap is resolved by the
+    // merge pass, reversibly, not by withholding the space from the user.
     expect(
       db.prepare(`SELECT status FROM spaces WHERE label = 'Duplicate looking space'`).get(),
-    ).toEqual({ status: "proposed" });
+    ).toEqual({ status: "active" });
     const t2 = db
       .prepare(`SELECT kind, overlap_space_id, status FROM t2_review_queue`)
       .all() as { kind: string; overlap_space_id: string | null; status: string }[];

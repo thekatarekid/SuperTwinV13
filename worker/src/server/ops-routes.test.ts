@@ -188,3 +188,67 @@ describe("lane pause/resume", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("run undo", () => {
+  // The shipped 13.4.1 build had the "undo run" link in Settings pointing at a
+  // route that did not exist — every click 404'd as "unknown ops route".
+  interface UndoBody {
+    runId: string;
+    reversible: number;
+    skipped: number;
+    reversed?: number;
+    items: { targetId: string; action: string; reversible: boolean; skipReason: string | null }[];
+  }
+
+  it("previews the blast radius on GET, then reverses it on POST", async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO spaces (id, label, status) VALUES ('sp_u1','Undo me','active')`).run();
+    db.prepare(`INSERT INTO spaces (id, label, status) VALUES ('sp_u2','Other','active')`).run();
+    db.prepare(
+      `INSERT INTO episodes (id, space_id, state, summary) VALUES ('ep_u1','sp_u2','open','moved')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO decisions (id, run_id, pass, target_kind, target_id, action, old_json, reason)
+       VALUES ('dec_u1','run_u1','decide','episode','ep_u1','attach','{"spaceId":"sp_u1"}','same thread')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO decisions (id, run_id, pass, target_kind, target_id, action, old_json)
+       VALUES ('dec_u2','run_u1','user','space','sp_u1','approve','{"status":"proposed"}')`,
+    ).run();
+
+    // GET is a pure preview: it must state what would happen and change nothing.
+    const preview = (await (await fetch(`${base}/api/ops/runs/run_u1/undo`)).json()) as UndoBody;
+    expect(preview.runId).toBe("run_u1");
+    expect(preview.items).toHaveLength(2);
+    expect(preview.reversible).toBe(1);
+    expect(preview.skipped).toBe(1); // the human's approve row
+    expect(preview.items.find((i) => i.targetId === "sp_u1")!.skipReason).toMatch(/human/i);
+    expect(
+      (db.prepare(`SELECT space_id FROM episodes WHERE id = 'ep_u1'`).get() as { space_id: string })
+        .space_id,
+    ).toBe("sp_u2");
+
+    const res = await fetch(`${base}/api/ops/runs/run_u1/undo`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as UndoBody;
+    expect(body.reversed).toBe(1);
+    expect(
+      (db.prepare(`SELECT space_id FROM episodes WHERE id = 'ep_u1'`).get() as { space_id: string })
+        .space_id,
+    ).toBe("sp_u1");
+    // The human's row is still standing.
+    expect(
+      (db.prepare(`SELECT reversed_at FROM decisions WHERE id = 'dec_u2'`).get() as {
+        reversed_at: string | null;
+      }).reversed_at,
+    ).toBeNull();
+  });
+
+  it("an unknown run id is an empty preview, not a 404 and not a crash", async () => {
+    const res = await fetch(`${base}/api/ops/runs/run_missing/undo`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as UndoBody;
+    expect(body.items).toHaveLength(0);
+    expect(body.reversible).toBe(0);
+  });
+});

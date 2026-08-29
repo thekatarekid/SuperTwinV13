@@ -77,7 +77,7 @@ describe("Settings round-trips (spec §14.9)", () => {
     expect(before.body.hotkey_summon).toBe("double-right-cmd");
     expect(before.body.notifications_enabled).toBe(true);
     expect(before.body.brief_times).toEqual(["08:30", "18:30"]);
-    expect(before.body.graduation_mode).toBe("propose");
+    expect(before.body.graduation_mode).toBe("auto"); // fresh install auto-creates
 
     const saved = await post("/api/settings/general", {
       launch_at_login: true,
@@ -119,18 +119,22 @@ describe("Settings round-trips (spec §14.9)", () => {
     expect(after.body.pagetext_rules).toEqual(["docs.google.com: capture"]);
   });
 
-  it("graduation: readable, user can flip and revert (revert is sticky)", async () => {
+  it("space creation: auto-create out of the box, propose-only opt-in and sticky", async () => {
     const before = await get("/api/settings/graduation");
     expect(before.status).toBe(200);
-    expect(before.body.mode).toBe("propose");
+    // The fresh-install default — nothing has to be earned first.
+    expect(before.body.mode).toBe("auto");
+    expect(before.body.default_mode).toBe("auto");
+    expect(before.body.reverted).toBe(false);
+    // The over-creation window is still reported, as information.
     expect(before.body.required_days).toBe(14);
     expect(Array.isArray(before.body.window)).toBe(true);
 
-    const on = await post("/api/settings/graduation", { mode: "auto" });
-    expect(on.body.mode).toBe("auto");
     const off = await post("/api/settings/graduation", { mode: "propose" });
     expect(off.body.mode).toBe("propose");
-    expect(off.body.reverted).toBe(true); // user said no — auto-flip disarmed
+    expect(off.body.reverted).toBe(true); // deliberate choice — code never undoes it
+    const on = await post("/api/settings/graduation", { mode: "auto" });
+    expect(on.body.mode).toBe("auto");
 
     const bad = await post("/api/settings/graduation", { mode: "yolo" });
     expect(bad.status).toBe(400);

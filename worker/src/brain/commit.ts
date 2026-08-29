@@ -37,15 +37,14 @@ function mintId(prefix: string): string {
 }
 
 /**
- * The propose-only guard: the one status a pass-created space may have.
- * Exported so tests can assert the guard exists; commit uses it for EVERY
- * space insert, making "proposals never activate without approval" a property
- * of the code path, not of prompt behaviour.
+ * The one status a pass-created space may have. Exported so tests can assert
+ * the guard exists; commit uses it for EVERY space insert, so the born-status
+ * is a property of the code path, never of prompt behaviour.
  *
- * P4.3: the GRADUATION SWITCH (spec §9.1) is the single sanctioned exception —
- * after the gates hold 14 consecutive days, `spaceCreationStatus()` starts
- * answering "active" and pass-created spaces skip the review queue. Until it
- * flips (and again if the user reverts) this returns "proposed".
+ * It answers "active" by default — spaces auto-create, and a wrong one is a
+ * reversible decision — and "proposed" (straight to the review queue) only
+ * while the user has propose-only turned on in Settings › General. The mode
+ * lives in `consolidation/graduation.ts`; no model sees or sets it.
  */
 export function proposedStatus(): "proposed" | "active" {
   return spaceCreationStatus();
@@ -301,7 +300,7 @@ export function commitTick(input: CommitInput): CommitReport {
       });
     }
 
-    // ---- Space proposals — always born 'proposed' (propose-only) ---------
+    // ---- New spaces — born active, or 'proposed' under propose-only ------
     for (const p of orient.proposals) {
       item++;
       const verdict = verdictFor(critic, item);
@@ -337,8 +336,8 @@ export function commitTick(input: CommitInput): CommitReport {
       }
 
       const spaceId = mintId("sp");
-      // Propose-only until the graduation switch flips (spec §9.1): the
-      // status a pass may write comes from ONE guard, never from the model.
+      // The status a pass may write comes from ONE guard, never from the
+      // model: "active" by default, "proposed" under propose-only.
       const bornStatus = proposedStatus();
       db.prepare(
         `INSERT INTO spaces (id, label, life_area, goal, status, exemplars_json, created_by, confidence,

@@ -1,0 +1,83 @@
+/* ==========================================================================
+   Settings shell — the top-center subtab row (spec §14.9).
+
+   The 13.4.1 build rendered the eight subtabs as a plain vertical list in
+   normal flow: they scrolled away with the panel and sat on top of its
+   content. The row uses the shared .subnav-row / .pill-nav-sub language (the
+   same one Library's source subtabs use, so the two screens read as one
+   system); everything here is the extra behaviour eight full labels need on
+   top of it.
+
+   Scoped to the Settings screen on purpose: this file owns that screen's
+   chrome and nothing else, so it can never collide with another screen.
+   ========================================================================== */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* Sticky inside .screen (the scroll container), so the row stays under the
+   main nav while the panel scrolls beneath it. The negative margin full-bleeds
+   it across .screen's gutters, so nothing shows past its edges as content
+   passes behind. */
+.settings-subtabs {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin: 0 calc(-1 * var(--sp-5));
+  padding: var(--sp-2) var(--sp-5) var(--sp-3);
+  background: var(--glass-1-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* Wrap rather than clip: eight full labels do not fit a narrow window, and a
+   centred row that overflows horizontally hides its own first item. */
+.settings-subtabs .pill-nav {
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.settings-subtabs .pill-nav button {
+  white-space: nowrap;
+}
+
+.settings-panel {
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.settings-panel h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--sp-2);
+}
+
+.settings-panel h3 {
+  font-size: var(--text-md);
+  color: var(--ink-2);
+  margin: var(--sp-4) 0 var(--sp-1);
+}
+
+/* A disabled control must not look live — especially the destructive one in
+   the undo-run confirm when there is nothing to revert. */
+.settings .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The undo-run confirm's line-by-line blast radius: scrolls on its own so a
+   long run cannot push the Cancel button off the dialog. */
+.undo-run-items {
+  max-height: 40vh;
+  overflow-y: auto;
+  border-radius: var(--r-sm);
+  border: var(--glass-border);
+  background: var(--glass-1-bg);
+  padding: var(--sp-2);
+  margin: var(--sp-2) 0;
+  font-size: var(--text-sm);
+}

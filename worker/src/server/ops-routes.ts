@@ -15,6 +15,7 @@
 //   GET  /api/ops/lanes                  pause state per lane, live
 //   POST /api/ops/lanes/pause            { lane, ms } manual pause
 //   POST /api/ops/lanes/resume           { lane } clear a pause early
+//   GET  /api/ops/runs/:id/undo          PREVIEW: what an undo would revert
 //   POST /api/ops/runs/:id/undo          reverse-replay one run's mutations
 //
 // Import progress and depth travel in ONE response for the same reason
@@ -22,14 +23,18 @@
 // disagree mid-run, and a progress bar that disagrees with itself reads as a
 // silent failure (§9.7 rule 3).
 //
-// Undo is not a special code path: `claims/undo.ts` reverse-replays the
-// `mutations` ledger and never reverses a human's row. Exactly one run per
-// call — the build doc's acceptance is "undo reverses exactly one run".
+// Undo is not a special code path: `consolidation/run-undo.ts` reverse-replays
+// the decisions ledger through the same `reverseDecision` the one-tap undo
+// chip uses, and never reverses a human's row. Exactly one run per call — the
+// build doc's acceptance is "undo reverses exactly one run". The GET twin is
+// there so the surface can state the blast radius before the human confirms:
+// a destructive link that cannot be read before it is clicked is a trap.
 // ===========================================================================
 
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { getDb } from "../db/connection.js";
+import { runUndoPreview, undoRun } from "../consolidation/run-undo.js";
 import { resourcePool, RESOURCE_LIMITS, type LaneKey } from "../providers/pool.js";
 import {
   listQuarantined,
@@ -261,6 +266,17 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
     }
     resourcePool.resumeLane(body.lane);
     sendJson(res, 200, { ok: true, lane: body.lane, pausedForMs: 0 });
+    return true;
+  }
+
+  // ---- GET/POST /api/ops/runs/:id/undo ------------------------------------
+  //
+  // GET previews (pure), POST applies. Same body shape both ways so the
+  // confirm step and the receipt read identically; POST adds `reversed`.
+  const runUndo = path.match(/^\/api\/ops\/runs\/([^/]+)\/undo$/);
+  if (runUndo && (method === "GET" || method === "POST")) {
+    const runId = decodeURIComponent(runUndo[1]!);
+    sendJson(res, 200, method === "GET" ? runUndoPreview(runId) : undoRun(runId));
     return true;
   }
 

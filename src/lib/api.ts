@@ -961,7 +961,36 @@ export interface QuarantineRow {
 export const fetchQuarantine = (): Promise<{ items: QuarantineRow[] }> =>
   request("/api/ops/quarantine");
 
-export const undoRun = (runId: string): Promise<unknown> =>
+/** One decision a run wrote, as the undo confirm step renders it. */
+export interface RunUndoItem {
+  decisionId: string;
+  pass: string | null;
+  targetKind: string;
+  targetId: string;
+  action: string;
+  reason: string | null;
+  createdAt: string;
+  reversible: boolean;
+  skipReason: string | null;
+}
+
+export interface RunUndoPreview {
+  runId: string;
+  items: RunUndoItem[];
+  reversible: number;
+  skipped: number;
+}
+
+export interface RunUndoResult extends RunUndoPreview {
+  reversed: number;
+}
+
+/** READ-ONLY: what an undo of this run would revert. Nothing is changed. */
+export const fetchRunUndoPreview = (runId: string): Promise<RunUndoPreview> =>
+  request(`/api/ops/runs/${encodeURIComponent(runId)}/undo`);
+
+/** DESTRUCTIVE: reverse-replays the run. Always show the preview first. */
+export const undoRun = (runId: string): Promise<RunUndoResult> =>
   request(`/api/ops/runs/${encodeURIComponent(runId)}/undo`, post());
 
 export interface UsageSummary {

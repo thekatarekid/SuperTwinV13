@@ -1,26 +1,34 @@
 // ===========================================================================
-// Graduation switch — build P4.3 (spec §9.1: "Propose-only mode for the first
-// months … Graduation to auto-create after 2+ clean weeks on the gates").
+// Space-creation mode + the over-creation metric — build P4.3, revised.
 //
-// Everything here is CODE over the decisions ledger — no model call decides
-// whether the twin has earned auto-create:
+// SPEC DELTA (deliberate, from real use of the 13.4.1 build): the shipped
+// default was PROPOSE-ONLY, graduating to auto-create only after 14 clean days
+// (spec §9.1 / build §P4.3). That made a fresh install a review queue: every
+// space the twin understood sat waiting for a click before it existed. The
+// default is now AUTO-CREATE — a new space is born active — and propose-only
+// is the setting a user turns ON when they want to vet each one.
 //
-//   * recordGraduationMetrics(day) measures ONE day's gates from decisions:
-//       over_creation   user rejections / proposals (< 10% passes, spec §18.2)
+// What that changes, and what it deliberately does not:
+//
+//   * DEFAULT_GRADUATION_MODE is "auto", so a fresh install (no app_state row)
+//     reads back "auto" and spaceCreationStatus() answers "active".
+//   * The Settings switch still flips both ways and is still a decisions row,
+//     so the choice is recorded and reversible like every other change.
+//   * Spaces ALREADY 'proposed' stay proposed — the review queue keeps working
+//     for them; nothing is retro-activated behind the user's back.
+//   * recordGraduationMetrics(day) still measures ONE day's gates from the
+//     decisions ledger:
+//       over_creation     user rejections / proposals (< 10% passes, §18.2)
 //       false_auto_merge  auto-applied merges later reversed (must be 0)
-//     and stores the row in graduation_metrics — the tracked metric table the
-//     Settings pane renders as a streak.
-//   * checkGraduation(now) flips `spaces.graduation_mode` to "auto" only when
-//     `gates_ok` has held GRADUATION_REQUIRED_DAYS consecutive days AND the
-//     window saw real proposal traffic (a dead install must not graduate on
-//     vacuous truth). The flip is a decisions row (reversible, like every
-//     derived change) plus an ANNOUNCEMENT ARTIFACT so the user hears about
-//     it in the Prepared shelf rather than discovering it by surprise.
-//   * The user can revert (Settings toggle → setGraduationMode("propose",
-//     "user")). A user revert sets a sticky override: the auto-flip never
-//     re-fires on its own after the user has said no.
-//   * spaceCreationStatus() is what the commit path asks: "proposed" until
-//     graduated, "active" after — the ONE reader that changes behavior.
+//     and still stores the row in graduation_metrics. It is now INFORMATIONAL
+//     — a health read the Settings pane shows — not a gate anything waits on.
+//   * The old auto-flip (propose → auto after the streak, announced in the
+//     Prepared shelf) is GONE with the default it existed to reach. Turning
+//     auto-create off is now a deliberate user choice, and code silently
+//     turning it back on would be exactly the surprise the sticky-revert
+//     override was written to prevent.
+//   * spaceCreationStatus() is still the ONE reader that changes behavior:
+//     the commit path asks it for the status a pass-created space is born with.
 // ===========================================================================
 
 import { randomBytes } from "node:crypto";
@@ -28,19 +36,23 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { appStateGet, appStateSet } from "../db/ingest.js";
-import { createArtifact } from "../assist/artifacts.js";
 
 // ---- keys and constants ----------------------------------------------------
 
-/** app_state: "propose" (default) | "auto". */
+/** app_state: "auto" | "propose". Unset means DEFAULT_GRADUATION_MODE. */
 export const GRADUATION_MODE_KEY = "spaces.graduation_mode";
-/** app_state: "1" once the user reverted — the auto-flip never re-fires. */
+/** app_state: "1" once the user chose propose-only — code never overrides it. */
 export const GRADUATION_REVERTED_KEY = "spaces.graduation_reverted";
-/** Consecutive green days the gates must hold before auto-create. */
+/**
+ * What a FRESH INSTALL does: create spaces active. Propose-only is opt-in.
+ */
+export const DEFAULT_GRADUATION_MODE: GraduationMode = "auto";
+/** The window the over-creation metric is reported over (informational). */
 export const GRADUATION_REQUIRED_DAYS = 14;
 /**
- * Minimum proposals across the window: 14 silent days prove nothing about
- * over-creation, so an idle install stays in propose-only.
+ * Below this many proposals across the window the over-creation percentage is
+ * noise, not a signal — 14 silent days prove nothing. Surfaces use it to say
+ * "not enough traffic to judge" instead of printing a flattering 0%.
  */
 export const GRADUATION_MIN_PROPOSALS = 5;
 /** The over-creation hard gate (spec §18.2): rejections/proposals < 10%. */
@@ -51,12 +63,16 @@ export type GraduationMode = "propose" | "auto";
 // ---- mode ------------------------------------------------------------------
 
 export function graduationMode(): GraduationMode {
-  return appStateGet(GRADUATION_MODE_KEY) === "auto" ? "auto" : "propose";
+  const stored = appStateGet(GRADUATION_MODE_KEY);
+  if (stored === "auto") return "auto";
+  if (stored === "propose") return "propose";
+  return DEFAULT_GRADUATION_MODE;
 }
 
 /**
- * Flip the mode. `by` names who flipped it: "user" (Settings) or "code"
- * (the auto-flip). A USER revert to propose sets the sticky override.
+ * Flip the mode. `by` names who flipped it: "user" (Settings) or "code".
+ * Choosing propose-only sets the sticky override so no code path can quietly
+ * hand auto-create back.
  */
 export function setGraduationMode(mode: GraduationMode, by: "user" | "code"): void {
   const before = graduationMode();
@@ -73,18 +89,19 @@ export function setGraduationMode(mode: GraduationMode, by: "user" | "code"): vo
     reason:
       by === "user"
         ? `user set space creation to ${mode === "auto" ? "auto-create" : "propose-only"}`
-        : `gates held ${GRADUATION_REQUIRED_DAYS} consecutive days — auto-create graduated`,
+        : `space creation set to ${mode} by code`,
   });
 }
 
-/** True once the user has reverted auto-create; the auto-flip respects it. */
+/** True once the user has deliberately chosen propose-only. */
 export function graduationUserReverted(): boolean {
   return appStateGet(GRADUATION_REVERTED_KEY) === "1";
 }
 
 /**
- * The status a PASS-created space is born with. "proposed" is the propose-only
- * default; after graduation the pass may birth active spaces directly.
+ * The status a PASS-created space is born with. "active" by default (the twin
+ * files it and you can undo); "proposed" when the user has turned propose-only
+ * on, which routes it to the review queue instead.
  */
 export function spaceCreationStatus(): "proposed" | "active" {
   return graduationMode() === "auto" ? "active" : "proposed";
@@ -217,20 +234,24 @@ export function consecutiveGreenDays(now: Date): number {
   return streak;
 }
 
-// ---- the auto-flip ---------------------------------------------------------
+// ---- the tick: measure, never flip -----------------------------------------
 
 export interface GraduationCheck {
-  flipped: boolean;
   mode: GraduationMode;
   consecutiveGreen: number;
   windowProposals: number;
+  /** True when the user chose propose-only by hand. */
   reverted: boolean;
 }
 
 /**
- * Record yesterday's metrics (if not yet measured) and flip to auto-create
- * when earned. Safe to call every tick: idempotent, and a no-op once
- * graduated or once the user has reverted.
+ * Record yesterday's metrics (if not yet measured) and report the streak.
+ * Safe to call every tick: idempotent and read-only apart from the day's
+ * metric row.
+ *
+ * It does NOT change the mode. Auto-create is the default now, so there is
+ * nothing left to graduate TO; and a user who turned propose-only on should
+ * never find it turned back off by a background job.
  */
 export function checkGraduation(now: Date = new Date()): GraduationCheck {
   const yesterday = dayOf(new Date(now.getTime() - 86_400_000).toISOString());
@@ -252,39 +273,7 @@ export function checkGraduation(now: Date = new Date()): GraduationCheck {
       .get(GRADUATION_REQUIRED_DAYS) as { n: number }
   ).n;
 
-  const mode = graduationMode();
-  if (
-    mode === "propose" &&
-    !reverted &&
-    consecutiveGreen >= GRADUATION_REQUIRED_DAYS &&
-    windowProposals >= GRADUATION_MIN_PROPOSALS
-  ) {
-    setGraduationMode("auto", "code");
-    // The announcement: durable, dismissible, in the Prepared shelf — dedup'd
-    // on a content key so a re-run never mints a second one.
-    createArtifact({
-      kind: "announcement",
-      title: "Spaces now auto-create",
-      summary:
-        `The twin's proposals held every gate for ${GRADUATION_REQUIRED_DAYS} straight days, ` +
-        `so new spaces now activate on their own. You can switch back to ` +
-        `propose-only any time in Settings › General.`,
-      intent: "announce graduation to auto-create",
-      reasoning: `${consecutiveGreen} consecutive green days, ${windowProposals} proposals in window`,
-      topicKey: "graduation:auto-create",
-      contentKey: `graduation:auto-create:${GRADUATION_REQUIRED_DAYS}`,
-      producer: "assist",
-      nowMs: now.getTime(),
-    });
-    return {
-      flipped: true,
-      mode: "auto",
-      consecutiveGreen,
-      windowProposals,
-      reverted,
-    };
-  }
-  return { flipped: false, mode, consecutiveGreen, windowProposals, reverted };
+  return { mode: graduationMode(), consecutiveGreen, windowProposals, reverted };
 }
 
 /** Test/dev helper: mint an id in the space_links shape. */

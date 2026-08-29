@@ -47,9 +47,10 @@ import {
 import {
   checkGraduation,
   graduationMode,
-  graduationUserReverted,
   graduationWindow,
   setGraduationMode,
+  DEFAULT_GRADUATION_MODE,
+  GRADUATION_MIN_PROPOSALS,
   GRADUATION_REQUIRED_DAYS,
 } from "../consolidation/graduation.js";
 import { lastT3Report, lastT3RunAt, T3_EVAL_DUE_KEY } from "../consolidation/t3.js";
@@ -220,12 +221,22 @@ function assistSettings(): Record<string, unknown> {
   };
 }
 
+/**
+ * Space creation: the mode, plus the over-creation metric as INFORMATION.
+ * `default_mode` is what a fresh install does (auto-create); `mode` is what
+ * this install is doing. The streak no longer gates anything — it is reported
+ * so the user can see whether the twin's filing has been clean.
+ */
 function graduationSettings(): Record<string, unknown> {
+  const check = checkGraduation();
   return {
-    mode: graduationMode(),
-    reverted: graduationUserReverted(),
+    mode: check.mode,
+    default_mode: DEFAULT_GRADUATION_MODE,
+    reverted: check.reverted,
     required_days: GRADUATION_REQUIRED_DAYS,
-    consecutive_green: checkGraduation().consecutiveGreen,
+    consecutive_green: check.consecutiveGreen,
+    window_proposals: check.windowProposals,
+    min_proposals: GRADUATION_MIN_PROPOSALS,
     window: graduationWindow(GRADUATION_REQUIRED_DAYS),
   };
 }

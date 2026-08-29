@@ -140,6 +140,47 @@ function reverseSimple(decision: DecisionRow): boolean {
 }
 
 /**
+ * The (target_kind, action) pairs `reverseSimple` knows how to restore, and
+ * which of them need `old_json` to do it. Kept beside the switch so the
+ * predicate below and the switch can never drift: a pair missing here reads as
+ * "not reversible" to every caller, which is the safe direction.
+ */
+const RESTORABLE = new Set([
+  "episode:attach",
+  "episode:detach",
+  "episode:link_chapter",
+  "task:close",
+  "space:dormant",
+  "space:update_plan",
+  "space:sweep",
+  "unsorted:archive",
+  "space:merge",
+]);
+const NEEDS_OLD = new Set([
+  "episode:attach",
+  "episode:detach",
+  "episode:link_chapter",
+  "task:close",
+  "space:update_plan",
+  "space:merge",
+]);
+
+/**
+ * Would `reverseDecision` actually restore this row? A PURE predicate — it
+ * touches nothing — so a surface can tell a human the blast radius of an undo
+ * *before* they confirm it (Settings › Runs & Traces). Same answer the real
+ * call gives: already-reversed rows, unknown (kind, action) pairs and rows
+ * missing their `old_json` restore payload are all false.
+ */
+export function canReverseDecision(decision: DecisionRow): boolean {
+  if (decision.reversedAt !== null) return false;
+  const key = `${decision.targetKind}:${decision.action}`;
+  if (!RESTORABLE.has(key)) return false;
+  if (NEEDS_OLD.has(key) && oldOf(decision) === null) return false;
+  return true;
+}
+
+/**
  * Apply a decision's `old_json` and mark it reversed. Returns false — and
  * changes nothing — for a decision already reversed or one whose (kind,
  * action) this build does not know how to restore.

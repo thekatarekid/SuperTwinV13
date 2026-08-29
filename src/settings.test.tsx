@@ -1,11 +1,20 @@
 // ===========================================================================
-// P4.3 Settings screen (spec §14.9): the eight subtabs render, values come
-// from the worker, and edits round-trip through the settings routes —
-// Intelligence shows default-Haiku + per-step recommendation, General carries
-// the graduation switch, Runs opens a trace to its exact record.
+// Settings screen (spec §14.9) — the shell and the panels.
+//
+// Covers the three defects fixed after real use of the 13.4.1 build:
+//   layout        the eight subtabs are ONE centred row above the panel, not a
+//                 vertical list inside it; the row does not live in the
+//                 scrolling panel and only the selected panel renders.
+//   auto-create   a fresh install creates spaces active; propose-only is the
+//                 opt-in, and the copy says which one you are in.
+//   undo run      the link reads before it writes: a confirm names the blast
+//                 radius, and nothing is POSTed until it is accepted.
+//
+// Plus the pre-existing round-trip coverage (General POST, Intelligence
+// default-Haiku picker, opening a run to its exact record).
 // ===========================================================================
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Settings } from "./screens/Settings";
@@ -14,6 +23,17 @@ import { stubWorker, type WorkerStub } from "./test-utils";
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+const SUBTAB_LABELS = [
+  "General",
+  "Capture & Privacy",
+  "Sources",
+  "Intelligence",
+  "Enrichment",
+  "Assist",
+  "Runs & Traces",
+  "Data",
+];
 
 function stubSettings(): WorkerStub {
   const stub = stubWorker();
@@ -24,13 +44,17 @@ function stubSettings(): WorkerStub {
     notifications_enabled: true,
     brief_times: ["08:30", "18:30"],
     appearance: "system",
-    graduation_mode: "propose",
+    graduation_mode: "auto",
   });
+  // The fresh-install shape the worker now serves: auto-create, nothing earned.
   stub.routes.set("/api/settings/graduation", {
-    mode: "propose",
+    mode: "auto",
+    default_mode: "auto",
     reverted: false,
     required_days: 14,
-    consecutive_green: 9,
+    consecutive_green: 0,
+    window_proposals: 0,
+    min_proposals: 5,
     window: [],
   });
   stub.routes.set("/api/settings/t3", {
@@ -143,29 +167,134 @@ function stubSettings(): WorkerStub {
     compressed: false,
   });
   stub.routes.set("/api/ops/quarantine", { items: [] });
+  stub.routes.set("/api/ops/runs/run1/undo", {
+    runId: "run1",
+    reversible: 1,
+    skipped: 1,
+    reversed: 1,
+    items: [
+      {
+        decisionId: "dec_a",
+        pass: "decide",
+        targetKind: "episode",
+        targetId: "ep_1",
+        action: "attach",
+        reason: "same trip thread",
+        createdAt: "2026-08-28T10:00:00Z",
+        reversible: true,
+        skipReason: null,
+      },
+      {
+        decisionId: "dec_b",
+        pass: "user",
+        targetKind: "space",
+        targetId: "sp_1",
+        action: "approve",
+        reason: null,
+        createdAt: "2026-08-28T10:01:00Z",
+        reversible: false,
+        skipReason: "your own edit — an undo never reverses a human's row",
+      },
+    ],
+  });
   return stub;
 }
 
-describe("Settings (spec §14.9)", () => {
-  it("renders the eight subtabs and the General pane with the graduation switch", async () => {
+// ---------------------------------------------------------------------------
+// Layout: the subtab row (defect: a vertical list that scrolled and overlapped)
+// ---------------------------------------------------------------------------
+
+describe("Settings subtab row", () => {
+  it("renders the eight full labels as one centred row above the panel", async () => {
+    stubSettings();
+    const { container } = render(<Settings />);
+    await screen.findByRole("heading", { name: "General" });
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    // One row, styled as the pill nav's smaller sibling — not a stacked list.
+    expect(nav.className).toContain("pill-nav");
+    const row = container.querySelector(".settings-subtabs");
+    expect(row).toBeTruthy();
+    expect(row!.contains(nav)).toBe(true);
+
+    const labels = within(nav)
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(labels).toEqual(SUBTAB_LABELS);
+  });
+
+  it("keeps the row OUT of the scrolling panel, so it cannot scroll away", async () => {
+    stubSettings();
+    const { container } = render(<Settings />);
+    await screen.findByRole("heading", { name: "General" });
+    const row = container.querySelector(".settings-subtabs")!;
+    const panel = container.querySelector(".settings-panel")!;
+    // Siblings, not nested: the panel scrolls, the sticky row does not go
+    // with it, and neither is laid on top of the other.
+    expect(panel.contains(row)).toBe(false);
+    expect(row.contains(panel)).toBe(false);
+    expect(row.nextElementSibling).toBe(panel);
+  });
+
+  it("shows only the selected subtab's panel, and moves the active state", async () => {
     stubSettings();
     render(<Settings />);
-    for (const t of [
-      "General",
-      "Capture & Privacy",
-      "Sources",
-      "Intelligence",
-      "Enrichment",
-      "Assist",
-      "Runs",
-      "Data",
-    ]) {
-      expect(screen.getByRole("button", { name: t })).toBeTruthy();
-    }
-    await waitFor(() => expect(screen.getByText(/gates green 9\/14/)).toBeTruthy());
-    expect(screen.getByRole("button", { name: /Turn on auto-create/ })).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    const general = within(nav).getByRole("button", { name: "General" });
+    const runs = within(nav).getByRole("button", { name: "Runs & Traces" });
+
+    expect(general.getAttribute("aria-current")).toBe("page");
+    expect(runs.getAttribute("aria-current")).toBeNull();
+    await screen.findByRole("heading", { name: "General" });
+    expect(screen.queryByRole("heading", { name: /Runs & Traces/ })).toBeNull();
+
+    fireEvent.click(runs);
+    await screen.findByRole("heading", { name: /Runs & Traces/ });
+    // The old panel is gone — one panel at a time, never two stacked.
+    expect(screen.queryByRole("heading", { name: "General" })).toBeNull();
+    expect(runs.getAttribute("aria-current")).toBe("page");
+    expect(general.getAttribute("aria-current")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// General
+// ---------------------------------------------------------------------------
+
+describe("Settings › General", () => {
+  it("a fresh install reads as AUTO-CREATE, with propose-only offered", async () => {
+    stubSettings();
+    render(<Settings />);
+    await waitFor(() => expect(screen.getByText(/Auto-create — the twin files/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: /Switch to propose-only/ })).toBeTruthy();
+    // The old build promised auto-create only after a 14-day streak; the
+    // streak is now reported as information, not as a gate.
+    expect(screen.getByText(/no longer gates this switch/)).toBeTruthy();
     // Version footer (cross-phase gate: version + built-through phase visible).
     expect(screen.getByText("v13.4.0 · built through P4")).toBeTruthy();
+  });
+
+  it("propose-only reads as the review queue and can be switched back", async () => {
+    const stub = stubSettings();
+    stub.routes.set("/api/settings/graduation", {
+      mode: "propose",
+      default_mode: "auto",
+      reverted: true,
+      required_days: 14,
+      consecutive_green: 9,
+      window_proposals: 40,
+      min_proposals: 5,
+      window: [],
+    });
+    render(<Settings />);
+    await waitFor(() => expect(screen.getByText(/Propose-only — new spaces wait/)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Switch to auto-create/ }));
+    await waitFor(() => {
+      const posts = stub.calls.filter(
+        (c) => c.path === "/api/settings/graduation" && c.method === "POST",
+      );
+      expect(posts).toHaveLength(1);
+      expect(posts[0]!.body).toEqual({ mode: "auto" });
+    });
   });
 
   it("general toggles round-trip through POST /api/settings/general", async () => {
@@ -181,8 +310,14 @@ describe("Settings (spec §14.9)", () => {
       expect(posts[0]!.body).toEqual({ launch_at_login: true });
     });
   });
+});
 
-  it("intelligence: default Haiku, recommendation shown, picker posts the step", async () => {
+// ---------------------------------------------------------------------------
+// Intelligence
+// ---------------------------------------------------------------------------
+
+describe("Settings › Intelligence", () => {
+  it("default Haiku, recommendation shown, picker posts the step", async () => {
     const stub = stubSettings();
     render(<Settings />);
     fireEvent.click(screen.getByRole("button", { name: "Intelligence" }));
@@ -201,11 +336,17 @@ describe("Settings (spec §14.9)", () => {
       expect(posts[0]!.body).toEqual({ step: "orient.v6", model: "sonnet" });
     });
   });
+});
 
-  it("runs: filters list traces and opens the exact record", async () => {
+// ---------------------------------------------------------------------------
+// Runs & Traces
+// ---------------------------------------------------------------------------
+
+describe("Settings › Runs & Traces", () => {
+  it("filters list traces and opens the exact record", async () => {
     stubSettings();
     render(<Settings />);
-    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Runs & Traces" }));
     const row = await screen.findByRole("button", { name: /decide · haiku/ });
     fireEvent.click(row);
     // The full record — the actual prompt and context, never a paraphrase.
@@ -213,5 +354,84 @@ describe("Settings (spec §14.9)", () => {
       expect(screen.getByText("THE EXACT SYSTEM PROMPT")).toBeTruthy();
       expect(screen.getByText("THE EXACT PACKED CONTEXT")).toBeTruthy();
     });
+  });
+
+  it("undo run READS before it writes: the confirm names the blast radius", async () => {
+    const stub = stubSettings();
+    render(<Settings />);
+    fireEvent.click(screen.getByRole("button", { name: "Runs & Traces" }));
+
+    const link = await screen.findByRole("button", { name: "undo run run1" });
+    expect(link.textContent).toBe("undo run…"); // the ellipsis promises a step
+    fireEvent.click(link);
+
+    const dialog = await screen.findByRole("dialog", { name: "confirm undo run" });
+    // Preview only — a GET, and nothing has been changed yet.
+    expect(stub.calls.filter((c) => c.path === "/api/ops/runs/run1/undo")).toEqual([
+      { path: "/api/ops/runs/run1/undo", method: "GET", body: undefined },
+    ]);
+    // What gets reverted, and what deliberately does not.
+    expect(within(dialog).getByText(/reverses 1 change/)).toBeTruthy();
+    expect(within(dialog).getByText(/episode attach · ep_1/)).toBeTruthy();
+    expect(within(dialog).getByText(/never reverses a human's row/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revert 1 change" }));
+    await waitFor(() => {
+      expect(
+        stub.calls.filter((c) => c.path === "/api/ops/runs/run1/undo" && c.method === "POST"),
+      ).toHaveLength(1);
+    });
+    // A receipt, and the dialog is gone.
+    await screen.findByText(/run run1: 1 change reverted, 1 left alone/);
+    expect(screen.queryByRole("dialog", { name: "confirm undo run" })).toBeNull();
+  });
+
+  it("cancelling the undo confirm changes nothing", async () => {
+    const stub = stubSettings();
+    render(<Settings />);
+    fireEvent.click(screen.getByRole("button", { name: "Runs & Traces" }));
+    fireEvent.click(await screen.findByRole("button", { name: "undo run run1" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "confirm undo run" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "confirm undo run" })).toBeNull(),
+    );
+    expect(
+      stub.calls.filter((c) => c.path === "/api/ops/runs/run1/undo" && c.method === "POST"),
+    ).toHaveLength(0);
+  });
+
+  it("a run with nothing reversible says so and disables the destructive button", async () => {
+    const stub = stubSettings();
+    stub.routes.set("/api/ops/runs/run1/undo", {
+      runId: "run1",
+      reversible: 0,
+      skipped: 1,
+      items: [
+        {
+          decisionId: "dec_z",
+          pass: "decide",
+          targetKind: "claim",
+          targetId: "ck_1",
+          action: "compress",
+          reason: null,
+          createdAt: "2026-08-28T10:00:00Z",
+          reversible: false,
+          skipReason: "no restore path for claim:compress",
+        },
+      ],
+    });
+    render(<Settings />);
+    fireEvent.click(screen.getByRole("button", { name: "Runs & Traces" }));
+    fireEvent.click(await screen.findByRole("button", { name: "undo run run1" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "confirm undo run" });
+    expect(within(dialog).getByText(/Nothing in this run can be reverted/)).toBeTruthy();
+    // And WHY: undo restores what a run moved, it never deletes what it made.
+    expect(within(dialog).getByText(/never deletes something the run created/)).toBeTruthy();
+    expect(within(dialog).getByText(/no restore path for claim:compress/)).toBeTruthy();
+    const revert = within(dialog).getByRole("button", { name: /Revert 0 changes/ });
+    expect((revert as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -96,16 +96,11 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
         log(`[consolidation] decide drain failed: ${(err as Error).message}`);
       }
 
-      // Graduation bookkeeping: cheap, code-only, must run whether or not
-      // the machine ever idles — so it rides the minute tick, not T3.
+      // Over-creation bookkeeping: cheap, code-only, must run whether or not
+      // the machine ever idles — so it rides the minute tick, not T3. It only
+      // MEASURES: auto-create is the default and nothing here changes the mode.
       try {
-        const grad = checkGraduation();
-        if (grad.flipped) {
-          log(
-            `[consolidation] graduation: auto-create ON after ` +
-              `${grad.consecutiveGreen} green day(s)`,
-          );
-        }
+        checkGraduation();
       } catch (err) {
         log(`[consolidation] graduation check failed: ${(err as Error).message}`);
       }

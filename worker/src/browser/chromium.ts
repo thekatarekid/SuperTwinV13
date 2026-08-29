@@ -14,18 +14,28 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { homeRoot } from "../home.js";
 import type { RawCdpTransport } from "./cdp.js";
 
-/** Where the persistent logged-in profile lives (spec §12.2 — ONE profile). */
+/**
+ * Where the persistent logged-in profile lives (spec §12.2 — ONE profile).
+ *
+ * Resolves under homeRoot(), so SUPERTWIN_HOME sandboxes the browser profile
+ * with the rest of the install — home.ts's stated contract is that "a single
+ * env var sandboxes every piece of worker data together", and browser-profile
+ * is one of HOME_SUBDIRS. This used to hardcode ~/SuperTwinV13, which made it
+ * the only resolver in the worker that ignored SUPERTWIN_HOME: a sandboxed run
+ * created an empty <sandbox>/browser-profile and then launched Chromium into
+ * the REAL profile, writing the user's live cookies and history.
+ * SUPERTWIN_BROWSER_PROFILE stays the explicit per-profile pin above it.
+ */
 export function browserProfileDir(): string {
-  return (
-    process.env.SUPERTWIN_BROWSER_PROFILE ??
-    join(homedir(), "SuperTwinV13", "browser-profile")
-  );
+  const pin = process.env.SUPERTWIN_BROWSER_PROFILE;
+  if (pin && pin.trim().length > 0) return resolve(pin);
+  return resolve(join(homeRoot(), "browser-profile"));
 }
 
 // The executable inside the staged chrome-mac-arm64 tree, as Chrome for

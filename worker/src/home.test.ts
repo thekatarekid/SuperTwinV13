@@ -20,9 +20,19 @@ import {
   ensureHomeLayout,
   homeRoot,
 } from "./home.js";
+import { browserProfileDir } from "./browser/chromium.js";
 import { resolveDbPath } from "./db/connection.js";
+import { logsDir } from "./logs.js";
+import { brainRoot } from "./brain/root.js";
 
-const KEYS = ["SUPERTWIN_HOME", "SUPERTWIN_DB_PATH", "SUPERTWIN_WORKER_PORT"] as const;
+const KEYS = [
+  "SUPERTWIN_HOME",
+  "SUPERTWIN_DB_PATH",
+  "SUPERTWIN_WORKER_PORT",
+  "SUPERTWIN_BROWSER_PROFILE",
+  "SUPERTWIN_BRAIN_DIR",
+  "SUPERTWIN_MEDIA_DIR",
+] as const;
 const saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -56,6 +66,36 @@ describe("P0.1 boot smoke: install identity", () => {
 
   it("default worker port is 8013", () => {
     expect(DEFAULT_WORKER_PORT).toBe(8013);
+  });
+
+  // Regression: browserProfileDir() hardcoded ~/SuperTwinV13/browser-profile
+  // and was the ONLY home-derived resolver that ignored SUPERTWIN_HOME. A
+  // sandboxed run therefore created an empty <sandbox>/browser-profile and
+  // then launched Chromium into the user's REAL logged-in profile. Every
+  // resolver under the home is asserted together so the next one added cannot
+  // quietly reintroduce the same leak.
+  it("every home-derived path follows SUPERTWIN_HOME into the sandbox", () => {
+    const sandbox = "/tmp/st-home-sandbox";
+    process.env.SUPERTWIN_HOME = sandbox;
+    const resolvers: [string, () => string][] = [
+      ["db", resolveDbPath],
+      ["logs", logsDir],
+      ["brain", brainRoot],
+      ["browser-profile", browserProfileDir],
+    ];
+    for (const [name, resolver] of resolvers) {
+      const got = resolver();
+      expect(got.startsWith(`${sandbox}/`), `${name} escaped the sandbox: ${got}`).toBe(true);
+      expect(got.includes(join(homedir(), "SuperTwinV13"))).toBe(false);
+    }
+    expect(browserProfileDir()).toBe(join(sandbox, "browser-profile"));
+  });
+
+  it("browser profile falls back to the real home, and the explicit pin still wins", () => {
+    expect(browserProfileDir()).toBe(join(homedir(), "SuperTwinV13", "browser-profile"));
+    process.env.SUPERTWIN_BROWSER_PROFILE = "/tmp/st-pinned-profile";
+    process.env.SUPERTWIN_HOME = "/tmp/st-home-sandbox";
+    expect(browserProfileDir()).toBe("/tmp/st-pinned-profile");
   });
 
   it("ensureHomeLayout creates media/ logs/ browser-profile/ traces/", () => {

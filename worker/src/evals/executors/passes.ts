@@ -239,6 +239,7 @@ export const backfillExecutor: Executor = async ({ fixture }) => {
         plannedDigestCalls: plannedCalls,
         exemplarDigest: digest.output,
       },
+      seededContext: fixtureSeed(fixture.id)?.state,
       metrics: { ...(digest.metrics ?? {}), planned_digest_calls: plannedCalls } as Record<string, number>,
       notes: [
         `band D: ${plannedCalls} chat-month Digest call(s) planned; one exemplar executed live`,
@@ -445,8 +446,12 @@ function cat05(): ExecutorResult {
 
 const digestPromptExecutor: Executor = async ({ fixture }) => {
   const band = fixtureBand(fixture);
+  // The seed carries the month's CONTENT (AGE-04's exemplar month) — without
+  // it the digest sees only the one-line setup and honestly reports an empty
+  // month, which is the rendering gap, not the pass.
+  const seed = fixtureSeed(fixture.id);
   const user = [
-    fixtureUser(fixture.setup, fixture.input_events, band),
+    fixtureUser(fixture.setup, fixture.input_events, band, seed?.state),
     "[NOTE] The state block above IS the month of stream history, as prose — synthesize the digest from it as given.",
   ].join("\n");
   const result = await runJsonPass<DigestParse>({

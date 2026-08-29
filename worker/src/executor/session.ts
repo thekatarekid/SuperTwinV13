@@ -110,7 +110,13 @@ export function parseEnvelope(text: string): ExecutorEnvelope | null {
       result = emitResult(obj.result);
     } catch (err) {
       if (err instanceof ResultSchemaError) {
-        status = "partial";
+        // An invalid result is DROPPED, and only "done" is demoted by it —
+        // done without a typed result is fake completion. needs_approval /
+        // needs_input carry their own required field (approval_request /
+        // question, enforced below); their approval card and question render
+        // from those fields, so a malformed optional attachment must not
+        // demote a legitimate payment-boundary stop to "partial".
+        if (status === "done") status = "partial";
         gaps.push(...err.errors.map((e) => `result failed schema validation: ${e}`));
       } else {
         throw err;

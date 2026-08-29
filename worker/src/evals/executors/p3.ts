@@ -837,6 +837,11 @@ export const browserEvalExecutor: Executor = async ({ fixture }) => {
     case "BRW-08":
       return brw08();
     default:
-      throw new Error(`${fixture.id} lands with Phase 5 capture adapters (P5.x) — not built in P3`);
+      // BRW-04/06/07 measure the Phase 5 capture adapters (X bookmarks diff,
+      // stop-at-last-seen, Claude Code JSONL) — pending until P5.x lands.
+      return {
+        output: null,
+        pending: `${fixture.id} lands with Phase 5 capture adapters (P5.x) — not built through P4`,
+      };
   }
 };

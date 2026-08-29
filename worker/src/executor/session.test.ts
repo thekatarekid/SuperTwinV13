@@ -302,6 +302,29 @@ describe("envelope helpers", () => {
     expect(env?.gaps.join(" ")).toMatch(/without a typed result/);
   });
 
+  it("needs_approval survives a malformed optional result (card renders from approval_request)", () => {
+    const env = parseEnvelope(
+      envelopeText({
+        status: "needs_approval",
+        approval_request: "Book Casa Susegad 18-21 Dec for Rs 17,400 on the saved card",
+        result: { result_type: "approval_card", data: { wrong_key: "no action/summary" } },
+      }),
+    );
+    expect(env?.status).toBe("needs_approval");
+    expect(env?.result).toBeNull();
+    expect(env?.gaps.join(" ")).toMatch(/schema validation/);
+  });
+
+  it("done with a malformed result is still downgraded — no fake completions", () => {
+    const env = parseEnvelope(
+      envelopeText({
+        status: "done",
+        result: { result_type: "approval_card", data: { wrong_key: true } },
+      }),
+    );
+    expect(env?.status).toBe("partial");
+  });
+
   it("bestPartialEnvelope always yields a schema-valid checklist", () => {
     const env = bestPartialEnvelope("budget", [], "tail");
     expect(env.result?.result_type).toBe("checklist");

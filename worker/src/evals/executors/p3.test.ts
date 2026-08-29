@@ -141,7 +141,8 @@ describe("BRW code-asserted executors", () => {
     const r = await browserEvalExecutor(brwFixture("BRW-08"));
     expect(r.ok).toBe(true);
   });
-  it("P5-scope BRW ids report their pending reason loudly", async () => {
-    await expect(browserEvalExecutor(brwFixture("BRW-04"))).rejects.toThrow(/P5/);
+  it("P5-scope BRW ids report PENDING with their reason", async () => {
+    const result = await browserEvalExecutor(brwFixture("BRW-04"));
+    expect(result.pending).toMatch(/P5/);
   });
 });

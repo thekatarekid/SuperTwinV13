@@ -417,6 +417,16 @@ const SEEDS: Record<string, FixtureSeed> = {
         "The incoming message reports progress on THIS task.",
     ].join("\n"),
   },
+  "CLS-05": {
+    state: [
+      ROSTER,
+      `SPACE UNDER DECIDE: ${GOA_CARD}`,
+      "OPEN TASKS in this space (each addressable by id): " +
+        'tsk_villa — "Book the villa" · tsk_flights — "Book flights CCU-GOI" · ' +
+        'tsk_iti — "Plan the itinerary" · tsk_advance — "Collect advance from the gang" — ' +
+        "all status open, owner self.",
+    ].join("\n"),
+  },
   "CHP-01": {
     state: [
       `SPACE UNDER DECIDE: ${GOA_CARD}`,
@@ -671,6 +681,9 @@ const SEEDS: Record<string, FixtureSeed> = {
       "USER TIMEZONE: IST (UTC+05:30).",
       "COMMITTED EPISODE (confirmation email): \"Your flight UA-847 departs SFO 2026-12-02 11:30 PDT\" " +
         "(PDT = UTC-07:00 — 11:30 PDT is 18:30 UTC, 2026-12-03 00:00 IST).",
+      "TZ MATH REFERENCE (ground truth — use THIS, never free-hand conversion): IST is 12h30m AHEAD of " +
+        "PDT. Convert any PDT instant to IST by ADDING 12:30 and advancing the date when the sum crosses " +
+        "midnight. Worked rows: 11:30 PDT Dec 2 = 00:00 IST Dec 3 · 11:30 PDT Nov 30 = 00:00 IST Dec 1.",
       'OPEN TASKS: tsk_sfo_checkin — title "Web check-in for the SFO flight", status open, owner self, ' +
         "category scheduling, risk_class auto. Check-in opens EXACTLY T-48h before departure in the " +
         "FLIGHT'S timezone (PDT) — fire at that instant, no extra buffer.",

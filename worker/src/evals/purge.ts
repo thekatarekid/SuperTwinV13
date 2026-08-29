@@ -256,7 +256,9 @@ export function surveyEvalData(dbPath?: string): PurgeSurvey {
     }
     if (hits.length === 0) continue;
     for (const h of hits) perSignature.set(h, (perSignature.get(h) ?? 0) + 1);
-    const key = `${row.source_type ?? ""} ${row.stream_key ?? ""}`;
+    // \u0000 as an escape, not a literal NUL byte: a raw NUL makes the whole
+    // file "binary" to grep, git diff and code review tooling.
+    const key = `${row.source_type ?? ""}\u0000${row.stream_key ?? ""}`;
     const bucket = perStream.get(key) ?? {
       stream_key: row.stream_key,
       source_type: row.source_type,

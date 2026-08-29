@@ -87,19 +87,77 @@ export function criticFixtureUser(
   return lines.join("\n");
 }
 
-/** What brain/commit.ts does with an Orient output — computed, not modeled. */
-export function orientAppliedView(out: OrientOutput): Record<string, unknown> {
-  return {
-    mode: "propose-only (enforced by the commit layer)",
-    proposals: out.proposals.map((p) => ({
-      label: p.label,
+/**
+ * What brain/commit.ts does with an Orient output — computed, not modeled.
+ * When the tick produced proposals, the REAL Critic verdicts (production runs
+ * Critic over every tick's writes before commit) decide each proposal's fate
+ * exactly the way commit.ts applies them: reject → never created ·
+ * downgrade_to_unsorted → held in unsorted · commit/flag → review queue.
+ */
+export function orientAppliedView(
+  out: OrientOutput,
+  criticVerdicts?: CriticOutput | null,
+): Record<string, unknown> {
+  const proposalFate = (i: number): { status: string; note: string } => {
+    const v = criticVerdicts?.verdicts.find((x) => x.item === i + 1);
+    if (v?.verdict === "reject") {
+      return { status: "rejected_by_critic", note: `no space created (critic: ${v.reason ?? "reject"})` };
+    }
+    if (v?.verdict === "downgrade_to_unsorted") {
+      return {
+        status: "held_in_unsorted",
+        note: `NOT a space — the critic downgraded it to unsorted (${v.reason ?? "insufficient goal evidence"})`,
+      };
+    }
+    return {
       status: "proposed",
       note: "review-queue entry created; NO active space exists until the user approves",
+    };
+  };
+  return {
+    mode: "propose-only (enforced by the commit layer)",
+    ...(criticVerdicts ? { critic_gate: "the REAL Critic pass graded this tick's writes (production order)" } : {}),
+    proposals: out.proposals.map((p, i) => ({
+      label: p.label,
+      ...proposalFate(i),
     })),
     attached_episodes: out.episodes.filter((e) => e.space).length,
     unsorted_held: out.unsorted.length,
     reversibility: "every write lands via the single writer with a decisions row (reversible)",
   };
+}
+
+/**
+ * Run the REAL Critic over an Orient tick's proposals — the same gate every
+ * production tick passes before commit (P1.3 map→grade→commit). Returns null
+ * when there is nothing to grade or the call fails (the applied view then
+ * annotates the un-gated commit behavior as before).
+ */
+export async function criticOverProposals(
+  fixtureId: string,
+  setup: unknown,
+  out: OrientOutput,
+): Promise<CriticOutput | null> {
+  if (out.proposals.length === 0) return null;
+  const items = out.proposals.map(
+    (p) =>
+      `SPACE PROPOSAL "${p.label}"${p.life_area ? ` (life_area ${p.life_area})` : ""}${
+        p.goal ? ` — goal: ${p.goal}` : " — no goal stated"
+      }; confidence ${p.confidence}; evidence events: ${p.episode_events.join(", ") || "(none)"}`,
+  );
+  try {
+    const result = await runJsonPass({
+      pass: CRITIC_V4.pass,
+      system: CRITIC_V4.system,
+      user: criticFixtureUser(setup, [], { items }),
+      role: "critic",
+      unit: { kind: "eval-critic", id: fixtureId },
+      validate: parseCriticOutput,
+    });
+    return result.output ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** What brain/commit.ts does with a Critic output — computed, not modeled. */
@@ -127,10 +185,11 @@ export const orientExecutor: Executor = async ({ fixture }) => {
     validate: parseOrientOutput,
   });
   const out = result.output;
+  const verdicts = out ? await criticOverProposals(fixture.id, fixture.setup, out) : null;
   return {
     ok: result.status === "ok" || result.status === "repaired",
     output: out
-      ? { ...out, applied_by_commit_layer: orientAppliedView(out) }
+      ? { ...out, applied_by_commit_layer: orientAppliedView(out, verdicts) }
       : { error: result.error, responses: result.responses },
     seededContext: [
       seed?.state,

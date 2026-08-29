@@ -523,11 +523,18 @@ const SEEDS: Record<string, FixtureSeed> = {
   "AGE-04": {
     state: [
       "[BAND] D backfill — a 4-year-old chat, 2,000 messages across 8 months (chat-month granularity).",
-      "EXEMPLAR MONTH UNDER DIGEST (2022-11, 1:1 chat with cousin Vikram, ~260 messages) — the month's content:",
-      "  · weekly weekend-football planning (ground bookings, team lists) all month;",
-      "  · Vikram's job switch: interviews at two Pune startups, offer accepted 2022-11-20, moved to Pune end of Nov;",
-      "  · family gathering planning for Ma's anniversary (menu, gift pooling with cousins);",
-      "  · running joke about Vikram's terrible cricket batting; warm, frequent, informal register.",
+      "EXEMPLAR MONTH UNDER DIGEST (2022-11, 1:1 chat with cousin Vikram, ~260 messages).",
+      "The month's MESSAGE STREAM, sampled verbatim (representative lines — the rest of the ~260 repeat these threads):",
+      '  [2022-11-02, Vikram] "bhai sunday football? booking the turf at 7, same team as last week"',
+      '  [2022-11-05, self] "haan booked, 7am turf 3. tu goalkeeper this time"',
+      '  [2022-11-09, Vikram] "second interview with the pune startup went well, they want a third round"',
+      '  [2022-11-14, Vikram] "other pune company also called back lol, two offers incoming?"',
+      '  [2022-11-20, Vikram] "ACCEPTED. joining the pune one from dec 1. shifting end of month"',
+      '  [2022-11-22, self] "ma\'s anniversary menu — tell me what you cousins are pooling for the gift"',
+      '  [2022-11-23, Vikram] "500 each from all cousins, I\'ll collect. biryani + that caterer from last year"',
+      '  [2022-11-27, self] "you batted like a fridge again today 😂"',
+      '  [2022-11-27, Vikram] "one day I will hit a six and you will all cry"',
+      "Register: warm, frequent, informal; weekend-football planning ran all month.",
     ].join("\n"),
   },
   "AGE-02": {

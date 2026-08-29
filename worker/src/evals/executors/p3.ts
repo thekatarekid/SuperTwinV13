@@ -501,7 +501,9 @@ interface ExeSeed {
 
 const EXE_SEEDS: Record<string, ExeSeed> = {
   "EXE-01": { title: "Shortlist 3 villas near Anjuna under ₹6k/night for 18–21 Dec", category: "research", risk: "auto" },
-  "EXE-02": { title: "Book cab to airport 18 Dec", category: "transaction", risk: "approve-final" },
+  // 16 turns: the CLI's current builds spend early turns on refused meta-tool
+  // probes; 10 starved the final envelope emit (the pause itself was correct).
+  "EXE-02": { title: "Book cab to airport 18 Dec", category: "transaction", risk: "approve-final", budget: { maxTurns: 16, costUsd: 0.5 } },
   "EXE-03": { title: "Shortlist villas for the Goa trip", category: "research", risk: "auto" },
   "EXE-04": {
     title: "Book Villa Azul 18–21 Dec",

@@ -33,6 +33,8 @@ export const EXECUTOR_V1_ENVELOPE = `Your FINAL message must be exactly one JSON
   "attempts": [{"approach": "...", "outcome": "..."}],
   "result": {"result_type": "comparison_table|itinerary|draft_preview|approval_card|research_brief|checklist|receipt", "data": {...}} | null,
   "question": "one precise question" | null,        // required iff needs_input
+                    // EXACTLY ONE question about the single blocking item —
+                    // never a bundle. Ask the gate, pause; later gaps wait.
   "approval_request": "exactly what will happen on approval" | null, // required iff needs_approval
   "gaps": ["what is missing"],                       // required iff partial
   "next": "what you would try next" | null           // iff partial

@@ -207,6 +207,9 @@ export const pauseScreen = (paused: boolean): Promise<ScreenStatus> =>
 
 // ---- Freshness + Library (P2.4, spec §5.4 / §14.3.2) -----------------------
 
+/** Worst-first; see worker/src/freshness for what each state means. */
+export type FreshnessStatus = "catching_up" | "importing_history" | "up_to_date" | "no_data";
+
 export interface SourceFreshness {
   source_id: string;
   captured_from: string | null;
@@ -216,10 +219,15 @@ export interface SourceFreshness {
   event_count: number;
   understood_count: number;
   pending_count: number;
+  pending_live_count: number;
+  pending_backfill_count: number;
+  /** Age of the oldest pending LIVE event; imported history is excluded. */
   lag_minutes: number | null;
   backfill_complete: boolean;
   understood_percent: number;
   label: string | null;
+  status: FreshnessStatus;
+  status_label: string;
   detail: string;
 }
 
@@ -227,6 +235,10 @@ export interface FreshnessOverview {
   sources: SourceFreshness[];
   label: string | null;
   lag_minutes: number | null;
+  status: FreshnessStatus;
+  status_label: string;
+  pending_live_count: number;
+  pending_backfill_count: number;
 }
 
 export const fetchFreshness = (): Promise<FreshnessOverview> => request("/api/freshness");

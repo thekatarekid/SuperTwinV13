@@ -1,9 +1,19 @@
 // ===========================================================================
 // Freshness chip — build P2.4, spec §5.4 / §14.2 ("freshness chip per §5.4
-// lives in the header area"). Renders the cross-source "Knows you: X → Y"
-// headline; hovering shows the per-source detail lines; a lag variant
-// ("catching up — 14 min behind") appears only when the 10-minute promise is
-// breached somewhere.
+// lives in the header area").
+//
+// It renders the cross-source "Knows you: X → Y" headline PLUS the one-phrase
+// state the worker computes: "up to date", "importing history — 2,569 events
+// left", or "catching up — 14 min behind". Hovering shows the per-source
+// detail lines.
+//
+// The 13.4.1 chip replaced the whole headline with a raw lag number the moment
+// the promise was breached, and that number was computed over imported history
+// — so it read "catching up — 236 min behind" and grew by a minute a minute,
+// telling the user nothing they could act on and never settling. The lag math
+// is fixed in worker/src/freshness; here the two consequences are: the
+// identity line survives alongside the state, and a quiet system says "up to
+// date" instead of showing no state at all.
 // ===========================================================================
 
 import { useEffect, useState } from "react";
@@ -33,19 +43,31 @@ export function FreshnessChip(): JSX.Element | null {
     };
   }, []);
 
-  if (!data?.label) return null;
-  const lagging = data.lag_minutes != null;
+  // Nothing captured at all: no chip, rather than an empty promise.
+  if (!data || data.status === "no_data") return null;
+
+  const lagging = data.status === "catching_up";
   const detail = data.sources
     .filter((s) => s.label)
     .map((s) => `${s.source_id}: ${s.label} — ${s.detail}`)
     .join("\n");
+
   return (
     <span
-      className={`chip freshness-chip${lagging ? " lagging" : ""}`}
-      title={detail}
+      className={`chip freshness-chip freshness-${data.status}${lagging ? " lagging" : ""}`}
+      title={detail || data.status_label}
       aria-label="freshness"
     >
-      {lagging ? `catching up — ${data.lag_minutes} min behind` : data.label}
+      {data.label ? (
+        <>
+          {/* Dropped first when the header runs out of room: the state is the
+              part the user needs, the identity line is the nice-to-have. */}
+          <span className="freshness-knows">{data.label} · </span>
+          <span className="freshness-state">{data.status_label}</span>
+        </>
+      ) : (
+        <span className="freshness-state">{data.status_label}</span>
+      )}
     </span>
   );
 }

@@ -1,6 +1,6 @@
 [package]
 name = "supertwinv13"
-version = "13.4.1"
+version = "13.4.2"
 description = "SuperTwinV13 — private personal AI over your WhatsApp"
 authors = ["SuperTwinV13"]
 edition = "2021"

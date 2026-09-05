@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb } from "../db/connection.js";
+import { SELF_ENTITY_ID } from "../db/v6graph.js";
 import { runMigrations } from "../db/index.js";
 import { identitiesOf, putIdentity } from "./identities.js";
 import {
@@ -33,6 +34,11 @@ import {
   tombstoneCount,
 } from "./merge.js";
 import { createEntity, getEntity, listEntities, readEntityRaw, resolveEntityId } from "./registry.js";
+
+/** Every live entity except the self row 0201_v6_graph seeds on a fresh db. */
+function others() {
+  return listEntities().filter((e) => e.id !== SELF_ENTITY_ID);
+}
 
 let tmpDir: string;
 
@@ -79,7 +85,7 @@ describe("tombstone merges", () => {
     expect(res.merged).toBe(true);
     expect(resolveEntityId(loser)).toBe(winner);
     expect(getEntity(loser)?.id).toBe(winner);
-    expect(listEntities().map((e) => e.id)).toEqual([winner]);
+    expect(others().map((e) => e.id)).toEqual([winner]);
     expect(tombstoneCount(winner)).toBe(1);
     // Identities are NOT rewritten — that is what keeps the merge O(1).
     expect(identitiesOf(winner).map((i) => i.kind).sort()).toEqual(["jid", "phone"]);
@@ -120,7 +126,7 @@ describe("split — the round trip", () => {
     expect(res.split).toBe(true);
     expect(res.from).toBe(winner);
     expect(resolveEntityId(loser)).toBe(loser);
-    expect(listEntities().map((e) => e.id).sort()).toEqual([winner, loser].sort());
+    expect(others().map((e) => e.id).sort()).toEqual([winner, loser].sort());
     expect(identitiesOf(loser).map((i) => i.valueNorm)).toEqual(["+919812000021"]);
     expect(identitiesOf(winner).map((i) => i.valueNorm)).toEqual(["919425000007@s.whatsapp.net"]);
   });
@@ -162,7 +168,7 @@ describe("negative pairs are permanent", () => {
     const res = mergeEntities({ loser: b, winner: a, actor: "ml:entity_name" });
     expect(res.merged).toBe(false);
     expect(res.refused).toBe("negative_pair");
-    expect(listEntities()).toHaveLength(2);
+    expect(others()).toHaveLength(2);
   });
 
   it("a user verdict outranks any later automation score", () => {
@@ -195,6 +201,6 @@ describe("the resolution queue", () => {
     expect(open[0].question).toBe("Are these the same Amit?");
     // In-band means unsure, and unsure is not a bind.
     expect(readDecision(a, b)?.verdict).toBe("unsure");
-    expect(listEntities()).toHaveLength(2);
+    expect(others()).toHaveLength(2);
   });
 });

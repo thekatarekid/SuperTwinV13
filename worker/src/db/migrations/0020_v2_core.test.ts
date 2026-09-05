@@ -138,6 +138,10 @@ describe("0020_v2_core applies", () => {
       // episode membership, `coverage` renamed to `coverage_progress` and
       // recreated as source × date range × status, ADD COLUMNs on events.
       "0200_v6_core",
+      // V6 S2.1: walk indexes on entity_edges / edge_evidence, typed-field
+      // ADD COLUMNs on claims, chunks + chunk_embeddings + hub_nodes (new
+      // tables), the seeded self entity, and `people` redefined without self.
+      "0201_v6_graph",
     ]);
 
     expect(

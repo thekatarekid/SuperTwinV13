@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, getDb } from "../db/connection.js";
+import { SELF_ENTITY_ID } from "../db/v6graph.js";
 import { runMigrations } from "../db/index.js";
 import {
   EDGE_KINDS,
@@ -179,9 +180,9 @@ describe("the merge redirect", () => {
     expect(getEntity(loser.id)?.id).toBe(winner.id);
     expect(readEntityRaw(loser.id)?.mergedInto).toBe(winner.id);
     expect(mergedAliasIds(winner.id).sort()).toEqual([winner.id, loser.id].sort());
-    // A tombstone is not a second entity.
-    expect(listEntities().map((e) => e.id)).toEqual([winner.id]);
-    expect(countEntities()).toBe(1);
+    // A tombstone is not a second entity (the other live row is the seeded self).
+    expect(listEntities().filter((e) => e.id !== SELF_ENTITY_ID).map((e) => e.id)).toEqual([winner.id]);
+    expect(countEntities()).toBe(2);
   });
 
   it("refuses to walk a cyclic chain forever", () => {

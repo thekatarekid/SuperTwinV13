@@ -5,7 +5,7 @@
 //     var isolates all worker data (see resolveDbPath): SUPERTWIN_DB_PATH (tests
 //     point this at a temp file), else SUPERTWIN_HOME/supertwinv13.db, else
 //     ~/SuperTwinV13/supertwinv13.db. The parent dir is created if missing.
-//   - Enables WAL journaling and `PRAGMA foreign_keys = ON`.
+//   - Sets 16 KB pages (fresh files), enables WAL journaling and `PRAGMA foreign_keys = ON`.
 //   - Runs ordered migrations transactionally; records applied ids in
 //     `schema_migrations` so running them twice is a no-op the second time.
 //
@@ -63,6 +63,10 @@ export function getDb(): Database.Database {
   }
 
   const handle = new Database(path);
+  // 16 KB pages (V6 S2.1, T5-3): int8 chunk vectors pack ~20 to a page. Must
+  // precede the first table and the switch to WAL; on a file that already has
+  // pages this is a no-op (a page size only changes through VACUUM).
+  handle.pragma("page_size = 16384");
   handle.pragma("journal_mode = WAL");
   handle.pragma("foreign_keys = ON");
 

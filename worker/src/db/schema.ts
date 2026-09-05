@@ -28,6 +28,7 @@ import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
 import { T3_GRADUATION } from "./migrations/0107_t3_graduation.js";
 import { PRUNE_SOURCES } from "./migrations/0108_prune_sources.js";
 import { V6_CORE } from "./migrations/0200_v6_core.js";
+import { V6_GRAPH } from "./migrations/0201_v6_graph.js";
 
 export interface Migration {
   id: string;
@@ -968,4 +969,9 @@ export const MIGRATIONS: Migration[] = [
   // V2 progress meter moves to `coverage_progress`), and the envelope's
   // `consent_id` + `tier` columns on `events`.
   { id: "0200_v6_core", sql: V6_CORE },
+  // V6 P1 S2.1 (Build §5.1, Product_V6 §23.4/§23.5, T5-2/3): walk indexes on
+  // entity_edges / edge_evidence, typed-field columns on `claims`, `chunks` +
+  // int8 rowid-keyed `chunk_embeddings`, `hub_nodes` with `self` seeded, and
+  // the fixed self entity row.
+  { id: "0201_v6_graph", sql: V6_GRAPH },
 ];

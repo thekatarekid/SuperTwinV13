@@ -106,8 +106,10 @@ function envelope(overrides: Partial<EventEnvelope> = {}): EventEnvelope {
 // ---------------------------------------------------------------------------
 
 describe("0200_v6_core — migrate up on empty", () => {
-  it("is the last migration and applies clean on a fresh file; a second run is a no-op", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1].id).toBe("0200_v6_core");
+  it("is registered after 0108 and applies clean on a fresh file; a second run is a no-op", () => {
+    // 0201_v6_graph (S2.1) follows it; the pin is on order, not on being last.
+    const ids = MIGRATIONS.map((m) => m.id);
+    expect(ids.indexOf("0200_v6_core")).toBe(ids.indexOf("0108_prune_sources") + 1);
     const fresh = new Database(join(tmpDir, "fresh.db"));
     fresh.pragma("foreign_keys = ON");
     runMigrationsOn(fresh);

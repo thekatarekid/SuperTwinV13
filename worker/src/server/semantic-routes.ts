@@ -25,7 +25,6 @@ import {
   embeddingModelBundled,
   embeddingModelBytes,
   embeddingModelFileStates,
-  embeddingModelPresent,
   embeddingModelSourceDir,
   embeddingRuntimeInstalled,
   ensureEmbeddingModel,
@@ -122,19 +121,24 @@ export interface EmbeddingRegistryReport {
 }
 
 async function report(): Promise<SemanticReport> {
+  // One disk snapshot for both `files` and `present`: reading them separately
+  // let a file land in between, so the report said present while a file row
+  // still said absent (seen under full-suite load).
+  const files = embeddingModelFileStates();
   return {
     ...semanticStatus(),
     runtimeInstalled: await embeddingRuntimeInstalled(),
     modelBytes: embeddingModelBytes(),
     modelDir: embeddingModelSourceDir(),
     bundled: embeddingModelBundled(),
-    files: embeddingModelFileStates(),
-    present: embeddingModelPresent(),
+    files,
+    present: files.every((f) => f.present),
     download: currentEmbeddingDownload(),
   };
 }
 
 function modelReport(spec: EmbeddingModelSpec, activeId: string): EmbeddingModelReport {
+  const files = embeddingModelFileStates(spec);
   return {
     id: spec.id,
     upstream: spec.upstream ?? null,
@@ -147,9 +151,9 @@ function modelReport(spec: EmbeddingModelSpec, activeId: string): EmbeddingModel
     bundled: embeddingModelBundled(spec),
     recommended: spec.recommended,
     active: spec.id === activeId,
-    present: embeddingModelPresent(spec),
+    present: files.every((f) => f.present),
     indexed: safeIndexed(spec),
-    files: embeddingModelFileStates(spec),
+    files,
     download: embeddingDownloadFor(spec.id),
   };
 }

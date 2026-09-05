@@ -34,39 +34,29 @@
 // ===========================================================================
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { closeDb, resolveDbPath } from "../db/connection.js";
+import {
+  PRODUCTION_DB_FILENAME,
+  isProductionDbPath,
+  productionHome,
+} from "../home-guard.js";
 
-/** The real home directory name the installed app uses. */
-export const PRODUCTION_HOME_DIRNAME = "SuperTwinV13";
-/** The DB filename inside a home. Mirrors db/connection.ts. */
-export const PRODUCTION_DB_FILENAME = "supertwinv13.db";
+// The path predicates were lifted into worker/src/home-guard.ts (S0.2) so the
+// worker entrypoint enforces the same boundary the harness does. Re-exported
+// here so existing importers keep one module.
+export {
+  PRODUCTION_DB_FILENAME,
+  PRODUCTION_HOME_DIRNAME,
+  isProductionDbPath,
+  productionDbPath,
+  productionHome,
+} from "../home-guard.js";
+
 /** The flag that knowingly waives the boundary. Named in every error. */
 export const ALLOW_PRODUCTION_FLAG = "--allow-production-home";
-
-/** `~/SuperTwinV13` — the installed app's home. */
-export function productionHome(home: string = homedir()): string {
-  return join(home, PRODUCTION_HOME_DIRNAME);
-}
-
-/** `~/SuperTwinV13/supertwinv13.db` — the user's real database. */
-export function productionDbPath(home: string = homedir()): string {
-  return join(productionHome(home), PRODUCTION_DB_FILENAME);
-}
-
-/**
- * True when `dbPath` lives inside the installed app's home. Directory
- * containment, not string equality: `~/SuperTwinV13/anything.db` is still the
- * user's data, and a temp dir that merely *starts with* the same characters
- * (`~/SuperTwinV13-eval`) is not.
- */
-export function isProductionDbPath(dbPath: string, home: string = homedir()): boolean {
-  const root = resolve(productionHome(home));
-  const p = resolve(dbPath);
-  return p === root || p.startsWith(root + sep);
-}
 
 /** Thrown when the eval harness would have written to the user's real data. */
 export class EvalHomeLeakError extends Error {

@@ -173,6 +173,18 @@ export function hasTraceContext(): boolean {
 }
 
 /**
+ * The meta of the ACTIVE scope, or null outside one. Read-only view for the
+ * gates that sit at the spawn site (providers/budget.ts needs pass/caller to
+ * tell an interactive chat or bar call from background work).
+ */
+export function currentTraceMeta(): Readonly<Pick<TraceMeta, "pass" | "caller" | "promptVersion">> | null {
+  const scope = als.getStore();
+  if (!scope) return null;
+  const { pass, caller, promptVersion } = scope.meta;
+  return { pass, caller, promptVersion };
+}
+
+/**
  * Attach parse-side fields to every invocation of the ACTIVE scope. No-op
  * outside a scope (the ghost path already wrote what it had).
  */

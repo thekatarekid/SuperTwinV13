@@ -83,6 +83,7 @@ import {
   assertTraceContext,
   recordProviderInvocation,
 } from "../../traces/context.js";
+import { admitCall, recordCallCost } from "../budget.js";
 
 // The shaping half of the adapter lives in ./cli.ts; re-exported here so the
 // adapter stays one import for callers and tests.
@@ -205,6 +206,12 @@ class ClaudeLocalProvider implements Provider {
       const startedMs = Date.now();
       const ts = new Date().toISOString();
       let raw = "";
+      // S0.2 (T0-4, SPD-01): the hard spend/call ceiling, downstream of every
+      // pool bypass, BEFORE spawn. One admit per CLI invocation — the poison
+      // fallback is a second spawn and pays a second admit. Throws
+      // BudgetExceededError (code BUDGET_EXCEEDED) and latches app_state;
+      // chat and the grounded bar are counted but never blocked.
+      admitCall();
       const attempt = await this.runOnce({
         ...args,
         onEvent: (ev) => {
@@ -212,6 +219,7 @@ class ClaudeLocalProvider implements Provider {
           args.onEvent(ev);
         },
       });
+      recordCallCost(attempt.usage.costUsd);
       recordProviderInvocation({
         runId,
         attempt: thisAttempt,

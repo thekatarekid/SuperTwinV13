@@ -38,12 +38,35 @@ import {
   backfillBrowserStreamCategories,
   backfillChatCategories,
 } from "./categories/index.js";
+import { enforceHomeGuard } from "./home-guard.js";
+import {
+  installCrashKill,
+  releasePidFile,
+  startParentWatch,
+  sweepStaleWorkers,
+} from "./process-guard.js";
 
 async function main(): Promise<void> {
+  // ---- Home guard (S0.2, T0-6; plan §1.3 rules 1 and 6): the FIRST statement.
+  // A boot whose DB resolves inside ~/SuperTwinV13 is refused unless the app
+  // launched us (SUPERTWIN_LAUNCHED_BY=app) or the operator waived it
+  // (SUPERTWIN_ALLOW_PRODUCTION_HOME=1). Throws -> fatal -> exit 1, before the
+  // home layout, migrations or any adapter is touched.
+  const guard = enforceHomeGuard();
+
   // ---- Home layout (P0.1): ~/SuperTwinV13 with media/ logs/ browser-profile/
   // traces/ (SUPERTWIN_HOME override kept). Before migrations so the DB's
   // parent dir exists on a fresh install.
-  ensureHomeLayout();
+  const home = ensureHomeLayout();
+  console.error(`[worker] home ${home} (${guard.reason}) pid ${process.pid} ppid ${process.ppid}`);
+
+  // ---- Process hygiene (S0.2, T0-15): a crash kills every in-flight `claude`
+  // child first; a pre-existing worker on this home is terminated and the pid
+  // file claimed, so two workers never dispatch against one database.
+  installCrashKill(() => claudeLocalProvider.killAll());
+  const sweep = sweepStaleWorkers(home);
+  if (sweep.killed !== null) console.error(`[worker] startup sweep: terminated stale worker pid ${sweep.killed}`);
+
   runMigrations();
   register(claudeLocalProvider);
 
@@ -186,6 +209,7 @@ async function main(): Promise<void> {
     try {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
+      parentWatch.stop();
       dispatcher.stop();
       consolidation.stop();
       assistLane.stop();
@@ -196,12 +220,20 @@ async function main(): Promise<void> {
       // ...then stop accepting connections and let sockets drain.
       await server.close();
     } finally {
+      releasePidFile(home);
       process.exit(0);
     }
   };
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+  // ---- Self-shutdown (S0.2, T0-7): the parent (Tauri, scripts/dev-worker.mjs,
+  // a test harness) going away starts a 10-minute countdown to a clean exit.
+  // SUPERTWIN_WORKER_NO_PARENT=1 opts a deliberate headless run out.
+  const parentWatch = startParentWatch({
+    onParentLost: (detail) => void shutdown(`parent lost (${detail})`),
+  });
 }
 
 main().catch((err) => {

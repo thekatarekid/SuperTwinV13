@@ -1,0 +1,253 @@
+// ===========================================================================
+// Budget gate (S0.2, T0-4) — GoldenEvals SPD-01 and SPD-02 as deterministic
+// vitest tests. ZERO live model calls: the only "claude" here is a fake CLI
+// that writes a marker file if it is ever spawned — and the point of SPD-01 is
+// that it is not.
+// ===========================================================================
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { closeDb, getDb, runMigrations } from "../db/connection.js";
+import { appStateGet } from "../db/ingest.js";
+import { withTraceContext } from "../traces/context.js";
+import {
+  BUDGET_TRIPPED_KEY,
+  BudgetExceededError,
+  DEFAULT_CEILINGS,
+  admitCall,
+  budgetStatus,
+  isBudgetTripped,
+  isLatchExempt,
+  recordCallCost,
+  resetBudgetForTests,
+  resetBudgetLatch,
+} from "./budget.js";
+
+const stage = mkdtempSync(join(tmpdir(), "supertwin-budget-"));
+const fakeCli = join(stage, "claude");
+const spawnMarker = join(stage, "SPAWNED");
+
+const KEYS = [
+  "SUPERTWIN_DB_PATH",
+  "SUPERTWIN_HOME",
+  "CLAUDE_BIN",
+  "SUPERTWIN_TRACE_ENFORCE",
+  "SUPERTWIN_BUDGET_USD_PER_HOUR",
+  "SUPERTWIN_BUDGET_CALLS_PER_HOUR",
+] as const;
+const saved = new Map<string, string | undefined>();
+
+const BACKGROUND = { pass: "orient", caller: "brain/llm" };
+const BAR = { pass: "bar-answer.v1", caller: "grounded/handlers" };
+const CHAT = { pass: "chat", caller: "server/chat" };
+
+let dbPath: string;
+
+beforeAll(() => {
+  for (const k of KEYS) saved.set(k, process.env[k]);
+  writeFileSync(
+    fakeCli,
+    [
+      "#!/usr/bin/env node",
+      'require("node:fs").writeFileSync(process.env.ST_SPAWN_MARKER, "spawned");',
+      "process.exit(0);",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(fakeCli, 0o755);
+  process.env.CLAUDE_BIN = fakeCli;
+  process.env.ST_SPAWN_MARKER = spawnMarker;
+});
+
+afterAll(() => {
+  for (const [k, v] of saved) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  delete process.env.ST_SPAWN_MARKER;
+  rmSync(stage, { recursive: true, force: true });
+});
+
+beforeEach(() => {
+  dbPath = join(mkdtempSync(join(stage, "db-")), "budget.db");
+  process.env.SUPERTWIN_DB_PATH = dbPath;
+  delete process.env.SUPERTWIN_HOME;
+  delete process.env.SUPERTWIN_BUDGET_USD_PER_HOUR;
+  delete process.env.SUPERTWIN_BUDGET_CALLS_PER_HOUR;
+  closeDb();
+  runMigrations();
+  resetBudgetForTests();
+  rmSync(spawnMarker, { force: true });
+});
+
+afterEach(() => {
+  closeDb();
+});
+
+/** Admit `n` background calls at time `now` (what n successful spawns do). */
+function admitMany(n: number, now: number): void {
+  for (let i = 0; i < n; i += 1) admitCall(BACKGROUND, now + i);
+}
+
+describe("SPD-01 — ceiling throws before spawn", () => {
+  it("400 calls in the hour, then one more: BUDGET_EXCEEDED, no child process, latch set", async () => {
+    // Real clock: the provider's own admit uses Date.now().
+    const t0 = Date.now() - 60_000;
+    admitMany(DEFAULT_CEILINGS.callsPerHour, t0);
+    expect(budgetStatus(t0 + 1000).hour.calls).toBe(400);
+    expect(isBudgetTripped()).toBe(false);
+
+    // The 401st goes through the REAL provider against the fake CLI. It must
+    // reject before spawn: the marker the fake writes must never appear.
+    const { claudeLocalProvider } = await import("./claude-local/index.js");
+    let error: unknown = null;
+    try {
+      await withTraceContext(BACKGROUND, () =>
+        claudeLocalProvider.send({
+          runId: "spd-01",
+          message: "hello",
+          plainCompletion: true,
+          onEvent: () => {},
+        }),
+      );
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(BudgetExceededError);
+    expect((error as BudgetExceededError).code).toBe("BUDGET_EXCEEDED");
+    expect((error as BudgetExceededError).message).toContain("No process was spawned");
+    expect(existsSync(spawnMarker)).toBe(false); // wrong: spawn-then-fail
+
+    // The latch is in app_state, under the key the plan names.
+    const tripped = appStateGet(BUDGET_TRIPPED_KEY);
+    expect(tripped).not.toBeNull();
+    expect(Number.isNaN(Date.parse(tripped as string))).toBe(false);
+    // ...and the refused call was not counted.
+    expect(budgetStatus().hour.calls).toBe(400);
+  });
+
+  it("the spend ceiling trips the same way: $3 in the hour, next background call refused", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitCall(BACKGROUND, t0);
+    recordCallCost(2.999, t0);
+    admitCall(BACKGROUND, t0 + 1); // still under
+    recordCallCost(0.002, t0 + 1); // now $3.001
+    expect(() => admitCall(BACKGROUND, t0 + 2)).toThrow(BudgetExceededError);
+    expect(isBudgetTripped()).toBe(true);
+    expect(budgetStatus(t0 + 2).trippedReason).toMatch(/spent in the last hour/);
+  });
+
+  it("a poison fallback pays a second admit: the count is per CLI invocation", async () => {
+    // Directly: two admits from one logical run land as two calls.
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitCall(BACKGROUND, t0);
+    admitCall(BACKGROUND, t0);
+    expect(budgetStatus(t0).hour.calls).toBe(2);
+  });
+
+  it("chat and the grounded bar are counted but not blocked by a breach", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitMany(DEFAULT_CEILINGS.callsPerHour, t0);
+    // Over the ceiling: the bar call proceeds, and its passage sets the latch.
+    expect(() => admitCall(BAR, t0 + 1)).not.toThrow();
+    expect(isBudgetTripped()).toBe(true);
+    expect(() => admitCall(CHAT, t0 + 2)).not.toThrow();
+    expect(budgetStatus(t0 + 3).hour.calls).toBe(402); // counted
+    // Background is now refused.
+    expect(() => admitCall(BACKGROUND, t0 + 3)).toThrow(BudgetExceededError);
+  });
+
+  it("exemption is by trace meta: chat pass, grounded/ callers, bar-* passes", () => {
+    expect(isLatchExempt(CHAT)).toBe(true);
+    expect(isLatchExempt(BAR)).toBe(true);
+    expect(isLatchExempt({ pass: "bar-intent.v1", caller: "grounded/router" })).toBe(true);
+    expect(isLatchExempt(BACKGROUND)).toBe(false);
+    expect(isLatchExempt({ pass: "media", caller: "media/describe" })).toBe(false);
+    expect(isLatchExempt(null)).toBe(false); // no scope = background
+  });
+
+  it("the day window trips when the hour would not", () => {
+    process.env.SUPERTWIN_BUDGET_CALLS_PER_HOUR = "100000";
+    const t0 = Date.parse("2026-09-06T00:00:00Z");
+    // 3,000 calls spread over 20 hours: never 400 in one hour.
+    for (let i = 0; i < DEFAULT_CEILINGS.callsPerDay; i += 1) {
+      admitCall(BACKGROUND, t0 + Math.floor((i * 20 * 3600 * 1000) / DEFAULT_CEILINGS.callsPerDay));
+    }
+    const t1 = t0 + 21 * 3600 * 1000;
+    expect(() => admitCall(BACKGROUND, t1)).toThrow(/calls in the last day/);
+  });
+});
+
+describe("SPD-02 — latch survives restart", () => {
+  it("trip, restart the worker (fresh module state + reopened DB): still tripped; background paused; the bar still answers", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitMany(DEFAULT_CEILINGS.callsPerHour, t0);
+    expect(() => admitCall(BACKGROUND, t0 + 1)).toThrow(BudgetExceededError);
+    const trippedAt = appStateGet(BUDGET_TRIPPED_KEY);
+    expect(trippedAt).not.toBeNull();
+
+    // "Restart": drop every in-memory handle. The DB file is the only carrier.
+    closeDb();
+    resetBudgetForTests();
+    getDb();
+
+    expect(isBudgetTripped()).toBe(true);
+    expect(appStateGet(BUDGET_TRIPPED_KEY)).toBe(trippedAt);
+
+    // Background paused — even with the whole hour window aged out.
+    const twoHoursLater = t0 + 2 * 3600 * 1000;
+    expect(budgetStatus(twoHoursLater).hour.calls).toBe(0);
+    expect(() => admitCall(BACKGROUND, twoHoursLater)).toThrow(BudgetExceededError); // wrong: auto-resume
+    // The next day, still paused.
+    expect(() => admitCall(BACKGROUND, t0 + 26 * 3600 * 1000)).toThrow(BudgetExceededError);
+
+    // The bar still answers.
+    expect(() => admitCall(BAR, twoHoursLater)).not.toThrow();
+    expect(budgetStatus(twoHoursLater).hour.calls).toBe(1);
+  });
+
+  it("only the operator's explicit reset clears it, and the next background call is admitted", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitMany(DEFAULT_CEILINGS.callsPerHour, t0);
+    expect(() => admitCall(BACKGROUND, t0 + 1)).toThrow(BudgetExceededError);
+    resetBudgetLatch();
+    expect(isBudgetTripped()).toBe(false);
+    const later = t0 + 2 * 3600 * 1000;
+    expect(() => admitCall(BACKGROUND, later)).not.toThrow();
+  });
+
+  it("the ledger itself survives a restart: the last hour is not forgotten", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitMany(399, t0);
+    recordCallCost(1.25, t0);
+    closeDb();
+    resetBudgetForTests();
+    const s = budgetStatus(t0 + 60_000);
+    expect(s.hour.calls).toBe(399);
+    expect(s.hour.usd).toBeCloseTo(1.25, 6);
+    // One more is the 400th (allowed), the one after is refused.
+    expect(() => admitCall(BACKGROUND, t0 + 60_000)).not.toThrow();
+    expect(() => admitCall(BACKGROUND, t0 + 60_001)).toThrow(BudgetExceededError);
+  });
+});
+
+describe("hermeticity", () => {
+  it("under vitest with no scratch DB configured the budget never opens the real home", () => {
+    closeDb();
+    delete process.env.SUPERTWIN_DB_PATH;
+    delete process.env.SUPERTWIN_HOME;
+    resetBudgetForTests();
+    // Would resolve to ~/SuperTwinV13/supertwinv13.db: the memory store answers.
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitCall(BACKGROUND, t0);
+    expect(budgetStatus(t0).hour.calls).toBe(1);
+    // ...and the temp DB from beforeEach saw nothing.
+    process.env.SUPERTWIN_DB_PATH = dbPath;
+    resetBudgetForTests();
+    expect(budgetStatus(t0).hour.calls).toBe(0);
+  });
+});

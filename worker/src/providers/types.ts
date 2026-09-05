@@ -58,6 +58,8 @@ export type ProviderErrorCode =
   | "POISONED_SESSION"
   | "CANCELLED"
   | "QUOTA_EXCEEDED"
+  /** providers/budget.ts: the hard spend/call ceiling, thrown BEFORE spawn. */
+  | "BUDGET_EXCEEDED"
   | "BAD_REQUEST";
 
 /**

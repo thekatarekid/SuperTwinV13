@@ -29,7 +29,8 @@ Other useful scripts:
 
 ```bash
 npm run build                        # tsc + vite build → dist/
-npm run worker                       # run the worker directly (tsx)
+npm run worker                       # DEV worker: scratch home under $TMPDIR, port 8113, 30-min self-kill — never your real data
+npm run worker:live                  # the REAL home + port 8013 (what the app runs); only with the app closed, and it still spends money
 npm test                             # UI unit tests (vitest)
 npm run typecheck -w @supertwinv13/worker   # typecheck the worker
 ```

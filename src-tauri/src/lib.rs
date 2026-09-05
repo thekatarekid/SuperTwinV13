@@ -131,11 +131,16 @@ fn repo_root() -> std::path::PathBuf {
 /// the child claude can read its Keychain OAuth token via USER/LOGNAME/HOME).
 #[cfg(debug_assertions)]
 fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
+    // The DEV profile runs the LIVE worker script (real home, port 8013): the
+    // default `npm run worker` is the scratch-home dev worker (S0.2, T0-5).
     Ok(app
         .shell()
         .command("npm")
-        .args(["run", "worker"])
-        .current_dir(repo_root()))
+        .args(["run", "worker:live"])
+        .current_dir(repo_root())
+        // Home guard token (worker/src/home-guard.ts, S0.2): the worker refuses
+        // to boot against ~/SuperTwinV13 unless the app launched it.
+        .env("SUPERTWIN_LAUNCHED_BY", "app"))
 }
 
 /// Build the worker `Command` for RELEASE: run the bundled `worker.cjs` with the
@@ -169,7 +174,10 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
         .env(
             "SUPERTWIN_WHATSAPP_BIN",
             daemon_bin.to_string_lossy().to_string(),
-        ))
+        )
+        // Home guard token (worker/src/home-guard.ts, S0.2): the worker refuses
+        // to boot against ~/SuperTwinV13 unless the app launched it.
+        .env("SUPERTWIN_LAUNCHED_BY", "app"))
 }
 
 /// Spawn the Node worker and wire up its stdout → `worker-ready` emission.

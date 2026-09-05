@@ -29,6 +29,7 @@ import { T3_GRADUATION } from "./migrations/0107_t3_graduation.js";
 import { PRUNE_SOURCES } from "./migrations/0108_prune_sources.js";
 import { V6_CORE } from "./migrations/0200_v6_core.js";
 import { V6_GRAPH } from "./migrations/0201_v6_graph.js";
+import { V6_FTS_PROJECTION } from "./migrations/0202_v6_fts_projection.js";
 
 export interface Migration {
   id: string;
@@ -974,4 +975,9 @@ export const MIGRATIONS: Migration[] = [
   // int8 rowid-keyed `chunk_embeddings`, `hub_nodes` with `self` seeded, and
   // the fixed self entity row.
   { id: "0201_v6_graph", sql: V6_GRAPH },
+  // V6 P1 S2.3 (Build §5.2 lane A, Product_V6 §23.4 lexical): events gain the
+  // projected `app` / `window_title` / `doc_key` columns and events_fts is
+  // rebuilt over ten columns (the three appended LAST — ordinals 0–6 keep
+  // their meaning); `chunks_fts` puts BM25 over chunks and cards.
+  { id: "0202_v6_fts_projection", sql: V6_FTS_PROJECTION },
 ];

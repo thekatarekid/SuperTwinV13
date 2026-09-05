@@ -802,6 +802,10 @@ describe("DB installed at the 0014 state (0015–0016)", () => {
       "link_scraped_text",
       "transcript",
       "reply_to_text",
+      // 0202_v6_fts_projection (V6 S2.3) appends the screen/browser identity columns.
+      "app",
+      "window_title",
+      "doc_key",
     ]);
 
     const block = buildContextBlock("hotel booking");
@@ -1018,6 +1022,10 @@ describe("DB installed at the 0016 state (0017–0018)", () => {
       "link_scraped_text",
       "transcript",
       "reply_to_text",
+      // 0202_v6_fts_projection (V6 S2.3) appends the screen/browser identity columns.
+      "app",
+      "window_title",
+      "doc_key",
     ]);
 
     const block = buildContextBlock("sunday lunch");
@@ -1300,6 +1308,10 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
       "link_scraped_text",
       "transcript",
       "reply_to_text",
+      // 0202_v6_fts_projection (V6 S2.3) appends the screen/browser identity columns.
+      "app",
+      "window_title",
+      "doc_key",
     ]);
 
     db.prepare(
@@ -1334,6 +1346,7 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
       "idx_events_consent",
       "idx_events_content_hash",
       "idx_events_desc_status",
+      "idx_events_doc_key",
       "idx_events_enrichment",
       "idx_events_link_status",
       "idx_events_reply_to",
@@ -1352,6 +1365,10 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
           .all() as { name: string }[]
       ).map((r) => r.name),
     ).toEqual([
+      // 0202_v6_fts_projection (V6 S2.3): chunks_fts rides on chunks via its own trio.
+      "chunks_ad",
+      "chunks_ai",
+      "chunks_au",
       "events_ad",
       "events_ai",
       "events_au",

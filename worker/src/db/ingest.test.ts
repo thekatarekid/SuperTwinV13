@@ -1410,6 +1410,10 @@ describe("migration 0008_media", () => {
       "link_scraped_text",
       "transcript",
       "reply_to_text",
+      // 0202_v6_fts_projection (V6 S2.3) appends the screen/browser identity columns.
+      "app",
+      "window_title",
+      "doc_key",
     ]);
 
     const triggers = (
@@ -1421,6 +1425,10 @@ describe("migration 0008_media", () => {
     // which lives on events beside the three FTS triggers until item 1.1.
     // 0101_world_model adds the spaces_fts trio (the space_index FTS lane).
     expect(triggers).toEqual([
+      // 0202_v6_fts_projection (V6 S2.3): chunks_fts rides on chunks via its own trio.
+      "chunks_ad",
+      "chunks_ai",
+      "chunks_au",
       "events_ad",
       "events_ai",
       "events_au",

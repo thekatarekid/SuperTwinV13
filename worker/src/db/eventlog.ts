@@ -192,11 +192,13 @@ function statements(): Stmts {
       INSERT INTO events
         (id, source_id, source_type, stream_id, stream_key, ts, captured_at,
          kind, origin, age_band, actor, roles_json, payload_json, text,
+         app, window_title, doc_key,
          content_hash, blob_refs_json, is_historical, consent_id, tier,
          dispatched_at)
       VALUES
         (@id, @sourceId, @sourceType, @streamId, @streamKey, @ts, @capturedAt,
          @kind, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @text,
+         @app, @windowTitle, @docKey,
          @contentHash, @blobRefsJson, @isHistorical, @consentId, @tier,
          @dispatchedAt)
     `),
@@ -213,6 +215,33 @@ function statements(): Stmts {
 /** Deterministic stream id — mirrors db/ingest.ts streamId(). */
 function v13StreamId(source: string, streamKey: string): string {
   return `${source}:st:${streamKey}`;
+}
+
+/** Projected identity columns for the lexical index (0202_v6_fts_projection). */
+export interface FtsProjection {
+  app: string | null;
+  windowTitle: string | null;
+  docKey: string | null;
+}
+
+function str(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v : null;
+}
+
+/**
+ * What of a payload becomes the `app` / `window_title` / `doc_key` columns
+ * (V6 S2.3, RET-06). Screen snapshots carry all three by name. A browser
+ * visit or bookmark has a tab title and a URL: the tab IS the window and the
+ * URL IS the document key, so they project into the same two columns and "the
+ * tab about villas" reaches a browser visit the same way it reaches a Safari
+ * window. Anything else (chat) projects nothing — NULL, never "".
+ */
+export function ftsProjection(payload: Record<string, unknown>): FtsProjection {
+  return {
+    app: str(payload.app_name) ?? str(payload.app),
+    windowTitle: str(payload.window_title) ?? str(payload.title),
+    docKey: str(payload.doc_key) ?? str(payload.url),
+  };
 }
 
 /**
@@ -270,8 +299,10 @@ export function appendEvents(
       });
       const id = env.id ?? mintEventId(nowMs);
       const text = typeof env.payload.text === "string" ? env.payload.text : null;
+      const projected = ftsProjection(env.payload);
       const consentId = env.consentId ?? gate.consentId;
       s.insert.run({
+        ...projected,
         id,
         sourceId: env.source,
         sourceType: env.source,

@@ -112,9 +112,10 @@ function event(text: string): string {
 // ---------------------------------------------------------------------------
 
 describe("0201_v6_graph — migrate up on empty", () => {
-  it("follows 0200, is the last migration, applies clean on a fresh file; a second run is a no-op", () => {
+  it("follows 0200, applies clean on a fresh file; a second run is a no-op", () => {
     const ids = MIGRATIONS.map((m) => m.id);
-    expect(ids[ids.length - 1]).toBe("0201_v6_graph");
+    // S2.3 appended 0202_v6_fts_projection; 0201 is no longer last, only ordered.
+    expect(ids).toContain("0201_v6_graph");
     expect(ids.indexOf("0201_v6_graph")).toBe(ids.indexOf("0200_v6_core") + 1);
     const fresh = new Database(join(tmpDir, "fresh.db"));
     fresh.pragma("foreign_keys = ON");

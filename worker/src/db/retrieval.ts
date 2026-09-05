@@ -41,6 +41,11 @@ export const EVENTS_FTS_COLUMNS = [
   "link_scraped_text",
   "transcript",
   "reply_to_text",
+  // 0202_v6_fts_projection (V6 S2.3): the screen/browser identity columns,
+  // appended LAST so ordinals 0–6 keep their meaning.
+  "app",
+  "window_title",
+  "doc_key",
 ] as const;
 
 export type EventsFtsColumn = (typeof EVENTS_FTS_COLUMNS)[number];
@@ -64,6 +69,14 @@ export const DEFAULT_FTS_WEIGHTS: Readonly<Record<EventsFtsColumn, number>> = {
   // The quote IS someone's message — but it is a COPY of a row that is also
   // indexed on its own, so the original outranks the quote of it.
   reply_to_text: 2,
+  // V6 S2.3 (RET-06): a screen event's `text` is the window's DIFF, so what
+  // names the page the user was looking at is its title. A title is short and
+  // rarely repeats a token, so bm25's length normalisation already favours it;
+  // 3 sits under `text` because a message that says "villa" beats a tab that
+  // was open on one. The app name and document key are identity, not content.
+  app: 1,
+  window_title: 3,
+  doc_key: 1,
 };
 
 /**

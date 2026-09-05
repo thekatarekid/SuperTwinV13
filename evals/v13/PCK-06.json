@@ -1,0 +1,38 @@
+{
+  "id": "PCK-06",
+  "category": "PCK",
+  "title": "thin context",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "A brand-new DM stream, an unresolved sender, no spaces anywhere.",
+    "sender": "contact:unknown-9198",
+    "text": "hey, is this the right number for the plumber?"
+  },
+  "input_events": [
+    {
+      "actor": "contact:unknown-9198",
+      "text": "hey, is this the right number for the plumber?"
+    }
+  ],
+  "expected": {
+    "pack": {
+      "thin": true,
+      "held_first_flush": true,
+      "instruction_second_flush": "insufficient context; only unsorted plus a question"
+    }
+  },
+  "wrong": [
+    {
+      "label": "guess-anyway",
+      "assert_absent": "a model call, an output, or a dispatched mark on the held bundle; or the second sight without the insufficient-context instruction"
+    }
+  ],
+  "gates": [
+    "thin_context"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-06 · thin context"
+  }
+}

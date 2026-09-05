@@ -1,0 +1,38 @@
+{
+  "id": "PCK-07",
+  "category": "PCK",
+  "title": "T0 only",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "The 104-space fixture packed twice (the first warms the statements); the second is timed.",
+    "spaces": 104,
+    "budget_ms": 200
+  },
+  "input_events": [
+    "the six-message Goa bundle over 104 spaces"
+  ],
+  "expected": {
+    "pack": {
+      "model_calls": 0,
+      "took_ms_lt": 200
+    }
+  },
+  "wrong": [
+    {
+      "label": "escalation",
+      "assert_absent": "any model run recorded during packing"
+    },
+    {
+      "label": "slow-pack",
+      "assert_absent": "a pack taking 200 ms or more"
+    }
+  ],
+  "gates": [
+    "packer_escalation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-07 · T0 only (hard)"
+  }
+}

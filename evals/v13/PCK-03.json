@@ -1,0 +1,39 @@
+{
+  "id": "PCK-03",
+  "category": "PCK",
+  "title": "episode-bounded history",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "An open episode of 31 events plus 6 run-up events on one stream, all processed; a 2-event bundle arrives. Repeated with a 10-event episode to show the count varies.",
+    "episode_events": 31,
+    "run_up": 6,
+    "bundle_events": 2
+  },
+  "input_events": [
+    "2 new messages on the stream after a 31-event open episode"
+  ],
+  "expected": {
+    "pack": {
+      "thread_events": 37,
+      "varies_with_episode": true
+    }
+  },
+  "wrong": [
+    {
+      "label": "last-20-fixed",
+      "assert_absent": "a fixed last-N window instead of the episode's members"
+    },
+    {
+      "label": "history-not-episode-bounded",
+      "assert_absent": "members of the open episode missing from the thread block"
+    }
+  ],
+  "gates": [
+    "pack_history"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-03 · episode-bounded history"
+  }
+}

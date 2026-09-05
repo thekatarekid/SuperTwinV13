@@ -100,9 +100,9 @@ function bundleFor(streamKey: string): DeltaBundle {
   return bundle;
 }
 
-/** The `[NEW BUNDLE]` block's event lines, without the leading indent. */
+/** The `[BUNDLE]` block's event lines, without the leading indent (V6 S3.2 heads). */
 function bundleLines(user: string): string[] {
-  const i = user.indexOf("[NEW BUNDLE]");
+  const i = user.indexOf("[BUNDLE]");
   expect(i).toBeGreaterThanOrEqual(0);
   return user
     .slice(i)
@@ -125,7 +125,7 @@ describe("SRC-03 — screen head carries identity", () => {
     expect(line).toContain("Docs — Roadmap");
     expect(line).toContain("https://docs.example.com/roadmap");
     expect(line).toContain("[screen.snapshot]");
-    expect(line).toMatch(/^e1 08-28 10:00 self \[screen\.snapshot\] Chrome · Docs — Roadmap · https:\/\/docs\.example\.com\/roadmap: /);
+    expect(line).toMatch(/^e1 2026-08-28 10:00:00 · screen · self \[screen\.snapshot\] · Chrome · Docs — Roadmap · https:\/\/docs\.example\.com\/roadmap: /);
     // The content still follows the head.
     expect(line).toContain("Roadmap Q3");
   });
@@ -154,19 +154,20 @@ describe("SRC-03 — screen head carries identity", () => {
     // and screen heads are this task's (S1.6); a browser visit renders
     // through S1.4's visit-run collapse (SRC-10) — asserted by shape, not
     // by exact text, so the two lanes do not pin each other.
-    expect(wa.startsWith("e1 08-28 10:01 contact:rohan [wa.message]: ")).toBe(true);
-    expect(sc.startsWith("e1 08-28 10:00 self [screen.snapshot] Chrome · Docs — Roadmap · https://docs.example.com/roadmap: ")).toBe(true);
+    expect(wa.startsWith("e1 2026-08-28 10:01:00 · wa · contact:rohan [wa.message]: ")).toBe(true);
+    expect(sc.startsWith("e1 2026-08-28 10:00:00 · screen · self [screen.snapshot] · Chrome · Docs — Roadmap · https://docs.example.com/roadmap: ")).toBe(true);
     expect(br).toContain("[browser.visit]");
     expect(br).toContain("Villa with pool — Airbnb");
     expect(br).toContain("https://www.airbnb.com/rooms/123");
 
     // Three sources, three shapes — strip alias/time/actor and compare what
     // precedes the content.
-    const shape = (l: string): string => l.replace(/^e\d+ \S+ \S+ \S+ /, "").split(/: |\n/)[0]!;
+    // Head = `e1 <date> <time> · <source> · <actor> [kind] · identity`; strip up to the actor.
+    const shape = (l: string): string => l.replace(/^e\d+(–e\d+)? \S+ \S+( \([^)]*\))? · \S+ · \S+ /, "").split(/: |\n/)[0]!;
     const shapes = new Set([wa, br, sc].map(shape));
     expect(shapes.size).toBe(3);
     expect(shape(wa)).toBe("[wa.message]");
-    expect(shape(sc)).toBe("[screen.snapshot] Chrome · Docs — Roadmap · https://docs.example.com/roadmap");
+    expect(shape(sc)).toBe("[screen.snapshot] · Chrome · Docs — Roadmap · https://docs.example.com/roadmap");
   });
 
   it("eventIdentityHead: screen → app · title · doc key; browser → title · url; chat → nothing; duplicates said once", () => {

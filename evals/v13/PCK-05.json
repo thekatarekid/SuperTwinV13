@@ -1,0 +1,43 @@
+{
+  "id": "PCK-05",
+  "category": "PCK",
+  "title": "budgeted truncation",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "A 1-event bundle (6,000-char message), then a 150-event bundle (700-char messages) on the same stream.",
+    "bundles": [
+      1,
+      150
+    ]
+  },
+  "input_events": [
+    "1 event of 6,000 chars",
+    "150 events of 700 chars"
+  ],
+  "expected": {
+    "pack": {
+      "allowance": {
+        "1": 4000,
+        "150": 400
+      }
+    }
+  },
+  "wrong": [
+    {
+      "label": "fixed-1200",
+      "assert_absent": "a fixed 1,200-char truncation, or an allowance outside floor 400 / ceiling 4,000"
+    },
+    {
+      "label": "bundle-trimmed",
+      "assert_absent": "a bundle event dropped from the pack"
+    }
+  ],
+  "gates": [
+    "pack_truncation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-05 · budgeted truncation"
+  }
+}

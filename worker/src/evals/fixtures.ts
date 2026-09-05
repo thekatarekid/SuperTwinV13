@@ -80,6 +80,8 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "SRC", name: "Source quality (V6 P1)", n: 6, doc: "V2", pass: "source-quality", authored: true },
   // GoldenEvals V6 Phase 1 §5.8 — commit (S3.1). Code-asserted against brain/commit.ts.
   { cat: "CMT", name: "Commit (V6 P1)", n: 5, doc: "V2", pass: "commit", authored: true },
+  // GoldenEvals V6 Phase 1 §5.7 — the pack (S3.2). Code-asserted against packer/pack.ts.
+  { cat: "PCK", name: "The pack (V6 P1)", n: 7, doc: "V2", pass: "pack", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

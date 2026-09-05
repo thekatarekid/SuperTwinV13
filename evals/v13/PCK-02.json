@@ -1,0 +1,68 @@
+{
+  "id": "PCK-02",
+  "category": "PCK",
+  "title": "cap 5, never enumerate",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "The §10 104-space fixture: 104 spaces (a third about Goa), each with an exemplar episode and an open task, then a six-message Goa bundle. Packed again over 24 spaces to measure flatness.",
+    "spaces": 104,
+    "compare_with": 24
+  },
+  "input_events": [
+    {
+      "actor": "contact:rohan",
+      "text": "guys lets lock goa 18-21 dec, villa hunt continues"
+    },
+    {
+      "actor": "contact:tanvi",
+      "text": "flights from blr are 4k return, book tonight?"
+    },
+    {
+      "actor": "contact:rohan",
+      "text": "villa with pool near anjuna https://www.airbnb.com/rooms/123"
+    },
+    {
+      "actor": "contact:tanvi",
+      "text": "budget per head 15k incl villa and flights"
+    },
+    {
+      "actor": "contact:rohan",
+      "text": "diwali is the week before, keep the 19th free"
+    },
+    {
+      "actor": "contact:rohan",
+      "text": "ok booking the villa advance now"
+    }
+  ],
+  "expected": {
+    "pack": {
+      "candidates": 5,
+      "chosen_by": "retrieval",
+      "size_lt": 16000,
+      "flat": "within 300 chars of the 24-space pack"
+    }
+  },
+  "wrong": [
+    {
+      "label": "enumeration",
+      "assert_absent": "more or fewer than exactly 5 candidates, or any non-candidate space named in the pack"
+    },
+    {
+      "label": "pack-oversize",
+      "assert_absent": "pack of 16,000 chars or more"
+    },
+    {
+      "label": "grows-with-spaces",
+      "assert_absent": "pack size that grows with the space count"
+    }
+  ],
+  "gates": [
+    "packer_enumeration",
+    "pack_size"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-02 · cap 5, never enumerate (hard)"
+  }
+}

@@ -219,6 +219,24 @@ export async function runOrient(
   packOpts: PackOptions = {},
 ): Promise<OrientRun> {
   const packed = await packOrientContext(bundle, packOpts);
+  if (packed.held) {
+    // Thin context, first sight (V6 S3.2, PCK-06): the bundle is HELD one
+    // flush — no model call, no output, nothing marked. The next tick
+    // re-collects it with whatever arrived since; the packer then sends it
+    // with the insufficient-context instruction.
+    return {
+      bundle,
+      packed,
+      result: {
+        pass: ORIENT_V6.pass,
+        status: "failed",
+        responses: [],
+        runIds: [],
+        usage: { inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 },
+        error: { code: "thin_context_held", message: packed.thinReasons.join("; ") },
+      },
+    };
+  }
   const result = await runJsonPass(
     {
       pass: ORIENT_V6.pass,

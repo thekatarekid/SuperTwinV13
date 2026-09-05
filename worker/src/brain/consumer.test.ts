@@ -25,6 +25,11 @@ beforeEach(() => {
   closeDb();
   runMigrations();
   resetStableSystemPromptsForTests();
+  // V6 S3.2: the sender resolves to a known person, so these worlds are not
+  // thin-context (a bare stream + unresolved sender + tiny bundle would be
+  // held one flush by the packer instead of reaching the stubbed model).
+  getDb().prepare(`INSERT INTO entities (id, type, canonical, provisional) VALUES ('ent_rohan', 'person', 'Rohan Mehta', 0)`).run();
+  getDb().prepare(`INSERT INTO entity_identities (id, entity_id, source_id, kind, value_norm) VALUES ('ei_rohan', 'ent_rohan', 'wa', 'handle', 'contact:rohan')`).run();
 });
 
 afterEach(() => {

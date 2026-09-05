@@ -1,0 +1,42 @@
+{
+  "id": "PCK-04",
+  "category": "PCK",
+  "title": "quoted messages always",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "A 40-day-old message, 12 processed fillers, then a reply quoting the old one.",
+    "quoted_age_days": 40,
+    "quoted_text": "the villa with the blue pool, remember?"
+  },
+  "input_events": [
+    {
+      "actor": "contact:tanvi",
+      "text": "yes that one ^^ lets book it",
+      "quote": "the 40-day-old message"
+    }
+  ],
+  "expected": {
+    "pack": {
+      "quoted_in_thread": true,
+      "reply_head_points_at_quoted": true
+    }
+  },
+  "wrong": [
+    {
+      "label": "quoted-dropped",
+      "assert_absent": "the replied-to message absent from the thread block"
+    },
+    {
+      "label": "reply-structure-lost",
+      "assert_absent": "the reply head not naming the quoted event"
+    }
+  ],
+  "gates": [
+    "pack_quoted"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-04 · quoted messages always"
+  }
+}

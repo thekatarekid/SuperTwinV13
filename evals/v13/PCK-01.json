@@ -1,0 +1,75 @@
+{
+  "id": "PCK-01",
+  "category": "PCK",
+  "title": "blocks present",
+  "pass": "pack",
+  "mode": "code",
+  "setup": {
+    "note": "A live bundle on wa:goa-gang. Two earlier messages form the open episode ep_412 filed into sp_goa (exemplars stored); Rohan resolves through a handle identity; one open task due in 2 days.",
+    "stream": "wa:goa-gang",
+    "min_blocks": 9
+  },
+  "input_events": [
+    {
+      "actor": "contact:tanvi",
+      "text": "did anyone pay the diwali pool??"
+    },
+    {
+      "actor": "contact:rohan",
+      "text": "rohan can you book the villa by friday"
+    }
+  ],
+  "expected": {
+    "pack": {
+      "blocks": [
+        "[NOW]",
+        "[ROSTER]",
+        "[OPEN TASKS]",
+        "[CALENDAR]",
+        "[CANDIDATE SPACES]",
+        "[BRIDGED]",
+        "[THREAD S1]",
+        "[EPISODES]",
+        "[BUNDLE]"
+      ],
+      "candidates_max": 5,
+      "candidates_with_exemplars": true,
+      "thread_episode_bounded": true,
+      "untrusted_blocks": 1,
+      "head": "time · source · actor · kind, seconds kept"
+    }
+  },
+  "wrong": [
+    {
+      "label": "block-missing",
+      "assert_absent": "a required block absent or out of order"
+    },
+    {
+      "label": "untrusted-split",
+      "assert_absent": "captured text outside the one <untrusted> block, or more than one block"
+    },
+    {
+      "label": "enumeration",
+      "assert_absent": "more than 5 candidate spaces"
+    },
+    {
+      "label": "candidate-miss",
+      "assert_absent": "the filed space not first, or offered without its exemplars"
+    },
+    {
+      "label": "history-not-episode-bounded",
+      "assert_absent": "a fixed last-N thread instead of the open episode's members"
+    },
+    {
+      "label": "head-shape",
+      "assert_absent": "a bundle head without time·source·actor·kind"
+    }
+  ],
+  "gates": [
+    "pack_blocks"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.7 PCK-01 · blocks present"
+  }
+}

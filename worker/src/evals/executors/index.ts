@@ -30,6 +30,7 @@ import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
 import { commitExecutor } from "./cmt.js";
+import { packExecutor } from "./pck.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -120,4 +121,8 @@ export async function registerProductExecutors(): Promise<void> {
   // episode, per-item salvage, evidence, coverage) against the real
   // brain/commit.ts with canned Orient output. Zero model calls.
   registerExecutor("commit", commitExecutor);
+  // V6 P1 S3.2: PCK pack cases (blocks, cap 5 / 104-space size, episode-bounded
+  // history, quoted always, budgeted truncation, thin context, T0 only) against
+  // the real packer/pack.ts. Zero model calls.
+  registerExecutor("pack", packExecutor);
 }

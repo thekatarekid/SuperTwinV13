@@ -160,6 +160,7 @@ export async function runBrainTick(
     orient: orientRun.output,
     critic,
     aliases: orientRun.packed.eventAliases,
+    streamAliases: orientRun.packed.streamAliases,
     runId: orientRun.result.runIds[0] ?? null,
   });
 

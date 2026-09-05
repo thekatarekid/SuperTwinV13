@@ -1,16 +1,36 @@
 // ===========================================================================
-// Tick commit (build P1.3) — the ONE writer for Orient's graded output.
+// Tick commit (build P1.3, rewritten V6 P1 S3.1) — the ONE writer for the
+// graded understanding output.
 //
 // Everything the tick changes lands in a single transaction through this
-// module: episodes (join/new + message ranges + chain links), space
-// PROPOSALS, unsorted, second_look, the T2 review queue, and a decisions row
+// module: episodes (join/new + EXPLICIT membership rows + chain links), space
+// proposals, unsorted, second_look, the T2 review queue, and a decisions row
 // for every derived-object change (build convention 1.4 — reversible, with
 // old/new payloads).
 //
+// Commit rules (Product_V6_Phase1 §9, build §6.1):
+//
+//   1. Membership is explicit rows. `episode_events` gets one row per cited
+//      event (`event_id` set, range of one) — never a rowid range. The rows
+//      equal the item's resolved aliases exactly (CMT-01).
+//   2. One stream per episode. `episodes.stream_id` is DERIVED from the
+//      resolved events, never copied from the bundle. The model tags the
+//      section ("stream":"S1"); code enforces: events spanning two streams,
+//      or a tag that names another section, reject the item (CMT-02).
+//   3. Per-item salvage. Valid items commit; an invalid item rejects alone
+//      and its events are HELD (not stamped) for the next tick. The cursor
+//      advances on event ids, past committed items only (CMT-03).
+//   4. Evidence must resolve to real ids with verbatim quotes. A quote that is
+//      not in the cited event's text rejects the item — never a downgrade
+//      (CMT-04).
+//   5. Coverage. Every alias lands in exactly one of episodes/unsorted; a miss
+//      or a double placement is flagged mechanically (CMT-05). An uncovered
+//      event is stamped anyway — the model saw it and said nothing; re-asking
+//      is the infinite-retry shape T2-7 kills.
+//
 // PROPOSE-ONLY IS ENFORCED IN CODE HERE: a space born from a pass is written
-// with status 'proposed', unconditionally — there is no argument, flag or
-// model output that can make this module write an 'active' space. Activation
-// is a user approval acting on the proposal, never a pass.
+// with the status `proposedStatus()` returns, unconditionally — no model
+// output can make this module write an 'active' space under propose-only.
 //
 // Confidence policy (spec §8 conventions, §9.5):
 //   attach conf < 0.60  → the attach is dropped (the episode still commits,
@@ -23,10 +43,11 @@ import { randomBytes } from "node:crypto";
 
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
+import { addEpisodeEvents } from "../db/v6core.js";
 import type { DeltaBundle } from "../scheduler/dispatch.js";
 import { spaceCreationStatus } from "../consolidation/graduation.js";
 import { verdictFor, type CriticOutput } from "./critic.js";
-import { resolveEventAliases, type OrientOutput } from "./orient.js";
+import { resolveEventAliases, type OrientEvidence, type OrientOutput } from "./orient.js";
 import type { CommittedEpisode } from "./reduce.js";
 
 export const SECOND_LOOK_MIN = 0.6;
@@ -56,8 +77,44 @@ export interface CommitInput {
   critic: CriticOutput;
   /** Alias table from the pack (e1.. → event ids). */
   aliases: ReadonlyMap<string, string>;
+  /**
+   * Section tags from the pack (`S1` → streams.id). When present, an item's
+   * `"stream"` tag must name the section its events came from. Absent until
+   * the packer renders `[STREAM S<k>]` sections (S3.2) — the events alone
+   * decide then.
+   */
+  streamAliases?: ReadonlyMap<string, string>;
   /** runs.id of the Orient call, for decision attribution. */
   runId?: string | null;
+}
+
+/** Why an item did not commit. `critic` is the model's verdict; the rest are code. */
+export type RejectReason =
+  | "critic"
+  | "no_events"
+  | "already_placed"
+  | "multi_stream"
+  | "stream_tag_mismatch"
+  | "join_stream_mismatch"
+  | "no_evidence"
+  | "evidence_unresolved"
+  | "evidence_not_verbatim";
+
+export interface CommitRejection {
+  /** Critic item number (episodes then proposals); null for unsorted entries. */
+  item: number | null;
+  kind: "episode" | "proposal" | "unsorted";
+  reason: RejectReason;
+  detail: string;
+  /** Resolved event ids the item named (held for the next tick unless committed elsewhere). */
+  eventIds: string[];
+}
+
+export interface CommitCoverage {
+  /** Bundle aliases no item placed. Flagged, still stamped. */
+  uncovered: string[];
+  /** Aliases named by more than one item — the first placement won. */
+  duplicated: string[];
 }
 
 export interface CommitReport {
@@ -70,35 +127,44 @@ export interface CommitReport {
   flagged: number;
   questions: string[];
   decisions: string[];
+  rejections: CommitRejection[];
+  coverage: CommitCoverage;
+  /**
+   * Bundle events the tick handled — members of committed items plus the
+   * uncovered ones. Safe to stamp dispatched.
+   */
+  handledEventIds: string[];
+  /**
+   * Bundle events of rejected items that landed nowhere. NOT stamped: the
+   * next tick re-collects them (per-item salvage, T2-7).
+   */
+  heldEventIds: string[];
 }
 
-interface EventSpan {
-  ids: string[];
-  startId: string;
-  endId: string;
-  startRowid: number | null;
-  endRowid: number | null;
-  firstTs: string | null;
-  lastTs: string | null;
+// ---------------------------------------------------------------------------
+// Event rows
+// ---------------------------------------------------------------------------
+
+interface EventRow {
+  id: string;
+  rowid: number;
+  ts: string | null;
+  stream_id: string | null;
+  text: string | null;
 }
 
-function spanOf(ids: string[]): EventSpan | null {
-  if (ids.length === 0) return null;
-  const db = getDb();
-  const ph = ids.map(() => "?").join(",");
-  const rows = db
-    .prepare(`SELECT id, rowid, ts FROM events WHERE id IN (${ph}) ORDER BY rowid`)
-    .all(...ids) as { id: string; rowid: number; ts: string | null }[];
-  if (rows.length === 0) return null;
-  return {
-    ids: rows.map((r) => r.id),
-    startId: rows[0].id,
-    endId: rows[rows.length - 1].id,
-    startRowid: rows[0].rowid,
-    endRowid: rows[rows.length - 1].rowid,
-    firstTs: rows[0].ts,
-    lastTs: rows[rows.length - 1].ts,
-  };
+/** Whitespace-collapsed, NFC, outer quotation marks off — still verbatim. */
+function normalizeQuote(s: string): string {
+  return s
+    .normalize("NFC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, "")
+    .trim();
+}
+
+function normalizeText(s: string): string {
+  return s.normalize("NFC").replace(/\s+/g, " ");
 }
 
 /** Seed the space_index lanes from the founding events (bridge keys). */
@@ -114,11 +180,14 @@ function seedSpaceIndex(spaceId: string, eventIds: string[]): void {
 
 /**
  * Apply the graded tick — one transaction, decisions rows throughout.
- * Returns what committed so the Reduce step can enqueue per-space work.
+ * Returns what committed so the Reduce step can enqueue per-space work, and
+ * which bundle events were handled vs held so the consumer can advance the
+ * cursor on event ids.
  */
 export function commitTick(input: CommitInput): CommitReport {
   const db = getDb();
   const { bundle, orient, critic, aliases } = input;
+  const streamAliases = input.streamAliases;
   const runId = input.runId ?? null;
   const report: CommitReport = {
     committedEpisodes: [],
@@ -130,6 +199,64 @@ export function commitTick(input: CommitInput): CommitReport {
     flagged: 0,
     questions: orient.questions,
     decisions: [],
+    rejections: [],
+    coverage: { uncovered: [], duplicated: [] },
+    handledEventIds: [],
+    heldEventIds: [],
+  };
+
+  // ---- Event lookups (by id, cached for the tick) --------------------------
+  const rowStmt = db.prepare(
+    `SELECT id, rowid, ts, stream_id, text FROM events WHERE id = ?`,
+  );
+  const rowCache = new Map<string, EventRow | null>();
+  const eventRow = (id: string): EventRow | null => {
+    let r = rowCache.get(id);
+    if (r === undefined) {
+      r = (rowStmt.get(id) as EventRow | undefined) ?? null;
+      rowCache.set(id, r);
+    }
+    return r;
+  };
+  /** Alias tokens → real event rows, log order. Unknown tokens drop. */
+  const resolveRows = (tokens: readonly string[]): EventRow[] => {
+    const rows: EventRow[] = [];
+    for (const id of resolveEventAliases(tokens, aliases)) {
+      const r = eventRow(id);
+      if (r) rows.push(r);
+    }
+    return rows.sort((a, b) => a.rowid - b.rowid);
+  };
+  /** Evidence ids: an alias, else a raw event id that exists. */
+  const resolveEvidenceIds = (tokens: readonly string[]): string[] => {
+    const out: string[] = [];
+    for (const t of tokens) {
+      const [viaAlias] = resolveEventAliases([t], aliases);
+      const id = viaAlias ?? (eventRow(t.trim()) ? t.trim() : null);
+      if (id && !out.includes(id)) out.push(id);
+    }
+    return out;
+  };
+  const streamOfRow = (r: EventRow): string => r.stream_id ?? bundle.streamId;
+
+  // ---- Placement bookkeeping (coverage, dedupe, held/handled) --------------
+  const placed = new Set<string>(); // committed members this tick
+  const mentioned = new Set<string>(); // every event any item named
+  const duplicated = new Set<string>();
+  const heldCandidates = new Set<string>();
+  const aliasOf = new Map<string, string>();
+  for (const [a, id] of aliases) if (!aliasOf.has(id)) aliasOf.set(id, a);
+  const aliasesFor = (ids: readonly string[]): string[] => ids.map((id) => aliasOf.get(id) ?? id);
+
+  /** Drop events an earlier item already committed; remember the overlap. */
+  const fresh = (rows: EventRow[]): EventRow[] => {
+    const out: EventRow[] = [];
+    for (const r of rows) {
+      mentioned.add(r.id);
+      if (placed.has(r.id)) duplicated.add(r.id);
+      else out.push(r);
+    }
+    return out;
   };
 
   const decide = (
@@ -150,6 +277,127 @@ export function commitTick(input: CommitInput): CommitReport {
     );
   };
 
+  const reject = (
+    rej: Omit<CommitRejection, "eventIds"> & { eventIds: readonly string[] },
+    decision: { targetKind: string; targetId: string; payload: unknown; confidence?: number },
+  ): void => {
+    report.rejected++;
+    report.rejections.push({ ...rej, eventIds: [...rej.eventIds] });
+    for (const id of rej.eventIds) heldCandidates.add(id);
+    decide(decision.targetKind, decision.targetId, "reject", {
+      new: decision.payload,
+      reason: `${rej.reason}: ${rej.detail}`,
+      confidence: decision.confidence ?? null,
+    });
+  };
+
+  // ---- Code validation shared by episodes and proposals --------------------
+
+  /** Rule 2: one stream, matching the tag when the pack rendered sections. */
+  const singleStream = (
+    rows: EventRow[],
+    tag: string | undefined,
+  ): { ok: true; streamId: string } | { ok: false; reason: RejectReason; detail: string } => {
+    const streams = [...new Set(rows.map(streamOfRow))];
+    if (streams.length > 1) {
+      return {
+        ok: false,
+        reason: "multi_stream",
+        detail: `events span ${streams.length} streams (${streams.join(", ")})`,
+      };
+    }
+    const streamId = streams[0];
+    if (tag && streamAliases) {
+      const tagged = streamAliases.get(tag.trim().toUpperCase());
+      if (!tagged) {
+        return { ok: false, reason: "stream_tag_mismatch", detail: `tag ${tag} names no section` };
+      }
+      if (tagged !== streamId) {
+        return {
+          ok: false,
+          reason: "stream_tag_mismatch",
+          detail: `tag ${tag} is ${tagged}, events are ${streamId}`,
+        };
+      }
+    }
+    return { ok: true, streamId };
+  };
+
+  /** Rule 4: every evidence entry resolves and quotes verbatim. */
+  const evidenceOk = (
+    evidence: readonly OrientEvidence[],
+  ): { ok: true } | { ok: false; reason: RejectReason; detail: string } => {
+    if (evidence.length === 0) {
+      return { ok: false, reason: "no_evidence", detail: "no evidence entries" };
+    }
+    for (const ev of evidence) {
+      const ids = resolveEvidenceIds(ev.event_ids);
+      if (ids.length === 0) {
+        return {
+          ok: false,
+          reason: "evidence_unresolved",
+          detail: `event_ids ${JSON.stringify(ev.event_ids)} resolve to nothing`,
+        };
+      }
+      const q = normalizeQuote(ev.quote);
+      if (!q) {
+        return { ok: false, reason: "evidence_not_verbatim", detail: "empty quote" };
+      }
+      const hit = ids.some((id) => normalizeText(eventRow(id)?.text ?? "").includes(q));
+      if (!hit) {
+        return {
+          ok: false,
+          reason: "evidence_not_verbatim",
+          detail: `"${ev.quote}" is not in ${aliasesFor(ids).join(",")}`,
+        };
+      }
+    }
+    return { ok: true };
+  };
+
+  // ---- Writers --------------------------------------------------------------
+
+  const spanTs = (rows: EventRow[]): { first: string | null; last: string | null } => {
+    const ts = rows.map((r) => r.ts).filter((t): t is string => typeof t === "string").sort();
+    return { first: ts[0] ?? null, last: ts[ts.length - 1] ?? null };
+  };
+
+  const insertEpisode = (p: {
+    summary: string;
+    streamId: string;
+    rows: EventRow[];
+    confidence: number;
+    spaceId?: string | null;
+    chainPrev?: string | null;
+  }): string => {
+    const episodeId = mintId("ep");
+    const { first, last } = spanTs(p.rows);
+    db.prepare(
+      `INSERT INTO episodes (id, stream_id, space_id, state, summary, chain_prev_id, first_ts, last_ts, confidence, created_by)
+       VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, 'orient')`,
+    ).run(
+      episodeId,
+      p.streamId,
+      p.spaceId ?? null,
+      p.summary,
+      p.chainPrev ?? null,
+      first,
+      last,
+      p.confidence,
+    );
+    addMembers(episodeId, p.rows);
+    return episodeId;
+  };
+
+  const addMembers = (episodeId: string, rows: EventRow[]): void => {
+    addEpisodeEvents(
+      episodeId,
+      rows.map((r) => r.id),
+      "orient",
+    );
+    for (const r of rows) placed.add(r.id);
+  };
+
   const insertUnsorted = (episodeId: string, reason: string, confidence: number): void => {
     const id = mintId("uns");
     db.prepare(
@@ -164,16 +412,15 @@ export function commitTick(input: CommitInput): CommitReport {
     spaceId: string,
     confidence: number,
     reason: string | null,
-  ): void => {
+  ): boolean => {
     const exists = db.prepare(`SELECT 1 FROM spaces WHERE id = ?`).get(spaceId);
-    if (!exists) return; // a hallucinated space id never becomes a row
+    if (!exists) return false; // a hallucinated space id never becomes a row
     const old = db
       .prepare(`SELECT space_id FROM episodes WHERE id = ?`)
       .get(episodeId) as { space_id: string | null } | undefined;
-    db.prepare(`UPDATE episodes SET space_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`).run(
-      spaceId,
-      episodeId,
-    );
+    db.prepare(
+      `UPDATE episodes SET space_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
+    ).run(spaceId, episodeId);
     db.prepare(
       `UPDATE spaces SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
     ).run(spaceId);
@@ -190,9 +437,15 @@ export function commitTick(input: CommitInput): CommitReport {
       ).run(mintId("sl"), episodeId, spaceId, confidence);
       report.secondLooks++;
     }
+    return true;
   };
 
-  const flagOverlap = (episodeId: string | null, spaceId: string | null, overlapSpaceId: string | null, reason: string | null): void => {
+  const flagOverlap = (
+    episodeId: string | null,
+    spaceId: string | null,
+    overlapSpaceId: string | null,
+    reason: string | null,
+  ): void => {
     db.prepare(
       `INSERT INTO t2_review_queue (id, kind, episode_id, space_id, overlap_space_id, reason)
        VALUES (?, 'flag_overlap', ?, ?, ?, ?)`,
@@ -206,87 +459,121 @@ export function commitTick(input: CommitInput): CommitReport {
     // ---- Episodes (join/new), in Orient's order --------------------------
     for (const e of orient.episodes) {
       item++;
-      const verdict = verdictFor(critic, item);
-      if (verdict.verdict === "reject") {
-        report.rejected++;
-        decide("episode", e.episode ?? "(uncommitted)", "reject", {
-          new: { action: e.action, summary: e.summary },
-          reason: verdict.reason ?? "critic reject",
-          confidence: e.confidence,
-        });
+      const named = resolveRows(e.events);
+      const rows = fresh(named);
+      const payload = { action: e.action, summary: e.summary, events: e.events };
+      const target = e.episode ?? "(uncommitted)";
+      const fail = (reason: RejectReason, detail: string): void =>
+        reject(
+          { item, kind: "episode", reason, detail, eventIds: rows.map((r) => r.id) },
+          { targetKind: "episode", targetId: target, payload, confidence: e.confidence },
+        );
+
+      if (named.length === 0) {
+        fail("no_events", `events ${JSON.stringify(e.events)} resolve to nothing`);
         continue;
       }
-      const span = spanOf(resolveEventAliases(e.events, aliases));
-      if (!span) continue; // aliases that resolve to nothing commit nothing
+      if (rows.length === 0) {
+        fail("already_placed", "every event was committed by an earlier item");
+        continue;
+      }
+      const stream = singleStream(rows, e.stream);
+      if (!stream.ok) {
+        fail(stream.reason, stream.detail);
+        continue;
+      }
+      const ev = evidenceOk(e.evidence);
+      if (!ev.ok) {
+        fail(ev.reason, ev.detail);
+        continue;
+      }
+      const verdict = verdictFor(critic, item);
+      if (verdict.verdict === "reject") {
+        fail("critic", verdict.reason ?? "critic reject");
+        continue;
+      }
 
       let episodeId: string;
       if (e.action === "join" && e.episode) {
         const existing = db
-          .prepare(`SELECT id, summary, space_id, last_ts FROM episodes WHERE id = ?`)
+          .prepare(`SELECT id, summary, space_id, stream_id, last_ts FROM episodes WHERE id = ?`)
           .get(e.episode) as
-          | { id: string; summary: string | null; space_id: string | null; last_ts: string | null }
+          | {
+              id: string;
+              summary: string | null;
+              space_id: string | null;
+              stream_id: string | null;
+              last_ts: string | null;
+            }
           | undefined;
         if (existing) {
+          if (existing.stream_id && existing.stream_id !== stream.streamId) {
+            fail(
+              "join_stream_mismatch",
+              `episode ${existing.id} is on ${existing.stream_id}, events are on ${stream.streamId}`,
+            );
+            continue;
+          }
           episodeId = existing.id;
+          const { last } = spanTs(rows);
           db.prepare(
             `UPDATE episodes SET summary = ?, state = 'open',
+                    stream_id = COALESCE(stream_id, ?),
                     last_ts = MAX(COALESCE(last_ts, ''), COALESCE(?, '')),
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
               WHERE id = ?`,
-          ).run(e.summary, span.lastTs, episodeId);
+          ).run(e.summary, stream.streamId, last, episodeId);
+          addMembers(episodeId, rows);
           decide("episode", episodeId, "join", {
             old: { summary: existing.summary, lastTs: existing.last_ts },
-            new: { summary: e.summary, events: span.ids },
+            new: { summary: e.summary, events: rows.map((r) => r.id) },
             confidence: e.confidence,
           });
         } else {
           // The named episode does not exist — commit the burst as a NEW one
           // rather than losing it (unknown beats wrong, never data loss).
-          episodeId = mintId("ep");
-          db.prepare(
-            `INSERT INTO episodes (id, stream_id, state, summary, first_ts, last_ts, confidence, created_by)
-             VALUES (?, ?, 'open', ?, ?, ?, ?, 'orient')`,
-          ).run(episodeId, bundle.streamId, e.summary, span.firstTs, span.lastTs, e.confidence);
+          episodeId = insertEpisode({
+            summary: e.summary,
+            streamId: stream.streamId,
+            rows,
+            confidence: e.confidence,
+          });
           decide("episode", episodeId, "create", {
-            new: { summary: e.summary, events: span.ids },
+            new: { summary: e.summary, events: rows.map((r) => r.id) },
             reason: `join target ${e.episode} not found`,
             confidence: e.confidence,
           });
         }
       } else {
-        episodeId = mintId("ep");
         const chainPrev =
           e.chain_prev && db.prepare(`SELECT 1 FROM episodes WHERE id = ?`).get(e.chain_prev)
             ? e.chain_prev
             : null;
-        db.prepare(
-          `INSERT INTO episodes (id, stream_id, state, summary, chain_prev_id, first_ts, last_ts, confidence, created_by)
-           VALUES (?, ?, 'open', ?, ?, ?, ?, ?, 'orient')`,
-        ).run(episodeId, bundle.streamId, e.summary, chainPrev, span.firstTs, span.lastTs, e.confidence);
+        episodeId = insertEpisode({
+          summary: e.summary,
+          streamId: stream.streamId,
+          rows,
+          confidence: e.confidence,
+          chainPrev,
+        });
         decide("episode", episodeId, "create", {
-          new: { summary: e.summary, events: span.ids, chainPrev },
+          new: { summary: e.summary, events: rows.map((r) => r.id), chainPrev },
           confidence: e.confidence,
         });
       }
 
-      db.prepare(
-        `INSERT OR IGNORE INTO episode_events
-           (id, episode_id, start_event_id, end_event_id, start_rowid, end_rowid, added_by)
-         VALUES (?, ?, ?, ?, ?, ?, 'orient')`,
-      ).run(mintId("ee"), episodeId, span.startId, span.endId, span.startRowid, span.endRowid);
-
       if (verdict.verdict === "downgrade_to_unsorted") {
         report.downgraded++;
         insertUnsorted(episodeId, verdict.reason ?? "critic downgrade", e.confidence);
-        report.committedEpisodes.push({ episodeId, spaceId: null, streamId: bundle.streamId });
+        report.committedEpisodes.push({ episodeId, spaceId: null, streamId: stream.streamId });
         continue;
       }
 
       // Attach policy: <0.6 never attaches (spec §8 conventions).
       let attachedSpace: string | null = null;
       if (e.space && e.confidence >= SECOND_LOOK_MIN) {
-        attachEpisode(episodeId, e.space, e.confidence, null);
-        attachedSpace = e.space;
+        if (attachEpisode(episodeId, e.space, e.confidence, null)) attachedSpace = e.space;
+        else insertUnsorted(episodeId, `space ${e.space} does not exist`, e.confidence);
       } else if (e.space) {
         insertUnsorted(episodeId, `attach to ${e.space} below 0.6`, e.confidence);
       }
@@ -296,42 +583,62 @@ export function commitTick(input: CommitInput): CommitReport {
       report.committedEpisodes.push({
         episodeId,
         spaceId: attachedSpace,
-        streamId: bundle.streamId,
+        streamId: stream.streamId,
       });
     }
 
     // ---- New spaces — born active, or 'proposed' under propose-only ------
     for (const p of orient.proposals) {
       item++;
-      const verdict = verdictFor(critic, item);
-      if (verdict.verdict === "reject") {
-        report.rejected++;
-        decide("space", "(unproposed)", "reject", {
-          new: { label: p.label },
-          reason: verdict.reason ?? "critic reject",
-          confidence: p.confidence,
-        });
+      const named = resolveRows(p.episode_events);
+      const rows = fresh(named);
+      const payload = { label: p.label, summary: p.summary, events: p.episode_events };
+      const fail = (reason: RejectReason, detail: string): void =>
+        reject(
+          { item, kind: "proposal", reason, detail, eventIds: rows.map((r) => r.id) },
+          { targetKind: "space", targetId: "(unproposed)", payload, confidence: p.confidence },
+        );
+
+      // A proposal is a write about the founding events: it needs them, on
+      // one stream, with evidence — the same bar as an episode.
+      if (named.length === 0) {
+        fail("no_events", `episode_events ${JSON.stringify(p.episode_events)} resolve to nothing`);
         continue;
       }
-      const span = spanOf(resolveEventAliases(p.episode_events, aliases));
+      if (rows.length === 0) {
+        fail("already_placed", "every founding event was committed by an earlier item");
+        continue;
+      }
+      const stream = singleStream(rows, p.stream);
+      if (!stream.ok) {
+        fail(stream.reason, stream.detail);
+        continue;
+      }
+      const ev = evidenceOk(p.evidence);
+      if (!ev.ok) {
+        fail(ev.reason, ev.detail);
+        continue;
+      }
+      const verdict = verdictFor(critic, item);
+      if (verdict.verdict === "reject") {
+        fail("critic", verdict.reason ?? "critic reject");
+        continue;
+      }
 
       if (verdict.verdict === "downgrade_to_unsorted") {
         report.downgraded++;
-        if (span) {
-          const episodeId = mintId("ep");
-          db.prepare(
-            `INSERT INTO episodes (id, stream_id, state, summary, first_ts, last_ts, confidence, created_by)
-             VALUES (?, ?, 'open', ?, ?, ?, ?, 'orient')`,
-          ).run(episodeId, bundle.streamId, p.summary, span.firstTs, span.lastTs, p.confidence);
-          db.prepare(
-            `INSERT OR IGNORE INTO episode_events
-               (id, episode_id, start_event_id, end_event_id, start_rowid, end_rowid, added_by)
-             VALUES (?, ?, ?, ?, ?, ?, 'orient')`,
-          ).run(mintId("ee"), episodeId, span.startId, span.endId, span.startRowid, span.endRowid);
-          decide("episode", episodeId, "create", { new: { summary: p.summary }, confidence: p.confidence });
-          insertUnsorted(episodeId, verdict.reason ?? "critic downgrade", p.confidence);
-          report.committedEpisodes.push({ episodeId, spaceId: null, streamId: bundle.streamId });
-        }
+        const episodeId = insertEpisode({
+          summary: p.summary,
+          streamId: stream.streamId,
+          rows,
+          confidence: p.confidence,
+        });
+        decide("episode", episodeId, "create", {
+          new: { summary: p.summary, events: rows.map((r) => r.id) },
+          confidence: p.confidence,
+        });
+        insertUnsorted(episodeId, verdict.reason ?? "critic downgrade", p.confidence);
+        report.committedEpisodes.push({ episodeId, spaceId: null, streamId: stream.streamId });
         continue;
       }
 
@@ -358,46 +665,95 @@ export function commitTick(input: CommitInput): CommitReport {
         confidence: p.confidence,
       });
 
-      if (span) {
-        const episodeId = mintId("ep");
-        db.prepare(
-          `INSERT INTO episodes (id, stream_id, space_id, state, summary, first_ts, last_ts, confidence, created_by)
-           VALUES (?, ?, ?, 'open', ?, ?, ?, ?, 'orient')`,
-        ).run(episodeId, bundle.streamId, spaceId, p.summary, span.firstTs, span.lastTs, p.confidence);
-        db.prepare(
-          `INSERT OR IGNORE INTO episode_events
-             (id, episode_id, start_event_id, end_event_id, start_rowid, end_rowid, added_by)
-           VALUES (?, ?, ?, ?, ?, ?, 'orient')`,
-        ).run(mintId("ee"), episodeId, span.startId, span.endId, span.startRowid, span.endRowid);
-        decide("episode", episodeId, "create", {
-          new: { summary: p.summary, spaceId },
-          confidence: p.confidence,
-        });
-        seedSpaceIndex(spaceId, span.ids);
-        report.committedEpisodes.push({ episodeId, spaceId, streamId: bundle.streamId });
-      }
+      const episodeId = insertEpisode({
+        summary: p.summary,
+        streamId: stream.streamId,
+        rows,
+        confidence: p.confidence,
+        spaceId,
+      });
+      decide("episode", episodeId, "create", {
+        new: { summary: p.summary, events: rows.map((r) => r.id), spaceId },
+        confidence: p.confidence,
+      });
+      seedSpaceIndex(
+        spaceId,
+        rows.map((r) => r.id),
+      );
+      report.committedEpisodes.push({ episodeId, spaceId, streamId: stream.streamId });
       if (verdict.verdict === "flag_overlap") {
         flagOverlap(null, spaceId, verdict.space_id ?? null, verdict.reason ?? null);
       }
     }
 
     // ---- Unsorted, straight from Orient (a good answer) ------------------
-    for (const u of orient.unsorted) {
-      const span = spanOf(resolveEventAliases(u.events, aliases));
-      if (!span) continue;
-      const episodeId = mintId("ep");
-      db.prepare(
-        `INSERT INTO episodes (id, stream_id, state, summary, first_ts, last_ts, confidence, created_by)
-         VALUES (?, ?, 'open', ?, ?, ?, ?, 'orient')`,
-      ).run(episodeId, bundle.streamId, u.summary || "(unsorted)", span.firstTs, span.lastTs, u.confidence);
-      db.prepare(
-        `INSERT OR IGNORE INTO episode_events
-           (id, episode_id, start_event_id, end_event_id, start_rowid, end_rowid, added_by)
-         VALUES (?, ?, ?, ?, ?, ?, 'orient')`,
-      ).run(mintId("ee"), episodeId, span.startId, span.endId, span.startRowid, span.endRowid);
-      decide("episode", episodeId, "create", { new: { summary: u.summary }, confidence: u.confidence });
-      insertUnsorted(episodeId, u.reason ?? "no space matched", u.confidence);
-      report.committedEpisodes.push({ episodeId, spaceId: null, streamId: bundle.streamId });
+    // No evidence bar (nothing is claimed) and a mechanical repair for the
+    // one malformation that has an obvious fix: events from two streams
+    // become one unsorted episode per stream.
+    orient.unsorted.forEach((u, i) => {
+      const named = resolveRows(u.events);
+      const rows = fresh(named);
+      if (named.length === 0) {
+        reject(
+          {
+            item: null,
+            kind: "unsorted",
+            reason: "no_events",
+            detail: `events ${JSON.stringify(u.events)} resolve to nothing`,
+            eventIds: [],
+          },
+          { targetKind: "unsorted", targetId: `(unsorted ${i + 1})`, payload: { summary: u.summary } },
+        );
+        return;
+      }
+      if (rows.length === 0) return; // fully covered by earlier items — coverage records the overlap
+      const byStream = new Map<string, EventRow[]>();
+      for (const r of rows) {
+        const k = streamOfRow(r);
+        const list = byStream.get(k);
+        if (list) list.push(r);
+        else byStream.set(k, [r]);
+      }
+      for (const [streamId, group] of byStream) {
+        const episodeId = insertEpisode({
+          summary: u.summary || "(unsorted)",
+          streamId,
+          rows: group,
+          confidence: u.confidence,
+        });
+        decide("episode", episodeId, "create", {
+          new: { summary: u.summary, events: group.map((r) => r.id) },
+          confidence: u.confidence,
+        });
+        insertUnsorted(episodeId, u.reason ?? "no space matched", u.confidence);
+        report.committedEpisodes.push({ episodeId, spaceId: null, streamId });
+      }
+    });
+
+    // ---- Coverage (rule 5) + the held/handled split ------------------------
+    const bundleIds = bundle.events.map((e) => e.id);
+    const uncovered = bundleIds.filter((id) => !mentioned.has(id));
+    report.coverage = {
+      uncovered: aliasesFor(uncovered),
+      duplicated: aliasesFor([...duplicated]),
+    };
+    const held = [...heldCandidates].filter((id) => !placed.has(id));
+    const heldSet = new Set(held);
+    report.heldEventIds = bundleIds.filter((id) => heldSet.has(id));
+    report.handledEventIds = bundleIds.filter((id) => !heldSet.has(id));
+    if (uncovered.length > 0 || duplicated.size > 0) {
+      let min = Number.POSITIVE_INFINITY;
+      let max = 0;
+      for (const e of bundle.events) {
+        if (e.rowid < min) min = e.rowid;
+        if (e.rowid > max) max = e.rowid;
+      }
+      decide("bundle", `${bundle.streamId}:${Number.isFinite(min) ? min : 0}-${max}`, "coverage_flag", {
+        new: report.coverage,
+        reason:
+          `${uncovered.length} alias(es) placed nowhere, ` +
+          `${duplicated.size} placed twice — flagged mechanically (Product P1 §9.3)`,
+      });
     }
   });
   run();

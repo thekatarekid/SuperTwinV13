@@ -26,6 +26,8 @@ export interface OrientEpisodeDecision {
   action: "join" | "new";
   /** Existing episode id (join only). */
   episode?: string;
+  /** Section tag the events came from ("S1"); code enforces one stream per episode (S3.1). */
+  stream?: string;
   /** Aliases/ranges as emitted ("e1", "e4-e11"). */
   events: string[];
   summary: string;
@@ -47,6 +49,8 @@ export interface OrientProposal {
   persistence?: string;
   /** Spec §9 space typing (orient.v2): one-time|recurring. */
   cadence?: string;
+  /** Section tag of the founding events ("S1"), when the model states it. */
+  stream?: string;
   episode_events: string[];
   summary: string;
   evidence: OrientEvidence[];
@@ -118,6 +122,7 @@ export function parseOrientOutput(parsed: unknown): OrientOutput {
     episodes.push({
       action,
       ...(episode ? { episode } : {}),
+      ...(str(e.stream) ? { stream: str(e.stream) } : {}),
       events,
       summary,
       ...(str(e.space) ? { space: str(e.space) } : {}),
@@ -141,6 +146,7 @@ export function parseOrientOutput(parsed: unknown): OrientOutput {
       ...(str(p.term) ? { term: str(p.term) } : {}),
       ...(str(p.persistence) ? { persistence: str(p.persistence) } : {}),
       ...(str(p.cadence) ? { cadence: str(p.cadence) } : {}),
+      ...(str(p.stream) ? { stream: str(p.stream) } : {}),
       episode_events: strArray(p.episode_events ?? p.events),
       summary: str(p.summary) ?? label,
       evidence: evidence(p.evidence),

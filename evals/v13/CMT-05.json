@@ -1,0 +1,124 @@
+{
+  "id": "CMT-05",
+  "category": "CMT",
+  "title": "coverage",
+  "pass": "commit",
+  "mode": "code",
+  "setup": {
+    "note": "Four events. Item 1 takes e1+e2; the unsorted entry names e2 again (double placement) and nobody names e4 (uncovered). Both are flagged mechanically; the first placement wins; e3 is filed cleanly.",
+    "orient": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1",
+            "e2"
+          ],
+          "summary": "dates and the pool",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "lets lock goa"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [
+        {
+          "events": [
+            "e2"
+          ],
+          "summary": "pool?",
+          "confidence": 0.3
+        },
+        {
+          "events": [
+            "e3"
+          ],
+          "summary": "stray link",
+          "reason": "no goal",
+          "confidence": 0.4
+        }
+      ],
+      "questions": []
+    },
+    "critic": {
+      "verdicts": []
+    }
+  },
+  "input_events": [
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "guys lets lock goa 18-21 dec"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "did anyone pay the diwali pool??"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:tanvi",
+      "text": "random link btw"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:karan",
+      "text": "ok"
+    }
+  ],
+  "expected": {
+    "committed": 2,
+    "rejected": 0,
+    "membership": [
+      [
+        "e1",
+        "e2"
+      ],
+      [
+        "e3"
+      ]
+    ],
+    "uncovered": [
+      "e4"
+    ],
+    "duplicated": [
+      "e2"
+    ],
+    "coverage_flag": true,
+    "held": [],
+    "stamped": [
+      "e1",
+      "e2",
+      "e3",
+      "e4"
+    ]
+  },
+  "wrong": [
+    {
+      "label": "rowid-ranges",
+      "assert_absent": "an episode_events row without event_id, or whose start/end differ (a rowid range)"
+    },
+    {
+      "label": "alias-uncovered-silently",
+      "assert_absent": "an alias placed nowhere without a coverage flag"
+    },
+    {
+      "label": "double-placement",
+      "assert_absent": "one event committed as a member of two episodes"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.8 CMT-05 · coverage"
+  }
+}

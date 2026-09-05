@@ -1,0 +1,130 @@
+{
+  "id": "CMT-01",
+  "category": "CMT",
+  "title": "explicit membership",
+  "pass": "commit",
+  "mode": "code",
+  "setup": {
+    "note": "One WhatsApp group stream. The graded Orient output cites two episodes (one via a range alias) and one unsorted entry; the critic is silent (silence commits).",
+    "orient": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1"
+          ],
+          "summary": "Dates 18-21 Dec agreed",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "lets lock goa 18-21 dec"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e2-e4"
+          ],
+          "summary": "Villa Sol advance: 15k total, 5k each",
+          "evidence": [
+            {
+              "event_ids": [
+                "e4"
+              ],
+              "quote": "15k total, 5k each"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [
+        {
+          "events": [
+            "e5"
+          ],
+          "summary": "stray link",
+          "reason": "no goal evidence",
+          "confidence": 0.5
+        }
+      ],
+      "questions": []
+    },
+    "critic": {
+      "verdicts": []
+    }
+  },
+  "input_events": [
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "guys lets lock goa 18-21 dec"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "villa sol wale bol rahe advance aaj chahiye"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:karan",
+      "text": "kitna?"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "15k total, 5k each"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:tanvi",
+      "text": "random link btw"
+    }
+  ],
+  "expected": {
+    "committed": 3,
+    "rejected": 0,
+    "membership": [
+      [
+        "e1"
+      ],
+      [
+        "e2",
+        "e3",
+        "e4"
+      ],
+      [
+        "e5"
+      ]
+    ],
+    "held": [],
+    "stamped": [
+      "e1",
+      "e2",
+      "e3",
+      "e4",
+      "e5"
+    ],
+    "uncovered": [],
+    "duplicated": []
+  },
+  "wrong": [
+    {
+      "label": "rowid-ranges",
+      "assert_absent": "an episode_events row without event_id, or whose start/end differ (a rowid range)"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.8 CMT-01 · explicit membership"
+  }
+}

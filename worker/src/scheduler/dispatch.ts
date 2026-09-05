@@ -350,34 +350,61 @@ export function markDispatched(
   bundle: DeltaBundle,
   nowMs: number = Date.now(),
 ): void {
+  markDispatchedEvents(
+    bundle,
+    bundle.events.map((e) => e.id),
+    nowMs,
+  );
+}
+
+/**
+ * Per-item salvage (V6 P1 S3.1, T2-7): stamp ONLY the named bundle events and
+ * advance the cursor on event ids — to the largest rowid below which every
+ * bundle event is stamped. Events the commit held (a rejected item's) stay
+ * unstamped above the cursor, so the next collectTick re-bundles exactly
+ * them; the events after them that did commit are stamped and never
+ * re-collected. `markDispatched` is the every-event case.
+ */
+export function markDispatchedEvents(
+  bundle: DeltaBundle,
+  eventIds: readonly string[],
+  nowMs: number = Date.now(),
+): { stamped: number; cursorRowid: number } {
   const db = getDb();
   const nowIso = new Date(nowMs).toISOString();
+  const want = new Set(eventIds);
   const stamp = db.prepare(`UPDATE events SET dispatched_at = ? WHERE rowid = ?`);
   const advance = db.prepare(
     `UPDATE streams
         SET cursor_rowid = MAX(cursor_rowid, ?)
       WHERE id = ?`,
   );
+  const ordered = [...bundle.events].sort((a, b) => a.rowid - b.rowid);
+  const stamped = ordered.filter((e) => want.has(e.id));
+  let cursorRowid = 0;
+  for (const e of ordered) {
+    if (!want.has(e.id)) break;
+    cursorRowid = e.rowid;
+  }
   const run = db.transaction(() => {
-    let maxRowid = 0;
-    for (const e of bundle.events) {
-      stamp.run(nowIso, e.rowid);
-      if (e.rowid > maxRowid) maxRowid = e.rowid;
-    }
-    advance.run(maxRowid, bundle.streamId);
+    for (const e of stamped) stamp.run(nowIso, e.rowid);
+    if (cursorRowid > 0) advance.run(cursorRowid, bundle.streamId);
   });
   run();
-  try {
-    registerBundleForEnrichment({
-      streamId: bundle.streamId,
-      events: bundle.events,
-    });
-  } catch (err) {
-    console.error(
-      `[dispatch] enrichment countdown failed for ${bundle.streamKey}:`,
-      err,
-    );
+  if (stamped.length > 0) {
+    try {
+      registerBundleForEnrichment({
+        streamId: bundle.streamId,
+        events: stamped,
+      });
+    } catch (err) {
+      console.error(
+        `[dispatch] enrichment countdown failed for ${bundle.streamKey}:`,
+        err,
+      );
+    }
   }
+  return { stamped: stamped.length, cursorRowid };
 }
 
 // ---- The tick ---------------------------------------------------------------

@@ -1,0 +1,134 @@
+{
+  "id": "CMT-02",
+  "category": "CMT",
+  "title": "one stream per episode",
+  "pass": "commit",
+  "mode": "code",
+  "setup": {
+    "note": "Two streams in one bundle (the S3 day-bundle shape). Item 1 cites e1 (S1) and e2 (S2) inside one episode and tags it S1; items 2 and 3 are clean, one per stream.",
+    "orient": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1",
+            "e2"
+          ],
+          "summary": "advance and tickets",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "villa sol advance aaj chahiye"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e3"
+          ],
+          "summary": "Karan pays 5k by Monday",
+          "evidence": [
+            {
+              "event_ids": [
+                "e3"
+              ],
+              "quote": "5k each, monday tak pakka"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S2",
+          "events": [
+            "e4"
+          ],
+          "summary": "Aditya will book tonight",
+          "evidence": [
+            {
+              "event_ids": [
+                "e4"
+              ],
+              "quote": "haan aaj raat karta hoon"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [],
+      "questions": []
+    },
+    "critic": {
+      "verdicts": []
+    }
+  },
+  "input_events": [
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "villa sol advance aaj chahiye"
+    },
+    {
+      "stream": "S2",
+      "actor": "contact:ma",
+      "text": "pune wali ticket kal tak book kar do"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:karan",
+      "text": "5k each, monday tak pakka"
+    },
+    {
+      "stream": "S2",
+      "actor": "self",
+      "text": "haan aaj raat karta hoon"
+    }
+  ],
+  "expected": {
+    "committed": 2,
+    "rejected": 1,
+    "reject_reasons": [
+      "multi_stream"
+    ],
+    "episode_streams": {
+      "e3": "S1",
+      "e4": "S2"
+    },
+    "held": [
+      "e1",
+      "e2"
+    ],
+    "stamped": [
+      "e3",
+      "e4"
+    ]
+  },
+  "wrong": [
+    {
+      "label": "rowid-ranges",
+      "assert_absent": "an episode_events row without event_id, or whose start/end differ (a rowid range)"
+    },
+    {
+      "label": "whole-bundle-quarantined",
+      "assert_absent": "the clean items failing to commit because one item was bad"
+    },
+    {
+      "label": "multi-stream-episode",
+      "assert_absent": "an episode whose members come from two streams"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.8 CMT-02 · one stream per episode"
+  }
+}

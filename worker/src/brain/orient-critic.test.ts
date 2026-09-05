@@ -259,8 +259,23 @@ describe("runBrainTick — full tick with stubbed provider", () => {
       .run();
     const orientAnswer = JSON.stringify({
       episodes: [
-        { action: "new", events: ["e1"], summary: "planning continues", space: "sp_goa", confidence: 0.65, evidence: [] },
-        { action: "new", events: ["e2"], summary: "maybe related", space: "sp_goa", confidence: 0.5, evidence: [] },
+        // S3.1: every write needs verbatim evidence or the commit path rejects it.
+        {
+          action: "new",
+          events: ["e1"],
+          summary: "planning continues",
+          space: "sp_goa",
+          confidence: 0.65,
+          evidence: [{ event_ids: ["e1"], quote: "more goa planning" }],
+        },
+        {
+          action: "new",
+          events: ["e2"],
+          summary: "maybe related",
+          space: "sp_goa",
+          confidence: 0.5,
+          evidence: [{ event_ids: ["e2"], quote: "unrelated chatter" }],
+        },
       ],
       proposals: [],
       unsorted: [],
@@ -288,14 +303,20 @@ describe("runBrainTick — full tick with stubbed provider", () => {
       .run();
     const orientAnswer = JSON.stringify({
       episodes: [
-        { action: "new", events: ["e1"], summary: "will be rejected", confidence: 0.9, evidence: [] },
+        {
+          action: "new",
+          events: ["e1"],
+          summary: "will be rejected",
+          confidence: 0.9,
+          evidence: [{ event_ids: ["e1"], quote: "msg one" }],
+        },
       ],
       proposals: [
         {
           label: "Duplicate looking space",
           episode_events: ["e2"],
           summary: "overlaps sp_other",
-          evidence: [],
+          evidence: [{ event_ids: ["e2"], quote: "msg two" }],
           confidence: 0.85,
         },
       ],

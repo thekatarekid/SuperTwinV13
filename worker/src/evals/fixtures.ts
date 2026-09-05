@@ -78,6 +78,8 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // -- GoldenEvals V6 Phase 1 (§5.3) — carried under the V2 doc tag because the
   // fixture schema names two docs; the section field says "V6P1 §5.3". --
   { cat: "SRC", name: "Source quality (V6 P1)", n: 6, doc: "V2", pass: "source-quality", authored: true },
+  // GoldenEvals V6 Phase 1 §5.8 — commit (S3.1). Code-asserted against brain/commit.ts.
+  { cat: "CMT", name: "Commit (V6 P1)", n: 5, doc: "V2", pass: "commit", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

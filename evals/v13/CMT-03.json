@@ -1,0 +1,173 @@
+{
+  "id": "CMT-03",
+  "category": "CMT",
+  "title": "per-item salvage",
+  "pass": "commit",
+  "mode": "code",
+  "setup": {
+    "note": "Five episodes on one stream; item 3 is malformed (its quote is not in e3). The four valid items commit; e3 is held and the cursor advances past only the committed events (to e2 — e3 sits above it, undispatched).",
+    "orient": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1"
+          ],
+          "summary": "dates agreed",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "lets lock goa 18-21 dec"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e2"
+          ],
+          "summary": "advance asked",
+          "evidence": [
+            {
+              "event_ids": [
+                "e2"
+              ],
+              "quote": "advance aaj chahiye"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e3"
+          ],
+          "summary": "Aditya pays now",
+          "evidence": [
+            {
+              "event_ids": [
+                "e3"
+              ],
+              "quote": "I have paid the full amount"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e4"
+          ],
+          "summary": "Karan pays Monday",
+          "evidence": [
+            {
+              "event_ids": [
+                "e4"
+              ],
+              "quote": "monday tak pakka"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e5"
+          ],
+          "summary": "Rohan's birthday plan",
+          "evidence": [
+            {
+              "event_ids": [
+                "e5"
+              ],
+              "quote": "birthday 3 oct"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [],
+      "questions": []
+    },
+    "critic": {
+      "verdicts": []
+    }
+  },
+  "input_events": [
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "guys lets lock goa 18-21 dec"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "villa sol wale bol rahe advance aaj chahiye"
+    },
+    {
+      "stream": "S1",
+      "actor": "self",
+      "text": "main kar deta hoon, baad me collect"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:karan",
+      "text": "mera 5k monday tak pakka"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:tanvi",
+      "text": "rohan ka birthday 3 oct hai, plan?"
+    }
+  ],
+  "expected": {
+    "committed": 4,
+    "rejected": 1,
+    "reject_reasons": [
+      "evidence_not_verbatim"
+    ],
+    "held": [
+      "e3"
+    ],
+    "stamped": [
+      "e1",
+      "e2",
+      "e4",
+      "e5"
+    ],
+    "cursor_at": "e2",
+    "recollected": [
+      "e3"
+    ]
+  },
+  "wrong": [
+    {
+      "label": "rowid-ranges",
+      "assert_absent": "an episode_events row without event_id, or whose start/end differ (a rowid range)"
+    },
+    {
+      "label": "whole-bundle-quarantined",
+      "assert_absent": "the four valid items failing to commit because one was malformed"
+    },
+    {
+      "label": "cursor-skipped-held",
+      "assert_absent": "the stream cursor advancing past a held (undispatched) event so it is never re-collected"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.8 CMT-03 · per-item salvage"
+  }
+}

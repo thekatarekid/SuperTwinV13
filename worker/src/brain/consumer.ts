@@ -7,9 +7,15 @@
 // pool's llm lane is the parallelism throttle) → Critic grades the tick's
 // writes → commit through the single writer → per-run fidelity stats into the
 // run ledger → committed episodes enqueued for the Reduce step (P1.4) →
-// markDispatched, which is the ONLY cursor move.
+// markDispatchedEvents over the HANDLED events, which is the ONLY cursor move.
 //
-// A quarantined Orient call does NOT markDispatched: the cursor never moved,
+// Per-item salvage (V6 P1 S3.1, T2-7): the commit reports which bundle events
+// it handled and which it held (a rejected item's). Only handled events are
+// stamped; the cursor advances on event ids, and the held rows are
+// re-collected by the next tick. The same held set failing three times is
+// dead-lettered (Product P1 §9.5) and stamped so it stops cycling.
+//
+// A quarantined Orient call does NOT mark anything: the cursor never moved,
 // so the next tick re-collects the events, and the quarantine row holds the
 // story (containment ≥95% is a property of never dropping a bundle on the
 // floor).
@@ -17,7 +23,8 @@
 
 import type { EventEnvelope } from "../db/eventlog.js";
 import { getDb } from "../db/connection.js";
-import { markDispatched, type DeltaBundle } from "../scheduler/dispatch.js";
+import { markDispatchedEvents, type DeltaBundle } from "../scheduler/dispatch.js";
+import { clearBundleAttempts, noteBundleAttempt } from "../db/v6core.js";
 import { ensureDigests, recordContextStats } from "../packer/index.js";
 import type { JsonPassDeps } from "./llm.js";
 import { runOrient } from "./orient.js";
@@ -173,7 +180,34 @@ export async function runBrainTick(
     console.error("[brain] reduce enqueue failed (continuing):", err);
   }
 
-  markDispatched(bundle);
+  // Cursor on event ids: stamp what committed (plus the uncovered, flagged
+  // rows); hold the rejected items' rows for the next tick — three strikes on
+  // the same held set dead-letters it and stamps it too.
+  let toMark = commit.handledEventIds;
+  if (commit.heldEventIds.length > 0) {
+    const held = new Set(commit.heldEventIds);
+    const rows = bundle.events.filter((e) => held.has(e.id));
+    const ref = {
+      streamId: bundle.streamId,
+      minRowid: Math.min(...rows.map((e) => e.rowid)),
+      maxRowid: Math.max(...rows.map((e) => e.rowid)),
+    };
+    const attempt = noteBundleAttempt(ref, {
+      error: commit.rejections
+        .filter((r) => r.eventIds.some((id) => held.has(id)))
+        .map((r) => `${r.reason}: ${r.detail}`)
+        .join(" · ")
+        .slice(0, 500),
+    });
+    if (attempt.deadLetterAt) toMark = [...toMark, ...rows.map((e) => e.id)];
+  } else {
+    clearBundleAttempts({
+      streamId: bundle.streamId,
+      minRowid: Math.min(...bundle.events.map((e) => e.rowid)),
+      maxRowid: Math.max(...bundle.events.map((e) => e.rowid)),
+    });
+  }
+  markDispatchedEvents(bundle, toMark);
   return {
     bundle,
     status: commit.committedEpisodes.length > 0 ? "committed" : "empty",

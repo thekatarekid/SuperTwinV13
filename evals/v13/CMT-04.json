@@ -1,0 +1,109 @@
+{
+  "id": "CMT-04",
+  "category": "CMT",
+  "title": "evidence must resolve (hard)",
+  "pass": "commit",
+  "mode": "code",
+  "setup": {
+    "note": "The summary claims a booking; the quote ('booked the villa') is not verbatim in e1 ('thinking about booking the villa'). The critic would merely downgrade — code must REJECT. A second, clean item shows the reject is per item.",
+    "orient": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1"
+          ],
+          "summary": "Villa booked",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "booked the villa"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e2"
+          ],
+          "summary": "Rohan asks for the pool money",
+          "evidence": [
+            {
+              "event_ids": [
+                "e2"
+              ],
+              "quote": "diwali pool"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [],
+      "questions": []
+    },
+    "critic": {
+      "verdicts": [
+        {
+          "item": 1,
+          "verdict": "downgrade_to_unsorted",
+          "reason": "summary stronger than the quote"
+        }
+      ]
+    }
+  },
+  "input_events": [
+    {
+      "stream": "S1",
+      "actor": "self",
+      "text": "thinking about booking the villa"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "did anyone pay the diwali pool??"
+    }
+  ],
+  "expected": {
+    "committed": 1,
+    "rejected": 1,
+    "downgraded": 0,
+    "reject_reasons": [
+      "evidence_not_verbatim"
+    ],
+    "held": [
+      "e1"
+    ],
+    "stamped": [
+      "e2"
+    ],
+    "unsorted_rows": 0
+  },
+  "wrong": [
+    {
+      "label": "rowid-ranges",
+      "assert_absent": "an episode_events row without event_id, or whose start/end differ (a rowid range)"
+    },
+    {
+      "label": "downgraded-not-rejected",
+      "assert_absent": "the fabricated item landing as an unsorted episode instead of being rejected"
+    },
+    {
+      "label": "fabricated-evidence-committed",
+      "assert_absent": "any episode whose evidence quote is not verbatim in the cited event"
+    }
+  ],
+  "gates": [
+    "fabricated_evidence",
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.8 CMT-04 · evidence must resolve"
+  }
+}

@@ -29,6 +29,7 @@ import {
 import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
+import { commitExecutor } from "./cmt.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -115,4 +116,8 @@ export async function registerProductExecutors(): Promise<void> {
   // V6 P1 S1.4: SRC source-quality code cases (URL text form, raw payload,
   // render-time collapse). Zero model calls.
   registerExecutor("source-quality", sourceQualityExecutor);
+  // V6 P1 S3.1: CMT commit cases (explicit membership, one stream per
+  // episode, per-item salvage, evidence, coverage) against the real
+  // brain/commit.ts with canned Orient output. Zero model calls.
+  registerExecutor("commit", commitExecutor);
 }

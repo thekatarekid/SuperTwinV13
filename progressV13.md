@@ -61,6 +61,15 @@ Defects found by using the installed 13.4.1 DMG, each fixed in the current tree 
 - **Integration defects the combination exposed** — decision ordering tie-broken by `rowid` instead of a random id (the "why?" surface and undo order were randomized); browser profile follows `SUPERTWIN_HOME` instead of the real logged-in Chrome profile; `.nav-row` made a grid so the 5-tab nav and the longer freshness chip cannot overlap (46px at the default 1100px window); `purge.ts` NUL byte replaced so the file is greppable text; two suite tests that measured the runner (wall-clock, machine-global tmpdir) made deterministic. (13.4.7)
 
 ## Log
+- 2026-09-06: V6 Phase 1 Stage 2 release 13.7.1. `scripts/release.mjs --set 13.7.1 --no-build`, BUILT_THROUGH_PHASE=V6P1S2, `npm run build:app` clean. DMG 992 MB, sha256 `d23cb5c01c312938…` → releases/SuperTwinV13_V6P1S2_13.7.1.dmg. Per-task detail in progressV13_V6_Phase1.md.
+- 2026-09-06: S2 gate — RET-01..10, BAR-01 green (deterministic suites, 15 files / 153 tests), full_vector_scan = 0, RET-02 p50 14.7 ms over 300 k vectors. Worker 2823 passed / 2 skipped (215 files), root 127 + 88, tsc clean, go test ok, `--mode code` evals 12/12. One gate fix (b8c6f82, semantic report TOCTOU). 0 live calls.
+- 2026-09-06: S2.7 [E] coverage index maintained by adapters + coverageCaveat; T0 bar type-ahead over events/episodes/spaces/tasks/people/claims under 150 ms (017b26f).
+- 2026-09-06: S2.6 [D] graph — bridges as edges, bounded BFS walk (2 hops, decay 0.6, fan-out cap, status/validity pruning, hub exclusion), [BRIDGED] block (0829ac8).
+- 2026-09-06: S2.5 [C] structured (sum/count/range/list over typed claim fields) and unscored time-window scan (7f0a94d).
+- 2026-09-06: S2.4 [B] RRF and reranker — bounded candidates → RRF k=60 → local cross-encoder; full-vector cache deleted (11d5c54).
+- 2026-09-06: S2.3 [A] lexical — events.app/window_title/doc_key in a ten-column events_fts, chunks_fts over chunks and cards, ranked lists for fusion (48d949d).
+- 2026-09-06: S2.2 embeddings — chunks as the embedded unit, staged re-embed flipped in one transaction, first-run Gemma download (98254a7).
+- 2026-09-06: S2.1 migration 0201_v6_graph — walk indexes, typed claim fields, chunks + int8 chunk_embeddings, hub_nodes with self seeded, 16 KB pages (724af78).
 - 2026-09-06: V6 Phase 1 Stage 1 release 13.6.1. `scripts/release.mjs --set 13.6.1 --no-build`, BUILT_THROUGH_PHASE=V6P1S1, `npm run build:app` clean. DMG 991 MB, sha256 `367a457c4bf43b92…` → releases/SuperTwinV13_V6P1S1_13.6.1.dmg. Per-task detail in progressV13_V6_Phase1.md.
 - 2026-09-06: S1 gate — CNS-01..09, SRC-01..04/09/10 green (deterministic suites + `--cat BND,SRC --mode code`), containment 100% on the BND-01 mock import. Worker 2823 passed / 2 skipped (215 files), root 127 + 88, tsc clean, go test ok, screenwatch 75 checks. One gate fix (95afc12, RET-02 teardown timeout). 0 live calls.
 - 2026-09-06: S1.8 [E] confirm card + Library storage — four numbers with accuracy labels, card text verbatim in decisions, two bars per source, free disk first, two disk budgets (9aa1b86).

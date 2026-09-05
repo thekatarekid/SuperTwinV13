@@ -30,7 +30,7 @@ Builds `SuperTwinV13_Product_V6_Phase1.md` on top of the current V13 tree (HEAD 
 |---|---|---|
 | S0 — Ground clearing and rails | ✅ done 2026-09-06 | 13.5.1 · `releases/SuperTwinV13_V6P1S0_13.5.1.dmg` |
 | S1 — Consent, archive, adapters | ✅ done 2026-09-06 | 13.6.1 · `releases/SuperTwinV13_V6P1S1_13.6.1.dmg` |
-| S2 — Index and T0 retrieval | ○ pending | — |
+| S2 — Index and T0 retrieval | ✅ done 2026-09-06 | 13.7.1 · `releases/SuperTwinV13_V6P1S2_13.7.1.dmg` |
 | S3 — Understanding core | ○ pending | — |
 | S4 — Live path, executor-lite, assist | ○ pending | — |
 | S5 — World model surfaces and the bar | ○ pending | — |
@@ -287,12 +287,14 @@ Every module gets one verdict before any code is written.
 
 ## 5. Stage 2 — Index and T0 retrieval
 
+**STATUS:** ✅ done 13.7.1 (2026-09-06) — all seven tasks landed; gates verified (RET-01..10, BAR-01 green as deterministic suites, `full_vector_scan = 0`, 0 live calls). One gate fix (`b8c6f82`, semantic report TOCTOU). Detail in `progressV13_V6_Phase1.md`.
+
 > **Goal.** Five methods over one index, fused by rank, zero model calls, packer-ready.
 > **Backlog.** T5-2/3; retrieval decision-record work items 1–6.
 
 ### 5.1 SERIAL
 
-#### S2.1 — Migration `0201_v6_graph`
+#### S2.1 — Migration `0201_v6_graph` ✅ `724af78` — typed `status` stored as `claims.typed_status` (lifecycle `status` kept); bridge edges live in `bridges`, not `entity_edges` (FK)
 
 - `entity_edges` — kind, subtype, src, dst, confidence, status, valid_from, valid_to
 - `edge_evidence` — event ids plus verbatim quote
@@ -301,7 +303,7 @@ Every module gets one verdict before any code is written.
 - `hub_nodes`
 - **Test.** Migrate; `self` seeded as a hub.
 
-#### S2.2 — Embeddings
+#### S2.2 — Embeddings ✅ `98254a7` — legacy `event_embeddings` still filled alongside chunks; Settings card not yet showing chunk counts
 
 - EmbeddingGemma 300M downloads on first run; a bundled small encoder covers search until then.
 - Background re-embed, flipped in one transaction.
@@ -314,31 +316,31 @@ Every module gets one verdict before any code is written.
 
 ### 5.2 Lanes
 
-#### S2.3 [A] — Lexical and the FTS projection
+#### S2.3 [A] — Lexical and the FTS projection ✅ `48d949d` — migration `0202_v6_fts_projection`; `lexical.ts` ranks consumed by S2.4 fusion only via events_fts (chunks_fts fusion pending)
 
 - FTS gains app, window_title, doc_key.
 - BM25 over chunks and cards.
 - **Test.** RET-06.
 
-#### S2.4 [B] — RRF and reranker
+#### S2.4 [B] — RRF and reranker ✅ `11d5c54` — `hybridSearch()` built for the S3 packer; `retrieve.ts` still seeds from `semanticSearch`; reranker download not yet in Settings
 
 - `retrieval/semantic.ts`: bounded candidates (FTS top 2,000 + vector top-k) → RRF at k=60 → cross-encoder (bge-reranker class, local).
 - Delete the full-vector process cache. `rank()` kept verbatim.
 - **Tests.** RET-01, RET-02.
 
-#### S2.5 [C] — Structured and time window
+#### S2.5 [C] — Structured and time window ✅ `7f0a94d` — heuristic T0 planner until the S4 router; neither method fused into `retrieveContext` yet
 
 - SQL method over typed fields: sum, count, range, status filter, enumerate by type.
 - Time-window scan over the log, unscored.
 - **Tests.** RET-07, RET-08.
 
-#### S2.6 [D] — Graph
+#### S2.6 [D] — Graph ✅ `0829ac8` — `mentions` rows only from `writeMention` (S3 commit path must write them); `[BRIDGED]` block built, not mounted in the packer
 
 - Bridges written as edges at ingest — URL, phone, order id.
 - BFS walk in TypeScript: seeds from lexical and vector, ≤ 2 hops, decay 0.6, fan-out cap, status and validity pruning, hub exclusion.
 - **Tests.** RET-09, RET-10.
 
-#### S2.7 [E] — Coverage index and type-ahead
+#### S2.7 [E] — Coverage index and type-ahead ✅ `017b26f` — `promoteDay` not yet called by indexer/consolidation; Library coverage strip is S5
 
 - `coverage` rows maintained by adapters; `coverageCaveat(source, range)`.
 - Bar type-ahead at T0, under 150 ms, over events, episodes, spaces, tasks, people, claims.
@@ -597,15 +599,15 @@ All six lanes run in parallel.
 ## 10. Cross-stage release checklist
 
 - [ ] `trace_coverage = 100%` and `pass_liveness = 100%` — _S0: trace_coverage 100% ✅; pass_liveness 17%, red until S3_
-- [ ] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); BND-11 pending_
+- [ ] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); BND-11 pending; S2: RET-01..10 · BAR-01 ✅ (deterministic suites)_
 - [ ] ORIENT golden ≥ `evals/baseline/v13.json`
 - [ ] `false_receiver_assignment = 0` · `guess_rate = 0` · `risky_without_token = 0` · `login_automation = 0`
 - [ ] `assist_from_history = 0` · `nudge_without_grounding = 0` · `content_gated_call = 0`
-- [ ] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0`
+- [ ] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0` — _S2: full_vector_scan 0 ✅ (RET-01/02 assert `fullVectorScans = 0`; whole-table read + 30 s cache deleted); packer rows pending S3_
 - [ ] `injection_acted = 0` · `fabricated_evidence = 0` · `clock_only_call = 0`
-- [ ] Pack size under 16,000 chars on the 104-space fixture
-- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅_
-- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅_
+- [ ] Pack size under 16,000 chars on the 104-space fixture — _S2: not measurable yet (packer rewrite and fixture are S3)_
+- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅ · S2 ✅_
+- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅ · S2: 13.7.1 ✅_
 
 ---
 

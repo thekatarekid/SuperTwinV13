@@ -1,12 +1,12 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { join } from "node:path";
-import { utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 
 import { BrowserWatcher, discoverProfiles } from "./watcher.js";
 import { EventlogSink, MemorySink } from "./sink.js";
 import { setHistoryScratchDir } from "./history-db.js";
 import type { BrowserBookmarkPayload, BrowserVisitPayload } from "./envelope.js";
-import { ageBandOf, ulid } from "./envelope.js";
+import { BROWSER_IDS, ageBandOf, ulid } from "./envelope.js";
 import {
   makeChromeBookmarks,
   makeChromeHistory,
@@ -40,7 +40,13 @@ describe("envelope helpers", () => {
 });
 
 function chromeProfile(dir: string) {
-  return { browser: "chrome" as const, historyPath: join(dir, "History"), bookmarksPath: join(dir, "Bookmarks") };
+  return {
+    browser: "chrome" as const,
+    profile: "Default",
+    label: null,
+    historyPath: join(dir, "History"),
+    bookmarksPath: join(dir, "Bookmarks"),
+  };
 }
 
 describe("BrowserWatcher end-to-end (fixture profiles)", () => {
@@ -130,7 +136,7 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
     const sink = new MemorySink();
     const w = new BrowserWatcher({
       sink,
-      profiles: [{ browser: "safari", historyPath: path, bookmarksPath: null }],
+      profiles: [{ browser: "safari", profile: "Safari", label: null, historyPath: path, bookmarksPath: null }],
       sinceMs: 0,
       now: () => NOW,
     });
@@ -146,8 +152,8 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
     const w = new BrowserWatcher({
       sink,
       profiles: [
-        { browser: "chrome", historyPath: join(dir, "does-not-exist"), bookmarksPath: join(dir, "no-bookmarks") },
-        { browser: "arc", historyPath: join(dir, "History"), bookmarksPath: null },
+        { browser: "chrome", profile: "Default", label: null, historyPath: join(dir, "does-not-exist"), bookmarksPath: join(dir, "no-bookmarks") },
+        { browser: "arc", profile: "Default", label: null, historyPath: join(dir, "History"), bookmarksPath: null },
       ],
       sinceMs: 0,
       now: () => NOW,
@@ -163,7 +169,75 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
     // importing a real profile path doesn't crash).
     for (const p of discoverProfiles()) {
       expect(typeof p.historyPath).toBe("string");
+      expect(BROWSER_IDS).toContain(p.browser);
     }
+  });
+
+  it("discoverProfiles: every browser, every profile — Chrome, Brave, Arc, Edge, Comet, Safari (S1.4)", () => {
+    const home = tmpDir();
+    const mk = (root: string, dir: string, withBookmarks = true) => {
+      const d = join(home, root, dir);
+      mkdirSync(d, { recursive: true });
+      makeChromeHistory(d, []);
+      if (withBookmarks) makeChromeBookmarks(d, []);
+      return d;
+    };
+    mk("Library/Application Support/Google/Chrome", "Default");
+    mk("Library/Application Support/Google/Chrome", "Profile 2", false);
+    mkdirSync(join(home, "Library/Application Support/Google/Chrome/Guest Profile"), { recursive: true }); // never a person
+    writeFileSync(
+      join(home, "Library/Application Support/Google/Chrome/Local State"),
+      JSON.stringify({ profile: { info_cache: { Default: { name: "Aditya" }, "Profile 2": { name: "Work" } } } }),
+    );
+    mk("Library/Application Support/BraveSoftware/Brave-Browser", "Default");
+    mk("Library/Application Support/Arc/User Data", "Default");
+    mk("Library/Application Support/Microsoft Edge", "Profile 1");
+    mk("Library/Application Support/Comet", "Default");
+    writeFileSync(join(home, "Library/Application Support/Comet/Local State"), "not json"); // labels degrade to null
+    mkdirSync(join(home, "Library/Safari"), { recursive: true });
+    makeSafariHistory(join(home, "Library/Safari"), []);
+
+    const found = discoverProfiles(home);
+    expect(found.map((p) => `${p.browser}/${p.profile}`)).toEqual([
+      "chrome/Default",
+      "chrome/Profile 2",
+      "brave/Default",
+      "arc/Default",
+      "edge/Profile 1",
+      "comet/Default",
+      "safari/Safari",
+    ]);
+    const chrome = found.filter((p) => p.browser === "chrome");
+    expect(chrome.map((p) => p.label)).toEqual(["Aditya", "Work"]);
+    expect(chrome[0]!.bookmarksPath).toContain("Bookmarks");
+    expect(chrome[1]!.bookmarksPath).toBeNull();
+    expect(found.find((p) => p.browser === "comet")!.label).toBeNull();
+    expect(found.find((p) => p.browser === "safari")!.bookmarksPath).toBeNull();
+    for (const p of found) expect(existsSync(p.historyPath)).toBe(true);
+  });
+
+  it("SRC-01/SRC-02 at emit: text carries the stripped URL, payload.url is byte-identical", () => {
+    const dir = tmpDir();
+    const raw =
+      "https://www.google.com/search?q=tfidf&gs_lp=Egxnd3Mtd2l6LXNlcnA&sca_esv=abc&ei=xyz&ved=2ahUKEwi&uact=5&oq=tfidf";
+    const yt = "https://www.youtube.com/watch?v=X&t=5&utm_source=nl";
+    const local = "http://rd3.localhost:7373/?path=%2FUsers%2Fme%2Fnotes.md&utm_campaign=x";
+    makeChromeHistory(dir, [
+      { url: raw, title: "tfidf - Google Search", tsMs: NOW - 40 * MIN, transition: T_TYPED },
+      { url: yt, title: "Video", tsMs: NOW - 30 * MIN },
+      { url: local, title: "notes.md", tsMs: NOW - 20 * MIN },
+    ]);
+    const sink = new MemorySink();
+    const w = new BrowserWatcher({ sink, profiles: [{ ...chromeProfile(dir), bookmarksPath: null }], sinceMs: 0, now: () => NOW });
+    expect(w.poll()).toBe(3);
+    const [g, y, l] = sink.events.map((e) => ({ text: e.text, url: (e.payload as BrowserVisitPayload).url, profile: (e.payload as BrowserVisitPayload).profile }));
+    expect(g!.url).toBe(raw);
+    expect(g!.text).toBe("tfidf - Google Search https://www.google.com/search?q=tfidf");
+    expect(g!.profile).toBe("Default");
+    expect(y!.url).toBe(yt);
+    expect(y!.text).toBe("Video https://www.youtube.com/watch?t=5&v=X");
+    expect(l!.url).toBe(local);
+    expect(l!.text).toBe("notes.md http://rd3.localhost:7373/?path=%2FUsers%2Fme%2Fnotes.md");
   });
 });
 

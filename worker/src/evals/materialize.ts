@@ -30,7 +30,7 @@ interface RawCase {
   doc: "V1" | "V2";
 }
 
-const BY_CAT = new Map(CATEGORIES.map((c) => [c.cat, c]));
+const BY_CAT = new Map(CATEGORIES.filter((c) => !c.authored).map((c) => [c.cat, c]));
 
 /** Extracts every case of the categories we materialize from one doc. */
 export function parseDoc(markdown: string, doc: "V1" | "V2"): RawCase[] {
@@ -212,6 +212,7 @@ export function materializeDocs(v1Markdown: string, v2Markdown: string): Fixture
   const perCat = new Map<string, number>();
   for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
   for (const c of CATEGORIES) {
+    if (c.authored) continue; // V6 P1 hand-authored categories (SRC…) live outside the two docs
     const have = perCat.get(c.cat) ?? 0;
     if (have !== c.n) {
       throw new Error(`materialize: ${c.cat} produced ${have} cases, the ${c.doc} doc's table says ${c.n}`);

@@ -1,0 +1,20 @@
+{
+  "id": "SRC-02",
+  "category": "SRC",
+  "title": "raw URL preserved",
+  "pass": "source-quality",
+  "mode": "code",
+  "setup": "browser watcher over a Chromium history fixture; every visit URL carries tracking params, odd encoding and a fragment.",
+  "input_events": [
+    { "url": "https://www.google.com/search?q=tfidf&gs_lp=Egxnd3Mtd2l6LXNlcnA&sca_esv=abc#ip=1" },
+    { "url": "https://www.netflix.com/watch/81234567?trackId=14170286&tctx=0%2C0%2Cabc" },
+    { "url": "http://rd3.localhost:7373/?path=%2FUsers%2Fme%2Fnotes%2Froadmap.md&utm_campaign=x" },
+    { "url": "https://example.com/a b/ünïcode?x=%20y&utm_source=z" }
+  ],
+  "expected": "payload.url is byte-identical to the visit for every event; text differs from payload.url wherever a param was stripped.",
+  "wrong": [
+    { "label": "payload-url-rewritten", "assert_absent": "payload.url differing in any byte from the visit's URL" }
+  ],
+  "gates": ["payload_url_byte_identical"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.3 SRC-02 · raw URL preserved" }
+}

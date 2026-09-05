@@ -25,7 +25,7 @@ import { registerSource } from "./adapters/registry.js";
 import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
 import { Ingestion } from "./ingest/index.js";
-import { startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/index.js";
+import { profilesForConsent, startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/index.js";
 import { startScreenWatcher, type ScreenAdapter } from "./adapters/screen/index.js";
 import { setSourceSupervisor, SourceSupervisor } from "./adapters/supervisor.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
@@ -143,7 +143,13 @@ async function main(): Promise<void> {
       },
       browser: {
         start: (ctx) => {
-          browserWatcher = startBrowserWatcher({ sinceMs: ctx.sinceMs, log: (line) => console.error(line) });
+          // V6 S1.4: only the profiles the consent row names (scope.profiles);
+          // an empty scope means every profile discoverProfiles() finds.
+          browserWatcher = startBrowserWatcher({
+            sinceMs: ctx.sinceMs,
+            profiles: profilesForConsent(ctx.consent),
+            log: (line) => console.error(line),
+          });
         },
         stop: () => {
           browserWatcher?.stop();

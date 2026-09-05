@@ -1,0 +1,20 @@
+{
+  "id": "SRC-10",
+  "category": "SRC",
+  "title": "duplicate visits collapse at render",
+  "pass": "source-quality",
+  "mode": "code",
+  "setup": "one browser stream; six browser.visit events to one URL between 13:58:00 and 13:58:25 (within 30 seconds), transition typed then reload, visit_count 12; a seventh visit to another URL after.",
+  "input_events": [
+    { "url": "https://www.goibibo.com/flights/", "count": 6, "start": "2026-08-28T13:58:00.000Z", "step_ms": 5000, "transitions": ["typed", "reload"], "visit_count": 12 },
+    { "url": "https://www.goibibo.com/hotels/", "count": 1, "start": "2026-08-28T13:59:10.000Z", "step_ms": 0, "transitions": ["link"], "visit_count": 1 }
+  ],
+  "expected": "One packed line for the run: `×6`, first–last times (13:58–13:58 or the exact span), the transition and visit_count on the head, never dwell_ms. All 6 events remain in the input (render-time only, nothing deleted). The seventh visit is its own line.",
+  "wrong": [
+    { "label": "six-lines", "assert_absent": "six separate packed lines for the same URL within 30 s" },
+    { "label": "rows-deleted", "assert_absent": "fewer than 6 events surviving the collapse (the log must keep every visit)" },
+    { "label": "dwell-rendered", "assert_absent": "dwell_ms on the packed head" }
+  ],
+  "gates": ["duplicate_visit_collapse"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.3 SRC-10 · duplicate visits collapse at render" }
+}

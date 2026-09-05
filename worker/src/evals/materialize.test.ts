@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { repoRoot } from "./cli.js";
-import { CATEGORIES, TOTAL_CASES } from "./fixtures.js";
+import { CATEGORIES, MATERIALIZED_CASES } from "./fixtures.js";
 import { isCodeCase, materializeDocs, parseDoc, parseGates, parseWrong, toFixture } from "./materialize.js";
 
 const v1 = readFileSync(join(repoRoot(), "SuperTwinV13_GoldenEvals_V1.md"), "utf8");
@@ -68,11 +68,13 @@ describe("parseDoc against the real docs", () => {
 describe("materializeDocs", () => {
   const fixtures = materializeDocs(v1, v2);
 
-  it("produces the docs' full coverage — 175 validated fixtures", () => {
-    expect(fixtures).toHaveLength(TOTAL_CASES);
+  it("produces the docs' full coverage — 175 validated fixtures (hand-authored V6 categories excluded)", () => {
+    expect(fixtures).toHaveLength(MATERIALIZED_CASES);
+    expect(MATERIALIZED_CASES).toBe(175);
     const perCat = new Map<string, number>();
     for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
-    for (const c of CATEGORIES) expect(perCat.get(c.cat)).toBe(c.n);
+    for (const c of CATEGORIES.filter((c) => !c.authored)) expect(perCat.get(c.cat)).toBe(c.n);
+    expect(fixtures.some((f) => f.category === "SRC")).toBe(false);
   });
 
   it("ROL-01 carries the header example's pass and a wrong[] with task-theft", () => {

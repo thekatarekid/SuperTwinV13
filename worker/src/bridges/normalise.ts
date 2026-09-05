@@ -82,6 +82,9 @@ export const TRACKING_PARAMS: ReadonlySet<string> = new Set([
   "ncid",
   "sr_share",
   "wt_mc",
+  // Netflix watch URLs: row/tracking context, never identity (T6-1, SRC-01).
+  "trackid",
+  "tctx",
 ]);
 
 /** Param PREFIXES that are tracking families: `utm_*`, Matomo, Piwik, AT. */
@@ -240,6 +243,152 @@ export function normaliseUrl(raw: string, opts?: UrlNormaliseOptions): string | 
     return `${host}${port}${path}${query}${hash}`;
   }
   return null;
+}
+
+// ---- url TEXT form (V6 P1 S1.4; backlog T6-1, T6-2, T6-23; SRC-01) ---------
+//
+// `normaliseUrl` above produces a bridge KEY — no scheme, host aliased, YouTube
+// reduced to its id. The browser watcher needs something different for
+// `events.text`: a URL a human and the model can still read, with the tracking
+// junk gone. Measured on the real log (T6-1): query strings were 62.5% of URL
+// bytes, 69.4% of that tracking, 33.1% of ALL `events.text` bytes — and the
+// retrieval query builder promoted base64 tracking tokens as "salient" (T6-2).
+//
+// Order, per T6-1: per-domain content allowlist first (the page's identity IS
+// its params — youtube `v`, google `q`, the local editor's `path`) → prefix
+// denylist → name denylist → drop non-route fragments → 200-char cap → sort
+// survivors. Denylist, not allowlist: an allowlist fails closed and a memory
+// system cannot re-derive what it discarded. The function FAILS OPEN — any
+// parse trouble returns the raw string, because dropping a URL is worse than
+// carrying its junk.
+//
+// This touches the `text` field ONLY. `payload.url` stays byte-identical to
+// the visit (SRC-02); nothing here is ever written back to a payload.
+
+/** Longest URL the text field carries; the tail past this is session noise. */
+export const URL_TEXT_MAX_CHARS = 200;
+
+/**
+ * Per-domain content allowlists (T6-1 "per-domain override first"). When a
+ * rule matches, ONLY the listed params survive — everything else on that page
+ * is session state. Rules are checked in order; the first hit wins.
+ */
+export interface ContentParamRule {
+  /** Human label for the report / tests. */
+  name: string;
+  /** Match on (lowercased host, path, port). */
+  match: (host: string, path: string, port: string) => boolean;
+  /** Params that are the page's identity — matched case-sensitively as spelled. */
+  keep: ReadonlySet<string>;
+}
+
+const hostIs = (host: string, ...domains: string[]): boolean =>
+  domains.some((d) => host === d || host.endsWith(`.${d}`));
+
+/** `google.com`, `google.co.in`, `google.de`, … — the search host family. */
+const isGoogleHost = (host: string): boolean => /(^|\.)google\.[a-z]{2,3}(\.[a-z]{2})?$/.test(host);
+
+/** `amazon.in`, `amazon.com`, `amazon.co.uk`, … */
+const isAmazonHost = (host: string): boolean => /(^|\.)amazon\.[a-z]{2,3}(\.[a-z]{2})?$/.test(host);
+
+export const CONTENT_PARAM_RULES: readonly ContentParamRule[] = [
+  {
+    name: "youtube/watch",
+    match: (host, path) => hostIs(host, "youtube.com") && path === "/watch",
+    keep: new Set(["v", "t", "list"]),
+  },
+  {
+    name: "google/search",
+    match: (host, path) => isGoogleHost(host) && path === "/search",
+    keep: new Set(["q", "udm", "tbm"]),
+  },
+  {
+    name: "hotstar",
+    match: (host) => hostIs(host, "hotstar.com"),
+    keep: new Set(["search_query", "seasonId", "episodeNumber"]),
+  },
+  {
+    // T6-23: the local writing editor keys documents by `?path=` — stripping
+    // it would destroy the identity the writing lens depends on. Whitelisted
+    // on every `*.localhost:7373` host.
+    name: "localhost:7373/path",
+    match: (host, _path, port) => (host === "localhost" || host.endsWith(".localhost")) && port === "7373",
+    keep: new Set(["path"]),
+  },
+  {
+    name: "amazon",
+    match: (host) => isAmazonHost(host),
+    keep: new Set(["k", "node"]),
+  },
+];
+
+/** The rule that governs this URL's params, or null for the generic denylist. */
+export function contentParamRuleFor(host: string, path: string, port: string): ContentParamRule | null {
+  const h = host.toLowerCase();
+  for (const rule of CONTENT_PARAM_RULES) if (rule.match(h, path, port)) return rule;
+  return null;
+}
+
+function decodeKey(raw: string): string {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, " "));
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * The `text`-field form of a URL: readable, tracking-free, capped, survivors
+ * sorted. Fails open (returns the trimmed input) on anything it cannot parse.
+ *
+ * Query pairs are kept in their ORIGINAL spelling (no re-encoding — `%2F`
+ * stays `%2F`, `+` stays `+`) so the text still reads like the address bar;
+ * only the SET of survivors and their order change.
+ */
+export function urlTextForm(raw: string, opts?: { maxChars?: number }): string {
+  const input = (raw ?? "").trim();
+  if (input === "") return "";
+  const cap = opts?.maxChars ?? URL_TEXT_MAX_CHARS;
+  try {
+    const u = new URL(input);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return input.slice(0, cap);
+    const host = u.hostname.toLowerCase();
+    const rule = contentParamRuleFor(host, u.pathname, u.port);
+
+    // Split the raw query ourselves so survivors keep their bytes.
+    const rawQuery = u.search.startsWith("?") ? u.search.slice(1) : u.search;
+    const pairs = rawQuery === "" ? [] : rawQuery.split("&").filter((p) => p !== "");
+    const kept: { key: string; raw: string }[] = [];
+    for (const pair of pairs) {
+      const eq = pair.indexOf("=");
+      const key = decodeKey(eq === -1 ? pair : pair.slice(0, eq));
+      if (key === "") continue;
+      const keep = rule ? rule.keep.has(key) : !isTrackingParam(key);
+      if (keep) kept.push({ key, raw: pair });
+    }
+    kept.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.raw < b.raw ? -1 : a.raw > b.raw ? 1 : 0));
+    const query = kept.length === 0 ? "" : `?${kept.map((k) => k.raw).join("&")}`;
+
+    // A hashbang or path-shaped fragment routes; anything else is an in-page anchor.
+    const frag = u.hash.replace(/^#/, "");
+    const hash = frag.startsWith("!") || frag.startsWith("/") ? `#${frag}` : "";
+
+    const port = u.port === "" ? "" : `:${u.port}`;
+    const out = `${u.protocol}//${host}${port}${u.pathname}${query}${hash}`;
+    return out.length > cap ? out.slice(0, cap) : out;
+  } catch {
+    return input.slice(0, cap);
+  }
+}
+
+/** Query param names that survived — what SRC-01 asserts on. */
+export function urlTextParams(raw: string): string[] {
+  try {
+    const u = new URL(urlTextForm(raw));
+    return [...u.searchParams.keys()];
+  } catch {
+    return [];
+  }
 }
 
 // ---- email / phone ---------------------------------------------------------

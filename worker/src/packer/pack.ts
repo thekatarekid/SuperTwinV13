@@ -44,6 +44,7 @@ import {
   recentContextSpaces,
   type CandidateSpace,
 } from "./spaces.js";
+import { collapseVisitRuns, isVisitRun, renderVisitRun } from "../adapters/browser/render.js";
 
 export interface PackOptions {
   /** Hard cap on the packed user block, chars. */
@@ -269,7 +270,14 @@ export async function packOrientContext(
   // The bundle itself: directly-processed events serve at L1; the digest line
   // (L0) rides along for content-heavy events so the model sees the shape.
   const hashes = contentHashes(bundle.events.map((e) => e.id));
-  const bundleLines = bundle.events.map((e, i) => {
+  // V6 S1.4 (T6-3/T6-4, SRC-10): a run of visits to ONE url within 30 s is
+  // one line — ×N, first–last times, transition, visit_count. The aliases
+  // e1..eN still cover every event; only the rendering folds. Nothing deleted.
+  const aliasOf = (e: { id: string }) => `e${bundle.events.findIndex((x) => x.id === e.id) + 1}`;
+  const bundleLines = collapseVisitRuns(bundle.events).map((run) => {
+    if (isVisitRun(run)) return renderVisitRun(run, aliasOf, run[0]!.actor ?? "self");
+    const e = run[0]!;
+    const i = bundle.events.indexOf(e);
     const env = toEnvelope(e, bundle.streamKey, hashes.get(e.id));
     const digest = env.contentHash ? readCachedDigest(env.contentHash) : null;
     const body = serveContent(env, "L1", { counters, consumer: "packer.orient", digest });

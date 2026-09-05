@@ -1,10 +1,15 @@
 // ===========================================================================
 // Browser watcher (build P0.8; spec §4.2 source 3, §4.2.3, §5.1).
 //
-// Polls Chrome/Safari/Arc history DBs (copy-then-read) + Chromium bookmarks
-// files, and appends `browser.visit` / `browser.bookmark` v13 envelopes to
-// the sink. Stream keys are tab chains (referrer links + 30-min gap,
-// ./chains.ts). Per-domain Cat-1/2 by code heuristics (./category.ts).
+// Polls every installed browser's history DB (Chrome, Brave, Arc, Edge,
+// Comet, Safari — every profile; copy-then-read) + Chromium bookmarks files,
+// and appends `browser.visit` / `browser.bookmark` v13 envelopes to the sink.
+//
+// URLs (V6 P1 S1.4, T6-1/T6-2): `text` carries the TEXT FORM of the URL —
+// tracking params stripped, per-domain content params kept, survivors sorted
+// (bridges/normalise.urlTextForm). `payload.url` is the visit byte-for-byte.
+// Stream keys are tab chains (referrer links + 30-min gap, ./chains.ts).
+// Per-domain Cat-1/2 by code heuristics (./category.ts).
 //
 // Every visit is kept — there is no drop policy (V6 P1 S0.5 / T6-6 deleted the
 // tracker blocklist) and no `content_pending` flag (writers, zero readers).
@@ -14,7 +19,7 @@
 // Incognito never appears in these DBs — nothing to filter (spec §4.3.1).
 // ===========================================================================
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -33,6 +38,7 @@ import { assignChains, type ChainedVisit } from "./chains.js";
 import { aggregateDomains, DomainCategorizer, type AmbiguousResolver } from "./category.js";
 import { readChromiumHistory, readSafariHistory, type RawVisit } from "./history-db.js";
 import type { V13EventSink } from "./sink.js";
+import { urlTextForm } from "../../bridges/normalise.js";
 
 export const BROWSER_SOURCE_ID = "browser";
 
@@ -40,42 +46,100 @@ export const BROWSER_SOURCE_ID = "browser";
 
 export interface BrowserProfile {
   browser: BrowserId;
+  /** Profile directory name — "Default", "Profile 2"; Safari has one: "Safari". */
+  profile: string;
+  /** Human name from Chromium's `Local State` (`profile.info_cache[dir].name`), else null. */
+  label: string | null;
   historyPath: string;
-  /** Chromium only; Safari bookmarks (binary plist) are skipped in P0.8. */
+  /** Chromium only; Safari bookmarks (binary plist) are skipped in P1. */
   bookmarksPath: string | null;
 }
 
-/** Default macOS profile locations; only existing files are returned. */
+/**
+ * Chromium-family roots under ~/Library/Application Support. Every one of
+ * them keeps `Local State` at the root and one directory per profile
+ * (`Default`, `Profile 1`, …) holding `History` and `Bookmarks`.
+ */
+export const CHROMIUM_ROOTS: ReadonlyArray<{ browser: Exclude<BrowserId, "safari">; root: string }> = [
+  { browser: "chrome", root: "Library/Application Support/Google/Chrome" },
+  { browser: "brave", root: "Library/Application Support/BraveSoftware/Brave-Browser" },
+  { browser: "arc", root: "Library/Application Support/Arc/User Data" },
+  { browser: "edge", root: "Library/Application Support/Microsoft Edge" },
+  { browser: "comet", root: "Library/Application Support/Comet" },
+];
+
+export const SAFARI_HISTORY = "Library/Safari/History.db";
+
+/** Profile directories Chromium creates for people. Guest/System profiles are not history. */
+const PROFILE_DIR_RE = /^(Default|Profile \d+)$/;
+
+/** True when the file exists — OR exists behind a permission wall (Safari without Full Disk Access). */
+function presentOrProtected(path: string): boolean {
+  try {
+    statSync(path);
+    return true;
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    return code === "EPERM" || code === "EACCES";
+  }
+}
+
+/** `profile.info_cache` names from a Chromium `Local State`; {} on any trouble. */
+function profileLabels(root: string): Record<string, string> {
+  try {
+    const raw = JSON.parse(readFileSync(join(root, "Local State"), "utf8")) as {
+      profile?: { info_cache?: Record<string, { name?: unknown }> };
+    };
+    const cache = raw.profile?.info_cache ?? {};
+    const out: Record<string, string> = {};
+    for (const [dir, info] of Object.entries(cache)) {
+      if (typeof info?.name === "string" && info.name.trim() !== "") out[dir] = info.name.trim();
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Every browser, every profile (V6 P1 S1.4). Chrome, Brave, Arc, Edge, Comet
+ * by enumerating their profile directories; Safari's single History.db. Only
+ * profiles whose History file is present are returned — a Safari file the
+ * process cannot stat because Full Disk Access is missing is still returned
+ * (the counts step turns that into the FDA message; hiding it would look like
+ * "no Safari"). Never throws.
+ */
 export function discoverProfiles(home: string = homedir()): BrowserProfile[] {
-  const candidates: BrowserProfile[] = [
-    {
-      browser: "chrome",
-      historyPath: join(home, "Library/Application Support/Google/Chrome/Default/History"),
-      bookmarksPath: join(home, "Library/Application Support/Google/Chrome/Default/Bookmarks"),
-    },
-    {
-      browser: "arc",
-      historyPath: join(home, "Library/Application Support/Arc/User Data/Default/History"),
-      bookmarksPath: join(home, "Library/Application Support/Arc/User Data/Default/Bookmarks"),
-    },
-    {
-      browser: "safari",
-      historyPath: join(home, "Library/Safari/History.db"),
-      bookmarksPath: null,
-    },
-  ];
-  return candidates
-    .filter((p) => {
-      try {
-        return existsSync(p.historyPath);
-      } catch {
-        return false;
-      }
-    })
-    .map((p) => ({
-      ...p,
-      bookmarksPath: p.bookmarksPath && existsSync(p.bookmarksPath) ? p.bookmarksPath : null,
-    }));
+  const out: BrowserProfile[] = [];
+  for (const { browser, root } of CHROMIUM_ROOTS) {
+    const rootDir = join(home, root);
+    let dirs: string[] = [];
+    try {
+      dirs = readdirSync(rootDir).filter((d) => PROFILE_DIR_RE.test(d));
+    } catch {
+      continue;
+    }
+    if (dirs.length === 0) continue;
+    const labels = profileLabels(rootDir);
+    dirs.sort((a, b) => (a === "Default" ? -1 : b === "Default" ? 1 : a.localeCompare(b, undefined, { numeric: true })));
+    for (const dir of dirs) {
+      const historyPath = join(rootDir, dir, "History");
+      if (!presentOrProtected(historyPath)) continue;
+      const bookmarksPath = join(rootDir, dir, "Bookmarks");
+      out.push({
+        browser,
+        profile: dir,
+        label: labels[dir] ?? null,
+        historyPath,
+        bookmarksPath: existsSync(bookmarksPath) ? bookmarksPath : null,
+      });
+    }
+  }
+  const safari = join(home, SAFARI_HISTORY);
+  if (presentOrProtected(safari)) {
+    out.push({ browser: "safari", profile: "Safari", label: null, historyPath: safari, bookmarksPath: null });
+  }
+  return out;
 }
 
 // ---- Watcher ---------------------------------------------------------------
@@ -201,7 +265,7 @@ export class BrowserWatcher {
     }
 
     const events = [
-      ...this.visitEvents(visits, bookmarkedDomains),
+      ...this.visitEvents(visits, bookmarkedDomains, profile.profile),
       ...this.bookmarkEvents(bookmarks, profile.browser),
     ];
     return events.length === 0 ? 0 : this.sink.append(events);
@@ -210,7 +274,7 @@ export class BrowserWatcher {
   // ---- Visits → events -----------------------------------------------------
 
   /** Build `browser.visit` envelopes from raw visits. Exposed for tests. */
-  visitEvents(visits: readonly RawVisit[], bookmarkedDomains: ReadonlySet<string>): V13Event[] {
+  visitEvents(visits: readonly RawVisit[], bookmarkedDomains: ReadonlySet<string>, profile?: string): V13Event[] {
     const chained = assignChains(visits);
     const stats = aggregateDomains(
       chained.map((v) => ({ url: v.url, typed: v.typed, redirect: v.redirect, dwellMs: v.inferredDwellMs })),
@@ -221,13 +285,15 @@ export class BrowserWatcher {
       const domain = domainOf(v.url);
       const s = stats.get(domain);
       const category: BrowserCategory = s ? this.categorizer.categorize(s) : "ambiguous";
-      out.push(this.visitEvent(v, domain, category));
+      out.push(this.visitEvent(v, domain, category, profile));
     }
     return out;
   }
 
-  private visitEvent(v: ChainedVisit, domain: string, category: BrowserCategory): V13Event {
+  private visitEvent(v: ChainedVisit, domain: string, category: BrowserCategory, profile?: string): V13Event {
     const nowMs = this.now();
+    // T6-1: the text field gets the stripped URL; the payload keeps the raw one.
+    const urlText = urlTextForm(v.url);
     return {
       id: ulid(nowMs),
       ts: new Date(v.tsMs).toISOString(),
@@ -239,7 +305,7 @@ export class BrowserWatcher {
       stream_key: v.streamKey,
       actor: "self",
       roles: { ...SELF_ROLES, audience: [...SELF_ROLES.audience], receiver: [...SELF_ROLES.receiver], mentions: [] },
-      text: v.title ? `${v.title} ${v.url}` : v.url,
+      text: v.title ? `${v.title} ${urlText}` : urlText,
       payload: {
         url: v.url,
         title: v.title,
@@ -250,6 +316,7 @@ export class BrowserWatcher {
         domain,
         category,
         browser: v.browser,
+        ...(profile ? { profile } : {}),
       },
       content_hash: browserContentHash([BROWSER_SOURCE_ID, "visit", v.browser, v.url, v.tsMs, v.visitId]),
       blob_refs: [],

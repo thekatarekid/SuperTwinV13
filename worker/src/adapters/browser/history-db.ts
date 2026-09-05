@@ -59,6 +59,21 @@ function scratchDir(): string {
 }
 
 /**
+ * Where the copies land — disclosed on the connect card (V6 P1 S1.4 "local-
+ * path disclosure"): the user sees which files are read and where the
+ * short-lived copy goes. Never opens or creates anything beyond the dir.
+ */
+export function historyScratchDir(): string {
+  return scratchOverride ?? join(tmpdir(), "supertwinv13-history");
+}
+
+/** True for the errno codes macOS raises when Full Disk Access is missing. */
+export function isPermissionError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "EPERM" || code === "EACCES";
+}
+
+/**
  * Copy `path` (+ WAL side files) into scratch and run `fn` on a readonly
  * handle of the copy. The copy is deleted before returning, success or not.
  */

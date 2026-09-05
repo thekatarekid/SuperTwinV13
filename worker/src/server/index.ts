@@ -124,6 +124,8 @@ import { dropChunkStaging } from "../retrieval/chunk-index.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleOpsRoute } from "./ops-routes.js";
 import { handleScreenRoute } from "./screen-routes.js";
+// Browser source connect flow (V6 S1.4): discover + counts, status, connect.
+import { handleBrowserSourceRoute } from "./browser-source-routes.js";
 import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // V2 product surfaces (§3.2). Each owns its own prefix, takes no deps arg, and
 // returns false for a path it does not claim, exactly like handleOpsRoute.
@@ -720,6 +722,14 @@ async function handle(
     }
     sendJson(res, 200, rescanMedia(types));
     return;
+  }
+
+  // --- Browser source connect (V6 S1.4): discover/count, status, connect.
+  // Ahead of the generic /api/sources/:id router so the WhatsApp adapter never
+  // answers for the browser.
+  if (path.startsWith("/api/sources/browser/")) {
+    const handled = await handleBrowserSourceRoute(req, res);
+    if (handled) return;
   }
 
   // --- Source + Inbox + media routes (Phase 1, additive). `/api/whatsapp/*`

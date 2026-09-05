@@ -1350,3 +1350,40 @@ body.aux-window {
   margin: var(--sp-1) 0;
   font-size: var(--text-sm);
 }
+
+/* Browser source connect card (V6 S1.4): the profile list with real counts,
+   the totals line, and the copy-then-read disclosure. Left-aligned inside the
+   centred card — a list of files is read, not admired. */
+.connect-details {
+  text-align: left;
+  max-width: 60ch;
+  margin: 0 auto var(--sp-3);
+}
+
+.connect-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--sp-2);
+}
+
+.connect-list .row.static {
+  align-items: flex-start;
+}
+
+.connect-disclosure {
+  margin-top: var(--sp-2);
+}
+
+.connect-disclosure summary {
+  cursor: pointer;
+}
+
+.connect-disclosure ul {
+  padding-left: var(--sp-4);
+  margin: var(--sp-1) 0 0;
+  word-break: break-all;
+}
+
+.connect-disclosure code {
+  font-size: var(--text-xs);
+}

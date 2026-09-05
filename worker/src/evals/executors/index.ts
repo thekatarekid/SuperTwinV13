@@ -28,6 +28,7 @@ import {
 } from "./passes.js";
 import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
+import { sourceQualityExecutor } from "./src.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -111,4 +112,7 @@ export async function registerProductExecutors(): Promise<void> {
   registerExecutor("circles", circlesExecutor);
   registerExecutor("feedback", feedbackExecutor);
   registerExecutor("traces", tracesExecutor);
+  // V6 P1 S1.4: SRC source-quality code cases (URL text form, raw payload,
+  // render-time collapse). Zero model calls.
+  registerExecutor("source-quality", sourceQualityExecutor);
 }

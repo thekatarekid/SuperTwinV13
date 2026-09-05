@@ -38,6 +38,11 @@ export interface CategoryInfo {
   doc: "V1" | "V2";
   /** The pass/executor key its cases run against. */
   pass: string;
+  /**
+   * Hand-authored fixtures (GoldenEvals V6 P1 §5) — not parsed out of the V1/V2
+   * docs, so `--materialize` neither produces nor overwrites them.
+   */
+  authored?: boolean;
 }
 
 /**
@@ -70,9 +75,14 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "BRW", name: "SuperTwin Browser agent + capture", n: 8, doc: "V2", pass: "browser" },
   { cat: "TIM", name: "Time resolution", n: 4, doc: "V2", pass: "time" },
   { cat: "TRC", name: "Traces & liveness", n: 3, doc: "V2", pass: "traces" },
+  // -- GoldenEvals V6 Phase 1 (§5.3) — carried under the V2 doc tag because the
+  // fixture schema names two docs; the section field says "V6P1 §5.3". --
+  { cat: "SRC", name: "Source quality (V6 P1)", n: 6, doc: "V2", pass: "source-quality", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);
+/** Cases the V1/V2 docs materialize — everything not hand-authored. */
+export const MATERIALIZED_CASES = CATEGORIES.filter((c) => !c.authored).reduce((sum, c) => sum + c.n, 0);
 
 const BY_CAT = new Map(CATEGORIES.map((c) => [c.cat, c]));
 

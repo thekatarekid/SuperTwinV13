@@ -293,6 +293,77 @@ export interface LibraryBrowser {
 
 export const fetchLibraryBrowser = (): Promise<LibraryBrowser> => request("/api/library/browser");
 
+// ---- Browser SOURCE connect (V6 P1 S1.4) — /api/sources/browser/* ------------
+
+export interface BrowserWindowCount {
+  visits: number;
+  bookmarks: number;
+}
+
+export interface BrowserProfileCounts {
+  browser: "chrome" | "brave" | "arc" | "edge" | "comet" | "safari";
+  browser_name: string;
+  profile: string;
+  label: string | null;
+  history_path: string;
+  bookmarks_path: string | null;
+  readable: boolean;
+  error: { code: "full-disk-access" | "locked" | "missing" | "unreadable"; message: string; settings_url?: string } | null;
+  windows: Record<string, BrowserWindowCount>;
+  total_visits: number;
+  total_bookmarks: number;
+  oldest_visit_ts: string | null;
+  newest_visit_ts: string | null;
+  plateau_window: string | null;
+  retention_note: string | null;
+}
+
+export interface BrowserConsentView {
+  id: string;
+  state: "connected" | "paused" | "disconnected" | "revoked";
+  granted_at: string;
+  index_all: boolean;
+  index_from: string | null;
+  understand_from: string | null;
+  profiles: string[];
+}
+
+export interface BrowserDiscovery {
+  now: string;
+  windows: string[];
+  profiles: BrowserProfileCounts[];
+  totals: Record<string, BrowserWindowCount>;
+  needs_full_disk_access: boolean;
+  full_disk_access_settings_url: string;
+  disclosure: { scratch_dir: string; text: string };
+  connected: boolean;
+  consent: BrowserConsentView | null;
+}
+
+export interface BrowserSourceStatus {
+  source: "browser";
+  connected: boolean;
+  running: boolean;
+  consent: BrowserConsentView | null;
+  event_count: number;
+}
+
+export interface BrowserConnectRequest {
+  index_all?: boolean;
+  index_from?: string | null;
+  /** ISO floor; omit for the 30-day default; `null` sends nothing to the model yet. */
+  understand_from?: string | null;
+  /** History paths to import; empty = every profile found. */
+  profiles?: string[];
+}
+
+export const fetchBrowserDiscovery = (): Promise<BrowserDiscovery> => request("/api/sources/browser/discover");
+export const fetchBrowserSourceStatus = (): Promise<BrowserSourceStatus> => request("/api/sources/browser/status");
+export const connectBrowserSource = (
+  body: BrowserConnectRequest = {},
+): Promise<{ ok: boolean; consent: BrowserConsentView | null; started: boolean; running: boolean }> =>
+  request("/api/sources/browser/connect", post(body));
+
 export interface ScreenSessionCard {
   stream_key: string;
   app: string;

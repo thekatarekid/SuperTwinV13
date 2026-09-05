@@ -1,0 +1,22 @@
+{
+  "id": "SRC-01",
+  "category": "SRC",
+  "title": "params stripped, content kept",
+  "pass": "source-quality",
+  "mode": "code",
+  "setup": "browser watcher emitting browser.visit events; text field carries the URL text form (bridges/normalise.urlTextForm), payload.url carries the raw visit.",
+  "input_events": [
+    { "url": "https://www.youtube.com/watch?v=X&t=5&utm_source=newsletter&feature=share", "keep": ["t", "v"] },
+    { "url": "https://www.google.com/search?q=tfidf&gs_lp=Egxnd3Mtd2l6LXNlcnA&sca_esv=abc&ei=xyz&ved=2ahUKEwi&uact=5&oq=tfidf&sclient=gws-wiz-serp", "keep": ["q"] },
+    { "url": "http://rd3.localhost:7373/?path=%2FUsers%2Fme%2Fnotes%2Froadmap.md&utm_campaign=x", "keep": ["path"] },
+    { "url": "https://www.netflix.com/watch/81234567?trackId=14170286&tctx=0%2C0%2C6a2b8c3d-1234-5678-9abc-def012345678-12345678%2CNES_1234", "keep": [] }
+  ],
+  "expected": "youtube keeps v,t · google keeps q · localhost:7373 keeps path · Netflix trackId,tctx dropped; survivors sorted by name; payload.url untouched.",
+  "wrong": [
+    { "label": "content-param-stripped", "assert_absent": "a per-domain content param (v, t, q, path) missing from the text form" },
+    { "label": "tracking-kept", "assert_absent": "utm_*, gs_lp, sca_esv, ei, ved, trackId or tctx surviving in the text form" },
+    { "label": "survivors-unsorted", "assert_absent": "surviving params in source order rather than sorted" }
+  ],
+  "gates": ["url_text_tracking_bytes"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.3 SRC-01 · params stripped, content kept" }
+}

@@ -23,6 +23,10 @@ import {
   normaliseOrderId,
   normalisePhone,
   normaliseUrl,
+  urlTextForm,
+  urlTextParams,
+  contentParamRuleFor,
+  URL_TEXT_MAX_CHARS,
 } from "./normalise.js";
 
 describe("normaliseUrl", () => {
@@ -162,5 +166,68 @@ describe("geo_time", () => {
   it("stamps the normal form with a geohash and a time bucket", () => {
     const value = geoTimeValue(bandra.lat, bandra.lon, Date.parse("2026-08-13T13:00:00.000Z"));
     expect(value).toMatch(/^[0-9b-z]{6}@\d+$/);
+  });
+});
+
+// ---- url TEXT form (V6 P1 S1.4; T6-1/T6-2/T6-23; SRC-01) --------------------
+
+describe("urlTextForm — the events.text form of a URL", () => {
+  it("SRC-01: youtube keeps v,t · google keeps q · localhost:7373 keeps path · Netflix tracking dropped; survivors sorted", () => {
+    expect(urlTextForm("https://www.youtube.com/watch?v=X&t=5&utm_source=nl&feature=share")).toBe(
+      "https://www.youtube.com/watch?t=5&v=X",
+    );
+    expect(urlTextForm("https://www.google.com/search?q=tfidf&gs_lp=Egxnd3Mtd2l6&sca_esv=abc&ei=xyz&ved=2ahUKEwi&uact=5&oq=tfidf&sclient=gws-wiz-serp")).toBe(
+      "https://www.google.com/search?q=tfidf",
+    );
+    expect(urlTextForm("http://rd3.localhost:7373/?path=%2FUsers%2Fme%2Fnotes.md&utm_campaign=x")).toBe(
+      "http://rd3.localhost:7373/?path=%2FUsers%2Fme%2Fnotes.md",
+    );
+    expect(urlTextForm("https://www.netflix.com/watch/81234567?trackId=14170286&tctx=0%2C0%2Cabc%2CNES_1")).toBe(
+      "https://www.netflix.com/watch/81234567",
+    );
+    expect(urlTextParams("https://www.youtube.com/watch?v=X&list=PL1&t=5")).toEqual(["list", "t", "v"]);
+  });
+
+  it("per-domain rules first: google.co.in/search, amazon.in, hotstar, youtube outside /watch falls to the denylist", () => {
+    expect(urlTextForm("https://www.google.co.in/search?q=villa&udm=2&sxsrf=abc&tbm=isch")).toBe(
+      "https://www.google.co.in/search?q=villa&tbm=isch&udm=2",
+    );
+    expect(urlTextForm("https://www.amazon.in/s?k=paperclips&crid=ABC&sprefix=pap&ref=nb_sb_noss&node=123")).toBe(
+      "https://www.amazon.in/s?k=paperclips&node=123",
+    );
+    expect(urlTextForm("https://www.hotstar.com/in/search?search_query=cricket&from=home")).toBe(
+      "https://www.hotstar.com/in/search?search_query=cricket",
+    );
+    // No rule for a channel page: generic denylist keeps the unknown param.
+    expect(urlTextForm("https://www.youtube.com/@someone/videos?view=0&utm_source=x")).toBe(
+      "https://www.youtube.com/@someone/videos?view=0",
+    );
+    expect(contentParamRuleFor("rd3.localhost", "/", "7373")?.name).toBe("localhost:7373/path");
+    expect(contentParamRuleFor("rd3.localhost", "/", "8080")).toBeNull();
+    expect(contentParamRuleFor("notlocalhost.example", "/", "7373")).toBeNull();
+  });
+
+  it("denylist, not allowlist: unknown params on unknown hosts survive; utm_*/fbclid/gclid go", () => {
+    expect(urlTextForm("https://shop.example/p/123?color=red&fbclid=AbC&utm_medium=cpc&size=m")).toBe(
+      "https://shop.example/p/123?color=red&size=m",
+    );
+  });
+
+  it("keeps survivors' original bytes (no re-encoding), drops in-page anchors, keeps route fragments", () => {
+    expect(urlTextForm("https://docs.example/a?q=a+b%20c&utm_x=1#section-3")).toBe("https://docs.example/a?q=a+b%20c");
+    expect(urlTextForm("https://app.example/#/inbox?utm_source=x")).toBe("https://app.example/#/inbox?utm_source=x");
+    expect(urlTextForm("https://app.example/x?utm_source=a#!/route")).toBe("https://app.example/x#!/route");
+  });
+
+  it("caps at 200 chars and fails open on anything unparseable", () => {
+    const long = `https://x.example/${"a".repeat(400)}`;
+    expect(urlTextForm(long)).toHaveLength(URL_TEXT_MAX_CHARS);
+    expect(urlTextForm("not a url at all")).toBe("not a url at all");
+    expect(urlTextForm("")).toBe("");
+    expect(urlTextForm("chrome://newtab/?x=1")).toBe("chrome://newtab/?x=1");
+  });
+
+  it("the bridge key gained Netflix's trackId/tctx too", () => {
+    expect(normaliseUrl("https://www.netflix.com/watch/1?trackId=2&tctx=3")).toBe("netflix.com/watch/1");
   });
 });

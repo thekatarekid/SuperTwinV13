@@ -125,13 +125,24 @@ function stubLibrary(): WorkerStub {
   stub.routes.set("/api/sources/whatsapp/pause", { ok: true, paused: true });
 
   // ---- Browser -------------------------------------------------------------
-  stub.routes.set("/api/browser/status", {
-    available: true,
+  // V6 S1.4: the card is decided by the consent row (/api/sources/browser/*),
+  // never by event_count.
+  stub.routes.set("/api/sources/browser/status", {
+    source: "browser",
+    connected: true,
     running: true,
-    killSwitch: false,
-    profileDir: "/tmp/profile",
+    consent: {
+      id: "cns_b1",
+      state: "connected",
+      granted_at: "2026-08-20T10:00:00.000Z",
+      index_all: true,
+      index_from: null,
+      understand_from: "2026-07-29T10:00:00.000Z",
+      profiles: [],
+    },
+    event_count: 31,
   });
-  stub.routes.set("/api/browser/import-chrome", { ok: true });
+  stub.routes.set("/api/sources/browser/connect", { ok: true, consent: null, started: true, running: true });
   stub.routes.set("/api/library/browser", {
     event_count: 31,
     domains_today: [
@@ -468,21 +479,130 @@ describe("Library › Browser", () => {
     expect(within(sect).getByLabelText("bookmark shelf").textContent).toContain("Villa Sol");
   });
 
-  it("NOTHING CAPTURED: shows the browser-profile connect flow", async () => {
+  it("hops to one URL within 30 s fold into one ×N hop (T6-3); the chain still counts every visit", async () => {
     const stub = stubLibrary();
     stub.routes.set("/api/library/browser", {
-      event_count: 0,
+      event_count: 7,
       domains_today: [],
-      chains: [],
+      chains: [
+        {
+          stream_key: "chain-dup",
+          started_at: "2026-08-28T13:58:00.000Z",
+          ended_at: "2026-08-28T13:59:10.000Z",
+          visits: [
+            ...[0, 5, 10, 15, 20, 25].map((s) => ({
+              ts: `2026-08-28T13:58:${String(s).padStart(2, "0")}.000Z`,
+              url: "https://www.goibibo.com/flights/",
+              title: "Flights",
+              dwell_ms: 0,
+            })),
+            { ts: "2026-08-28T13:59:10.000Z", url: "https://www.goibibo.com/hotels/", title: "Hotels", dwell_ms: 0 },
+          ],
+          space_label: null,
+        },
+      ],
       bookmarks: [],
     });
     render(<Library />);
     await openSubtab("Browser");
+    const chain = await screen.findByLabelText("tab chain chain-dup");
+    expect(within(chain).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(chain).getByLabelText("6 visits within 30 seconds").textContent).toBe("×6 · 13:58–13:58");
+    expect(chain.textContent).toContain("7 hops");
+  });
+
+  it("NOT CONNECTED: the connect card shows every profile with real counts, the plateau note, Safari's FDA message and the local paths; Connect grants consent", async () => {
+    const stub = stubLibrary();
+    stub.routes.set("/api/sources/browser/status", { source: "browser", connected: false, running: false, consent: null, event_count: 0 });
+    const chromePath = "/Users/me/Library/Application Support/Google/Chrome/Default/History";
+    const win = (v: number) => ({ visits: v, bookmarks: 0 });
+    stub.routes.set("/api/sources/browser/discover", {
+      now: "2026-08-28T12:00:00.000Z",
+      windows: ["3d", "7d", "30d", "90d", "180d", "1y", "2y", "3y", "4y", "5y", "all"],
+      profiles: [
+        {
+          browser: "chrome",
+          browser_name: "Chrome",
+          profile: "Default",
+          label: "Aditya",
+          history_path: chromePath,
+          bookmarks_path: "/Users/me/Library/Application Support/Google/Chrome/Default/Bookmarks",
+          readable: true,
+          error: null,
+          windows: { "30d": win(1200), "90d": win(3400), "1y": win(3400), all: win(3400) },
+          total_visits: 3400,
+          total_bookmarks: 12,
+          oldest_visit_ts: "2026-05-30T00:00:00.000Z",
+          newest_visit_ts: "2026-08-28T11:00:00.000Z",
+          plateau_window: "90d",
+          retention_note: "Chrome keeps 90 days of history — anything older is already gone, so longer windows can't grow.",
+        },
+        {
+          browser: "safari",
+          browser_name: "Safari",
+          profile: "Safari",
+          label: null,
+          history_path: "/Users/me/Library/Safari/History.db",
+          bookmarks_path: null,
+          readable: false,
+          error: { code: "full-disk-access", message: "macOS protects Safari's history file. Give SuperTwin Full Disk Access …", settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" },
+          windows: {},
+          total_visits: 0,
+          total_bookmarks: 0,
+          oldest_visit_ts: null,
+          newest_visit_ts: null,
+          plateau_window: null,
+          retention_note: null,
+        },
+      ],
+      totals: { "30d": win(1200), "90d": win(3400), "1y": win(3400), all: win(3400) },
+      needs_full_disk_access: true,
+      full_disk_access_settings_url: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+      disclosure: { scratch_dir: "/tmp/supertwinv13-history", text: "SuperTwin reads 2 history files by copying each one to /tmp/supertwinv13-history …" },
+      connected: false,
+      consent: null,
+    });
+    render(<Library />);
+    await openSubtab("Browser");
     const card = await screen.findByLabelText("connect Connect your browsing");
-    fireEvent.click(within(card).getByText("Import from Chrome"));
+    const list = await within(card).findByLabelText("browser profiles found");
+    const chrome = within(list).getByLabelText("browser profile Chrome · Aditya");
+    expect(chrome.textContent).toContain("1,200 visits / 30 days");
+    expect(chrome.textContent).toContain("3,400 visits / everything");
+    expect(chrome.textContent).toContain("12 bookmarks");
+    expect(chrome.textContent).toContain("Chrome keeps 90 days");
+    const safari = within(list).getByLabelText("browser profile Safari");
+    expect(safari.textContent).toContain("needs Full Disk Access");
+    expect(within(list).getByLabelText("full disk access").textContent).toContain("Full Disk Access");
+    expect(within(list).getByLabelText("totals per window").textContent).toContain("everything: 3,400 visits");
+    expect(list.textContent).toContain(chromePath);
+    expect(list.textContent).toContain("/tmp/supertwinv13-history");
+
+    fireEvent.click(within(card).getByText("Connect"));
     await waitFor(() =>
-      expect(stub.calls.some((c) => c.path === "/api/browser/import-chrome")).toBe(true),
+      expect(stub.calls.some((c) => c.path === "/api/sources/browser/connect" && c.method === "POST")).toBe(true),
     );
+    // Nothing goes through the SuperTwin Browser's Chromium import any more.
+    expect(stub.calls.some((c) => c.path === "/api/browser/import-chrome")).toBe(false);
+  });
+
+  it("CONNECTED WITH ZERO EVENTS: the data view, not the connect card (card no longer gated on event_count)", async () => {
+    const stub = stubLibrary();
+    stub.routes.set("/api/sources/browser/status", {
+      source: "browser",
+      connected: true,
+      running: true,
+      consent: { id: "cns_b2", state: "connected", granted_at: "2026-08-28T11:59:00.000Z", index_all: true, index_from: null, understand_from: null, profiles: [] },
+      event_count: 0,
+    });
+    stub.routes.set("/api/library/browser", { event_count: 0, domains_today: [], chains: [], bookmarks: [] });
+    render(<Library />);
+    await openSubtab("Browser");
+    const sect = await screen.findByLabelText("Browser");
+    expect(sect.textContent).toContain("connected — reading your history");
+    expect(sect.textContent).toContain("understand off");
+    expect(screen.queryByLabelText("connect Connect your browsing")).toBeNull();
+    expect(stub.calls.some((c) => c.path === "/api/sources/browser/discover")).toBe(false);
   });
 });
 

@@ -17,7 +17,7 @@
 //   - disconnect() sends `shutdown` on stdin and reaps the child (no orphan).
 // ===========================================================================
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -642,6 +642,118 @@ describe("WhatsAppAdapter + Ingestion (fake daemon, real NDJSON framing)", () =>
     expect(statuses.some((s) => s.type === "qr" && s.code === "2@FRESHQR==")).toBe(true);
 
     await adapter.disconnect();
+  });
+
+  // ---- S0.10 / T0-14: cleanRestart() backoff + give-up threshold ---------
+
+  it("S0.10: consecutive post-logout exits back off exponentially and give up at maxRestarts", async () => {
+    vi.useFakeTimers();
+    const children: FakeChild[] = [];
+    const spawn: SpawnFn = () => {
+      const c = new FakeChild();
+      children.push(c);
+      return c;
+    };
+    const statuses: StatusUpdate[] = [];
+    const adapter = new WhatsAppAdapter({
+      spawn,
+      mock: true,
+      autoRestart: true,
+      backoffBaseMs: 100,
+      backoffMaxMs: 10_000,
+      maxRestarts: 3,
+      home: tmpDir,
+    });
+    adapter.onStatus((s) => statuses.push(s));
+    try {
+      await adapter.connect();
+      expect(children.length).toBe(1);
+      // A healthy session first: `ready` zeroes the restart counter.
+      children[0].line({ t: "ready" });
+      children[0].line({ t: "status", state: "online", jid: "me@x", push_name: "Me" });
+
+      // Restart 1 (post-logout): prompt, base delay = 100ms.
+      await adapter.logout();
+      children[0].emit("exit", 0, null);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(children.length).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(children.length).toBe(2);
+
+      // Restart 2: the daemon never reached `ready`; logout again -> 200ms.
+      await adapter.logout();
+      children[1].emit("exit", 0, null);
+      await vi.advanceTimersByTimeAsync(199);
+      expect(children.length).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(children.length).toBe(3);
+
+      // Restart 3: 400ms.
+      await adapter.logout();
+      children[2].emit("exit", 0, null);
+      await vi.advanceTimersByTimeAsync(399);
+      expect(children.length).toBe(3);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(children.length).toBe(4);
+
+      // Fourth exit without a ready in between: threshold (3) reached -> give up.
+      await adapter.logout();
+      children[3].emit("exit", 0, null);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(children.length).toBe(4);
+      expect(adapter.getStatus().state).toBe("error");
+      const gaveUp = statuses.find((s) => s.type === "error" && s.code === "RESTART_GAVE_UP");
+      expect(gaveUp).toBeDefined();
+      expect(gaveUp && gaveUp.type === "error" ? gaveUp.fatal : false).toBe(true);
+
+      // An explicit connect() re-arms the budget and spawns again.
+      await adapter.connect();
+      expect(children.length).toBe(5);
+      children[4].line({ t: "ready" });
+      children[4].line({ t: "status", state: "need_pairing" });
+      expect(adapter.getStatus().state).toBe("need_pairing");
+    } finally {
+      vi.useRealTimers();
+      await adapter.disconnect();
+    }
+  });
+
+  it("S0.10: repeated crashes (unexpected exits) also give up at maxRestarts and stop respawning", async () => {
+    vi.useFakeTimers();
+    const children: FakeChild[] = [];
+    const spawn: SpawnFn = () => {
+      const c = new FakeChild();
+      children.push(c);
+      return c;
+    };
+    const adapter = new WhatsAppAdapter({
+      spawn,
+      mock: true,
+      autoRestart: true,
+      backoffBaseMs: 10,
+      backoffMaxMs: 1_000,
+      maxRestarts: 2,
+      home: tmpDir,
+    });
+    try {
+      await adapter.connect();
+      children[0].emit("exit", 1, null); // restart 1 armed
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(children.length).toBe(2);
+      children[1].emit("exit", 1, null); // restart 2 armed
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(children.length).toBe(3);
+      children[2].emit("exit", 1, null); // count == maxRestarts -> give up
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(children.length).toBe(3);
+      expect(adapter.getStatus().state).toBe("error");
+      // Nothing left armed: more time changes nothing.
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(children.length).toBe(3);
+    } finally {
+      vi.useRealTimers();
+      await adapter.disconnect();
+    }
   });
 
   // ---- Rev 2 §R2.2: live-ingest nudge -------------------------------------

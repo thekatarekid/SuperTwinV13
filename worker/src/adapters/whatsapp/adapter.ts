@@ -71,11 +71,19 @@ export interface WhatsAppAdapterOptions {
   backoffMaxMs?: number;
   /** Disable auto-restart (tests that assert on a single exit). */
   autoRestart?: boolean;
+  /**
+   * Give-up threshold (S0.10 / T0-14): consecutive daemon restarts WITHOUT a
+   * healthy `ready` in between before the supervisor stops restarting and
+   * latches state=error. A later explicit connect() re-arms it. Default 8.
+   */
+  maxRestarts?: number;
   /** Log sink for daemon stderr / adapter diagnostics. */
   log?: (line: string) => void;
 }
 
 const SHUTDOWN_GRACE_MS = 3_000;
+/** See WhatsAppAdapterOptions.maxRestarts. */
+export const DEFAULT_MAX_RESTARTS = 8;
 
 /**
  * One `seed_anchors` entry, in the daemon's wire shape (protocol.Anchor). Named
@@ -167,12 +175,16 @@ export class WhatsAppAdapter implements SourceAdapter {
   private readonly backoffBaseMs: number;
   private readonly backoffMaxMs: number;
   private readonly autoRestart: boolean;
+  private readonly maxRestarts: number;
   private readonly log: (line: string) => void;
 
   private child: ChildLike | null = null;
   private stdoutBuf = "";
+  /** Consecutive restarts since the last healthy `ready` (drives backoff + give-up). */
   private restartCount = 0;
   private restartTimer: NodeJS.Timeout | null = null;
+  /** Latched once the give-up threshold trips; cleared by an explicit connect(). */
+  private gaveUp = false;
   private shuttingDown = false;
   private killTimer: NodeJS.Timeout | null = null;
   /**
@@ -232,6 +244,7 @@ export class WhatsAppAdapter implements SourceAdapter {
     this.backoffBaseMs = opts.backoffBaseMs ?? 500;
     this.backoffMaxMs = opts.backoffMaxMs ?? 15_000;
     this.autoRestart = opts.autoRestart ?? true;
+    this.maxRestarts = Math.max(1, opts.maxRestarts ?? DEFAULT_MAX_RESTARTS);
     this.log = opts.log ?? (() => {});
   }
 
@@ -263,6 +276,10 @@ export class WhatsAppAdapter implements SourceAdapter {
 
   async connect(): Promise<void> {
     this.shuttingDown = false;
+    // An explicit (re)connect is a fresh restart budget: the give-up latch and
+    // the consecutive-restart counter start over.
+    this.gaveUp = false;
+    this.restartCount = 0;
     this.spawnDaemon();
   }
 
@@ -455,7 +472,8 @@ export class WhatsAppAdapter implements SourceAdapter {
       // clear paired (session is gone) so /status reflects the logged-out device.
       if (this.expectingLogoutExit) {
         this.expectingLogoutExit = false;
-        this.restartCount = 0;
+        // restartCount is NOT reset here (S0.10): only a healthy `ready` does
+        // that, so a logout->exit->logout loop backs off and eventually gives up.
         this.status = { ...this.status, paired: false, jid: undefined };
         this.setState("starting", "restarting after logout");
         this.cleanRestart();
@@ -483,31 +501,50 @@ export class WhatsAppAdapter implements SourceAdapter {
   }
 
   /**
-   * Prompt, backoff-free restart after an INTENTIONAL post-logout exit
-   * (Rev 3 §R3.2). Unlike scheduleRestart(), this does not apply exponential
-   * backoff — a fresh session-less daemon should come back fast and land on
-   * need_pairing so the UI can show the QR. Honours autoRestart/shuttingDown so
-   * tests that disable auto-restart still assert on a single exit.
+   * Restart after an INTENTIONAL post-logout exit (Rev 3 §R3.2). The first
+   * restart after a healthy session is prompt (base delay) so a fresh
+   * session-less daemon lands on need_pairing fast and the UI can show the QR.
+   * S0.10 (T0-14): it shares the consecutive-restart counter with
+   * scheduleRestart(), so a daemon that keeps exiting without ever reaching
+   * `ready` backs off exponentially and gives up at `maxRestarts` instead of
+   * respawning forever. Honours autoRestart/shuttingDown so tests that disable
+   * auto-restart still assert on a single exit.
    */
   private cleanRestart(): void {
-    if (!this.autoRestart || this.shuttingDown) return;
-    if (this.restartTimer) return;
-    this.restartTimer = setTimeout(() => {
-      this.restartTimer = null;
-      if (this.shuttingDown) return;
-      this.spawnDaemon();
-    }, this.backoffBaseMs);
-    this.restartTimer.unref?.();
+    this.armRestart("post-logout");
   }
 
   private scheduleRestart(): void {
-    if (!this.autoRestart || this.shuttingDown) return;
+    this.armRestart("crash");
+  }
+
+  /**
+   * The single restart path. Delay = min(max, base * 2^restartCount); the
+   * counter increments per arm and is reset ONLY by a `ready` from the daemon
+   * (or an explicit connect()). Once it reaches `maxRestarts` the supervisor
+   * stops: state=error with a fatal RESTART_GAVE_UP status, nothing scheduled.
+   */
+  private armRestart(reason: "post-logout" | "crash"): void {
+    if (!this.autoRestart || this.shuttingDown || this.gaveUp) return;
     if (this.restartTimer) return;
+    if (this.restartCount >= this.maxRestarts) {
+      this.gaveUp = true;
+      const message =
+        `whatsapp daemon restarted ${this.restartCount} times without becoming ready ` +
+        `(last exit: ${reason}); giving up until the next explicit connect`;
+      this.log(`[whatsapp-go] ${message}`);
+      this.emitStatus({ type: "error", code: "RESTART_GAVE_UP", message, fatal: true });
+      this.setState("error", message);
+      return;
+    }
     const delay = Math.min(
       this.backoffMaxMs,
       this.backoffBaseMs * 2 ** this.restartCount,
     );
     this.restartCount += 1;
+    this.log(
+      `[whatsapp-go] restart ${this.restartCount}/${this.maxRestarts} (${reason}) in ${delay}ms`,
+    );
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       if (this.shuttingDown) return;

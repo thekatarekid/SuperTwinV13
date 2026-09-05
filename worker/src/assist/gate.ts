@@ -329,17 +329,36 @@ export function gateVerdict(state: TopicState, opts: { nowMs?: number } = {}): G
   return { ready: true, reason: "ready" };
 }
 
+/** The accumulator restarts: the evidence that reached the evaluator is spent. */
+function spendCounters(state: TopicState): void {
+  state.weightedCount = 0;
+  state.newContentCount = 0;
+  state.eventIds = [];
+  // seenHashes / seenRefs are KEPT: re-captured content still counts for nothing.
+}
+
 /** After a nudge fires for a topic: start the per-context cooldown + reset. */
 export function noteNudged(topicKey: string, opts: { nowMs?: number } = {}): void {
   const nowMs = opts.nowMs ?? Date.now();
   const state = readTopic(topicKey);
   if (!state) return;
   state.cooldownUntil = new Date(nowMs + assistCooldownMinutes() * 60_000).toISOString();
-  // The accumulator restarts: the evidence that earned this nudge is spent.
-  state.weightedCount = 0;
-  state.newContentCount = 0;
-  state.eventIds = [];
+  spendCounters(state);
   writeTopic(state, new Date(nowMs).toISOString());
+}
+
+/**
+ * S0.10 (T0-14): reset a topic's accumulator WITHOUT a nudge — the evaluator
+ * consumed the evidence and produced nothing to show (error, not actionable,
+ * or an artifact that already exists). Without this a ready topic stays ready
+ * and re-evaluates on every later event, i.e. one model call per tick forever.
+ * No cooldown: the next genuinely new burst may fire again on its own merits.
+ */
+export function spendAccumulator(topicKey: string, opts: { nowMs?: number } = {}): void {
+  const state = readTopic(topicKey);
+  if (!state) return;
+  spendCounters(state);
+  writeTopic(state, new Date(opts.nowMs ?? Date.now()).toISOString());
 }
 
 /**

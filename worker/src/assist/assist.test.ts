@@ -477,4 +477,75 @@ describe("assist watcher (tail -> gate -> evaluator -> artifact)", () => {
     expect(second.nudged.length).toBe(0);
     expect(listArtifacts().length).toBe(1);
   });
+
+  // ---- S0.10 / T0-14: the accumulator is spent on EVERY evaluator exit path,
+  // so a ready topic cannot re-buy the same model call on each later event.
+
+  it("S0.10: a NOT-actionable verdict spends the accumulator — the next single event does not re-evaluate", async () => {
+    setAssistThreshold("default", 2);
+    live("a");
+    live("b");
+    const { deps, messages } = stubProvider(
+      JSON.stringify({
+        intent: "browsing travel sites",
+        intent_confidence_0_1: 0.3,
+        helpfulness_0_1: 0.8,
+        action: "something",
+        artifact_type: "brief",
+        space_hint: null,
+        reasoning: "generic",
+      }),
+    );
+    const first = await assistTick({ llm: deps, nowMs: NOW });
+    expect(first.gatesPassed).toEqual(["stream:chat-1"]);
+    expect(first.evaluations).toEqual([{ topicKey: "stream:chat-1", actionable: false }]);
+    const callsAfterFirst = messages.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+
+    const spent = readTopic("stream:chat-1")!;
+    expect(spent.eventIds).toEqual([]);
+    expect(spent.weightedCount).toBe(0);
+    expect(spent.newContentCount).toBe(0);
+    // No cooldown for a non-nudge: a genuinely new burst may fire again.
+    expect(spent.cooldownUntil).toBeNull();
+    // Dedup memory survives the spend.
+    expect(spent.seenHashes.length).toBe(2);
+
+    // One more event: the topic is touched but the gate is below threshold again.
+    live("c");
+    const second = await assistTick({ llm: deps, nowMs: NOW + MIN });
+    expect(second.eventsRead).toBe(1);
+    expect(second.topicsTouched).toEqual(["stream:chat-1"]);
+    expect(second.gatesPassed).toEqual([]);
+    expect(messages.length).toBe(callsAfterFirst);
+  });
+
+  it("S0.10: an evaluator ERROR spends the accumulator — no re-evaluation loop on later events", async () => {
+    setAssistThreshold("default", 3);
+    live("x");
+    live("y");
+    live("w");
+    // Never valid JSON -> the evaluator ends in a non-ok status.
+    const { deps, messages } = stubProvider("this is not json, and never will be");
+    const first = await assistTick({ llm: deps, nowMs: NOW });
+    expect(first.gatesPassed).toEqual(["stream:chat-1"]);
+    expect(first.evaluations).toEqual([]);
+    expect(first.artifacts.length).toBe(0);
+    const callsAfterFirst = messages.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+
+    const spent = readTopic("stream:chat-1")!;
+    expect(spent.eventIds).toEqual([]);
+    expect(spent.newContentCount).toBe(0);
+
+    // Two more ticks with one new event each (below the threshold of 3 for a
+    // NEW burst): the spent topic never re-clears the gate, zero further calls.
+    for (let i = 0; i < 2; i++) {
+      live(`z${i}`);
+      const r = await assistTick({ llm: deps, nowMs: NOW + (i + 1) * MIN });
+      expect(r.eventsRead).toBe(1);
+      expect(r.gatesPassed).toEqual([]);
+    }
+    expect(messages.length).toBe(callsAfterFirst);
+  });
 });

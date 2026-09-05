@@ -30,7 +30,14 @@ import {
   type ArtifactRow,
 } from "./artifacts.js";
 import { isActionable, runAssistEvaluator, type AssistEvaluation } from "./evaluator.js";
-import { gateVerdict, noteNudged, recordEvent, readTopic, type TopicState } from "./gate.js";
+import {
+  gateVerdict,
+  noteNudged,
+  recordEvent,
+  readTopic,
+  spendAccumulator,
+  type TopicState,
+} from "./gate.js";
 import { runExecutorLite } from "./executor-lite.js";
 import { getAssistEnabled, isCapturePaused } from "./settings.js";
 
@@ -125,21 +132,32 @@ export async function assistTick(deps: AssistTickDeps = {}): Promise<AssistTickR
     if (!gateVerdict(state, { nowMs }).ready) continue;
     report.gatesPassed.push(topicKey);
 
+    // S0.10 (T0-14): every exit path below spends the accumulator. The evidence
+    // reached the evaluator once; it must not keep the topic "ready" so that the
+    // next single event re-buys the same model call, tick after tick.
     const evaluation = await runAssistEvaluator(state, deps.llm ?? {}, { nowMs });
     if (evaluation.status !== "ok" && evaluation.status !== "repaired") {
       log(`[assist] evaluator ${evaluation.status} for ${topicKey}`);
+      spendAccumulator(topicKey, { nowMs });
       continue;
     }
     const ev = evaluation.output!;
     const actionable = isActionable(ev);
     report.evaluations.push({ topicKey, actionable });
-    if (!actionable) continue;
+    if (!actionable) {
+      spendAccumulator(topicKey, { nowMs });
+      continue;
+    }
 
     const artifact = await prepare(state, ev, evaluation.runIds[0] ?? null, deps, nowMs);
     if (artifact) {
       report.artifacts.push(artifact.row);
       if (artifact.nudged) report.nudged.push(artifact.row.id);
     }
+    // Nudged: noteNudged() already spent it (plus cooldown). Duplicate content
+    // (or no artifact at all): spend it here so it cannot re-fire on the same
+    // evidence.
+    if (!artifact?.nudged) spendAccumulator(topicKey, { nowMs });
   }
   return report;
 }

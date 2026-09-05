@@ -27,7 +27,12 @@ import { getDb } from "./connection.js";
 
 // ---- Envelope types (spec §6.1) -------------------------------------------
 
-export type EventOrigin = "live" | "backfill";
+/**
+ * live | backfill are the two lanes; `archive` (V6 S1.2, T4-2) marks a row
+ * captured inside the INDEX window but outside UNDERSTAND — kept and
+ * searchable, never dispatched to a model until the window is widened.
+ */
+export type EventOrigin = "live" | "backfill" | "archive";
 export type AgeBand = "A" | "B" | "C" | "D";
 
 /** roles {sender, audience[], receiver[], mentions[]} — receiver ⊆ audience. */
@@ -61,6 +66,10 @@ export interface EventEnvelope {
   payload: Record<string, unknown>;
   contentHash?: string;
   blobRefs?: string[];
+  /** consents.id that admitted the row (V6 §23.1; 0200_v6_core). */
+  consentId?: string | null;
+  /** Stream processing class 1..4 at capture (V6 §23.1; 0200_v6_core). */
+  tier?: number | null;
 }
 
 export interface AppendResult {
@@ -179,16 +188,16 @@ function statements(): Stmts {
       INSERT INTO events
         (id, source_id, source_type, stream_id, stream_key, ts, captured_at,
          kind, origin, age_band, actor, roles_json, payload_json, text,
-         content_hash, blob_refs_json, is_historical)
+         content_hash, blob_refs_json, is_historical, consent_id, tier)
       VALUES
         (@id, @sourceId, @sourceType, @streamId, @streamKey, @ts, @capturedAt,
          @kind, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @text,
-         @contentHash, @blobRefsJson, @isHistorical)
+         @contentHash, @blobRefsJson, @isHistorical, @consentId, @tier)
     `),
     read: db.prepare(`
       SELECT id, source_type, stream_key, ts, captured_at, kind, origin,
              age_band, actor, roles_json, payload_json, content_hash,
-             blob_refs_json
+             blob_refs_json, consent_id, tier
         FROM events WHERE id = ?
     `),
   };
@@ -258,6 +267,8 @@ export function appendEvents(
         contentHash: hash,
         blobRefsJson: JSON.stringify(env.blobRefs ?? []),
         isHistorical: env.origin === "backfill" ? 1 : 0,
+        consentId: env.consentId ?? null,
+        tier: env.tier ?? null,
       });
       result.inserted++;
       result.ids.push(id);
@@ -319,6 +330,8 @@ export function readEnvelope(id: string): EventEnvelope | null {
         payload_json: string;
         content_hash: string;
         blob_refs_json: string;
+        consent_id: string | null;
+        tier: number | null;
       }
     | undefined;
   if (!row || row.stream_key == null) return null;
@@ -336,6 +349,8 @@ export function readEnvelope(id: string): EventEnvelope | null {
     payload: JSON.parse(row.payload_json ?? "{}") as Record<string, unknown>,
     contentHash: row.content_hash,
     blobRefs: JSON.parse(row.blob_refs_json ?? "[]") as string[],
+    consentId: row.consent_id ?? null,
+    tier: row.tier ?? null,
   };
 }
 

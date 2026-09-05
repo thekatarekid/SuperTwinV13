@@ -134,6 +134,10 @@ describe("0020_v2_core applies", () => {
       "0107_t3_graduation",
       // V6 P1 S0.5: drops sources.connected_at / sources.enabled (T4-13).
       "0108_prune_sources",
+      // V6 S1.1: consents / archive / bundle_attempts / blobs, explicit
+      // episode membership, `coverage` renamed to `coverage_progress` and
+      // recreated as source × date range × status, ADD COLUMNs on events.
+      "0200_v6_core",
     ]);
 
     expect(
@@ -193,7 +197,9 @@ const REQUIRED_TABLES = [
   "event_embeddings",
   "cohorts",
   "work_queue",
-  "coverage",
+  // `coverage` was renamed to `coverage_progress` by 0200_v6_core, which
+  // reuses the name for the source × date-range index.
+  "coverage_progress",
   "entities",
   "entity_identities",
   "entity_edges",
@@ -581,7 +587,7 @@ function seedGraph(handle: Database.Database): void {
        VALUES ('co1','whatsapp','bootstrap','h24',1,90,'planned')`);
   run(`INSERT INTO work_queue (id, unit_kind, unit_id, cohort_id, stage, priority, state)
        VALUES ('wq1','event','ev1','co1','enrich',90,'ready')`);
-  run(`INSERT INTO coverage (scope_kind, scope_id, horizon, total_units, done_units)
+  run(`INSERT INTO coverage_progress (scope_kind, scope_id, horizon, total_units, done_units)
        VALUES ('stream','st1','h24',10,3)`);
 
   run(`INSERT INTO sessions (id, stream_id, source_id, started_at, ended_at, tz, status, seal_mode,

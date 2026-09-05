@@ -27,6 +27,7 @@ import { CONTENT_ECONOMY } from "./migrations/0102_content_economy.js";
 import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
 import { T3_GRADUATION } from "./migrations/0107_t3_graduation.js";
 import { PRUNE_SOURCES } from "./migrations/0108_prune_sources.js";
+import { V6_CORE } from "./migrations/0200_v6_core.js";
 
 export interface Migration {
   id: string;
@@ -961,4 +962,10 @@ export const MIGRATIONS: Migration[] = [
   // V6 P1 S0.5 (Build §2.3, T4-13): drop the dead consent-shaped columns
   // sources.connected_at / sources.enabled — zero readers, zero writers.
   { id: "0108_prune_sources", sql: PRUNE_SOURCES },
+  // V6 P1 S1.1 (Build §4.1, Product_V6 §23.1): consents, the narrow zlib
+  // archive, explicit episode membership, bundle attempts / dead letter,
+  // content-addressed blobs, coverage as source × date range × status (the
+  // V2 progress meter moves to `coverage_progress`), and the envelope's
+  // `consent_id` + `tier` columns on `events`.
+  { id: "0200_v6_core", sql: V6_CORE },
 ];

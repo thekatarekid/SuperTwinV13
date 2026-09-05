@@ -1331,6 +1331,7 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
       "idx_events_actor",
       "idx_events_actor_entity",
       "idx_events_channel_compat",
+      "idx_events_consent",
       "idx_events_content_hash",
       "idx_events_desc_status",
       "idx_events_enrichment",

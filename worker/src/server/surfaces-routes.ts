@@ -106,7 +106,7 @@ function estimateRemainingMinutes(): number | null {
     .prepare(
       `SELECT SUM(done_units) AS done, SUM(total_units) AS total,
               MIN(updated_at) AS first_at, MAX(updated_at) AS last_at
-         FROM coverage WHERE scope_kind = ? AND scope_id = ?`,
+         FROM coverage_progress WHERE scope_kind = ? AND scope_id = ?`,
     )
     .get(COVERAGE_SCOPE.kind, COVERAGE_SCOPE.id) as
     | { done: number | null; total: number | null; first_at: string | null; last_at: string | null }

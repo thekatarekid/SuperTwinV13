@@ -3,7 +3,9 @@
 // 3 and 5; build item 1.8.
 //
 // Two tables, one file, because they are the same guarantee seen from two
-// sides: `work_queue` is what is left to do and `coverage` is what has been
+// sides: `work_queue` is what is left to do and `coverage_progress` (the table
+// named `coverage` until 0200_v6_core took that name for the source × date
+// range index) is what has been
 // done, and a transition that writes one without the other is a progress bar
 // that lies.
 //
@@ -420,7 +422,7 @@ export function writeCoverage(write: CoverageWrite): CoverageOutcome {
   const before = db
     .prepare(
       `SELECT total_units AS total, done_units AS done
-         FROM coverage WHERE scope_kind = ? AND scope_id = ? AND horizon = ?`,
+         FROM coverage_progress WHERE scope_kind = ? AND scope_id = ? AND horizon = ?`,
     )
     .get(write.scopeKind, write.scopeId, write.horizon) as { total: number; done: number } | undefined;
 
@@ -432,7 +434,7 @@ export function writeCoverage(write: CoverageWrite): CoverageOutcome {
   const regressionRefused = write.doneUnits < priorDone || write.totalUnits < priorTotal;
 
   db.prepare(
-    `INSERT INTO coverage (scope_kind, scope_id, horizon, total_units, done_units, updated_at)
+    `INSERT INTO coverage_progress (scope_kind, scope_id, horizon, total_units, done_units, updated_at)
      VALUES (@scopeKind, @scopeId, @horizon, @total, @done, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
      ON CONFLICT(scope_kind, scope_id, horizon) DO UPDATE SET
        total_units = excluded.total_units,
@@ -455,7 +457,7 @@ export function readCoverage(scopeKind: CoverageScope, scopeId: string): Coverag
   const rows = getDb()
     .prepare(
       `SELECT horizon, total_units AS total, done_units AS done
-         FROM coverage WHERE scope_kind = ? AND scope_id = ?`,
+         FROM coverage_progress WHERE scope_kind = ? AND scope_id = ?`,
     )
     .all(scopeKind, scopeId) as { horizon: string; total: number; done: number }[];
   return rows.map((row) => ({

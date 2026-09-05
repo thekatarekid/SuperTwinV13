@@ -460,10 +460,13 @@ describe("RET-02 — latency bound", () => {
     corpus = await buildCorpus({ n: N, q: 40, dim: DIM, perChunk: 45, model: MODEL, seed: 202, vocab: 5000 });
   }, 600_000);
 
+  // Deleting 300 k events (and their chunks/embeddings) under a loaded full-suite
+  // run exceeds vitest's 10 s default hook timeout; the build hook above already
+  // carries its own budget, so give the teardown one too.
   afterAll(() => {
     const db = getDb();
     db.exec(`DELETE FROM chunk_embeddings; DELETE FROM chunks; DELETE FROM event_embeddings; DELETE FROM events;`);
-  });
+  }, 120_000);
 
   it(`query p50 ≤ 50 ms over ${N.toLocaleString("en-US")} vectors, every query bounded`, async () => {
     setEmbedder(fixtureEmbedder(MODEL, DIM, new Map(corpus.queries.map((q) => [q.text, q.centre]))));

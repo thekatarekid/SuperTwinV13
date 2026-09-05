@@ -24,6 +24,18 @@ Builds `SuperTwinV13_Product_V6_Phase1.md` on top of the current V13 tree (HEAD 
 | 11 | [Backlog traceability](#11-backlog-traceability) |
 | 12 | [Parallelization plan](#12-parallelization-plan) |
 
+## 0. Build status
+
+| Stage | Status | Release |
+|---|---|---|
+| S0 — Ground clearing and rails | ✅ done 2026-09-06 | 13.5.1 · `releases/SuperTwinV13_V6P1S0_13.5.1.dmg` |
+| S1 — Consent, archive, adapters | ○ pending | — |
+| S2 — Index and T0 retrieval | ○ pending | — |
+| S3 — Understanding core | ○ pending | — |
+| S4 — Live path, executor-lite, assist | ○ pending | — |
+| S5 — World model surfaces and the bar | ○ pending | — |
+| S6 — Graduation | ○ pending | — |
+
 ---
 
 ## 1. Conventions
@@ -101,17 +113,19 @@ Every module gets one verdict before any code is written.
 
 ## 3. Stage 0 — Ground clearing and rails
 
+**STATUS:** ✅ done 13.5.1 (2026-09-06) — all ten tasks landed, gates verified (SPD-04 partial pending T1-3; TRC-03 red by design until S3). Detail in `progressV13_V6_Phase1.md`.
+
 > **Goal.** The tree is safe, clean and empty. **No new design lands here.**
 > **Backlog.** T0-1..15, T1-1/2, T8-1..3.
 
 ### 3.1 SERIAL
 
-#### S0.1 — Freeze the baseline
+#### S0.1 — Freeze the baseline ✅ `9ec9d1c` — recorded; TIM-04 fail and SCH 63% are the tree's truth
 
 - **Change.** Run the V2 golden suite once on the current tree. Store per-category scores in `evals/baseline/v13.json`.
 - **Accept.** `npm run eval -- --baseline` prints it.
 
-#### S0.2 — Spend and process rails
+#### S0.2 — Spend and process rails ✅ `92567f5`
 
 - **Budget.** New `worker/src/providers/budget.ts`, enforced after `assertTraceContext` in `providers/claude-local/index.ts`.
   - Ceilings: $3/hour, $15/day, 400 calls/hour, 3,000 calls/day.
@@ -124,7 +138,7 @@ Every module gets one verdict before any code is written.
 - **Tests.** SPD-01, SPD-02; `npm run worker` writes to temp and exits; a bare boot against `~/SuperTwinV13` exits non-zero; the app token boots.
 - **Accept.** `lsof -i:8013` empty after the run.
 
-#### S0.3 — Disarm the old dispatcher (temporary until S3)
+#### S0.3 — Disarm the old dispatcher (temporary until S3) ✅ `bfae619`
 
 - **Change.**
   - Cap `admittedOrphans` at `cfg.slots - slotted.length` — `scheduler/dispatch.ts:626-635`.
@@ -133,46 +147,46 @@ Every module gets one verdict before any code is written.
 - **Tests.** BND-08..10 against the old dispatcher.
 - **Note.** This code dies in S3. It exists so the tree is safe until then.
 
-#### S0.4 — Transport stage 1+2
+#### S0.4 — Transport stage 1+2 ⚠️ `5aa7201` — landed; SPD-04 cost $0.0068 > $0.006 target, pending T1-3
 
 - **Where.** `providers/claude-local/index.ts`.
 - **Change.** `CLAUDE_CODE_PROMPT_CACHE_TTL=5m`; remove the double prompt send at `:184-191`; add `--no-session-persistence`, `--max-budget-usd`, `--safe-mode`, `--strict-mcp-config`.
 - **Tests.** argv snapshot; SPD-04 and SPD-05 on one live call.
 
-#### S0.5 — Prune
+#### S0.5 — Prune ✅ `f35b598` — no production dispatch path remains; S3 must wire `runDispatchTick`
 
 - **Change.** Delete everything marked delete in §2.3, plus the tests asserting it. Fill the `IMPORT_RANGES` gaps (`3d`, `3y`, `4y`).
 - **Accept.** `tsc` clean, `npm test` green, `/api/health` boots on a scratch home.
 
-#### S0.6 — Remove the data
+#### S0.6 — Remove the data ✅ `d1ea9da` — db sha256 `e3458fb7…058e78`
 
 - **Change.** Copy `~/SuperTwinV13/supertwinv13.db` and `traces/` to `~/SuperTwinV13-incident-2026-08-29/`, record the hash in `progressV13.md`, delete the home.
 - **Accept.** Fresh home has zero events.
 
 ### 3.2 Lanes
 
-#### S0.7 [A] — Breaker, quota, waiters
+#### S0.7 [A] — Breaker, quota, waiters ✅ `ccf652b` + `e2c393b`
 
 - `brain/llm.ts` calls `pool.noteSuccess` / `pool.noteFailure`; 10 consecutive failures pause a lane and raise a banner.
 - `logRun` calls `db.addUsage`.
 - `pool.ts` caps waiters at 4× capacity and exposes `waiting` on `/api/ops`.
 - **Tests.** SPD-07, SPD-08, BND-12.
 
-#### S0.8 [B] — Kill switch and heartbeat
+#### S0.8 [B] — Kill switch and heartbeat ✅ `45cc1a2`
 
 - `app_state.model_activity_paused` checked beside the budget.
 - "Stop all model activity" in `GeneralPanel.tsx`; `/api/ops/lanes/pause` binding in `src/lib/api.ts`; drop `MAX_MANUAL_PAUSE_MS`.
 - `[spend] 60s: …` heartbeat in the operator log.
 - **Tests.** SPD-03, SPD-06.
 
-#### S0.9 [C] — Ledger hygiene
+#### S0.9 [C] — Ledger hygiene ✅ `7def8ea`
 
 - Populate `runs.pass` and `runs.origin` at insert.
 - Write the trace row in the same transaction as `extraction_runs`.
 - Route `digest-pass.ts:142`, `grounded/handlers.ts:170` and `media/describe.ts:600,711` through the pool.
 - **Tests.** No NULL `pass`; `runs` count equals `traces` count.
 
-#### S0.10 [D] — Latent loops
+#### S0.10 [D] — Latent loops ✅ `1185e12`
 
 - `whatsapp/adapter.ts` `cleanRestart()` gets backoff and a give-up threshold.
 - The assist accumulator loop dies with `assist/` in S4; until then, reset it on every exit path.
@@ -181,6 +195,7 @@ Every module gets one verdict before any code is written.
 
 - **Release.** `V6P1S0_13.5.x`
 - **Gates.** Baseline file present · SPD-01..08 · BND-08..10, BND-12 · TRC-01..03
+- **Verified 2026-09-06:** baseline ✅ · SPD-01..03/05..08 ✅, SPD-04 ⚠️ partial (T1-3) · BND-08..10/12 ✅ · TRC-01/02 ✅, TRC-03 ✗ expected (pass_liveness 17%, no background pipeline until S3).
 
 ---
 
@@ -579,16 +594,16 @@ All six lanes run in parallel.
 
 ## 10. Cross-stage release checklist
 
-- [ ] `trace_coverage = 100%` and `pass_liveness = 100%`
-- [ ] SPD-01..08 · BND-08..12 · CNS-01..09
+- [ ] `trace_coverage = 100%` and `pass_liveness = 100%` — _S0: trace_coverage 100% ✅; pass_liveness 17%, red until S3_
+- [ ] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; BND-11 and CNS land in S1+_
 - [ ] ORIENT golden ≥ `evals/baseline/v13.json`
 - [ ] `false_receiver_assignment = 0` · `guess_rate = 0` · `risky_without_token = 0` · `login_automation = 0`
 - [ ] `assist_from_history = 0` · `nudge_without_grounding = 0` · `content_gated_call = 0`
 - [ ] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0`
 - [ ] `injection_acted = 0` · `fabricated_evidence = 0` · `clock_only_call = 0`
 - [ ] Pack size under 16,000 chars on the 104-space fixture
-- [ ] `lsof -i:8013` empty after the full test run
-- [ ] DMG recorded in `RELEASES.md`
+- [x] `lsof -i:8013` empty after the full test run — _S0 ✅_
+- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅_
 
 ---
 

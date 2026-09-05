@@ -34,3 +34,4 @@ Nothing here is ever removed.
 | 13.4.6 | — | no artifact — fix bump |
 | 13.4.7 | 992 MB | `f31d40dc3a71ee653e425c292c3bc256afd6131145af07a601312e4f8c1ecc1d` |
 | 13.5.1 | 991 MB | `6f428557c796029f2680aa8a164773b5aa2247f547f9843d33d0d0daabaf456f` |
+| 13.6.1 | 991 MB | `367a457c4bf43b9246300f41b75d6fb18ade1c8077e35540bad4e142ea0a562f` |

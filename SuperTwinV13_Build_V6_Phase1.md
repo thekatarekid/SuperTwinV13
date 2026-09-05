@@ -29,7 +29,7 @@ Builds `SuperTwinV13_Product_V6_Phase1.md` on top of the current V13 tree (HEAD 
 | Stage | Status | Release |
 |---|---|---|
 | S0 — Ground clearing and rails | ✅ done 2026-09-06 | 13.5.1 · `releases/SuperTwinV13_V6P1S0_13.5.1.dmg` |
-| S1 — Consent, archive, adapters | ○ pending | — |
+| S1 — Consent, archive, adapters | ✅ done 2026-09-06 | 13.6.1 · `releases/SuperTwinV13_V6P1S1_13.6.1.dmg` |
 | S2 — Index and T0 retrieval | ○ pending | — |
 | S3 — Understanding core | ○ pending | — |
 | S4 — Live path, executor-lite, assist | ○ pending | — |
@@ -201,12 +201,14 @@ Every module gets one verdict before any code is written.
 
 ## 4. Stage 1 — Consent, archive, adapters
 
+**STATUS:** ✅ done 13.6.1 (2026-09-06) — all eight tasks landed; gates verified (CNS-01..09, SRC-01..04/09/10 green as deterministic suites, containment 100% on the BND-01 mock import, 0 live calls). Detail in `progressV13_V6_Phase1.md`.
+
 > **Goal.** Nothing captured before yes. Everything consented to is indexed. Only the window is understood. Screen keeps what it captured.
 > **Backlog.** T4-1..14, T6-5..8, T6-12/13/16/17.
 
 ### 4.1 SERIAL
 
-#### S1.1 — Migration `0200_v6_core`
+#### S1.1 — Migration `0200_v6_core` ✅ `b1386fa` — V2 `coverage` renamed `coverage_progress`; `episode_events.event_id` added additively (range readers survive until S3.1)
 
 - **New tables.**
   - `consents` — source, state, granted_at, granted_build, scope_json, index_all, understand_from, decision_id, revoked_at
@@ -219,14 +221,14 @@ Every module gets one verdict before any code is written.
 - **Drop.** `sources.connected_at`, `sources.enabled`, `content_pending`.
 - **Test.** Migrate up on empty; round-trip.
 
-#### S1.2 — The consent gate
+#### S1.2 — The consent gate ✅ `785b1d4` — gate enforced unconditionally in production; legacy suites open it via `test-setup.ts`
 
 - **Where.** `db/eventlog.ts:229` and `db/ingest.ts:1396` — the two single-writer funnels.
 - **Change.** `captureAllowed(source)` at both. Tier predicate at write: outside Understand → `origin='archive'`, `dispatched_at=capture_ts`.
 - **Widening.** `UPDATE … SET dispatched_at=NULL, origin='backfill' WHERE ts>=?` — a replay, resumable, never a re-import.
 - **Tests.** CNS-01..04.
 
-#### S1.3 — Boot inversion
+#### S1.3 — Boot inversion ✅ `d9e2980` — `SourceSupervisor`; WhatsApp QR pairing is the one pre-consent spawn; `screenwatch --check-permission`
 
 - `worker/src/index.ts` starts an adapter only on a `connected` consent row.
 - Screen sidecar spawns after consent → Accessibility → explicit "Record from now on".
@@ -235,7 +237,7 @@ Every module gets one verdict before any code is written.
 
 ### 4.2 Lanes
 
-#### S1.4 [A] — Browser connect
+#### S1.4 [A] — Browser connect ✅ `c35d5fe` — SRC eval category (hand-authored) added; FDA deep link returned but not yet wired to `openExternal`
 
 - **Discovery.** `discoverProfiles()` enumerates every browser and every profile: Chrome, Brave, Arc, Edge, Comet, Safari.
 - **Counts.** Copy-then-read per window; plateau copy ("Chrome keeps 90 days"); Safari Full Disk Access message; local-path disclosure.
@@ -243,14 +245,14 @@ Every module gets one verdict before any code is written.
 - **URLs.** Param strip at emit in the `text` field only (extend `bridges/normalise.ts`; whitelist `path` on `*.localhost:7373`); raw URL on the payload; transition and `visit_count` on the payload; 30-second duplicate collapse at render.
 - **Tests.** SRC-01, SRC-02, SRC-10.
 
-#### S1.5 [B] — WhatsApp connect
+#### S1.5 [B] — WhatsApp connect ✅ `cfef719` — `count_range` in the Go daemon; live messages held until a window is installed; SRC-09 judge half waits on T6-17 (S3)
 
 - Flow: pair → buffer → `messagesInRange` counts → windows → confirm.
 - No live ingest between pairing and confirm.
 - Reply, reaction, forward, mention and audience carried on the envelope.
 - **Tests.** CNS-09, SRC-09.
 
-#### S1.6 [C] — Screen
+#### S1.6 [C] — Screen ✅ `8dfb719` — anchor + diff into `blobs`; new-chars floor lives in the sidecar Deduper
 
 - `envelope.ts:95` persists full text as anchor + diff into `blobs`.
 - `consumer.ts:44` sets `source`; identity (app · title · doc key) on the envelope.
@@ -260,7 +262,7 @@ Every module gets one verdict before any code is written.
 - Pause persisted in `app_state` and seeded at boot — `adapter.ts:171`.
 - **Tests.** SRC-03, SRC-04.
 
-#### S1.7 [D] — Filter, verbs, indicator
+#### S1.7 [D] — Filter, verbs, indicator ✅ `cdd466a` — `capture.paused_until` now read at the funnel (V13 pauses-nudges-only defect fixed); banking never-list is user-list driven
 
 - Never-list plus user lists (apps, sites, chats, senders) enforced at the funnel.
 - Private moment — 15 minutes, menu bar and hotkey.
@@ -270,7 +272,7 @@ Every module gets one verdict before any code is written.
 - Tray shows real capture state with one-click stop.
 - **Tests.** CNS-05..08.
 
-#### S1.8 [E] — Confirm card and Library
+#### S1.8 [E] — Confirm card and Library ✅ `9aa1b86` — `ConfirmCard` reachable via Library › Storage › Change windows; not yet embedded in the three connect flows; disk budgets stored, not enforced
 
 - Confirm card: four numbers with accuracy labels; text stored verbatim in `decisions`.
 - Library per source: two bars (searchable · understood), bytes per tier, free disk first, two disk budgets.
@@ -595,15 +597,15 @@ All six lanes run in parallel.
 ## 10. Cross-stage release checklist
 
 - [ ] `trace_coverage = 100%` and `pass_liveness = 100%` — _S0: trace_coverage 100% ✅; pass_liveness 17%, red until S3_
-- [ ] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; BND-11 and CNS land in S1+_
+- [ ] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); BND-11 pending_
 - [ ] ORIENT golden ≥ `evals/baseline/v13.json`
 - [ ] `false_receiver_assignment = 0` · `guess_rate = 0` · `risky_without_token = 0` · `login_automation = 0`
 - [ ] `assist_from_history = 0` · `nudge_without_grounding = 0` · `content_gated_call = 0`
 - [ ] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0`
 - [ ] `injection_acted = 0` · `fabricated_evidence = 0` · `clock_only_call = 0`
 - [ ] Pack size under 16,000 chars on the 104-space fixture
-- [x] `lsof -i:8013` empty after the full test run — _S0 ✅_
-- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅_
+- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅_
+- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅_
 
 ---
 

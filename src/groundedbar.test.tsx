@@ -31,7 +31,7 @@ function renderBar(overrides?: Partial<Parameters<typeof GroundedBar>[0]>) {
 describe("grounded bar", () => {
   it("② shows live results while typing (worker search, no model)", async () => {
     const stub = stubWorker();
-    stub.routes.set("/api/bar/search", {
+    stub.routes.set("/api/bar/typeahead",{
       events: [{ id: "e1", ts: null, actor: "Rohan", chat: "Goa gang", snippet: "pool villa" }],
       spaces: [{ id: "sp_goa", label: "Goa trip" }],
     });
@@ -47,7 +47,7 @@ describe("grounded bar", () => {
 
   it("③ answer state: cited answer with tappable evidence chips → Timeline", async () => {
     const stub = stubWorker();
-    stub.routes.set("/api/bar/search", { events: [], spaces: [] });
+    stub.routes.set("/api/bar/typeahead",{ events: [], spaces: [] });
     stub.routes.set("/api/bar", {
       intent: "question",
       thread_id: "th1",
@@ -73,7 +73,7 @@ describe("grounded bar", () => {
 
   it("③ renders an inline webview card when the answer carries a URL", async () => {
     const stub = stubWorker();
-    stub.routes.set("/api/bar/search", { events: [], spaces: [] });
+    stub.routes.set("/api/bar/typeahead",{ events: [], spaces: [] });
     stub.routes.set("/api/bar", {
       intent: "question",
       thread_id: "th1",
@@ -94,7 +94,7 @@ describe("grounded bar", () => {
 
   it("④ acting: progress lines ride back and the created space/task link opens", async () => {
     const stub = stubWorker();
-    stub.routes.set("/api/bar/search", { events: [], spaces: [] });
+    stub.routes.set("/api/bar/typeahead",{ events: [], spaces: [] });
     stub.routes.set("/api/bar", {
       intent: "action",
       thread_id: "th1",
@@ -118,7 +118,7 @@ describe("grounded bar", () => {
 
   it("④ ask-once: one question, one-tap options, the answer posts the held parse", async () => {
     const stub = stubWorker();
-    stub.routes.set("/api/bar/search", { events: [], spaces: [] });
+    stub.routes.set("/api/bar/typeahead",{ events: [], spaces: [] });
     const pending = { verb: "create_task", title: "buy sunscreen", risky: false };
     stub.routes.set("/api/bar", {
       intent: "action",

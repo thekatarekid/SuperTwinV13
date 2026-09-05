@@ -17,7 +17,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  barSearch,
   fetchBarThread,
   fetchBarThreads,
   postBar,
@@ -25,10 +24,11 @@ import {
   type BarActionView,
   type BarCitationView,
   type BarResponse,
-  type BarSearchView,
   type BarThreadSummaryView,
   type TargetKind,
+  type TypeaheadView,
 } from "../lib/api";
+import { useTypeahead } from "../lib/useTypeahead";
 
 export interface BarLock {
   kind: TargetKind;
@@ -84,13 +84,12 @@ export function GroundedBar(props: {
   const [focused, setFocused] = useState(false);
   const [chipDismissed, setChipDismissed] = useState<string | null>(null);
   const [view, setView] = useState<BarView>("input");
-  const [live, setLive] = useState<BarSearchView | null>(null);
+  const [live, setLive] = useState<TypeaheadView | null>(null);
   const [messages, setMessages] = useState<BarMessage[]>([]);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<BarThreadSummaryView[]>([]);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const liveSeq = useRef(0);
 
   // The idle chip: bar focused but EMPTY, no lock, a fresh nudge exists and
   // typing hasn't silently dismissed it.
@@ -153,19 +152,13 @@ export function GroundedBar(props: {
     }
   }
 
-  /** Live results while typing (state ② — retrieval only, no model). */
-  function refreshLive(value: string): void {
-    const seq = ++liveSeq.current;
-    if (value.trim() === "") {
-      setLive(null);
-      return;
-    }
-    void barSearch(value)
-      .then((results) => {
-        if (liveSeq.current === seq) setLive(results);
-      })
-      .catch(() => {});
-  }
+  // Live results while typing (state ② — T0 type-ahead, S2.7, no model). The
+  // hook debounces and sequences (latest wins); the bar only shows what it
+  // returns. Locked or in history, the bar is not searching.
+  const typeahead = useTypeahead(view === "input" && !props.lock ? text : "");
+  useEffect(() => {
+    if (typeahead.result) setLive(typeahead.result);
+  }, [typeahead.result]);
 
   function absorb(response: BarResponse, submitted: string): void {
     setThreadId(response.thread_id);
@@ -401,7 +394,7 @@ export function GroundedBar(props: {
             ))}
             {live.spaces.map((s) => (
               <button
-                key={s.id}
+                key={s.chapter_id ? `${s.id}/${s.chapter_id}` : s.id}
                 type="button"
                 className="bar-live-row"
                 onClick={() => props.onOpenSpace?.(s.id)}
@@ -409,9 +402,42 @@ export function GroundedBar(props: {
                 ▸ {s.label} (space)
               </button>
             ))}
-            {live.events.length === 0 && live.spaces.length === 0 && (
-              <p className="empty">no matches</p>
-            )}
+            {(live.episodes ?? []).slice(0, 3).map((ep) => (
+              <button
+                key={ep.id}
+                type="button"
+                className="bar-live-row"
+                onClick={() => ep.space_id && props.onOpenSpace?.(ep.space_id)}
+              >
+                ▸ {ep.summary} (episode)
+              </button>
+            ))}
+            {(live.tasks ?? []).slice(0, 3).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="bar-live-row"
+                onClick={() => props.onOpenTask?.(t.id)}
+              >
+                ▸ {t.title} (task · {t.status})
+              </button>
+            ))}
+            {(live.people ?? []).slice(0, 3).map((p) => (
+              <div key={p.id} className="bar-live-row">
+                ▸ {p.name} (person)
+              </div>
+            ))}
+            {(live.claims ?? []).slice(0, 3).map((c) => (
+              <div key={c.claim_key} className="bar-live-row">
+                ▸ {c.text} (claim)
+              </div>
+            ))}
+            {live.events.length === 0 &&
+              live.spaces.length === 0 &&
+              !live.episodes?.length &&
+              !live.tasks?.length &&
+              !live.people?.length &&
+              !live.claims?.length && <p className="empty">no matches</p>}
           </div>
         )}
 
@@ -436,7 +462,9 @@ export function GroundedBar(props: {
                 props.onNudgeTyped?.(chip);
               }
               setText(e.target.value);
-              if (!props.lock && view !== "history") refreshLive(e.target.value);
+              // Clearing the field clears the live box at once; the type-ahead
+              // hook fills it again as soon as there is text.
+              if (e.target.value.trim() === "") setLive(null);
             }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {

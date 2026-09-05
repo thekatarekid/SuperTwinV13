@@ -56,6 +56,7 @@ import { noteUserReply } from "../categories/promotion.js";
 import { ensureEntityForActor } from "../entities/from-ingest.js";
 import { enqueueLiveMedia } from "../media/queue.js";
 import { consumeApprovalToken } from "../approvals/tokens.js";
+import { noteCapturedDeferred, setHistoryFloorForRange } from "../coverage/index.js";
 import { HistoryHealth } from "./history-health.js";
 
 /** Live-ingest nudge debounce (Rev 2 §R2.2): coalesce bursts into one frame. */
@@ -382,6 +383,21 @@ export class Ingestion {
     this.importRangeValue = range;
     appStateSet(importDoneKey(this.sourceId), "true");
     appStateSet(importRangeKey(this.sourceId), range);
+    this.noteHistoryFloor(range);
+  }
+
+  /**
+   * Coverage index (S2.7): the chosen import range is the adapter's statement
+   * of what was never captured — "nothing before <cutoff>" — so an answer can
+   * say "I only have WhatsApp back to Jan 2024" instead of guessing. Best
+   * effort: coverage bookkeeping never fails an import.
+   */
+  private noteHistoryFloor(range: Range): void {
+    try {
+      setHistoryFloorForRange(this.sourceId, range);
+    } catch (err) {
+      console.warn(`[ingest] coverage floor note failed (continuing): ${(err as Error).message}`);
+    }
   }
 
   /**
@@ -691,6 +707,10 @@ export class Ingestion {
 
     if (res.inserted) {
       this.stats.eventsInserted += 1;
+      // Coverage index (S2.7): one day row per (source, day), buffered and
+      // flushed on a short timer so a 100k-message import costs one upsert per
+      // day, not one per message.
+      noteCapturedDeferred(this.sourceId, e.ts);
       // The two cursors move in opposite directions and never touch: a history
       // page lowers the floor, a live message lifts the head (db/watermarks).
       noteIngestedEvent(streamId, e.ts, {
@@ -788,6 +808,7 @@ export class Ingestion {
     // mid-import must come back as "still importing", never as "done".
     this.importRangeValue = range;
     appStateSet(importRangeKey(this.sourceId), range);
+    this.noteHistoryFloor(range);
   }
 
   /**
@@ -825,6 +846,7 @@ export class Ingestion {
   async extend(range: Range): Promise<void> {
     this.health.startExtend(range);
     await this.adapter.extend(range);
+    this.noteHistoryFloor(range);
   }
 
 

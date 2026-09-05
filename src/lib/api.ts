@@ -678,6 +678,48 @@ export interface BarSearchView {
 export const barSearch = (q: string): Promise<BarSearchView> =>
   request(`/api/bar/search?q=${encodeURIComponent(q)}`);
 
+/**
+ * T0 type-ahead (S2.7, Product_V6 §22 rule 1): what the twin already holds
+ * for a partial query — events, episodes, spaces (as `Space › Chapter`
+ * paths), tasks, people, claims — local, no model, under 150 ms. A superset
+ * of BarSearchView so the bar renders either.
+ */
+export interface TypeaheadView extends BarSearchView {
+  query?: string;
+  tokens?: string[];
+  /** Worker-measured wall clock of the lookup. */
+  took_ms?: number;
+  /** Always 0. */
+  model_calls?: number;
+  events: {
+    id: string;
+    ts: string | null;
+    actor: string | null;
+    chat: string | null;
+    snippet: string;
+    /** Layer-1 archive row — how an archive-only hit is cited (RET-04). */
+    archive_id?: string | null;
+    /** Kept and searchable, never sent to the model; carries no episode. */
+    searchable_only?: boolean;
+    episode_id?: string | null;
+  }[];
+  spaces: { id: string; label: string; chapter_id?: string | null }[];
+  episodes?: {
+    id: string;
+    summary: string;
+    space_id: string | null;
+    chapter_id: string | null;
+    state: string;
+    last_ts: string | null;
+  }[];
+  tasks?: { id: string; title: string; status: string; space_id: string | null }[];
+  people?: { id: string; name: string }[];
+  claims?: { claim_key: string; text: string; kind: string | null; subject_id: string | null }[];
+}
+
+export const barTypeahead = (q: string, limit?: number): Promise<TypeaheadView> =>
+  request(`/api/bar/typeahead?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ""}`);
+
 export interface BarCitationView {
   n: number;
   kind: "event";

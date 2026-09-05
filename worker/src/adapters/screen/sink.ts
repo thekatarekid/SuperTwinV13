@@ -7,6 +7,7 @@
 // ===========================================================================
 
 import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
+import { eventsHighWater, noteCapturedSince } from "../../coverage/index.js";
 
 export interface ScreenEventSink {
   /** Append idempotently (by contentHash). Returns rows actually written. */
@@ -50,8 +51,19 @@ export class ScreenEventlogSink implements ScreenEventSink {
     if (batch.length === 0) return 0;
     this.buffer = [];
     try {
+      const before = eventsHighWater();
       const r = appendEvents(batch);
       this.warned = false;
+      // Coverage index (S2.7): the adapter records which days it captured.
+      // Only rows the append actually wrote count — duplicates and gate-dropped
+      // envelopes wrote nothing. Never unwinds an append that committed.
+      if (r.inserted > 0) {
+        try {
+          noteCapturedSince(before);
+        } catch (err) {
+          this.log(`[screen] coverage note failed (continuing): ${(err as Error).message}`);
+        }
+      }
       return r.inserted;
     } catch (err) {
       if (!this.warned) {

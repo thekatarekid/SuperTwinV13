@@ -33,6 +33,7 @@ import {
   readThread,
 } from "../grounded/threads.js";
 import { parseActionOutput } from "../prompts/bar-action.v1.js";
+import { TYPEAHEAD_BUDGET_MS, typeahead } from "../retrieval/typeahead.js";
 
 // ---------------------------------------------------------------------------
 // Plumbing (same shape as every other route module)
@@ -269,6 +270,19 @@ export async function handleGroundedRoute(
 
   if (method === "GET" && path === "/api/timeline/days") {
     sendJson(res, 200, timelineDays());
+    return true;
+  }
+
+  // ---- Bar: T0 type-ahead (S2.7) — events, episodes, spaces, tasks, people,
+  // claims; SQLite only, no model, under 150 ms. `took_ms` rides on the body.
+  if (method === "GET" && path === "/api/bar/typeahead") {
+    const q = url.searchParams.get("q") ?? "";
+    const limitRaw = Number(url.searchParams.get("limit") ?? "");
+    const result = typeahead(q, Number.isFinite(limitRaw) && limitRaw > 0 ? { limit: limitRaw } : {});
+    if (result.took_ms > TYPEAHEAD_BUDGET_MS) {
+      console.warn(`[bar] type-ahead over budget: ${result.took_ms} ms > ${TYPEAHEAD_BUDGET_MS} ms for ${JSON.stringify(q)}`);
+    }
+    sendJson(res, 200, result);
     return true;
   }
 

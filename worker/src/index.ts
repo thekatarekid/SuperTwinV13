@@ -5,7 +5,8 @@
 //      (idempotent).
 //   2. register the claude-local provider (default) into the registry, and the
 //      one source adapter into the ADAPTER registry — its manifest is validated
-//      there, and an invalid manifest stops the boot.
+//      there, and an invalid manifest stops the boot. Adapters are STARTED only
+//      by the source supervisor, on a connected consent row (V6 S1.3).
 //   3. start the HTTP/SSE server, which prints exactly
 //      `WORKER_READY port=<port>` to stdout so Tauri + tests detect readiness.
 //      /api/health answers as soon as this line is printed.
@@ -26,6 +27,7 @@ import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
 import { Ingestion } from "./ingest/index.js";
 import { startBrowserWatcher, type BrowserWatcher } from "./adapters/browser/index.js";
 import { startScreenWatcher, type ScreenAdapter } from "./adapters/screen/index.js";
+import { setSourceSupervisor, SourceSupervisor } from "./adapters/supervisor.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
@@ -78,13 +80,19 @@ async function main(): Promise<void> {
   ensureLogsDir();
   teeConsole();
 
-  // ---- Sources. EXACTLY ONE adapter is registered: the manifest is validated
-  // first, and an invalid one is a BOOT ERROR — it throws out of
-  // registerSource() before anything is constructed.
+  // ---- Sources (V6 P1 S1.3 — the boot inversion, T4-3/T4-4/T4-8).
   //
-  // Ingestion itself stays resilient: if the daemon binary is missing (dev),
-  // the adapter surfaces an error status but the worker still boots + serves
-  // the API. SUPERTWIN_WHATSAPP_MOCK=1 passes --mock through to the daemon.
+  // Nothing captured before yes. The adapters are CONSTRUCTED here so the HTTP
+  // surface can drive their connect flows, but none of them is STARTED unless
+  // its source has a live 'connected' consent row: no WhatsApp daemon, no
+  // browser history read, no screen sidecar on a fresh home (CNS-01). The
+  // funnel gate (db/consent-gate.ts, S1.2) is the second, independent line.
+  //
+  // WhatsApp: EXACTLY ONE adapter is registered; its manifest is validated
+  // first, and an invalid one is a BOOT ERROR — it throws out of
+  // registerSource() before anything is constructed. Ingestion wiring stays
+  // resilient: a missing daemon binary surfaces as status, never a boot
+  // failure. SUPERTWIN_WHATSAPP_MOCK=1 passes --mock through to the daemon.
   let ingestion: Ingestion | null = null;
   let adapter: WhatsAppAdapter | null = null;
   const registered = registerSource({
@@ -104,38 +112,64 @@ async function main(): Promise<void> {
       log: (line) => console.error(line),
     });
     ingestion.start();
-    // connect() spawns the daemon; a spawn failure is surfaced as status, not a
-    // throw, so we don't guard the await beyond the outer try/catch.
-    await adapter.connect();
+    // NOT adapter.connect() — the supervisor below spawns the daemon only on
+    // a connected consent row, or on demand for QR pairing (POST …/pair).
   } catch (err) {
     console.error("[worker] whatsapp ingestion init failed (continuing):", err);
     ingestion = null;
     adapter = null;
   }
 
-  // ---- Browser watcher (P0.8): Chrome/Safari/Arc history + bookmarks into
-  // v13 `browser.visit` / `browser.bookmark` events via the single-writer
-  // append path (db/eventlog.ts, P0.4). Fully guarded: a machine with no
-  // profiles, or a throwing append, degrades to an idle watcher / buffered
-  // sink — never a boot failure.
+  // Browser (P0.8): Chrome/Safari/Arc history + bookmarks into `browser.visit`
+  // / `browser.bookmark` via the single-writer. Started only under consent; the
+  // import floor is the consent row's INDEX window (sinceMs is REQUIRED — the
+  // 90-day default is gone, T4-4). Screen (P2.1): the screenwatch sidecar,
+  // started only under consent AND after the explicit "Record from now on"
+  // (app_state screen.record_from, POST /api/screen/record). Each driver is
+  // guarded: a start failure is a logged skip, never a boot failure.
   let browserWatcher: BrowserWatcher | null = null;
-  try {
-    browserWatcher = startBrowserWatcher({ log: (line) => console.error(line) });
-  } catch (err) {
-    console.error("[worker] browser watcher init failed (continuing):", err);
-  }
-
-  // ---- Screen watcher (P2.1): the screenwatch Swift sidecar (AX capture,
-  // privacy IN the sidecar per spec §4.3) supervised into `screen.snapshot`
-  // events via the single-writer. Guarded the same way as the browser watcher:
-  // a missing binary or denied Accessibility permission degrades to a status
-  // the UI can surface (/api/screen/status) — never a boot failure.
-  // SUPERTWIN_SCREENWATCH_MOCK=1 passes --mock through to the sidecar.
   let screenWatcher: ScreenAdapter | null = null;
+  const supervisor = new SourceSupervisor({
+    log: (line) => console.error(line),
+    drivers: {
+      whatsapp: {
+        start: async () => {
+          if (!adapter) throw new Error("whatsapp adapter unavailable");
+          await adapter.connect();
+        },
+        stop: async () => {
+          if (adapter) await adapter.disconnect();
+        },
+      },
+      browser: {
+        start: (ctx) => {
+          browserWatcher = startBrowserWatcher({ sinceMs: ctx.sinceMs, log: (line) => console.error(line) });
+        },
+        stop: () => {
+          browserWatcher?.stop();
+          browserWatcher = null;
+        },
+      },
+      screen: {
+        start: () => {
+          screenWatcher = startScreenWatcher({ log: (line) => console.error(line) });
+        },
+        stop: async () => {
+          if (screenWatcher) await screenWatcher.disconnect();
+          screenWatcher = null;
+        },
+      },
+    },
+  });
+  setSourceSupervisor(supervisor);
   try {
-    screenWatcher = startScreenWatcher({ log: (line) => console.error(line) });
+    const boot = await supervisor.startConsented();
+    console.error(
+      `[worker] sources: started [${boot.started.join(", ")}]` +
+        `${boot.skipped.length > 0 ? ` skipped ${boot.skipped.map((s) => `${s.source}:${s.reason}`).join(" ")}` : ""}`,
+    );
   } catch (err) {
-    console.error("[worker] screen watcher init failed (continuing):", err);
+    console.error("[worker] source supervisor failed (continuing):", err);
   }
 
   // ---- Tier backfill (P1.1, restored from V11 — §9.3 rule 4: tiering must
@@ -212,9 +246,9 @@ async function main(): Promise<void> {
       assistLane.stop();
       spendHeartbeat.stop();
       traceRetention.stop();
-      browserWatcher?.stop();
-      if (screenWatcher) await screenWatcher.disconnect();
-      if (adapter) await adapter.disconnect();
+      // Every adapter the supervisor started (and the pairing daemon, if any).
+      await supervisor.stopAll();
+      setSourceSupervisor(null);
       // ...then stop accepting connections and let sockets drain.
       await server.close();
     } finally {

@@ -8,12 +8,19 @@
 //   - --mock [--fixture <path>]: replay a JSON fixture through the REAL
 //     pipeline (privacy + dedup) with zero permissions, for CI and the Node
 //     adapter's tests.
+//   - --check-permission: print one frame
+//     {"t":"permission","granted":"true"|"false"} (AXIsProcessTrusted) and
+//     exit 0. Captures nothing, observes nothing. The worker's screen connect
+//     flow (V6 P1 S1.3 / T4-3, T4-8) probes Accessibility with this BEFORE the
+//     user's explicit "Record from now on", so the capturing sidecar is never
+//     spawned just to find out whether it may capture.
 //
 // stdin commands: {"cmd":"pause"} {"cmd":"resume"}
 //                 {"cmd":"pause_app","bundle_id":…} {"cmd":"resume_app",…}
 //                 {"cmd":"shutdown"}
 // ===========================================================================
 
+import ApplicationServices
 import Foundation
 import ScreenwatchCore
 
@@ -38,6 +45,7 @@ func emitOutput(_ out: PipelineOutput) {
 // ---- Args ------------------------------------------------------------------
 
 var mockMode = ProcessInfo.processInfo.environment["SUPERTWIN_SCREENWATCH_MOCK"] == "1"
+var checkPermissionOnly = false
 var fixturePath: String? = nil
 var heartbeatS: Double = 60
 var idleS: Double = 120
@@ -47,12 +55,23 @@ while !args.isEmpty {
     let a = args.removeFirst()
     switch a {
     case "--mock": mockMode = true
+    case "--check-permission": checkPermissionOnly = true
     case "--fixture": fixturePath = args.isEmpty ? nil : args.removeFirst()
     case "--heartbeat-s": heartbeatS = Double(args.isEmpty ? "" : args.removeFirst()) ?? 60
     case "--idle-s": idleS = Double(args.isEmpty ? "" : args.removeFirst()) ?? 120
     case "--log-level": _ = args.isEmpty ? "" : args.removeFirst() // accepted for parity
     default: logErr("ignoring unknown flag \(a)")
     }
+}
+
+// ---- Permission probe (no capture, no run loop) ----------------------------
+
+if checkPermissionOnly {
+    // AXIsProcessTrusted() without the prompt option: report, never ask. The
+    // deep link to System Settings is the UI's job (screen-routes.ts).
+    let granted = AXIsProcessTrusted()
+    emit(Wire.statusLine(["t": "permission", "granted": granted ? "true" : "false"]))
+    exit(0)
 }
 
 // ---- Shared pipeline + command loop ---------------------------------------

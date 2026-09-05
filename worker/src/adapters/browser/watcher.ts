@@ -85,15 +85,36 @@ export interface BrowserWatcherOptions {
   profiles?: BrowserProfile[];
   /** Poll interval, ms (default 60s). */
   pollMs?: number;
-  /** Import floor: visits older than this are ignored (default: 90d back). */
-  sinceMs?: number;
+  /**
+   * Import floor (unix ms): visits older than this are ignored. REQUIRED
+   * (V6 P1 S1.3, T4-4): the pre-consent watcher defaulted this to "90 days
+   * back", which is how a fresh boot imported three months of history nobody
+   * had consented to. There is no default any more — the caller derives the
+   * floor from the source's consent row (adapters/supervisor.ts), and a
+   * missing or non-finite value throws at construction, not at first poll.
+   */
+  sinceMs: number;
   /** Cached-cheap-call hook for ambiguous domains (wired to tiers in P1). */
   ambiguousResolver?: AmbiguousResolver | null;
   log?: (line: string) => void;
   now?: () => number;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * The import floor is a hard precondition (T4-4). Type-level `sinceMs: number`
+ * stops the omission in TypeScript; this stops it for a JS caller, a spread of
+ * a Partial, or a NaN from `Date.parse` on a bad consent row. Exposed so the
+ * supervisor and the tests assert the same rule.
+ */
+export function requireSinceMs(sinceMs: unknown): number {
+  if (typeof sinceMs !== "number" || !Number.isFinite(sinceMs)) {
+    throw new TypeError(
+      "BrowserWatcher: sinceMs (import floor, unix ms) is required — derive it from the " +
+        "source's consent row; there is no 90-day default (V6 P1 S1.3 / T4-4)",
+    );
+  }
+  return sinceMs;
+}
 
 export class BrowserWatcher {
   private readonly sink: V13EventSink;
@@ -116,7 +137,7 @@ export class BrowserWatcher {
     this.log = opts.log ?? (() => {});
     this.now = opts.now ?? (() => Date.now());
     this.categorizer = new DomainCategorizer(opts.ambiguousResolver ?? null);
-    const floor = opts.sinceMs ?? this.now() - 90 * DAY_MS;
+    const floor = requireSinceMs(opts.sinceMs);
     for (const p of this.profiles) this.cursors.set(p.historyPath, floor);
   }
 

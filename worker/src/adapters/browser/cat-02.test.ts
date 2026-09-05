@@ -90,7 +90,7 @@ describe("CAT-02 · browser domain category", () => {
 
   it("end-to-end: watcher emits goibibo+HN as cat1 and KEEPS the tracker hops as cat2", () => {
     const sink = new MemorySink();
-    const w = new BrowserWatcher({ sink, profiles: [], now: () => NOW });
+    const w = new BrowserWatcher({ sink, profiles: [], sinceMs: 0, now: () => NOW });
     const events = w.visitEvents(cat02Visits(), bookmarked);
     const byDomain = new Map<string, BrowserVisitPayload[]>();
     for (const e of events) {

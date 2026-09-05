@@ -38,6 +38,7 @@ import { homedir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
 
 import { registeredSources } from "../adapters/registry.js";
+import { getSourceSupervisor } from "../adapters/supervisor.js";
 import { mintApprovalToken } from "../approvals/tokens.js";
 import { isRange, type StatusUpdate } from "../adapters/types.js";
 import type { Ingestion } from "../ingest/index.js";
@@ -187,6 +188,10 @@ export async function handleSourceRoute(
       // ---- POST pair
       case "POST pair": {
         if (!ingestion) return notReady(res);
+        // V6 S1.3: the daemon is no longer spawned at boot. Pairing is the one
+        // pre-consent spawn (the QR flow needs it); the funnel drops every
+        // frame until confirm grants the consent row (S1.2 / S1.5).
+        await getSourceSupervisor()?.ensureWhatsAppDaemon();
         await ingestion.pair();
         sendJson(res, 200, { ok: true });
         return true;

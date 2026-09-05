@@ -1,18 +1,35 @@
 // ===========================================================================
 // Screen source HTTP surface (build P2.1, spec §4.2.2 / §4.3 / §14.9).
 //
-//   GET  /api/screen/status      adapter + sidecar state (incl. permission)
+//   GET  /api/screen/status      adapter + sidecar state (incl. permission,
+//                                consent, recordFrom)
+//   GET  /api/screen/permission  Accessibility probe — no sidecar spawned
+//   POST /api/screen/record      the explicit "Record from now on" (V6 S1.3)
 //   POST /api/screen/pause       {paused}                 kill-switch
 //   POST /api/screen/pause-app   {bundle_id, paused}      per-app privacy pause
 //
 // The onboarding surface polls /status for `need_permission` and deep-links
 // the user to System Settings › Privacy & Security › Accessibility; the
 // Library privacy controls (P2.4) drive the pause endpoints.
+//
+// V6 P1 S1.3 (T4-3/T4-8): the sidecar is no longer running when this surface
+// comes up. It spawns only after consent → Accessibility → the explicit
+// "Record from now on": POST /record refuses without a connected consent row
+// (409 no-consent), refuses while Accessibility is denied (409
+// need_permission — the probe never spawns the capturing sidecar), and only
+// then writes app_state `screen.record_from` and starts the source.
 // ===========================================================================
 
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { getScreenAdapter } from "../adapters/screen/index.js";
+import { probeAccessibility } from "../adapters/screen/permission.js";
+import {
+  armScreenRecording,
+  getSourceSupervisor,
+  screenRecordFrom,
+} from "../adapters/supervisor.js";
+import { captureAllowed } from "../db/v6core.js";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -36,6 +53,23 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 export const ACCESSIBILITY_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
 
+/** consents lookup, tolerant of a test DB without the 0200 tables. */
+function safeCaptureAllowed(): boolean {
+  try {
+    return captureAllowed("screen");
+  } catch {
+    return false;
+  }
+}
+
+function safeRecordFrom(): string | null {
+  try {
+    return screenRecordFrom();
+  } catch {
+    return null;
+  }
+}
+
 export async function handleScreenRoute(
   req: IncomingMessage,
   res: ServerResponse,
@@ -45,12 +79,18 @@ export async function handleScreenRoute(
   if (!path.startsWith("/api/screen/")) return false;
 
   const adapter = getScreenAdapter();
+  const supervisor = getSourceSupervisor();
+  const running = supervisor ? supervisor.isRunning("screen") : adapter !== null;
 
   if (path === "/api/screen/status" && req.method === "GET") {
-    if (!adapter) {
+    const consent = safeCaptureAllowed();
+    const recordFrom = safeRecordFrom();
+    if (!adapter || !running) {
       sendJson(res, 200, {
         running: false,
         state: "not_started",
+        consent,
+        recordFrom,
         settingsUrl: ACCESSIBILITY_SETTINGS_URL,
       });
       return true;
@@ -58,7 +98,47 @@ export async function handleScreenRoute(
     sendJson(res, 200, {
       running: true,
       ...adapter.getStatus(),
+      consent,
+      recordFrom,
       settingsUrl: ACCESSIBILITY_SETTINGS_URL,
+    });
+    return true;
+  }
+
+  // ---- The Accessibility probe: answers without spawning the capturing sidecar.
+  if (path === "/api/screen/permission" && req.method === "GET") {
+    const probe = await probeAccessibility();
+    sendJson(res, 200, { ...probe, settingsUrl: ACCESSIBILITY_SETTINGS_URL });
+    return true;
+  }
+
+  // ---- "Record from now on" — the third and last gate before the sidecar.
+  if (path === "/api/screen/record" && req.method === "POST") {
+    if (!safeCaptureAllowed()) {
+      sendJson(res, 409, { error: "no-consent", message: "connect the screen source first (no connected consent row)" });
+      return true;
+    }
+    const probe = await probeAccessibility();
+    if (!probe.granted) {
+      sendJson(res, 409, {
+        error: "need_permission",
+        reason: probe.reason,
+        ...(probe.detail ? { detail: probe.detail } : {}),
+        settingsUrl: ACCESSIBILITY_SETTINGS_URL,
+      });
+      return true;
+    }
+    const from = armScreenRecording();
+    const outcome = supervisor ? await supervisor.start("screen") : null;
+    if (outcome && !outcome.started && outcome.reason !== "already-running") {
+      sendJson(res, 500, { error: "start-failed", reason: outcome.reason, detail: outcome.detail, recordFrom: from });
+      return true;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      recordFrom: from,
+      running: supervisor ? supervisor.isRunning("screen") : getScreenAdapter() !== null,
+      ...(getScreenAdapter()?.getStatus() ?? {}),
     });
     return true;
   }

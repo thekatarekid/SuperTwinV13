@@ -33,3 +33,6 @@ src-tauri/resources/
 # GitHub's 2 GB per-asset limit, and emphatically not something to keep one
 # copy of per version in git history.
 releases/*.dmg
+
+# Local tool state (freebuff project id)
+.freebuff/

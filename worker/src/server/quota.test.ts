@@ -15,6 +15,11 @@ import { join } from "node:path";
 // Env BEFORE imports (db module reads SUPERTWIN_DB_PATH lazily at first use).
 const tmpDir = mkdtempSync(join(tmpdir(), "st-quota-"));
 process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
+// The home too (rule §1.3.1): the chat route's grounded turns call ensureBrain()
+// and the trace store writes <home>/traces — both fell back to ~/SuperTwinV13
+// when only the DB path was sandboxed, recreating the production home from
+// inside vitest (S0-gate).
+process.env.SUPERTWIN_HOME = tmpDir;
 
 const db = await import("../db/index.js");
 const { register } = await import("../providers/index.js");

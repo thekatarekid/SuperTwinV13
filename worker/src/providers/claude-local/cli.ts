@@ -54,6 +54,13 @@ export const THINKING_BUDGET_TOKENS: Record<ThinkingBudget, number> = {
 };
 
 /**
+ * Prompt-cache TTL handed to every child as `CLAUDE_CODE_PROMPT_CACHE_TTL`
+ * (S0.4, T1-1). The CLI's default is the 1-hour tier at 2.0x; five minutes
+ * bills at 1.25x and outlives any single-turn call by a wide margin.
+ */
+export const PROMPT_CACHE_TTL = "5m";
+
+/**
  * The levels `claude --effort` accepts. "off" is deliberately absent: the CLI
  * has no "no effort" level, so a step set to off simply passes no flag (and
  * plain completion still pins MAX_THINKING_TOKENS to 0).
@@ -80,22 +87,6 @@ export function safeCwd(cwd?: string | null): string {
     }
   }
   return wanted;
-}
-
-/**
- * The instruction block is passed TWICE (arch §4.1.1): once as
- * `--append-system-prompt` and once as the head of stdin. The CLI exposes no
- * `--system-prompt` replace flag, and `--append-system-prompt` is dropped on a
- * resume — so putting the same block at the head of stdin is what guarantees
- * the model actually sees it. The prompt itself never goes on argv.
- */
-export function composeStdinMessage(
-  instructions: string | undefined,
-  message: string,
-): string {
-  const head = instructions?.trim();
-  if (!head) return message;
-  return `${head}\n\n${message}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +193,13 @@ export function buildChildEnv(
   } else if (plainCompletion) {
     env.MAX_THINKING_TOKENS = "0";
   }
+  // Transport stage 1 (S0.4, T1-1, SPD-05): the CLI writes its prompt cache
+  // at the 1-HOUR TTL by default, billed at 2.0x a fresh input token — and
+  // every call here is a fresh single-turn session, so those entries were
+  // written on every call and read back never. The 5-minute TTL bills at
+  // 1.25x. Always set, never inherited: a stray "1h" in the parent env would
+  // silently restore the 60% surcharge.
+  env.CLAUDE_CODE_PROMPT_CACHE_TTL = PROMPT_CACHE_TTL;
   return env;
 }
 
@@ -209,6 +207,21 @@ export function buildChildEnv(
  * Build the `claude` CLI argv for one invocation. Pure + exported so the
  * plain-completion flag combination can be asserted in unit tests without
  * spawning a process.
+ *
+ * TRANSPORT STAGE 1+2 (S0.4; backlog T1-1/T1-2; Product_V6_Phase1 §23.1),
+ * verified against `claude --help` 2.1.251 — every flag below exists:
+ *   --safe-mode              all customisations off: CLAUDE.md, skills,
+ *                            plugins, hooks, MCP servers, commands, agents.
+ *                            Built-in tools, auth, model selection unaffected.
+ *   --strict-mcp-config      only MCP servers from --mcp-config — and we pass
+ *                            none, so ZERO servers: the user's connector names
+ *                            stop shipping to the model on every call.
+ *   --max-budget-usd <n>     the per-call ceiling (Product §23.3 "per call").
+ *   --no-session-persistence nothing written to ~/.claude/projects for a call
+ *                            nobody will ever resume (every pipeline pass).
+ *                            Only on --print; incompatible with a later
+ *                            --resume, so chat opts out via persistSession.
+ * On every invocation, plain or not: the door is one door.
  */
 export function buildCliArgs(opts: {
   allowedTools: string[];
@@ -219,6 +232,14 @@ export function buildCliArgs(opts: {
   skipUserSettings?: boolean;
   model?: string;
   effort?: string;
+  /**
+   * Keep the session on disk so a later call can `--resume` it. Default: the
+   * inverse of plainCompletion — a bare pass never resumes; anything else
+   * (chat) keeps the behaviour it always had unless it says otherwise.
+   */
+  persistSession?: boolean;
+  /** Per-call spend ceiling → `--max-budget-usd`. Omitted/non-finite: no flag. */
+  maxBudgetUsd?: number;
 }): string[] {
   const {
     allowedTools,
@@ -229,6 +250,8 @@ export function buildCliArgs(opts: {
     skipUserSettings,
     model,
     effort,
+    persistSession,
+    maxBudgetUsd,
   } = opts;
   const cliArgs = [
     "--print",
@@ -236,6 +259,9 @@ export function buildCliArgs(opts: {
     "stream-json",
     "--verbose",
     "--include-partial-messages",
+    // Stage 2: no customisations, no MCP servers — see the doc comment.
+    "--safe-mode",
+    "--strict-mcp-config",
     // allowedTools takes one arg; empty string = no tools allowed. A bare
     // extraction call grants NOTHING regardless of what the caller passed —
     // agent calls (the one exception, §4.1.5) are not plainCompletion.
@@ -268,7 +294,19 @@ export function buildCliArgs(opts: {
   if (typeof effort === "string" && EFFORT_LEVELS.includes(effort)) {
     cliArgs.push("--effort", effort);
   }
+  // Stage 1: the per-call ceiling. Only a finite positive amount is a ceiling;
+  // anything else means the caller declined to set one.
+  if (typeof maxBudgetUsd === "number" && Number.isFinite(maxBudgetUsd) && maxBudgetUsd > 0) {
+    cliArgs.push("--max-budget-usd", String(maxBudgetUsd));
+  }
+  // Stage 1: do not persist a session nobody will resume. A resume names an
+  // existing on-disk session and must keep writing to it, so the flag is
+  // never combined with --resume.
+  const keepSession = persistSession ?? !plainCompletion;
+  if (!keepSession && !resumeId) cliArgs.push("--no-session-persistence");
   if (resumeId) cliArgs.push("--resume", resumeId);
+  // The instruction block goes on argv ONCE (T1-1). It used to be repeated at
+  // the head of stdin as well — the cache-miss half of the bill.
   if (appendSystemPrompt && appendSystemPrompt.length) {
     cliArgs.push("--append-system-prompt", appendSystemPrompt);
   }

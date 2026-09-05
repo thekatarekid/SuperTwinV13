@@ -145,9 +145,10 @@ describe("TRC-01 · a traced call leaves a complete trace", () => {
     expect(t.model).toBe("haiku");
     expect(t.prompt_version).toBe("v1-abc");
     expect(t.system_prompt).toBe(INSTRUCTIONS);
-    // plainCompletion passes the instruction block twice — the packed context
-    // is byte-what-the-model-saw on stdin: instructions + payload.
-    expect(t.packed_context).toBe(`${INSTRUCTIONS}\n\n${PAYLOAD}`);
+    // S0.4 (T1-1): the instruction block goes in ONCE, via
+    // --append-system-prompt (system_prompt above) — the packed context is
+    // byte-what-the-model-saw on stdin: the payload alone.
+    expect(t.packed_context).toBe(PAYLOAD);
     expect(t.raw_output).toBe(RAW);
     expect(t.parsed_result).toEqual({ records: [{ id: 1, ok: true }] });
     expect(t.repair_count).toBe(0);

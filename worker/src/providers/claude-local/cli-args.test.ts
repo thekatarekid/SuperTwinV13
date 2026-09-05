@@ -13,7 +13,7 @@ import { join } from "node:path";
 import {
   buildCliArgs,
   buildChildEnv,
-  composeStdinMessage,
+  PROMPT_CACHE_TTL,
   safeCwd,
   THINKING_BUDGET_TOKENS,
 } from "./index.js";
@@ -222,17 +222,149 @@ describe("safeCwd — never a TCC-protected directory (§4.1.4)", () => {
   });
 });
 
-describe("composeStdinMessage — the instruction block goes in twice", () => {
-  it("puts the instructions at the HEAD of stdin, above the payload", () => {
-    const out = composeStdinMessage("INSTRUCTIONS", "PAYLOAD");
-    expect(out.startsWith("INSTRUCTIONS")).toBe(true);
-    expect(out).toContain("PAYLOAD");
-    expect(out.indexOf("INSTRUCTIONS")).toBeLessThan(out.indexOf("PAYLOAD"));
+// ---------------------------------------------------------------------------
+// TRANSPORT STAGE 1+2 (build S0.4; backlog T1-1/T1-2; SPD-04/SPD-05).
+// The argv is snapshotted verbatim: a flag that goes missing, or a copy of the
+// prompt that sneaks back on, fails the diff rather than a sampled assertion.
+// Every flag below was verified against `claude --help` (2.1.251).
+// ---------------------------------------------------------------------------
+describe("buildCliArgs — transport stage 1+2 (S0.4) argv snapshot", () => {
+  it("a bare pass: one door, every flag, instruction block once", () => {
+    const args = buildCliArgs({
+      allowedTools: ["Read"], // must not survive
+      plainCompletion: true,
+      appendSystemPrompt: "INSTRUCTIONS",
+      model: "haiku",
+      maxBudgetUsd: 0.5,
+    });
+    expect(args).toMatchInlineSnapshot(`
+      [
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--safe-mode",
+        "--strict-mcp-config",
+        "--allowedTools",
+        "",
+        "--disallowedTools",
+        "Bash,Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Task,NotebookEdit,TodoWrite,BashOutput,KillShell",
+        "--setting-sources",
+        "",
+        "--model",
+        "haiku",
+        "--max-budget-usd",
+        "0.5",
+        "--no-session-persistence",
+        "--append-system-prompt",
+        "INSTRUCTIONS",
+        "--max-turns",
+        "1",
+      ]
+    `);
+    // SPD-04 wrong: `double-prompt` — the block appears exactly once on argv.
+    expect(args.filter((a) => a === "INSTRUCTIONS")).toHaveLength(1);
   });
 
-  it("passes the message through untouched when there is no block", () => {
-    expect(composeStdinMessage(undefined, "PAYLOAD")).toBe("PAYLOAD");
-    expect(composeStdinMessage("   ", "PAYLOAD")).toBe("PAYLOAD");
+  it("a fresh chat turn: same door, but the session is kept for --resume", () => {
+    const args = buildCliArgs({
+      allowedTools: [],
+      skipUserSettings: true,
+      appendSystemPrompt: "CHAT PROMPT",
+      maxBudgetUsd: 0.5,
+    });
+    expect(args).toMatchInlineSnapshot(`
+      [
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--safe-mode",
+        "--strict-mcp-config",
+        "--allowedTools",
+        "",
+        "--setting-sources",
+        "",
+        "--max-budget-usd",
+        "0.5",
+        "--append-system-prompt",
+        "CHAT PROMPT",
+      ]
+    `);
+  });
+
+  it("stage 2 flags are on EVERY invocation, plain or not, resume or not", () => {
+    for (const args of [
+      buildCliArgs({ allowedTools: [] }),
+      buildCliArgs({ allowedTools: ["Read"], maxTurns: 4 }),
+      buildCliArgs({ allowedTools: [], plainCompletion: true }),
+      buildCliArgs({ allowedTools: [], resumeId: "0f1e2d3c-4b5a-4978-8877-665544332211" }),
+    ]) {
+      expect(args).toContain("--safe-mode");
+      expect(args).toContain("--strict-mcp-config");
+      expect(args.filter((a) => a === "--safe-mode")).toHaveLength(1);
+    }
+  });
+
+  it("--no-session-persistence follows plainCompletion by default and persistSession when set", () => {
+    expect(buildCliArgs({ allowedTools: [], plainCompletion: true })).toContain(
+      "--no-session-persistence",
+    );
+    expect(buildCliArgs({ allowedTools: [] })).not.toContain("--no-session-persistence");
+    // An explicit answer wins in both directions.
+    expect(
+      buildCliArgs({ allowedTools: [], plainCompletion: true, persistSession: true }),
+    ).not.toContain("--no-session-persistence");
+    expect(buildCliArgs({ allowedTools: [], persistSession: false })).toContain(
+      "--no-session-persistence",
+    );
+  });
+
+  it("never combines --no-session-persistence with --resume", () => {
+    const args = buildCliArgs({
+      allowedTools: [],
+      persistSession: false,
+      resumeId: "0f1e2d3c-4b5a-4978-8877-665544332211",
+    });
+    expect(args).not.toContain("--no-session-persistence");
+    expect(argValue(args, "--resume")).toBe("0f1e2d3c-4b5a-4978-8877-665544332211");
+  });
+
+  it("passes --max-budget-usd only for a finite positive amount", () => {
+    expect(argValue(buildCliArgs({ allowedTools: [], maxBudgetUsd: 0.25 }), "--max-budget-usd")).toBe("0.25");
+    expect(buildCliArgs({ allowedTools: [] })).not.toContain("--max-budget-usd");
+    expect(buildCliArgs({ allowedTools: [], maxBudgetUsd: 0 })).not.toContain("--max-budget-usd");
+    expect(buildCliArgs({ allowedTools: [], maxBudgetUsd: Number.NaN })).not.toContain("--max-budget-usd");
+    expect(buildCliArgs({ allowedTools: [], maxBudgetUsd: -1 })).not.toContain("--max-budget-usd");
+  });
+
+  it("the prompt never goes on argv in any mode", () => {
+    for (const args of [
+      buildCliArgs({ allowedTools: [], plainCompletion: true, appendSystemPrompt: "SYS" }),
+      buildCliArgs({ allowedTools: [], appendSystemPrompt: "SYS" }),
+    ]) {
+      // The ONLY prompt-ish bytes allowed on argv are the system block, once.
+      expect(args.filter((a) => a === "SYS")).toHaveLength(1);
+      expect(args).not.toContain("--system-prompt");
+    }
+  });
+});
+
+describe("buildChildEnv — prompt cache TTL (S0.4, SPD-05)", () => {
+  it("pins CLAUDE_CODE_PROMPT_CACHE_TTL=5m in every mode", () => {
+    expect(PROMPT_CACHE_TTL).toBe("5m");
+    withEnv({ CLAUDE_CODE_PROMPT_CACHE_TTL: undefined }, () => {
+      expect(buildChildEnv("claude", true).CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+      expect(buildChildEnv("claude", false).CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+    });
+  });
+
+  it("overrides an inherited 1-hour setting — that is the 2.0x surcharge", () => {
+    withEnv({ CLAUDE_CODE_PROMPT_CACHE_TTL: "1h" }, () => {
+      expect(buildChildEnv("claude", false, "/tmp/x", "off").CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("5m");
+    });
   });
 });
 

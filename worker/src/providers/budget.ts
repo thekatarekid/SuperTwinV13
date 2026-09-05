@@ -36,6 +36,12 @@ import { isProductionDbPath } from "../home-guard.js";
 import { currentTraceMeta } from "../traces/context.js";
 
 export interface BudgetCeilings {
+  /**
+   * Per CALL, handed to the CLI as `--max-budget-usd` (S0.4, T1-1). Not a
+   * window: the CLI itself stops the run. A runaway guard an order of
+   * magnitude above the ≤ $0.006 target, never a working limit.
+   */
+  usdPerCall: number;
   usdPerHour: number;
   usdPerDay: number;
   callsPerHour: number;
@@ -44,6 +50,7 @@ export interface BudgetCeilings {
 
 /** Plan §3 S0.2. Env overrides exist for ops, never lower than zero. */
 export const DEFAULT_CEILINGS: Readonly<BudgetCeilings> = Object.freeze({
+  usdPerCall: 0.5,
   usdPerHour: 3,
   usdPerDay: 15,
   callsPerHour: 400,
@@ -125,6 +132,7 @@ function envNumber(name: string, fallback: number): number {
 /** The active ceilings: defaults, each overridable by SUPERTWIN_BUDGET_*. */
 export function budgetCeilings(): BudgetCeilings {
   return {
+    usdPerCall: envNumber("SUPERTWIN_BUDGET_USD_PER_CALL", DEFAULT_CEILINGS.usdPerCall),
     usdPerHour: envNumber("SUPERTWIN_BUDGET_USD_PER_HOUR", DEFAULT_CEILINGS.usdPerHour),
     usdPerDay: envNumber("SUPERTWIN_BUDGET_USD_PER_DAY", DEFAULT_CEILINGS.usdPerDay),
     callsPerHour: envNumber("SUPERTWIN_BUDGET_CALLS_PER_HOUR", DEFAULT_CEILINGS.callsPerHour),

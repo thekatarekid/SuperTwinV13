@@ -120,12 +120,18 @@ export interface SendOptions {
    */
   effort?: Exclude<ThinkingBudget, "off">;
   /**
-   * Pass the instruction block TWICE — once via `--append-system-prompt` and
-   * once as the head of stdin (§4.1.1). Defaults to `plainCompletion`, and is
-   * skipped on a resume (where the CLI drops --append-system-prompt anyway, so
-   * the session already carries the instructions).
+   * Keep the CLI session on disk so a later call can resume it (`sessionId`).
+   * Default: `!plainCompletion` — a pipeline pass is a fresh single turn that
+   * nobody resumes, so it runs with `--no-session-persistence` (S0.4, T1-1);
+   * chat keeps its sessions. Ignored on a resume, which always writes to the
+   * session it names.
    */
-  duplicateInstructions?: boolean;
+  persistSession?: boolean;
+  /**
+   * Per-call spend ceiling, passed as `--max-budget-usd`. Default: the
+   * `usdPerCall` ceiling in providers/budget.ts (Product §23.3 "per call").
+   */
+  maxBudgetUsd?: number;
   /** Per-run timeout in milliseconds. */
   timeoutMs?: number;
   /**

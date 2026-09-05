@@ -4,7 +4,8 @@
 // buildCliArgs/buildChildEnv are unit-tested next door; this file checks that
 // `send()` actually WIRES them — that an extraction call reaches the process
 // boundary with no user settings, no tools, one turn, no thinking, a safe cwd,
-// the prompt on stdin (never argv), and the instruction block passed TWICE.
+// the prompt on stdin (never argv), and the instruction block passed ONCE —
+// plus the stage 1+2 transport flags and the 5-minute cache TTL (S0.4).
 //
 // The fake CLI is a node script, deliberately not a shell script: a shell
 // repairs PWD itself and would mask what the child was really handed.
@@ -40,6 +41,7 @@ interface Probe {
   stdin: string;
   cwd: string;
   thinking: string | null;
+  cacheTtl: string | null;
 }
 
 beforeAll(() => {
@@ -57,6 +59,7 @@ beforeAll(() => {
       "    stdin,",
       "    cwd: process.cwd(),",
       "    thinking: process.env.MAX_THINKING_TOKENS ?? null,",
+      "    cacheTtl: process.env.CLAUDE_CODE_PROMPT_CACHE_TTL ?? null,",
       "  }));",
       "  process.exit(0);",
       "});",
@@ -73,6 +76,7 @@ beforeAll(() => {
   setEnv("ST_PROBE_OUT", probeOut);
   setEnv("HOME", stage);
   setEnv("MAX_THINKING_TOKENS", "31999"); // an inherited budget that must not leak
+  setEnv("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h"); // an inherited TTL that must not leak
   // This file asserts the TRANSPORT (argv/env/stdin shaping), not the trace
   // pipeline — TRC-01 enforcement is exercised in traces/trc-01.test.ts.
   setEnv("SUPERTWIN_TRACE_ENFORCE", "0");
@@ -117,11 +121,14 @@ describe("send() — an extraction call is a bare instrument", () => {
     expect(probe.thinking).toBe("0");
   });
 
-  it("passes the instruction block TWICE — flag and head of stdin", async () => {
+  it("passes the instruction block ONCE — the flag; stdin is the payload alone (SPD-04)", async () => {
     const probe = await sendBare();
     expect(argValue(probe.argv, "--append-system-prompt")).toBe(INSTRUCTIONS);
-    expect(probe.stdin.startsWith(INSTRUCTIONS)).toBe(true);
-    expect(probe.stdin).toContain(PAYLOAD);
+    // The wrong answer is `double-prompt`: the block was also the head of
+    // stdin until S0.4, so every call paid for it twice.
+    expect(probe.stdin).toBe(PAYLOAD);
+    expect(probe.stdin).not.toContain(INSTRUCTIONS);
+    expect(probe.argv.filter((a) => a === INSTRUCTIONS)).toHaveLength(1);
     // ...and there is no --system-prompt flag to invent.
     expect(probe.argv).not.toContain("--system-prompt");
   });
@@ -142,9 +149,19 @@ describe("send() — an extraction call is a bare instrument", () => {
     expect(probe.thinking).toBe("24576");
   });
 
-  it("can be told not to duplicate the block (chat keeps one copy)", async () => {
-    const probe = await sendBare({ duplicateInstructions: false });
-    expect(argValue(probe.argv, "--append-system-prompt")).toBe(INSTRUCTIONS);
-    expect(probe.stdin).toBe(PAYLOAD);
+  it("carries the stage 1+2 transport flags and the 5-minute cache TTL (S0.4)", async () => {
+    const probe = await sendBare();
+    expect(probe.argv).toContain("--safe-mode");
+    expect(probe.argv).toContain("--strict-mcp-config");
+    expect(probe.argv).toContain("--no-session-persistence");
+    // The configured per-call ceiling (providers/budget.ts usdPerCall).
+    expect(Number(argValue(probe.argv, "--max-budget-usd"))).toBeGreaterThan(0);
+    // SPD-05: a 1-hour inherited TTL is overridden, not passed through.
+    expect(probe.cacheTtl).toBe("5m");
+  });
+
+  it("honours a caller's per-call ceiling over the configured one", async () => {
+    const probe = await sendBare({ maxBudgetUsd: 0.05 });
+    expect(argValue(probe.argv, "--max-budget-usd")).toBe("0.05");
   });
 });

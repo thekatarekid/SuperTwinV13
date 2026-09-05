@@ -43,10 +43,23 @@
 //   --max-turns 1          one turn
 //   MAX_THINKING_TOKENS=0  no extended thinking (§4.3 ladder, default `off`)
 //   cwd = tmpdir()         never a TCC-protected directory (§4.1.4)
-// and the instruction block goes in TWICE — as --append-system-prompt (dropped
-// by the CLI on --resume) and as the head of stdin. All levers are required
+// and the instruction block goes in ONCE, as --append-system-prompt (a resume
+// carries it already, so it is dropped there). All levers are required
 // together: with only --allowedTools "" a ~35 KB prompt produced 62 runaway
 // thinking blocks, no text and no result, killed at the timeout.
+//
+// TRANSPORT STAGE 1+2 (build S0.4, backlog T1-1/T1-2) — on EVERY invocation:
+//   CLAUDE_CODE_PROMPT_CACHE_TTL=5m   cache writes at 1.25x, not the 2.0x
+//                                     1-hour tier (SPD-05: cache_create_1h=0)
+//   --safe-mode --strict-mcp-config   no customisations, zero MCP servers
+//   --max-budget-usd <usdPerCall>     the CLI stops a runaway call itself
+//   --no-session-persistence          for every non-persisted (pass) call
+// and the instruction block is sent ONCE (SPD-04 wrong: `double-prompt`). The
+// stdin copy that used to precede the payload was the cache-miss half of the
+// bill: it varied with the payload's neighbour and could never be a prefix hit.
+// Measured (claude 2.1.251, haiku): $0.0286 → $0.0068 per warm call, 1h
+// writes 0. The remaining gap to ≤ $0.006 is stage 3 (T1-3) — see
+// transport.integration.test.ts.
 //
 // POISON detection: a resume of a nonexistent/expired session exits 0 but emits
 // a result with is_error:true, num_turns:0, errors:["No conversation found..."]
@@ -74,7 +87,6 @@ import {
 import {
   buildChildEnv,
   buildCliArgs,
-  composeStdinMessage,
   isValidSessionId,
   resolveClaudeBin,
   safeCwd,
@@ -83,15 +95,15 @@ import {
   assertTraceContext,
   recordProviderInvocation,
 } from "../../traces/context.js";
-import { admitCall, recordCallCost } from "../budget.js";
+import { admitCall, budgetCeilings, recordCallCost } from "../budget.js";
 
 // The shaping half of the adapter lives in ./cli.ts; re-exported here so the
 // adapter stays one import for callers and tests.
 export {
   buildChildEnv,
   buildCliArgs,
-  composeStdinMessage,
   isValidSessionId,
+  PROMPT_CACHE_TTL,
   resolveClaudeBin,
   safeCwd,
   THINKING_BUDGET_TOKENS,
@@ -151,7 +163,8 @@ class ClaudeLocalProvider implements Provider {
       skipUserSettings = false,
       thinkingBudget,
       effort,
-      duplicateInstructions,
+      persistSession,
+      maxBudgetUsd,
       timeoutMs = DEFAULT_TIMEOUT_MS,
       model,
       onEvent,
@@ -184,13 +197,8 @@ class ClaudeLocalProvider implements Provider {
     const wantResume = isValidSessionId(sessionId);
     let freshFallback = false;
 
-    // The instruction block goes in twice on a fresh bare call — once as
-    // --append-system-prompt, once as the head of stdin (§4.1.1). A resume
-    // already carries it, and chat keeps the single copy it always had.
-    const twice = duplicateInstructions ?? plainCompletion;
-    const freshMessage = twice
-      ? composeStdinMessage(systemPrompt, message)
-      : message;
+    // The per-call ceiling (S0.4): the caller's, else the configured one.
+    const callBudgetUsd = maxBudgetUsd ?? budgetCeilings().usdPerCall;
 
     // Every CLI invocation records a trace (build P0.7): tap the delta stream
     // for the raw output, time the invocation, and hand the whole thing to the
@@ -238,7 +246,7 @@ class ClaudeLocalProvider implements Provider {
     // ---- Attempt 1: resume (if requested) or fresh.
     let attempt = await tracedRunOnce({
       runId,
-      message: wantResume ? message : freshMessage,
+      message,
       resumeId: wantResume ? (sessionId as string) : null,
       cwd: runCwd,
       allowedTools,
@@ -250,6 +258,8 @@ class ClaudeLocalProvider implements Provider {
       thinkingBudget,
       effort,
       model,
+      persistSession,
+      maxBudgetUsd: callBudgetUsd,
       timeoutMs,
       onEvent,
       signal,
@@ -269,7 +279,7 @@ class ClaudeLocalProvider implements Provider {
       const deadResumeSpend = attempt.usage;
       attempt = await tracedRunOnce({
         runId,
-        message: freshMessage,
+        message,
         resumeId: null,
         cwd: runCwd,
         allowedTools,
@@ -280,6 +290,8 @@ class ClaudeLocalProvider implements Provider {
         thinkingBudget,
         effort,
         model,
+        persistSession,
+        maxBudgetUsd: callBudgetUsd,
         timeoutMs,
         onEvent,
         signal,
@@ -312,6 +324,8 @@ class ClaudeLocalProvider implements Provider {
     thinkingBudget?: ThinkingBudget;
     effort?: Exclude<ThinkingBudget, "off">;
     model?: string;
+    persistSession?: boolean;
+    maxBudgetUsd?: number;
     timeoutMs: number;
     onEvent: (e: ProviderStreamEvent) => void;
     signal?: AbortSignal;
@@ -330,6 +344,8 @@ class ClaudeLocalProvider implements Provider {
       thinkingBudget,
       effort,
       model,
+      persistSession,
+      maxBudgetUsd,
       timeoutMs,
       onEvent,
       signal,
@@ -357,6 +373,8 @@ class ClaudeLocalProvider implements Provider {
         skipUserSettings,
         model,
         effort,
+        persistSession,
+        maxBudgetUsd,
       });
 
       let child: ChildProcessWithoutNullStreams;

@@ -37,7 +37,8 @@ import type { MediaDescStatus, MediaFrame, PendingMediaRow } from "../db/ingest.
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/index.js";
 import type { Provider, Usage } from "../providers/index.js";
 import { getSelectedModel } from "../db/settings.js";
-import { withTraceContext } from "../traces/context.js";
+import { resourcePool, type ResourcePool } from "../providers/pool.js";
+import { bindTraceContext, withTraceContext } from "../traces/context.js";
 import {
   DEFAULT_IMAGE_BATCH_SIZE,
   MAX_IMAGE_BATCH_SIZE,
@@ -117,6 +118,11 @@ export interface DescribeBatchResult {
 export interface DescribeOptions {
   /** Override the provider (tests stub the CLI). Defaults to the registry's. */
   provider?: Provider;
+  /**
+   * The LLM pool the read takes an ENRICHMENT-lane slot from (S0.9 / T8-3,
+   * §4.4.1.1). Defaults to the process pool; tests inject their own.
+   */
+  pool?: ResourcePool;
   /** Correlates the CLI child, the run log and cancel. Generated when absent. */
   runId?: string;
   signal?: AbortSignal;
@@ -593,10 +599,14 @@ export async function describeMedia(
 
   let text = "";
   let failure = "";
-  // Trace scope (build P0.7): one media read is one traced run.
+  // Trace scope (build P0.7): one media read is one traced run. It takes an
+  // enrichment-lane slot (S0.9 / T8-3) so a photo backlog paces against the
+  // same cap as everything else instead of bypassing it.
+  const pool = opts.pool ?? resourcePool;
   const result = await withTraceContext(
     { pass: "media", caller: "media/describe" },
     () =>
+      pool.run("llm", bindTraceContext(() =>
       provider.send({
     runId: opts.runId ?? `media-${randomUUID()}`,
     message: prompt,
@@ -615,7 +625,7 @@ export async function describeMedia(
       if (ev.type === "delta") text += ev.text;
       else if (ev.type === "error") failure = ev.message;
     },
-      }),
+      })), { lane: "enrichment" }),
   );
   const spend = { usage: result.usage, promptChars: prompt.length };
 
@@ -704,10 +714,13 @@ export async function describeMediaBatch(
   const prompt = buildBatchPrompt(items);
   let text = "";
   let failure = "";
-  // Trace scope (build P0.7): one media batch is one traced run.
+  // Trace scope (build P0.7): one media batch is one traced run, on an
+  // enrichment-lane slot (S0.9 / T8-3).
+  const pool = opts.pool ?? resourcePool;
   const result = await withTraceContext(
     { pass: "media", caller: "media/describe-batch" },
     () =>
+      pool.run("llm", bindTraceContext(() =>
       provider.send({
     runId: opts.runId ?? `media-batch-${randomUUID()}`,
     message: prompt,
@@ -725,7 +738,7 @@ export async function describeMediaBatch(
       if (ev.type === "delta") text += ev.text;
       else if (ev.type === "error") failure = ev.message;
     },
-      }),
+      })), { lane: "enrichment" }),
   );
   const spend = { usage: result.usage, promptChars: prompt.length };
 

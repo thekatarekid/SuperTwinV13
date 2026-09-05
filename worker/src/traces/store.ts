@@ -23,7 +23,7 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 
 import { homeRoot } from "../home.js";
-import { getDb } from "../db/index.js";
+import { getDb } from "../db/connection.js";
 import type { Usage } from "../providers/types.js";
 
 /** The 4-way token split every trace carries (spec §17.1). */
@@ -186,7 +186,24 @@ export function writeTrace(record: TraceRecord): void {
   mkdirSync(tracesRoot(), { recursive: true });
   appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
 
-  const db = getDb();
+  writeTraceIndexRow(getDb(), record);
+}
+
+/**
+ * The `traces` index row ALONE, keyed on `trace_id` and idempotent (INSERT OR
+ * REPLACE), so the same record can be written twice and land once:
+ *
+ *   1. by the run ledger (db/index.ts `writeRunLedger`), inside the SAME
+ *      transaction as the `runs` + `extraction_runs` rows — S0.9 / T8-2: a
+ *      run row can no longer exist without its trace row;
+ *   2. by the scope flush (writeTrace above) once the caller has annotated the
+ *      parse-side fields — same id, so it replaces the ledger's early row.
+ *
+ * Takes the handle so it can join a transaction the caller already opened.
+ */
+export function writeTraceIndexRow(db: Database.Database, record: TraceRecord): void {
+  const day = dayOf(record.ts);
+  const file = dayFilePath(day);
   ensureTracesSchema(db);
   db.prepare(
     `INSERT OR REPLACE INTO traces
@@ -220,4 +237,18 @@ export function writeTrace(record: TraceRecord): void {
     compressed: record.compressed ? 1 : 0,
     created_at: record.ts,
   });
+}
+
+/**
+ * The id of the trace already indexed for `runId`, or null. The ledger uses it
+ * when the scope has flushed before the run row is written (chat and media log
+ * after their scope closes), so the run links to the existing trace instead of
+ * a second one being minted.
+ */
+export function indexedTraceIdFor(db: Database.Database, runId: string): string | null {
+  ensureTracesSchema(db);
+  const row = db
+    .prepare(`SELECT id FROM traces WHERE run_id = ? ORDER BY attempt DESC, created_at DESC LIMIT 1`)
+    .get(runId) as { id: string } | undefined;
+  return row?.id ?? null;
 }

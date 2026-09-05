@@ -221,6 +221,7 @@ export async function runOrient(
       role: "orient",
       unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },
       lane: "understanding",
+      origin: bundle.lane === "live" ? "live" : "backfill",
       validate: parseOrientOutput,
     },
     deps,

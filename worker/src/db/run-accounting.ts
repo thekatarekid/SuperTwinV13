@@ -62,6 +62,21 @@ export const RUN_ROLES = [
 
 export type RunRole = (typeof RUN_ROLES)[number];
 
+/** Which lane the work came from (S0.9 / T8-1): the live path or history. */
+export const RUN_ORIGINS = ["live", "backfill"] as const;
+export type RunOrigin = (typeof RUN_ORIGINS)[number];
+
+export function isRunOrigin(v: unknown): v is RunOrigin {
+  return v === "live" || v === "backfill";
+}
+
+/**
+ * Default origin for a run whose caller stated none. Chat, the bar and
+ * on-demand media reads are interactive; a pipeline call that knows its bundle
+ * passes the bundle's lane explicitly. Stated once so the column is never NULL.
+ */
+export const DEFAULT_RUN_ORIGIN: RunOrigin = "live";
+
 const RUN_ROLE_SET: ReadonlySet<string> = new Set(RUN_ROLES);
 
 export function isRunRole(v: unknown): v is RunRole {
@@ -95,6 +110,16 @@ export interface RecordRunParams {
    */
   cohortId: string | null;
   kind?: string | null;
+  /**
+   * `runs.pass` (S0.9 / T8-1): which pass/agent spent this — the same name the
+   * call's trace carries (`orient.v6`, `P-CL1`, `chat`, `media`). Defaults to
+   * `kind`, then `role`, so the column is populated at insert, never NULL.
+   */
+  pass?: string | null;
+  /** `runs.origin`: live | backfill. Defaults to {@link DEFAULT_RUN_ORIGIN}. */
+  origin?: RunOrigin | null;
+  /** `runs.trace_id`: the traces.id of the invocation that produced this run. */
+  traceId?: string | null;
   status?: string;
   startedAt?: string;
   endedAt?: string | null;
@@ -130,11 +155,20 @@ export function recordRun(p: RecordRunParams): string {
   if (typeof p.model !== "string" || p.model.trim() === "") {
     throw new Error("runs.model is required — accounting is per (role, model)");
   }
+  if (p.origin != null && !isRunOrigin(p.origin)) {
+    throw new Error(`runs.origin must be one of ${RUN_ORIGINS.join("|")} — got ${String(p.origin)}`);
+  }
   const id = p.id ?? randomUUID();
   const write = cacheWriteParts(p.usage);
+  const pass = (p.pass ?? p.kind ?? "").trim() || p.role;
   a().insertRun.run({
     id,
     kind: p.kind ?? null,
+    // S0.9 / T8-1: attribution at insert. NULL here is what made "which code
+    // path is spending this?" unanswerable across 18k rows.
+    pass,
+    origin: p.origin ?? DEFAULT_RUN_ORIGIN,
+    traceId: p.traceId ?? null,
     role: p.role,
     model: p.model,
     cohortId: p.cohortId,
@@ -505,12 +539,14 @@ function a(): AcctStmts {
     db,
     insertRun: db.prepare(`
       INSERT INTO runs
-        (id, kind, role, model, cohort_id, started_at, ended_at, status,
+        (id, kind, pass, origin, trace_id, role, model, cohort_id,
+         started_at, ended_at, status,
          input_tokens, cache_create, cache_create_5m, cache_create_1h,
          cache_read, output_tokens,
          billable_tokens, cost_usd, error_code, error_msg)
       VALUES
-        (@id, @kind, @role, @model, @cohortId, @startedAt, @endedAt, @status,
+        (@id, @kind, @pass, @origin, @traceId, @role, @model, @cohortId,
+         @startedAt, @endedAt, @status,
          @inputTokens, @cacheCreate, @cacheCreate5m, @cacheCreate1h,
          @cacheRead, @outputTokens,
          @billableTokens, @costUsd, @errorCode, @errorMsg)

@@ -209,6 +209,7 @@ export async function runCritic(
         id: `${orientRun.bundle.streamId}:${orientRun.bundle.part}`,
       },
       lane: "understanding",
+      origin: orientRun.bundle.lane === "live" ? "live" : "backfill",
       validate: parseCriticOutput,
     },
     deps,

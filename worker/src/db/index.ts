@@ -23,7 +23,16 @@ import {
   DEFAULT_MODEL_LABEL,
   isRunRole,
   recordRun,
+  type RecordRunParams,
+  type RunOrigin,
 } from "./run-accounting.js";
+import { currentTraceMeta, pendingTraceRecords } from "../traces/context.js";
+import {
+  indexedTraceIdFor,
+  usageToTokens4Way,
+  writeTraceIndexRow,
+  type TraceRecord,
+} from "../traces/store.js";
 
 export { getDb, runMigrations };
 
@@ -135,6 +144,13 @@ export interface LogRunParams {
    */
   model?: string | null;
   role?: string | null;
+  /**
+   * S0.9 / T8-1: the `runs.pass` / `runs.origin` attribution for the mirror.
+   * Optional — the mirror falls back to the active trace scope's pass, then
+   * `kind`, and to origin "live" — so the mirrored row is never NULL there.
+   */
+  pass?: string | null;
+  origin?: RunOrigin | null;
 }
 
 export interface CreateSessionParams {
@@ -366,7 +382,121 @@ function statements(): Statements {
  * double-count every call in both tables.
  */
 export function logRun(params: LogRunParams): void {
-  mirrorRun(params, insertExtractionRun(params));
+  // S0.9 / T8-2: the log row, its `runs` mirror and the trace index row land
+  // in ONE transaction — a crash between them can no longer leave a run with
+  // no trace (1,508 such rows in the 13.4 ledger).
+  getDb().transaction(() => {
+    mirrorRun(params, insertExtractionRun(params));
+  })();
+}
+
+// ---- The run ledger (S0.9 / T8-1, T8-2) ------------------------------------
+
+/** One provider call, both accounting halves, as the pipeline runners know it. */
+export interface RunLedgerEntry {
+  /** The `runs` row (role + cohort — only the runner knows these). */
+  run: RecordRunParams;
+  /** The `extraction_runs` §11 log row for the same call. */
+  log: LogRunParams;
+}
+
+/**
+ * The pipeline's side of the dual write, made atomic: `runs` row, its
+ * `extraction_runs` mirror and the call's trace index row in ONE SQLite
+ * transaction. prompts/runner.ts and brain/llm.ts call this instead of
+ * `recordRun` + `logExtractionRun` back to back.
+ *
+ * The trace half is what closes T8-2. The trace scope (traces/context.ts)
+ * flushes when the scope SETTLES — after this write — so a process that died
+ * in between left a run without a trace. Now the scope's pending records for
+ * this run id are indexed here, in the same transaction, under ids the flush
+ * later reuses (INSERT OR REPLACE), so the flush completes the row rather than
+ * adding a second one. `runs.trace_id` links to it.
+ *
+ * Returns the `runs` id.
+ */
+export function writeRunLedger(entry: RunLedgerEntry): string {
+  const db = getDb();
+  return db.transaction(() => {
+    const id = recordRun(attributed(db, entry.run));
+    insertExtractionRun(entry.log);
+    return id;
+  })();
+}
+
+/**
+ * Resolve the attribution columns for a `runs` write and index its trace, in
+ * the caller's open transaction:
+ *
+ *   pass    — explicit, else the active trace scope's pass, else `kind`, else
+ *             `role` (recordRun's own fallback).
+ *   origin  — explicit, else "live" (recordRun's default).
+ *   trace   — the scope's pending invocation(s) for this run id are written as
+ *             index rows now; when the scope already flushed (chat and media
+ *             log after their scope closes) the indexed row is linked instead;
+ *             a run with no invocation at all (spawn refused, provider missing)
+ *             gets a synthesized index row so `runs` and `traces` keep the
+ *             same cardinality — a call that cost a row in one costs a row in
+ *             the other.
+ */
+function attributed(db: Database.Database, run: RecordRunParams): RecordRunParams {
+  const meta = currentTraceMeta();
+  const runId = run.id ?? null;
+  const pass = (run.pass ?? meta?.pass ?? run.kind ?? "").trim() || run.role;
+  let traceId = run.traceId ?? null;
+  if (runId !== null && traceId === null) {
+    const pending = pendingTraceRecords(runId);
+    if (pending.length > 0) {
+      for (const rec of pending) writeTraceIndexRow(db, rec);
+      traceId = pending[pending.length - 1]!.trace_id;
+    } else {
+      traceId = indexedTraceIdFor(db, runId);
+      if (traceId === null) {
+        const rec = synthesizedTrace(runId, pass, meta?.caller ?? "ledger", run);
+        writeTraceIndexRow(db, rec);
+        traceId = rec.trace_id;
+      }
+    }
+  }
+  return { ...run, pass, origin: run.origin ?? undefined, traceId };
+}
+
+/**
+ * The index row for a run the provider never recorded an invocation for. It
+ * carries what the ledger knows — tokens, cost, status, latency — and nothing
+ * it does not: no prompt, no output.
+ */
+function synthesizedTrace(
+  runId: string,
+  pass: string,
+  caller: string,
+  run: RecordRunParams,
+): TraceRecord {
+  const startedAt = run.startedAt ?? new Date().toISOString();
+  const started = Date.parse(startedAt);
+  const ended = run.endedAt ? Date.parse(run.endedAt) : NaN;
+  const latency =
+    Number.isFinite(started) && Number.isFinite(ended) && ended >= started ? ended - started : 0;
+  return {
+    trace_id: `ledger:${runId}`,
+    ts: startedAt,
+    run_id: runId,
+    attempt: 1,
+    pass,
+    caller,
+    model: run.model?.trim() || null,
+    prompt_version: currentTraceMeta()?.promptVersion ?? null,
+    system_prompt: null,
+    packed_context: "",
+    raw_output: "",
+    parsed_result: null,
+    repair_count: 0,
+    verdicts: null,
+    tokens_4way: usageToTokens4Way(run.usage),
+    cost_usd: run.usage.costUsd ?? null,
+    latency_ms: latency,
+    status: run.status ?? "ok",
+  };
 }
 
 /**
@@ -464,12 +594,31 @@ function mirrorRun(p: LogRunParams, extractionRunRowId: number | bigint): void {
   const endedMs = Date.now();
   const startedMs = endedMs - Math.max(0, p.durationMs);
 
+  // The mirror's run id is the log's rowid, but the TRACE was recorded under
+  // the provider run id — so the trace lookup runs on `p.runId` and the
+  // resolved attribution is carried onto the mirrored row.
+  const linked = attributed(statements().db, {
+    id: p.runId,
+    role,
+    model: p.model?.trim() || DEFAULT_MODEL_LABEL,
+    cohortId: null,
+    kind: p.kind,
+    pass: p.pass ?? undefined,
+    origin: p.origin ?? undefined,
+    status: p.status,
+    startedAt: new Date(startedMs).toISOString(),
+    endedAt: new Date(endedMs).toISOString(),
+    usage,
+  });
   recordRun({
     id: `er:${String(extractionRunRowId)}`,
     role,
     model: p.model?.trim() || DEFAULT_MODEL_LABEL,
     cohortId: null,
     kind: p.kind,
+    pass: linked.pass,
+    origin: linked.origin,
+    traceId: linked.traceId,
     status: p.status,
     startedAt: new Date(startedMs).toISOString(),
     endedAt: new Date(endedMs).toISOString(),

@@ -29,10 +29,13 @@ import {
   parseDigestV1,
   type DigestResult,
 } from "../prompts/digest.v1.js";
+import { writeRunLedger } from "../db/index.js";
 import { systemPromptPath } from "../prompts/runner.js";
+import { resourcePool, type ResourcePool } from "../providers/pool.js";
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/registry.js";
-import type { Provider } from "../providers/types.js";
-import { annotateTrace, withTraceContext } from "../traces/context.js";
+import type { Provider, ProviderResult } from "../providers/types.js";
+import { emptyUsage } from "../providers/usage.js";
+import { annotateTrace, bindTraceContext, withTraceContext } from "../traces/context.js";
 import type { DeltaBundle } from "./dispatch.js";
 
 /** Every LLM step defaults to Haiku (spec §14.9, build convention 1.7). */
@@ -46,6 +49,8 @@ export interface DigestCommit {
 
 export interface DigestPassDeps {
   provider?: Provider;
+  /** The LLM pool this call takes a slot from (S0.9 / T8-3). Default: the process pool. */
+  pool?: ResourcePool;
   model?: string;
   timeoutMs?: number;
   /** Replaces the default propose-only decisions commit (tests). */
@@ -139,17 +144,46 @@ export async function runDigestPass(
     { pass: "digest", caller: "scheduler/digest-pass", promptVersion: DIGEST_V1_ID },
     async (): Promise<DigestPassReport> => {
       let text = "";
-      const res = await provider.send({
-        runId: randomUUID(),
-        message: user,
-        systemPromptFile: systemPromptPath(DIGEST_V1_ID, DIGEST_V1_SYSTEM),
-        plainCompletion: true,
-        model: deps.model ?? DIGEST_DEFAULT_MODEL,
-        timeoutMs: deps.timeoutMs ?? DIGEST_TIMEOUT_MS,
-        onEvent: (e) => {
-          if (e.type === "delta") text += e.text;
-        },
-      });
+      const runId = randomUUID();
+      const model = deps.model ?? DIGEST_DEFAULT_MODEL;
+      const systemFile = systemPromptPath(DIGEST_V1_ID, DIGEST_V1_SYSTEM);
+      const startedAt = new Date().toISOString();
+      const pool = deps.pool ?? resourcePool;
+      let res: ProviderResult;
+      try {
+        // S0.9 / T8-3: through the pool's understanding lane — digest is
+        // backfill understanding and must not bypass the concurrency cap.
+        res = await pool.run(
+          "llm",
+          bindTraceContext(() =>
+            provider.send({
+              runId,
+              message: user,
+              systemPromptFile: systemFile,
+              plainCompletion: true,
+              model,
+              timeoutMs: deps.timeoutMs ?? DIGEST_TIMEOUT_MS,
+              onEvent: (e) => {
+                if (e.type === "delta") text += e.text;
+              },
+            }),
+          ),
+          { lane: "understanding" },
+        );
+      } catch (err) {
+        res = {
+          sessionId: "",
+          usage: emptyUsage(),
+          freshFallback: false,
+          status: "error",
+          errorCode: "CLI_ERROR",
+        };
+        logDigestRun(runId, model, startedAt, res, user.length + DIGEST_V1_SYSTEM.length, provider.id);
+        return { ...base, error: err instanceof Error ? err.message : String(err) };
+      }
+      // S0.9 / T8-1: the digest call was the one pass with no ledger row — its
+      // spend rendered nowhere and TRC-03 could never see it alive.
+      logDigestRun(runId, model, startedAt, res, user.length + DIGEST_V1_SYSTEM.length, provider.id);
       if (res.status !== "ok") {
         return { ...base, error: res.errorCode ?? "provider error" };
       }
@@ -161,4 +195,58 @@ export async function runDigestPass(
       return { ...base, status: "ok", result, violations, proposals };
     },
   );
+}
+
+/** Both ledger halves for one digest call — role digest, origin backfill. */
+function logDigestRun(
+  runId: string,
+  model: string,
+  startedAt: string,
+  res: ProviderResult,
+  promptChars: number,
+  providerId: string,
+): void {
+  const endedAt = new Date().toISOString();
+  const usage = res.usage;
+  const status = res.status === "ok" ? "ok" : "error";
+  const errorCode = res.errorCode ? String(res.errorCode) : null;
+  try {
+    writeRunLedger({
+      run: {
+        id: runId,
+        role: "digest",
+        model,
+        cohortId: null,
+        kind: DIGEST_V1_ID,
+        pass: DIGEST_V1_ID,
+        origin: "backfill",
+        status,
+        startedAt,
+        endedAt,
+        usage,
+        errorCode,
+        ttftMs: null,
+      },
+      log: {
+        provider: providerId,
+        sessionId: null,
+        runId,
+        kind: DIGEST_V1_ID,
+        promptChars,
+        inputTokens: usage.inputTokens,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens,
+        cacheReadInputTokens: usage.cacheReadInputTokens,
+        outputTokens: usage.outputTokens,
+        costUsd: usage.costUsd ?? null,
+        durationMs: Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)) || 0,
+        status,
+        errorCode,
+        model,
+        role: "digest",
+      },
+    });
+  } catch (err) {
+    // The ledger must never fail the pass it describes — but it is said.
+    console.error("[digest] run ledger write failed:", err);
+  }
 }

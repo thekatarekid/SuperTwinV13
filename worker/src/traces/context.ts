@@ -80,6 +80,13 @@ export interface ProviderInvocation {
   latencyMs: number;
   status: string;
   ts: string;
+  /**
+   * The trace id this invocation will be persisted under. Minted when the
+   * invocation is recorded (not at flush) so the run ledger can index the row
+   * — and link `runs.trace_id` to it — before the scope closes, and the flush
+   * later replaces that same row rather than adding a second one (S0.9).
+   */
+  traceId?: string;
 }
 
 class TraceScope {
@@ -115,7 +122,7 @@ function assemble(
   inv: ProviderInvocation,
 ): TraceRecord {
   return {
-    trace_id: randomUUID(),
+    trace_id: inv.traceId ?? randomUUID(),
     ts: inv.ts,
     run_id: inv.runId,
     attempt: inv.attempt,
@@ -185,6 +192,21 @@ export function currentTraceMeta(): Readonly<Pick<TraceMeta, "pass" | "caller" |
 }
 
 /**
+ * The trace records the ACTIVE scope holds for `runId`, assembled with the
+ * annotations known so far — empty outside a scope, or when the scope has no
+ * invocation for that run yet. The run ledger (db/index.ts) writes these as
+ * index rows in the same transaction as the `runs` row (S0.9 / T8-2); their
+ * ids are stable, so the flush at scope end replaces rather than duplicates.
+ */
+export function pendingTraceRecords(runId: string): TraceRecord[] {
+  const scope = als.getStore();
+  if (!scope) return [];
+  return scope.invocations
+    .filter((inv) => inv.runId === runId)
+    .map((inv) => assemble(scope.meta, scope.annotations, inv));
+}
+
+/**
  * Attach parse-side fields to every invocation of the ACTIVE scope. No-op
  * outside a scope (the ghost path already wrote what it had).
  */
@@ -224,6 +246,7 @@ export function assertTraceContext(detail: string): void {
  * and no scope: dropped (transport-only tests).
  */
 export function recordProviderInvocation(inv: ProviderInvocation): void {
+  if (!inv.traceId) inv.traceId = randomUUID();
   const scope = als.getStore();
   if (scope) {
     scope.invocations.push(inv);

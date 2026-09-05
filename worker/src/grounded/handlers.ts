@@ -40,9 +40,11 @@ import {
   BAR_ANSWER_VERSION,
   packAnswerInput,
 } from "../prompts/bar-answer.v1.js";
+import { writeRunLedger } from "../db/index.js";
 import { systemPromptPath } from "../prompts/runner.js";
 import { claudeLocalProvider } from "../providers/claude-local/index.js";
-import { withTraceContext } from "../traces/context.js";
+import { resourcePool } from "../providers/pool.js";
+import { bindTraceContext, withTraceContext } from "../traces/context.js";
 import {
   buildContextBlock,
   getEventDetail,
@@ -164,23 +166,78 @@ export function enforceCitations(
 export const answerViaModel: BarModelCall = async (user) => {
   const systemFile = systemPromptPath(BAR_ANSWER_VERSION, BAR_ANSWER_INSTRUCTIONS);
   let text = "";
+  const runId = mintId("run");
+  const model = getSelectedModel("chat") || "haiku";
+  const startedAt = new Date().toISOString();
   const result = await withTraceContext(
     { pass: BAR_ANSWER_VERSION, caller: "grounded/handlers", promptVersion: BAR_ANSWER_VERSION },
-    () =>
-      claudeLocalProvider.send({
-        runId: mintId("run"),
-        message: user,
-        systemPromptFile: systemFile,
-        plainCompletion: true,
-        maxTurns: 1,
-        ...reasoningForPass("chat", getSelectedModel("chat") || "haiku"),
-        allowedTools: [],
-        model: getSelectedModel("chat") || "haiku",
-        timeoutMs: 120_000,
-        onEvent: (ev) => {
-          if (ev.type === "delta") text += ev.text;
-        },
-      }),
+    async () => {
+      // S0.9 / T8-3: through the pool — the bar shares the LLM cap with every
+      // other call instead of bypassing it.
+      const res = await resourcePool.run(
+        "llm",
+        bindTraceContext(() =>
+          claudeLocalProvider.send({
+            runId,
+            message: user,
+            systemPromptFile: systemFile,
+            plainCompletion: true,
+            maxTurns: 1,
+            ...reasoningForPass("chat", model),
+            allowedTools: [],
+            model,
+            timeoutMs: 120_000,
+            onEvent: (ev) => {
+              if (ev.type === "delta") text += ev.text;
+            },
+          }),
+        ),
+        { lane: "understanding" },
+      );
+      // S0.9 / T8-1: the bar answer had no ledger row — its spend was invisible.
+      const endedAt = new Date().toISOString();
+      const status = res.status === "ok" ? "ok" : "error";
+      const errorCode = res.errorCode ? String(res.errorCode) : null;
+      try {
+        writeRunLedger({
+          run: {
+            id: runId,
+            role: "chat",
+            model,
+            cohortId: null,
+            kind: BAR_ANSWER_VERSION,
+            pass: BAR_ANSWER_VERSION,
+            origin: "live",
+            status,
+            startedAt,
+            endedAt,
+            usage: res.usage,
+            errorCode,
+            ttftMs: null,
+          },
+          log: {
+            provider: claudeLocalProvider.id,
+            sessionId: null,
+            runId,
+            kind: BAR_ANSWER_VERSION,
+            promptChars: user.length + BAR_ANSWER_INSTRUCTIONS.length,
+            inputTokens: res.usage.inputTokens,
+            cacheCreationInputTokens: res.usage.cacheCreationInputTokens,
+            cacheReadInputTokens: res.usage.cacheReadInputTokens,
+            outputTokens: res.usage.outputTokens,
+            costUsd: res.usage.costUsd ?? null,
+            durationMs: Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)) || 0,
+            status,
+            errorCode,
+            model,
+            role: "chat",
+          },
+        });
+      } catch (err) {
+        console.error("[bar] run ledger write failed:", err);
+      }
+      return res;
+    },
   );
   if (result.status !== "ok") {
     throw new Error(`bar-answer call failed: ${result.errorCode ?? "unknown"}`);

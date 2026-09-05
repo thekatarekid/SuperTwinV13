@@ -30,8 +30,13 @@ import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
 import { reasoningForPass } from "./reasoning.js";
-import { logExtractionRun, type LogRunParams } from "../db/index.js";
-import { recordRun, type RecordRunParams, type RunRole } from "../db/run-accounting.js";
+import { logExtractionRun, writeRunLedger, type LogRunParams } from "../db/index.js";
+import {
+  recordRun,
+  type RecordRunParams,
+  type RunOrigin,
+  type RunRole,
+} from "../db/run-accounting.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
 import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
 import type { Provider, Usage } from "../providers/types.js";
@@ -162,6 +167,12 @@ export interface JsonPassSpec<T> {
   /** The unit this call is for — quarantine parks it on double failure. */
   unit?: { kind: string; id: string };
   lane?: LlmLane;
+  /**
+   * `runs.origin` (S0.9 / T8-1): which lane the work came from. A pass over a
+   * bundle passes the bundle's lane; an interactive call (the bar) leaves it
+   * unset and the ledger records "live".
+   */
+  origin?: RunOrigin | null;
   timeoutMs?: number;
   /**
    * Validate + narrow the parsed JSON. Throw (with a message the repair round
@@ -390,16 +401,17 @@ function logRun<T>(
   status: "ok" | "retried" | "quarantined" | "error",
   deps: JsonPassDeps,
 ): void {
-  const write = deps.recordRun ?? recordRun;
-  const mirror =
-    deps.logExtractionRun ?? (deps.recordRun ? () => {} : logExtractionRun);
   const model = spec.model ?? modelForPass(spec.pass);
-  write({
+  const run: RecordRunParams = {
     id: call.runId,
     role: spec.role,
     model,
     cohortId: spec.cohortId ?? null,
     kind: spec.pass,
+    // S0.9 / T8-1: attribution at insert — the pass is the trace's pass, the
+    // origin is the bundle's lane when the caller knows it.
+    pass: spec.pass,
+    origin: spec.origin ?? null,
     status,
     startedAt: call.startedAt,
     endedAt: call.endedAt,
@@ -407,8 +419,8 @@ function logRun<T>(
     errorCode: call.errorCode ? String(call.errorCode) : null,
     errorMsg: call.errorMessage && call.errorMessage !== "" ? call.errorMessage : null,
     ttftMs: null,
-  });
-  mirror({
+  };
+  const log: LogRunParams = {
     provider: call.providerId,
     sessionId: null,
     runId: call.runId,
@@ -424,7 +436,20 @@ function logRun<T>(
     errorCode: call.errorCode ? String(call.errorCode) : null,
     model,
     role: spec.role,
-  });
+  };
+  if (deps.recordRun || deps.logExtractionRun) {
+    // A test swapped a half out: honour the swap, and no database is touched
+    // behind it (a swapped `recordRun` silences the mirror, as before).
+    const write = deps.recordRun ?? recordRun;
+    const mirror =
+      deps.logExtractionRun ?? (deps.recordRun ? () => {} : logExtractionRun);
+    write(run);
+    mirror(log);
+  } else {
+    // S0.9 / T8-2: `runs`, `extraction_runs` and the trace index row in ONE
+    // transaction — a run can no longer exist without its trace.
+    writeRunLedger({ run, log });
+  }
 }
 
 function parkUnit<T>(

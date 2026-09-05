@@ -39,8 +39,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
-import { logExtractionRun, type LogRunParams } from "../db/index.js";
-import { recordRun, type RecordRunParams, type RunRole } from "../db/run-accounting.js";
+import { logExtractionRun, writeRunLedger, type LogRunParams } from "../db/index.js";
+import {
+  recordRun,
+  type RecordRunParams,
+  type RunOrigin,
+  type RunRole,
+} from "../db/run-accounting.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
 import { reasoningForPass } from "../brain/reasoning.js";
 import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
@@ -130,6 +135,8 @@ export interface PromptCallSpec {
   unit?: { kind: string; id: string };
   /** Which half of the LLM pool (§4.4.1.1). Default: understanding. */
   lane?: LlmLane;
+  /** `runs.origin` (S0.9 / T8-1): the lane the unit came from. Default "live". */
+  origin?: RunOrigin | null;
   timeoutMs?: number;
   cwd?: string;
 }
@@ -415,12 +422,16 @@ export class PromptRunner {
    * there while `runs` held the real money.
    */
   private logRun(spec: PromptCallSpec, call: CallOutcome, status: RunStatus): string {
-    const id = this.write({
+    const run: RecordRunParams = {
       id: call.runId,
       role: spec.role,
       model: spec.model,
       cohortId: spec.cohortId,
       kind: spec.callType,
+      // S0.9 / T8-1: attribution at insert — the call type is the trace's
+      // pass; the origin is the lane the unit came from when the caller knows.
+      pass: spec.callType,
+      origin: spec.origin ?? null,
       status,
       startedAt: call.startedAt,
       endedAt: call.endedAt,
@@ -430,8 +441,8 @@ export class PromptRunner {
       // Item 4.2: the runs write also persists this call's latency mark, so
       // TTFT and tokens/sec are recorded per model per call type (§9.5.3 r4).
       ttftMs: call.ttftMs,
-    });
-    this.mirror({
+    };
+    const log: LogRunParams = {
       provider: call.providerId,
       // No chat session is involved: this is background derivation, and
       // claiming a session id would put it in someone's conversation.
@@ -458,7 +469,17 @@ export class PromptRunner {
       errorCode: call.errorCode ? String(call.errorCode) : null,
       model: spec.model,
       role: spec.role,
-    });
+    };
+    // S0.9 / T8-2: production writes both halves AND the trace index row in
+    // ONE transaction; a test that swapped a half out keeps its swap.
+    const id =
+      this.deps.recordRun || this.deps.logExtractionRun
+        ? (() => {
+            const rid = this.write(run);
+            this.mirror(log);
+            return rid;
+          })()
+        : writeRunLedger({ run, log });
     return id;
   }
 

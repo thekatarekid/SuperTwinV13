@@ -96,6 +96,7 @@ import {
   recordProviderInvocation,
 } from "../../traces/context.js";
 import { admitCall, budgetCeilings, recordCallCost } from "../budget.js";
+import { noteSpend } from "../spend-heartbeat.js";
 
 // The shaping half of the adapter lives in ./cli.ts; re-exported here so the
 // adapter stays one import for callers and tests.
@@ -218,7 +219,9 @@ class ClaudeLocalProvider implements Provider {
       // pool bypass, BEFORE spawn. One admit per CLI invocation — the poison
       // fallback is a second spawn and pays a second admit. Throws
       // BudgetExceededError (code BUDGET_EXCEEDED) and latches app_state;
-      // chat and the grounded bar are counted but never blocked.
+      // chat and the grounded bar are counted but never blocked. The kill
+      // switch (S0.8, SPD-03) is checked first at the same site and blocks
+      // everyone: ModelActivityPausedError (code MODEL_ACTIVITY_PAUSED).
       admitCall();
       const attempt = await this.runOnce({
         ...args,
@@ -228,6 +231,7 @@ class ClaudeLocalProvider implements Provider {
         },
       });
       recordCallCost(attempt.usage.costUsd);
+      noteSpend(attempt.usage); // S0.8 (SPD-06): the `[spend] 60s:` heartbeat
       recordProviderInvocation({
         runId,
         attempt: thisAttempt,

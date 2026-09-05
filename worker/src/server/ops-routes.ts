@@ -13,8 +13,11 @@
 //   GET  /api/ops/questions              open questions, oldest first
 //   POST /api/ops/questions/:id/answer   record the human's answer
 //   GET  /api/ops/lanes                  pause state per lane, live
-//   POST /api/ops/lanes/pause            { lane, ms } manual pause
+//   POST /api/ops/lanes/pause            { lane, ms } manual pause (unbounded)
 //   POST /api/ops/lanes/resume           { lane } clear a pause early
+//   GET  /api/ops/spend                  budget windows, latch, kill switch
+//   POST /api/ops/model-activity         { paused } "Stop all model activity"
+//   POST /api/ops/budget/reset           clear the budget latch (operator)
 //   GET  /api/ops/runs/:id/undo          PREVIEW: what an undo would revert
 //   POST /api/ops/runs/:id/undo          reverse-replay one run's mutations
 //
@@ -35,6 +38,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { getDb } from "../db/connection.js";
 import { runUndoPreview, undoRun } from "../consolidation/run-undo.js";
+import { budgetStatus, resetBudgetLatch, setModelActivityPaused } from "../providers/budget.js";
 import { resourcePool, RESOURCE_LIMITS, type LaneKey } from "../providers/pool.js";
 import {
   listQuarantined,
@@ -55,8 +59,13 @@ export const OPS_LANES = [
 ] as const satisfies readonly LaneKey[];
 export type OpsLane = (typeof OPS_LANES)[number];
 
-/** Manual pauses are bounded: an hour at most, then the lane resumes itself. */
-export const MAX_MANUAL_PAUSE_MS = 60 * 60_000;
+/**
+ * A manual pause with no `ms` holds five minutes. There is deliberately NO
+ * upper bound any more (S0.8, T0-13): the old MAX_MANUAL_PAUSE_MS silently
+ * clipped every pause to an hour, so a lane an operator stopped resumed
+ * itself while they were away. A pause lasts as long as it was asked for.
+ * The persistent, restart-proof stop is the kill switch below.
+ */
 export const DEFAULT_MANUAL_PAUSE_MS = 5 * 60_000;
 
 function isOpsLane(v: unknown): v is OpsLane {
@@ -249,9 +258,7 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
       return true;
     }
     const raw = Number(body?.ms ?? DEFAULT_MANUAL_PAUSE_MS);
-    const ms = Number.isFinite(raw)
-      ? Math.min(MAX_MANUAL_PAUSE_MS, Math.max(1_000, Math.floor(raw)))
-      : DEFAULT_MANUAL_PAUSE_MS;
+    const ms = Number.isFinite(raw) ? Math.max(1_000, Math.floor(raw)) : DEFAULT_MANUAL_PAUSE_MS;
     resourcePool.pauseLane(body.lane, ms);
     sendJson(res, 200, { ok: true, lane: body.lane, pausedForMs: resourcePool.pausedForMs(body.lane) });
     return true;
@@ -266,6 +273,40 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
     }
     resourcePool.resumeLane(body.lane);
     sendJson(res, 200, { ok: true, lane: body.lane, pausedForMs: 0 });
+    return true;
+  }
+
+  // ---- GET /api/ops/spend -------------------------------------------------
+  //
+  // One read: the hour/day windows, the budget latch and the kill switch.
+  // Settings renders "Stop all model activity" from `modelActivityPausedAt`.
+  if (method === "GET" && path === "/api/ops/spend") {
+    sendJson(res, 200, budgetStatus());
+    return true;
+  }
+
+  // ---- POST /api/ops/model-activity { paused } ----------------------------
+  //
+  // The kill switch (S0.8, T0-13; SPD-03). Persisted in app_state, checked
+  // before every spawn, never expires. In-flight children finish.
+  if (method === "POST" && path === "/api/ops/model-activity") {
+    const body = await readJsonBody(req);
+    if (typeof body?.paused !== "boolean") {
+      sendJson(res, 400, { error: "paused (boolean) required" });
+      return true;
+    }
+    setModelActivityPaused(body.paused);
+    sendJson(res, 200, budgetStatus());
+    return true;
+  }
+
+  // ---- POST /api/ops/budget/reset -----------------------------------------
+  //
+  // The operator's explicit reset of the ceiling latch. Nothing else clears
+  // it (SPD-02). Does not touch the kill switch.
+  if (method === "POST" && path === "/api/ops/budget/reset") {
+    resetBudgetLatch();
+    sendJson(res, 200, budgetStatus());
     return true;
   }
 

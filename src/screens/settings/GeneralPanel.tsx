@@ -1,6 +1,11 @@
 // ===========================================================================
 // Settings › General — hotkeys, launch/notify, brief times, appearance, the
-// SPACE CREATION switch, the last deep-pass line, and the version footer.
+// STOP ALL MODEL ACTIVITY switch (V6 P1 S0.8, SPD-03), the SPACE CREATION
+// switch, the last deep-pass line, and the version footer.
+//
+// The kill switch is a persisted app_state row the worker checks before every
+// `claude` spawn. It does not expire, it survives restart, and only this
+// switch releases it. In-flight work finishes; nothing new starts.
 //
 // Space creation reads honestly for the shipped default: the twin CREATES new
 // spaces, and propose-only is the setting you turn on if you would rather vet
@@ -16,10 +21,14 @@ import {
   fetchSettingsGeneral,
   fetchSettingsGraduation,
   fetchSettingsT3,
+  fetchSpend,
+  resetBudgetLatch,
   saveGraduationMode,
   saveSettingsGeneral,
+  setModelActivityPaused,
   type GeneralSettings,
   type GraduationSettings,
+  type SpendStatus,
   type T3Status,
 } from "../../lib/api";
 import { rowStyle, Toggle } from "./shared";
@@ -29,11 +38,17 @@ export function GeneralPanel(): JSX.Element {
   const [grad, setGrad] = useState<GraduationSettings | null>(null);
   const [t3, setT3] = useState<T3Status | null>(null);
   const [footer, setFooter] = useState<string | null>(null);
+  const [spend, setSpend] = useState<SpendStatus | null>(null);
 
   const refresh = useCallback(async () => {
     setS(await fetchSettingsGeneral());
     setGrad(await fetchSettingsGraduation());
     setT3(await fetchSettingsT3());
+    // Spend is its own read so a worker without the ops routes still renders
+    // the rest of the panel.
+    await fetchSpend()
+      .then(setSpend)
+      .catch(() => setSpend(null));
   }, []);
   useEffect(() => {
     void refresh().catch(() => {});
@@ -90,6 +105,35 @@ export function GeneralPanel(): JSX.Element {
           <option value="dark">Dark</option>
         </select>
       </div>
+
+      <h3>Model activity</h3>
+      <Toggle
+        label="Stop all model activity"
+        checked={spend?.modelActivityPausedAt != null}
+        onChange={(v) => void setModelActivityPaused(v).then(setSpend).catch(() => {})}
+      />
+      <p className="meta">
+        {spend?.modelActivityPausedAt
+          ? `Stopped since ${spend.modelActivityPausedAt.slice(0, 16).replace("T", " ")}. Nothing new is sent to the model — not the bar, not chat — until you switch this off. It stays off across restarts.`
+          : "A hard stop: no new model call starts anywhere until you switch it back. Work already running finishes. Persists across restarts."}
+      </p>
+      {spend && (
+        <p className="meta">
+          Last hour {spend.hour.calls} calls · ~${spend.hour.usd.toFixed(2)} of ${spend.ceilings.usdPerHour}
+          {" · "}today {spend.day.calls} calls · ~${spend.day.usd.toFixed(2)} of ${spend.ceilings.usdPerDay}
+        </p>
+      )}
+      {spend?.trippedAt && (
+        <div style={rowStyle}>
+          <span>
+            Spend ceiling reached {spend.trippedAt.slice(0, 16).replace("T", " ")}
+            {spend.trippedReason ? ` — ${spend.trippedReason}` : ""}. Background work is paused; the bar still answers.
+          </span>
+          <button className="btn" onClick={() => void resetBudgetLatch().then(setSpend).catch(() => {})}>
+            Resume background work
+          </button>
+        </div>
+      )}
 
       <h3>Space creation</h3>
       {grad && (

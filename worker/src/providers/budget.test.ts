@@ -1,6 +1,6 @@
 // ===========================================================================
-// Budget gate (S0.2, T0-4) — GoldenEvals SPD-01 and SPD-02 as deterministic
-// vitest tests. ZERO live model calls: the only "claude" here is a fake CLI
+// Budget gate (S0.2, T0-4) and kill switch (S0.8, T0-13) — GoldenEvals
+// SPD-01, SPD-02 and SPD-03 as deterministic vitest tests. ZERO live model calls: the only "claude" here is a fake CLI
 // that writes a marker file if it is ever spawned — and the point of SPD-01 is
 // that it is not.
 // ===========================================================================
@@ -17,13 +17,17 @@ import {
   BUDGET_TRIPPED_KEY,
   BudgetExceededError,
   DEFAULT_CEILINGS,
+  MODEL_ACTIVITY_PAUSED_KEY,
+  ModelActivityPausedError,
   admitCall,
   budgetStatus,
   isBudgetTripped,
   isLatchExempt,
+  isModelActivityPaused,
   recordCallCost,
   resetBudgetForTests,
   resetBudgetLatch,
+  setModelActivityPaused,
 } from "./budget.js";
 
 const stage = mkdtempSync(join(tmpdir(), "supertwin-budget-"));
@@ -232,6 +236,93 @@ describe("SPD-02 — latch survives restart", () => {
     // One more is the 400th (allowed), the one after is refused.
     expect(() => admitCall(BACKGROUND, t0 + 60_000)).not.toThrow();
     expect(() => admitCall(BACKGROUND, t0 + 60_001)).toThrow(BudgetExceededError);
+  });
+});
+
+describe("SPD-03 — kill switch", () => {
+  it("toggle on: zero new spawns through the real provider, for background AND the bar", async () => {
+    const t0 = Date.now();
+    setModelActivityPaused(true, t0);
+    expect(isModelActivityPaused()).toBe(true);
+    // Persisted under the key the plan names, as an ISO time.
+    const at = appStateGet(MODEL_ACTIVITY_PAUSED_KEY);
+    expect(at).not.toBeNull();
+    expect(Number.isNaN(Date.parse(at as string))).toBe(false);
+
+    const { claudeLocalProvider } = await import("./claude-local/index.js");
+    for (const meta of [BACKGROUND, BAR, CHAT]) {
+      let error: unknown = null;
+      try {
+        await withTraceContext(meta, () =>
+          claudeLocalProvider.send({
+            runId: `spd-03-${meta.pass}`,
+            message: "hello",
+            plainCompletion: true,
+            onEvent: () => {},
+          }),
+        );
+      } catch (err) {
+        error = err;
+      }
+      expect(error).toBeInstanceOf(ModelActivityPausedError);
+      expect((error as ModelActivityPausedError).code).toBe("MODEL_ACTIVITY_PAUSED");
+      expect((error as ModelActivityPausedError).message).toContain("No process was spawned");
+    }
+    expect(existsSync(spawnMarker)).toBe(false);
+    // Refused calls are not counted against the ceilings either.
+    expect(budgetStatus().hour.calls).toBe(0);
+  });
+
+  it("the setting persists across a restart and never self-resumes", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    setModelActivityPaused(true, t0);
+    const at = appStateGet(MODEL_ACTIVITY_PAUSED_KEY);
+
+    // "Restart": fresh module state, reopened DB.
+    closeDb();
+    resetBudgetForTests();
+    getDb();
+    expect(isModelActivityPaused()).toBe(true);
+    expect(appStateGet(MODEL_ACTIVITY_PAUSED_KEY)).toBe(at);
+    expect(budgetStatus(t0).modelActivityPausedAt).toBe(at);
+
+    // Wrong: self-resume-after-hour. An hour, a day, a week later: still off.
+    for (const later of [t0 + 3600_000 + 1, t0 + 24 * 3600_000, t0 + 7 * 24 * 3600_000]) {
+      expect(() => admitCall(BACKGROUND, later)).toThrow(ModelActivityPausedError);
+      expect(() => admitCall(BAR, later)).toThrow(ModelActivityPausedError);
+    }
+  });
+
+  it("only the switch releases it, and it is independent of the budget latch", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    admitMany(DEFAULT_CEILINGS.callsPerHour, t0);
+    expect(() => admitCall(BACKGROUND, t0 + 1)).toThrow(BudgetExceededError);
+    expect(isBudgetTripped()).toBe(true);
+
+    setModelActivityPaused(true, t0 + 2);
+    // The kill switch wins over the latch's exemptions: the bar is refused too.
+    expect(() => admitCall(BAR, t0 + 3)).toThrow(ModelActivityPausedError);
+
+    // Releasing the switch does not clear the latch...
+    setModelActivityPaused(false, t0 + 4);
+    expect(isModelActivityPaused()).toBe(false);
+    expect(isBudgetTripped()).toBe(true);
+    expect(() => admitCall(BACKGROUND, t0 + 5)).toThrow(BudgetExceededError);
+    expect(() => admitCall(BAR, t0 + 5)).not.toThrow();
+    // ...and clearing the latch does not throw the switch.
+    setModelActivityPaused(true, t0 + 6);
+    resetBudgetLatch();
+    expect(isModelActivityPaused()).toBe(true);
+    expect(() => admitCall(BACKGROUND, t0 + 7)).toThrow(ModelActivityPausedError);
+  });
+
+  it("throwing it twice keeps the first timestamp; releasing an open switch is a no-op", () => {
+    const t0 = Date.parse("2026-09-06T10:00:00Z");
+    setModelActivityPaused(false, t0);
+    expect(appStateGet(MODEL_ACTIVITY_PAUSED_KEY)).toBeNull();
+    setModelActivityPaused(true, t0);
+    setModelActivityPaused(true, t0 + 60_000);
+    expect(appStateGet(MODEL_ACTIVITY_PAUSED_KEY)).toBe(new Date(t0).toISOString());
   });
 });
 

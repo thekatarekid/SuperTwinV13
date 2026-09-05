@@ -20,6 +20,7 @@ const db = await import("../db/index.js");
 const { getDb } = await import("../db/connection.js");
 const queue = await import("../scheduler/queue.js");
 const { resourcePool } = await import("../providers/pool.js");
+const budget = await import("../providers/budget.js");
 const { register } = await import("../providers/index.js");
 const { claudeLocalProvider } = await import("../providers/claude-local/index.js");
 const { startServer } = await import("./index.js");
@@ -179,6 +180,19 @@ describe("lane pause/resume", () => {
     expect(resourcePool.isPaused("llm:enrichment")).toBe(false);
   });
 
+  it("a manual pause is not clipped to an hour (T0-13: MAX_MANUAL_PAUSE_MS is gone)", async () => {
+    const sixHours = 6 * 3600_000;
+    const pause = await fetch(`${base}/api/ops/lanes/pause`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lane: "scrape", ms: sixHours }),
+    });
+    expect(pause.status).toBe(200);
+    const body = (await pause.json()) as { pausedForMs: number };
+    expect(body.pausedForMs).toBeGreaterThan(sixHours - 5_000);
+    resourcePool.resumeLane("scrape");
+  });
+
   it("refuses an unknown lane", async () => {
     const res = await fetch(`${base}/api/ops/lanes/pause`, {
       method: "POST",
@@ -186,6 +200,65 @@ describe("lane pause/resume", () => {
       body: JSON.stringify({ lane: "llm:everything" }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("kill switch and spend (S0.8, SPD-03)", () => {
+  const json = (body: unknown): RequestInit => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  interface Spend {
+    modelActivityPausedAt: string | null;
+    trippedAt: string | null;
+    hour: { calls: number; usd: number };
+    day: { calls: number; usd: number };
+    ceilings: { usdPerHour: number };
+  }
+
+  it("GET /api/ops/spend reads the windows, the latch and the switch", async () => {
+    const res = await fetch(`${base}/api/ops/spend`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Spend;
+    expect(body.modelActivityPausedAt).toBeNull();
+    expect(body.trippedAt).toBeNull();
+    expect(body.hour.calls).toBe(0);
+    expect(body.ceilings.usdPerHour).toBe(3);
+  });
+
+  it("POST /api/ops/model-activity persists the switch in app_state and releases it", async () => {
+    const on = await fetch(`${base}/api/ops/model-activity`, json({ paused: true }));
+    expect(on.status).toBe(200);
+    const onBody = (await on.json()) as Spend;
+    expect(onBody.modelActivityPausedAt).not.toBeNull();
+    expect(budget.isModelActivityPaused()).toBe(true);
+    // The row the worker checks before every spawn.
+    const row = getDb()
+      .prepare("SELECT value FROM app_state WHERE key = 'model_activity_paused'")
+      .get() as { value: string } | undefined;
+    expect(row?.value).toBe(onBody.modelActivityPausedAt);
+
+    const off = await fetch(`${base}/api/ops/model-activity`, json({ paused: false }));
+    expect(off.status).toBe(200);
+    expect(((await off.json()) as Spend).modelActivityPausedAt).toBeNull();
+    expect(budget.isModelActivityPaused()).toBe(false);
+  });
+
+  it("refuses a body without a boolean", async () => {
+    const res = await fetch(`${base}/api/ops/model-activity`, json({ paused: "yes" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/ops/budget/reset clears the latch and leaves the switch alone", async () => {
+    budget.tripBudget("test trip");
+    await fetch(`${base}/api/ops/model-activity`, json({ paused: true }));
+    const res = await fetch(`${base}/api/ops/budget/reset`, { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Spend;
+    expect(body.trippedAt).toBeNull();
+    expect(body.modelActivityPausedAt).not.toBeNull();
+    await fetch(`${base}/api/ops/model-activity`, json({ paused: false }));
   });
 });
 

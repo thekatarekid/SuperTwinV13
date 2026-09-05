@@ -60,6 +60,8 @@ export type ProviderErrorCode =
   | "QUOTA_EXCEEDED"
   /** providers/budget.ts: the hard spend/call ceiling, thrown BEFORE spawn. */
   | "BUDGET_EXCEEDED"
+  /** providers/budget.ts: "Stop all model activity" is on, thrown BEFORE spawn. */
+  | "MODEL_ACTIVITY_PAUSED"
   | "BAD_REQUEST";
 
 /**

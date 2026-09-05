@@ -1104,6 +1104,72 @@ export const fetchRunUndoPreview = (runId: string): Promise<RunUndoPreview> =>
 export const undoRun = (runId: string): Promise<RunUndoResult> =>
   request(`/api/ops/runs/${encodeURIComponent(runId)}/undo`, post());
 
+// ---- Ops: lanes, spend, the kill switch (build item 4.4; V6 P1 S0.8) --------
+
+/** The lanes the ops surface may pause — mirrors OPS_LANES in ops-routes.ts. */
+export type OpsLane =
+  | "llm:understanding"
+  | "llm:enrichment"
+  | "llm"
+  | "transcribe"
+  | "embed"
+  | "ffmpeg"
+  | "scrape";
+
+export interface LaneState {
+  lane: OpsLane;
+  pausedForMs: number;
+  paused: boolean;
+  limit: number;
+}
+
+export const fetchOpsLanes = (): Promise<{ lanes: LaneState[] }> => request("/api/ops/lanes");
+
+/**
+ * Pause one lane by hand for `ms` (default five minutes server-side). There is
+ * no cap: the lane stays paused exactly as long as asked (T0-13). For a stop
+ * that survives restart, use setModelActivityPaused instead.
+ */
+export const pauseLane = (
+  lane: OpsLane,
+  ms?: number,
+): Promise<{ ok: boolean; lane: OpsLane; pausedForMs: number }> =>
+  request("/api/ops/lanes/pause", post(ms === undefined ? { lane } : { lane, ms }));
+
+export const resumeLane = (lane: OpsLane): Promise<{ ok: boolean; lane: OpsLane; pausedForMs: number }> =>
+  request("/api/ops/lanes/resume", post({ lane }));
+
+export interface SpendWindow {
+  calls: number;
+  usd: number;
+}
+
+/** GET /api/ops/spend — the budget windows, the ceiling latch, the kill switch. */
+export interface SpendStatus {
+  trippedAt: string | null;
+  trippedReason: string | null;
+  /** ISO time "Stop all model activity" was switched on; null while running. */
+  modelActivityPausedAt: string | null;
+  hour: SpendWindow;
+  day: SpendWindow;
+  ceilings: {
+    usdPerCall: number;
+    usdPerHour: number;
+    usdPerDay: number;
+    callsPerHour: number;
+    callsPerDay: number;
+  };
+}
+
+export const fetchSpend = (): Promise<SpendStatus> => request("/api/ops/spend");
+
+/** The kill switch. Persists across restart; nothing spawns until released. */
+export const setModelActivityPaused = (paused: boolean): Promise<SpendStatus> =>
+  request("/api/ops/model-activity", post({ paused }));
+
+/** Operator reset of the budget ceiling latch. Does not touch the kill switch. */
+export const resetBudgetLatch = (): Promise<SpendStatus> => request("/api/ops/budget/reset", post());
+
 export interface UsageSummary {
   window: string;
   [k: string]: unknown;

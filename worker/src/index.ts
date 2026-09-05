@@ -37,6 +37,7 @@ import {
   backfillChatCategories,
 } from "./categories/index.js";
 import { enforceHomeGuard } from "./home-guard.js";
+import { startSpendHeartbeat } from "./providers/spend-heartbeat.js";
 import {
   installCrashKill,
   releasePidFile,
@@ -67,6 +68,10 @@ async function main(): Promise<void> {
 
   runMigrations();
   register(claudeLocalProvider);
+
+  // ---- Spend heartbeat (S0.8, T0-13; SPD-06): `[spend] 60s: …` once a
+  // minute in this log, counted at the single spawn site's completion.
+  const spendHeartbeat = startSpendHeartbeat({ log: (line) => console.error(line) });
 
   // ---- Logs: create ~/SuperTwinV13/logs (+ /runs) and tee the node console
   // into a durable file next to the per-run transcripts (both best-effort).
@@ -205,6 +210,7 @@ async function main(): Promise<void> {
       parentWatch.stop();
       consolidation.stop();
       assistLane.stop();
+      spendHeartbeat.stop();
       traceRetention.stop();
       browserWatcher?.stop();
       if (screenWatcher) await screenWatcher.disconnect();

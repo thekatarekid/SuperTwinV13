@@ -18,6 +18,14 @@
 //   Interactive chat and the grounded bar are COUNTED but EXEMPT from the
 //   latch: a trip must not brick the one surface you need to diagnose it.
 //
+// THE KILL SWITCH (S0.8, T0-13; SPD-03). `app_state.model_activity_paused`
+//   is checked at the same choke point, first. It is the human's "Stop all
+//   model activity": NOTHING is exempt — not chat, not the bar — because the
+//   switch means exactly what it says. It never expires (no MAX_MANUAL_PAUSE_MS
+//   here: a kill switch that self-resumes after an hour is not a kill switch),
+//   it survives restart, and only the same switch turns it off. In-flight
+//   children are not killed: admitted work completes, new work is refused.
+//
 // ACCOUNTING. Calls are counted when ADMITTED (so concurrent in-flight calls
 // count), cost is added when the CLI reports it. The ledger is minute buckets
 // over the trailing 24 hours, persisted as JSON under `app_state.budget.ledger`
@@ -61,6 +69,8 @@ export const DEFAULT_CEILINGS: Readonly<BudgetCeilings> = Object.freeze({
 export const BUDGET_TRIPPED_KEY = "budget_tripped_at";
 export const BUDGET_TRIPPED_REASON_KEY = "budget_tripped_reason";
 export const BUDGET_LEDGER_KEY = "budget.ledger";
+/** The kill switch. Value is the ISO time it was thrown; absent = running. */
+export const MODEL_ACTIVITY_PAUSED_KEY = "model_activity_paused";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -205,22 +215,63 @@ function totals(ledger: Bucket[], now: number, windowMs: number): WindowTotals {
 export interface BudgetStatus {
   trippedAt: string | null;
   trippedReason: string | null;
+  /** ISO time the kill switch was thrown; null while model activity runs. */
+  modelActivityPausedAt: string | null;
   hour: WindowTotals;
   day: WindowTotals;
   ceilings: BudgetCeilings;
 }
 
-/** Current windows and latch, for /api/ops and the tests. */
+/** Current windows, latch and kill switch, for /api/ops and the tests. */
 export function budgetStatus(now: number = Date.now()): BudgetStatus {
   const s = store();
   const ledger = loadLedger(s, now);
   return {
     trippedAt: s.get(BUDGET_TRIPPED_KEY),
     trippedReason: s.get(BUDGET_TRIPPED_REASON_KEY),
+    modelActivityPausedAt: s.get(MODEL_ACTIVITY_PAUSED_KEY),
     hour: totals(ledger, now, HOUR_MS),
     day: totals(ledger, now, DAY_MS),
     ceilings: budgetCeilings(),
   };
+}
+
+// ---- the kill switch -------------------------------------------------------
+
+/** True while "Stop all model activity" is on. Persisted; never expires. */
+export function isModelActivityPaused(): boolean {
+  return store().get(MODEL_ACTIVITY_PAUSED_KEY) !== null;
+}
+
+/**
+ * Throw or release the kill switch. Idempotent: throwing it twice keeps the
+ * first timestamp. Releasing it does NOT clear a budget latch — those are two
+ * different facts (the human's choice vs. a ceiling breach).
+ */
+export function setModelActivityPaused(paused: boolean, now: number = Date.now()): void {
+  const s = store();
+  if (paused) {
+    if (s.get(MODEL_ACTIVITY_PAUSED_KEY) !== null) return;
+    s.set(MODEL_ACTIVITY_PAUSED_KEY, new Date(now).toISOString());
+    console.error("[budget] STOP ALL MODEL ACTIVITY — no new `claude` process will spawn until the switch is released.");
+  } else {
+    if (s.get(MODEL_ACTIVITY_PAUSED_KEY) === null) return;
+    s.delete(MODEL_ACTIVITY_PAUSED_KEY);
+    console.error("[budget] model activity resumed by the operator.");
+  }
+}
+
+export class ModelActivityPausedError extends Error {
+  readonly code = "MODEL_ACTIVITY_PAUSED" as const;
+  readonly pausedAt: string;
+  constructor(pausedAt: string) {
+    super(
+      `MODEL_ACTIVITY_PAUSED: "Stop all model activity" has been on since ${pausedAt}. ` +
+        "No process was spawned. Release the switch in Settings > General to resume.",
+    );
+    this.name = "ModelActivityPausedError";
+    this.pausedAt = pausedAt;
+  }
 }
 
 /** True once the latch is set. Never clears on its own. */
@@ -299,6 +350,7 @@ function breach(ledger: Bucket[], now: number, c: BudgetCeilings): string | null
 /**
  * The gate. Call right after assertTraceContext and BEFORE spawn.
  *
+ *   kill switch on                -> throw, for EVERY caller (SPD-03)
  *   latched and not exempt        -> throw (no auto-resume)
  *   would breach a ceiling        -> latch; exempt proceeds, otherwise throw
  *   otherwise                     -> count the call and proceed
@@ -311,6 +363,9 @@ export function admitCall(
   now: number = Date.now(),
 ): void {
   const s = store();
+  const pausedAt = s.get(MODEL_ACTIVITY_PAUSED_KEY);
+  if (pausedAt !== null) throw new ModelActivityPausedError(pausedAt);
+
   const ceilings = budgetCeilings();
   const ledger = loadLedger(s, now);
   const exempt = isLatchExempt(meta);
@@ -324,6 +379,7 @@ export function admitCall(
     throw new BudgetExceededError(why, {
       trippedAt: tripped,
       trippedReason: s.get(BUDGET_TRIPPED_REASON_KEY),
+      modelActivityPausedAt: null,
       hour: totals(ledger, now, HOUR_MS),
       day: totals(ledger, now, DAY_MS),
       ceilings,

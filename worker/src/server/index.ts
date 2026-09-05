@@ -116,7 +116,11 @@ import {
   startSemanticIndexer,
   stopSemanticIndexer,
 } from "../retrieval/indexer.js";
-import { seedActiveEmbeddingModel } from "../retrieval/default-model.js";
+import {
+  ensureDefaultEmbeddingModelDownload,
+  seedActiveEmbeddingModel,
+} from "../retrieval/default-model.js";
+import { dropChunkStaging } from "../retrieval/chunk-index.js";
 import { ensureBrain, handleBrainRoute } from "../brain/index.js";
 import { handleOpsRoute } from "./ops-routes.js";
 import { handleScreenRoute } from "./screen-routes.js";
@@ -380,6 +384,15 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
       seedActiveEmbeddingModel();
     } catch {
       // A boot must not fail over which encoder is preferred.
+    }
+    // V6 S2.2: a re-embed killed mid-way left a staging table search never
+    // read; drop it. Then fetch the default encoder on first run — the bundled
+    // one answers until it lands (retrieval/default-model.ts).
+    try {
+      dropChunkStaging();
+      ensureDefaultEmbeddingModelDownload();
+    } catch {
+      // Same: neither is a reason a boot fails.
     }
   }
 

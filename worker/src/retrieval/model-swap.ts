@@ -19,6 +19,15 @@
 //      none of it did, so there is no instant in which the index holds two
 //      models' vectors and no instant in which the pointer names a model the
 //      index does not hold.
+//
+// V6 S2.2 adds the CHUNK index (chunk-index.ts) to the same swap. Chunks are
+// the real corpus now (T5-3) and there may be far more of them than fits
+// comfortably in memory, so they are re-embedded into a STAGING sibling table
+// on disk that search never reads, and step 3 flips it live — DROP + RENAME —
+// inside the very same transaction as the legacy rewrite and the pointer move.
+// A process killed mid re-embed leaves a partial staging table and an intact
+// live one; boot drops the leftover (RET-05). Nothing ever answers from the
+// half-built side.
 
 import type { Database as Db } from "better-sqlite3";
 
@@ -38,6 +47,14 @@ import {
 } from "./embedder.js";
 import { embeddableText } from "./semantic.js";
 import { wakeSemanticIndexer } from "./indexer.js";
+import {
+  CHUNK_EMBEDDINGS_STAGING_TABLE,
+  beginChunkStaging,
+  dropChunkStaging,
+  embedChunksInto,
+  flipChunkStagingLive,
+} from "./chunk-index.js";
+import { chunkCount } from "../db/v6graph.js";
 
 /** Events embedded per pass. Small enough that a cancel is felt immediately. */
 export const SWAP_BATCH = 32;
@@ -49,7 +66,7 @@ export interface EmbeddingSwapState {
   fromModel: string;
   toModel: string;
   phase: SwapPhase;
-  /** Events to re-embed, and how many are done. */
+  /** Units to re-embed (chunks + legacy events), and how many are done. */
   total: number;
   embedded: number;
   startedAt: string;
@@ -119,7 +136,7 @@ export function startEmbeddingSwap(
     fromModel: from.id,
     toModel: target.id,
     phase: "embedding",
-    total: countEmbeddable(),
+    total: countEmbeddable() + safeChunkCount(),
     embedded: 0,
     startedAt: new Date().toISOString(),
     finishedAt: null,
@@ -146,8 +163,29 @@ async function execute(
     }
 
     const batchSize = opts.batch ?? SWAP_BATCH;
+
+    // ---- Chunks first, into the staging sibling on disk (S2.2). ----------
+    // Search reads `chunk_embeddings` and only that, so nothing here is
+    // visible to a query until flip(). A cancel or a crash leaves a partial
+    // staging table that is dropped, here or at the next boot.
+    beginChunkStaging();
+    const chunkTotal = safeChunkCount();
+    let chunksDone = 0;
+    for (;;) {
+      if (state.cancelled) {
+        dropChunkStaging();
+        finish(state, "cancelled", null);
+        return;
+      }
+      const n = await embedChunksInto(embedder, CHUNK_EMBEDDINGS_STAGING_TABLE, batchSize);
+      if (n === 0) break;
+      chunksDone += n;
+      state.embedded = chunksDone;
+    }
+
+    // ---- Then the legacy per-event vectors, in memory as before. ----------
     const rows = readCorpus();
-    state.total = rows.length;
+    state.total = rows.length + chunkTotal;
 
     // The whole new index, held in memory until it is complete. At 3,900
     // events and 768 dimensions that is 12 MB — cheaper than the alternative,
@@ -156,6 +194,7 @@ async function execute(
 
     for (let i = 0; i < rows.length; i += batchSize) {
       if (state.cancelled) {
+        dropChunkStaging();
         finish(state, "cancelled", null);
         return;
       }
@@ -172,10 +211,11 @@ async function execute(
       for (let j = 0; j < slice.length; j++) {
         built.push({ eventId: slice[j].id, vector: vectors[j] });
       }
-      state.embedded = built.length;
+      state.embedded = chunksDone + built.length;
     }
 
     if (state.cancelled) {
+      dropChunkStaging();
       finish(state, "cancelled", null);
       return;
     }
@@ -190,7 +230,20 @@ async function execute(
     wakeSemanticIndexer();
     finish(state, "done", null);
   } catch (err) {
+    try {
+      dropChunkStaging();
+    } catch {
+      // The leftover is dropped at the next boot instead.
+    }
     finish(state, "error", err instanceof Error ? err.message : String(err));
+  }
+}
+
+function safeChunkCount(): number {
+  try {
+    return chunkCount();
+  } catch {
+    return 0;
   }
 }
 
@@ -202,7 +255,9 @@ function finish(state: SwapRun, phase: SwapPhase, error: string | null): void {
 
 /**
  * The atomic half. One transaction, so there is no readable moment in which
- * two models own vectors in the same table.
+ * two models own vectors in the same table — and the chunk staging table
+ * becomes the live one in the same step, so there is no readable moment in
+ * which the chunk index is half-built either.
  */
 function flip(
   target: EmbeddingModelSpec,
@@ -235,6 +290,7 @@ function flip(
         vector: encodeVector(row.vector),
       });
     }
+    flipChunkStagingLive(db);
     setActiveEmbeddingModelId(target.id);
   });
   tx();

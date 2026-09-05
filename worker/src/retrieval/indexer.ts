@@ -13,6 +13,8 @@
 
 import { indexSemanticBatch, DEFAULT_INDEX_BATCH } from "./semantic.js";
 import { getEmbedder } from "./embedder.js";
+import { runChunker } from "./chunker.js";
+import { indexChunkBatch } from "./chunk-index.js";
 
 /** Between batches while there is a backlog. Enough to stay out of the way. */
 const BUSY_MS = 250;
@@ -78,9 +80,21 @@ class SemanticIndexer {
       // Asking for the embedder first keeps the switched-off case free: no
       // claim query, no vector read, just a null.
       if (await getEmbedder()) {
+        // V6 S2.2: cut what is new into chunks (SQLite only, no model), then
+        // give the chunks their vectors. The legacy per-event index keeps
+        // filling beside it until the retrieval lanes stop reading it.
+        let cut = 0;
+        try {
+          const r = runChunker();
+          cut = r.chatChunks + r.screenChunks + r.browserChunks + r.cardChunks;
+        } catch (err) {
+          this.log(`[retrieval] chunker pass failed: ${(err as Error).message}`);
+        }
+        const chunksStored = await indexChunkBatch(this.batch);
         const stored = await indexSemanticBatch(this.batch);
-        // A full batch means there is more behind it.
-        next = stored >= this.batch ? BUSY_MS : IDLE_MS;
+        // A full batch — or a chunker pass that produced work — means there
+        // is more behind it.
+        next = stored >= this.batch || chunksStored >= this.batch || cut > 0 ? BUSY_MS : IDLE_MS;
       }
     } catch (err) {
       this.log(`[retrieval] index pass failed: ${(err as Error).message}`);

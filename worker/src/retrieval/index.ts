@@ -108,6 +108,28 @@ export {
   stopSemanticIndexer,
   wakeSemanticIndexer,
 } from "./indexer.js";
+// V6 S2.2: chunks are the embedded unit (T5-3).
+export {
+  runChunker,
+  cutWindows,
+  cutDocument,
+  stripUrl,
+  CHUNK_TARGET_CHARS,
+  type ChunkerReport,
+} from "./chunker.js";
+export {
+  indexChunkBatch,
+  vectorSearchChunks,
+  rankChunks,
+  chunkIndexStatus,
+  dropChunkStaging,
+  chunkStagingExists,
+  DEFAULT_CHUNK_SEARCH_LIMIT,
+  type ChunkHit,
+  type ChunkSearchOptions,
+  type ChunkIndexStatus,
+} from "./chunk-index.js";
+export { ensureDefaultEmbeddingModelDownload, type FirstRunDownloadOutcome } from "./default-model.js";
 
 import { readChannelEventIds } from "../db/retrieval.js";
 import { formatContextBlock, DEFAULT_CONTEXT_CHARS } from "./format.js";

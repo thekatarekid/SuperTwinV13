@@ -84,6 +84,9 @@ beforeEach(() => {
   resetSemanticCacheForTests();
   getDb().prepare(`DELETE FROM event_embeddings`).run();
   getDb().prepare(`DELETE FROM events`).run();
+  // V6 S2.2: the tick also cuts chunks and embeds them; start each case clean.
+  getDb().prepare(`DELETE FROM chunks`).run();
+  getDb().prepare(`DELETE FROM app_state WHERE key LIKE 'chunker.%'`).run();
   embedCalls = 0;
   fail = false;
 });
@@ -95,8 +98,9 @@ describe("the background indexer", () => {
     startSemanticIndexer({ batch: 4 });
 
     await until(() => countEventEmbeddings(KEY) === 20, "the backlog to drain");
-    // 20 rows in batches of 4 is five passes, not one big one.
-    expect(embedCalls).toBe(5);
+    // 20 rows in batches of 4 is five passes, not one big one — plus the one
+    // chunk window those 20 rows make (V6 S2.2), embedded on the first tick.
+    expect(embedCalls).toBe(6);
   });
 
   it("goes quiet once it is caught up, and wakes for what arrives later", async () => {
@@ -113,7 +117,8 @@ describe("the background indexer", () => {
     addEvents(2, "later");
     wakeSemanticIndexer();
     await until(() => countEventEmbeddings(KEY) === 5, "the later rows");
-    expect(embedCalls).toBe(settled + 1);
+    // One pass for the two rows, one for the rewritten open chunk window.
+    expect(embedCalls).toBe(settled + 2);
   });
 
   it("costs nothing while the tier is off", async () => {

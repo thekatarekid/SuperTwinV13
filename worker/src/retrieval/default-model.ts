@@ -21,7 +21,9 @@
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
-import { embeddingModelPresent } from "./embedder.js";
+import { embeddingModelPresent, ensureEmbeddingModel } from "./embedder.js";
+import { startEmbeddingDownload, type EmbeddingDownload } from "./downloads.js";
+import { wakeSemanticIndexer } from "./indexer.js";
 import {
   activeEmbeddingModelId,
   DEFAULT_EMBEDDING_MODEL_ID,
@@ -63,17 +65,20 @@ export function embeddingModelChosenByUser(): boolean {
   }
 }
 
-/** How many vectors the index holds right now, across every model. */
+/** How many vectors the index holds right now, across every model and both tables. */
 function vectorsHeld(): number {
+  let n = 0;
   try {
-    const row = getDb().prepare(`SELECT COUNT(*) AS n FROM event_embeddings`).get() as {
-      n: number;
-    };
-    return row.n;
+    n += (getDb().prepare(`SELECT COUNT(*) AS n FROM event_embeddings`).get() as { n: number }).n;
   } catch {
     // A database that predates the vector table holds none.
-    return 0;
   }
+  try {
+    n += (getDb().prepare(`SELECT COUNT(*) AS n FROM chunk_embeddings`).get() as { n: number }).n;
+  } catch {
+    // Pre-0201 database: no chunk index.
+  }
+  return n;
 }
 
 export type AdoptOutcome =
@@ -131,4 +136,57 @@ export function seedActiveEmbeddingModel(): AdoptOutcome {
     }
   }
   return outcome;
+}
+
+// ===========================================================================
+// First run: fetch the default encoder (V6 S2.2 — Build §5.1 "EmbeddingGemma
+// 300M downloads on first run; a bundled small encoder covers search until
+// then"). The bundled E5 Small answers from boot; the moment Gemma's verified
+// files land, adoptDefaultEmbeddingModel() moves the install onto it — a
+// pointer move on an empty index, the background swap on a populated one.
+//
+// Never over a human's pick, never when the files are here, never twice, and
+// never under test or when SUPERTWIN_EMBEDDING_AUTO_DOWNLOAD=0.
+// ===========================================================================
+
+export type FirstRunDownloadOutcome =
+  | "present"
+  | "user-chose"
+  | "disabled"
+  | "already-downloading"
+  | "started";
+
+export function firstRunDownloadEnabled(): boolean {
+  const v = (process.env.SUPERTWIN_EMBEDDING_AUTO_DOWNLOAD ?? "").trim();
+  if (v === "0") return false;
+  if (v === "1") return true;
+  return process.env.NODE_ENV !== "test";
+}
+
+/**
+ * Start the default encoder's download if this install still needs it.
+ * Idempotent; cheap enough to call at every boot.
+ */
+export function ensureDefaultEmbeddingModelDownload(
+  opts: { start?: typeof startEmbeddingDownload } = {},
+): FirstRunDownloadOutcome {
+  const spec = findEmbeddingModel(DEFAULT_EMBEDDING_MODEL_ID);
+  if (!spec) return "present";
+  if (embeddingModelPresent(spec)) return "present";
+  if (embeddingModelChosenByUser()) return "user-chose";
+  if (!firstRunDownloadEnabled()) return "disabled";
+  const start = opts.start ?? startEmbeddingDownload;
+  const state: EmbeddingDownload | null = start(spec, {
+    async onComplete() {
+      adoptDefaultEmbeddingModel();
+      try {
+        await ensureEmbeddingModel();
+      } catch {
+        // Reported by embedderStatus(); the bundled encoder keeps answering.
+      }
+      wakeSemanticIndexer();
+    },
+  });
+  if (!state) return "present";
+  return state.receivedBytes > 0 || state.file !== spec.files[0]?.path ? "already-downloading" : "started";
 }

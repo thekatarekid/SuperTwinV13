@@ -9,8 +9,7 @@
 //
 // Current wiring:
 //   * `selftest.stub` — the deterministic self-test pass (always available).
-//   * `scheduler.dispatch` (BND) — registered ONLY when the scheduler rewrite
-//     (P0.5, concurrent) has landed its eval hook; until then BND is PENDING.
+//   * `bundle` (BND) and `gate` (GATE) — the V6 scheduler's code cases (S3.3).
 //   * The V13 model passes (orient, extract, decide, …) register here as the
 //     P1.x tasks land them, exactly the way BND does.
 // ===========================================================================
@@ -18,7 +17,8 @@
 import { setConsentGateMode } from "../../db/consent-gate.js";
 import { assertEvalDbIsolated } from "../home.js";
 import { registerExecutor } from "../runner.js";
-import { bndExecutor, bndHookAvailable } from "./bnd.js";
+import { bundleExecutor } from "./bnd.js";
+import { gateExecutor } from "./gate.js";
 import { criticExecutor, orientExecutor } from "./orient.js";
 import {
   backfillExecutor,
@@ -39,7 +39,8 @@ import {
   timeExecutor,
 } from "./p3.js";
 
-export { bndExecutor, bndHookAvailable } from "./bnd.js";
+export { bundleExecutor } from "./bnd.js";
+export { gateExecutor } from "./gate.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
 export {
   backfillExecutor,
@@ -84,9 +85,11 @@ export async function registerProductExecutors(): Promise<void> {
   // CNS vitest suites, so the harness opens it here.
   setConsentGateMode("open");
   registerExecutor("selftest.stub", stubExecutor);
-  if (await bndHookAvailable()) {
-    registerExecutor("scheduler.dispatch", bndExecutor);
-  }
+  // V6 P1 S3.3: BND (bundling) and GATE (the state gate) run against the real
+  // scheduler/v6 code — cold window, day-bundler, dispatcher invariants, pool
+  // lanes. Zero model calls.
+  registerExecutor("bundle", bundleExecutor);
+  registerExecutor("gate", gateExecutor);
   // P1.3: the Orient map pass + the Critic gate (TOP/ASN/CRE/CRI/ROL/AGE…).
   registerExecutor("orient", orientExecutor);
   registerExecutor("critic", criticExecutor);

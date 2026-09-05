@@ -29,8 +29,8 @@ import { ResourcePool } from "../providers/pool.js";
 import type { Provider, ProviderResult, SendOptions } from "../providers/types.js";
 import { emptyUsage } from "../providers/usage.js";
 import { runJsonPass, resetStableSystemPromptsForTests } from "../brain/llm.js";
-import { runDigestPass } from "../scheduler/digest-pass.js";
-import type { DeltaBundle } from "../scheduler/dispatch.js";
+import { runDigestPass } from "../brain/digest-pass.js";
+import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { describeMedia, describeMediaBatch } from "../media/describe.js";
 
 let tmpDir: string;
@@ -296,7 +296,7 @@ function cat2Bundle(): DeltaBundle {
   return {
     streamId: "wa:st:g@g.us",
     streamKey: "g@g.us",
-    lane: "backfill",
+    lane: "history",
     ageBand: "C",
     category: "cat2",
     day: "2024-03-28",

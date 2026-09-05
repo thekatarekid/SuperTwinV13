@@ -44,7 +44,7 @@ import { randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { addEpisodeEvents } from "../db/v6core.js";
-import type { DeltaBundle } from "../scheduler/dispatch.js";
+import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { spaceCreationStatus } from "../consolidation/graduation.js";
 import { verdictFor, type CriticOutput } from "./critic.js";
 import { resolveEventAliases, type OrientEvidence, type OrientOutput } from "./orient.js";

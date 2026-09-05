@@ -24,9 +24,8 @@
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { getDb } from "../db/connection.js";
-import { isMode, remainingMinutes, type SchedulerMode } from "../scheduler/horizons.js";
-import { pauseState } from "../scheduler/lanes.js";
-import { readCoverage, type CoverageRow } from "../scheduler/queue.js";
+import { isMode, pauseState, remainingMinutes, type SchedulerMode } from "./progress-format.js";
+import { readCoverage, type CoverageRow } from "../db/work-queue.js";
 import { resourcePool } from "../providers/pool.js";
 import { OPS_LANES } from "./ops-routes.js";
 

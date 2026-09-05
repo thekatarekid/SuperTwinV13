@@ -32,6 +32,7 @@ import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
 import { startConsolidationJob } from "./consolidation/index.js";
+import { startDispatcher } from "./scheduler/v6/dispatch.js";
 import { startAssistLane } from "./assist/index.js";
 import { backfillTiers } from "./tiers/derive.js";
 import {
@@ -218,11 +219,15 @@ async function main(): Promise<void> {
   // hashed + sampled full-keeps). One sweep shortly after boot, then daily.
   const traceRetention = startTraceRetentionJob();
 
-  // ---- Dispatch (V6 P1 S0.5): the 5-minute window clock and the orphan scan
-  // are deleted (Build §2.3). Nothing turns the event log into bundles in the
-  // background until S3 wires the state gate to scheduler/dispatch.ts
-  // runDispatchTick and the brain consumer (brain/consumer.ts). Until then the
-  // worker ingests and indexes; it does not understand.
+  // ---- Dispatch (V6 P1 S3.3, Product_V6 §11.3 / §23.2): the state gate.
+  // Every 5 s the dispatcher reads new event rows, gates the live ones (open
+  // task · active episode · bridge/entity in an active space · addressed to
+  // the twin → HOT; ≥4 content-new on one stream in 180 s → BURST; else the
+  // cold window), flushes ONE live bundle when due on the pool's reserved live
+  // lane, and fills the remaining slots with history days (newest first) and
+  // tier-3 weekly digests. Slot cap, keyed in-flight and revalidate-at-
+  // execution are invariants of the dispatcher itself. No new event, no call.
+  const dispatcher = startDispatcher({ log: (line) => console.error(line) });
 
   // ---- Consolidation + reduce (P1.4/P1.5, spec §6.3.2 / §15.2): every
   // minute — sweep newly-activated spaces, flag-triggered T2, drain the
@@ -248,6 +253,7 @@ async function main(): Promise<void> {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
       parentWatch.stop();
+      dispatcher.stop();
       consolidation.stop();
       assistLane.stop();
       spendHeartbeat.stop();

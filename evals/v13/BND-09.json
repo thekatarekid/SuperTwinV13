@@ -1,0 +1,30 @@
+{
+  "id": "BND-09",
+  "category": "BND",
+  "title": "keyed in-flight",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "HARD. The same bundle key submitted twice before the first settles."
+  },
+  "input_events": [
+    "a two-message bundle on wa:goa-gang submitted at t = 0 and again at t = 1 s while the sink is parked"
+  ],
+  "expected": {
+    "sink_calls": 1,
+    "second_submission": "duplicate"
+  },
+  "wrong": [
+    {
+      "label": "double-call",
+      "assert_absent": "two sink calls for one key"
+    }
+  ],
+  "gates": [
+    "dispatch_over_cap"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-09 · keyed in-flight"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "GATE-03",
+  "category": "GATE",
+  "title": "an active episode makes it hot",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "An episode open on wa:rohan from 4 minutes ago.",
+    "episodes": [
+      {
+        "stream": "wa:rohan",
+        "state": "open",
+        "last_minutes_ago": 4
+      }
+    ]
+  },
+  "input_events": [
+    "Rohan: \"and the villa?\""
+  ],
+  "expected": {
+    "gate": {
+      "decision": "hot",
+      "reason": "active_episode"
+    }
+  },
+  "wrong": [
+    {
+      "label": "episode-ignored",
+      "assert_absent": "cold despite the open episode"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-03 · an active episode makes it hot"
+  }
+}

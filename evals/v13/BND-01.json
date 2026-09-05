@@ -1,26 +1,38 @@
 {
   "id": "BND-01",
   "category": "BND",
-  "title": "Window cut, one bundle per active stream",
-  "pass": "scheduler.dispatch",
+  "title": "one history call per day, sectioned",
+  "pass": "bundle",
   "mode": "code",
-  "setup": "cursors current; window = 5 min.",
+  "setup": {
+    "note": "History lane. Three sources on one calendar day; every event is backfill on tier-1 streams.",
+    "sources": [
+      "wa",
+      "screen",
+      "browser"
+    ],
+    "events": 60,
+    "day": "2026-08-20"
+  },
   "input_events": [
-    "12:00–12:05: 7 msgs in Goa gang, 2 msgs in Ma DM, 9 screen snapshots on `Chrome¦goibibo`, nothing else."
+    "20 WhatsApp messages 09:00–11:13 on wa:goa-gang",
+    "20 screen frames 10:00–11:35 on screen:com.apple.Notes",
+    "20 browser visits 11:00–11:57 on browser:goibibo.com"
   ],
-  "expected": "exactly 3 bundles at 12:05, keyed by stream; all 18 events covered; cursors advance only on successful dispatch.",
+  "expected": {
+    "bundles": 1,
+    "sections": "single-stream",
+    "order_within_section": "temporal",
+    "lead_section": "chats first (§11.2: chats → screen → browser)"
+  },
   "wrong": [
     {
-      "label": "time-blender",
-      "assert_absent": "one mega-bundle"
+      "label": "two-bundles",
+      "assert_absent": "more than one bundle for the day"
     },
     {
-      "label": "stream-shatter",
-      "assert_absent": "per-event bundles"
-    },
-    {
-      "label": "cursor-skip",
-      "assert_absent": "cursor advances past undispatched events"
+      "label": "mixed-section",
+      "assert_absent": "a section holding events of two streams, or out of time order"
     }
   ],
   "gates": [
@@ -29,6 +41,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "BND-01 · Window cut, one bundle per active stream"
+    "section": "GoldenEvals V6P1 §5.5 BND-01 · one history call per day, sectioned"
   }
 }

@@ -51,12 +51,14 @@ import {
   queueDepth,
   readCoverage,
   replayQuarantined,
-} from "../scheduler/queue.js";
+} from "../db/work-queue.js";
+import { listDeadLetters } from "../db/v6core.js";
 
 /** The lanes the ops surface may pause. Anything else is a 400, not a crash. */
 export const OPS_LANES = [
   "llm:understanding",
   "llm:enrichment",
+  "llm:live",
   "llm",
   "transcribe",
   "embed",
@@ -238,7 +240,9 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
 
   // ---- GET /api/ops/quarantine --------------------------------------------
   if (method === "GET" && path === "/api/ops/quarantine") {
-    sendJson(res, 200, { items: listQuarantined() });
+    // V6 S3.3 / BND-11: dead-lettered bundles (three strikes) sit beside the
+    // work-queue quarantine so the ops view shows both.
+    sendJson(res, 200, { items: listQuarantined(), deadLetters: listDeadLetters() });
     return true;
   }
 

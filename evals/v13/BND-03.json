@@ -1,26 +1,42 @@
 {
   "id": "BND-03",
   "category": "BND",
-  "title": "Mid-conversation cut is harmless",
-  "pass": "scheduler.dispatch",
+  "title": "newest day first, empty days skipped",
+  "pass": "bundle",
   "mode": "code",
-  "setup": "ep_412 \"villa shortlist\" open in sp_goa_dec.",
+  "setup": {
+    "note": "History lane. Five days D1..D5 with D3 empty; two backfill messages on each other day.",
+    "days": [
+      "2026-08-01",
+      "2026-08-02",
+      "2026-08-04",
+      "2026-08-05"
+    ],
+    "empty": "2026-08-03"
+  },
   "input_events": [
-    "villa discussion runs 12:03–12:08 — window cuts it at 12:05 (5 msgs) and 12:10 (6 msgs)."
+    "2 messages on each of D1, D2, D4, D5; nothing on D3"
   ],
-  "expected": "both bundles' Orient calls join ep_412; one episode, one space; summaries cumulative.",
+  "expected": {
+    "order": [
+      "2026-08-05",
+      "2026-08-04",
+      "2026-08-02",
+      "2026-08-01"
+    ],
+    "never_sent": "2026-08-03"
+  },
   "wrong": [
     {
-      "label": "cut-fork",
-      "assert_absent": "second bundle opens a new episode/space because the cut looked like a boundary"
+      "label": "clock-only-call",
+      "assert_absent": "a bundle with zero events, or the empty day D3 sent"
     }
   ],
   "gates": [
-    "continuity_rate",
-    "over_creation"
+    "clock_only_call"
   ],
   "source": {
     "doc": "V2",
-    "section": "BND-03 · Mid-conversation cut is harmless"
+    "section": "GoldenEvals V6P1 §5.5 BND-03 · newest day first, empty days skipped"
   }
 }

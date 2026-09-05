@@ -1,24 +1,30 @@
+// ===========================================================================
+// BND executor (V6 P1 S3.3): the twelve code cases run against the real
+// fixtures in evals/v13 through the real scheduler/v6 code — zero model calls,
+// sandboxed DB.
+// ===========================================================================
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { closeDb } from "../../db/connection.js";
-import { goodFixture } from "../testutil.js";
+import { closeDb, getDb, runMigrations } from "../../db/connection.js";
+import { loadFixture } from "../fixtures.js";
 import { registeredPasses } from "../runner.js";
-import { bndExecutor, bndHookAvailable, BND_HOOK_EXPORT, BND_HOOK_MODULE, resetBndHookCache } from "./bnd.js";
+import { bundleExecutor } from "./bnd.js";
 import { registerProductExecutors } from "./index.js";
 
-// registerProductExecutors() refuses to wire the DB-touching executors while
-// the resolved DB is the user's real home (evals/home.ts). Sandbox this suite
-// the way the CLI sandboxes a run.
+const FIX = join(import.meta.dirname, "../../../../evals/v13");
+
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "supertwin-bndexec-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "supertwin-bnd-eval-"));
   process.env.SUPERTWIN_HOME = tmpDir;
   process.env.SUPERTWIN_DB_PATH = join(tmpDir, "st.db");
   closeDb();
+  runMigrations();
 });
 
 afterEach(() => {
@@ -28,29 +34,35 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-const bndFixture = () =>
-  goodFixture({ id: "BND-01", category: "BND", pass: "scheduler.dispatch", mode: "code" });
+async function run(id: string) {
+  const fixture = loadFixture(join(FIX, `${id}.json`));
+  expect(fixture.mode).toBe("code");
+  expect(fixture.pass).toBe("bundle");
+  return bundleExecutor({ fixture });
+}
 
-describe("BND executor seam (P0.5 lands the other side)", () => {
-  it("names the contract: scheduler/eval-hooks.js must export runBndCase", () => {
-    expect(BND_HOOK_MODULE).toBe("../../scheduler/eval-hooks.js");
-    expect(BND_HOOK_EXPORT).toBe("runBndCase");
+describe("BND executor", () => {
+  it("registers under `bundle` alongside `gate`", async () => {
+    await registerProductExecutors();
+    expect(registeredPasses()).toContain("bundle");
+    expect(registeredPasses()).toContain("gate");
+    expect(registeredPasses()).not.toContain("scheduler.dispatch");
   });
 
-  it("registers scheduler.dispatch only when the hook exists — pending, not fail, until then", async () => {
-    resetBndHookCache();
-    const available = await bndHookAvailable();
-    await registerProductExecutors();
-    const passes = registeredPasses();
-    expect(passes).toContain("selftest.stub");
-    expect(passes.includes("scheduler.dispatch")).toBe(available);
-    if (!available) {
-      // The executor itself, if forced, says exactly what is missing.
-      await expect(bndExecutor({ fixture: bndFixture() })).rejects.toThrow(/scheduler eval hook missing/);
-    } else {
-      // The scheduler landed its hook: BND cases run the real dispatcher.
-      const result = await bndExecutor({ fixture: bndFixture() });
-      expect(typeof result.ok).toBe("boolean");
-    }
+  for (const id of ["BND-01", "BND-02", "BND-03", "BND-04", "BND-05", "BND-06", "BND-07", "BND-09", "BND-10", "BND-11", "BND-12"]) {
+    it(`${id} passes with no violations`, async () => {
+      const r = await run(id);
+      expect(r.violations ?? []).toEqual([]);
+      expect(r.ok).toBe(true);
+    });
+  }
+
+  it("BND-08 passes, reports dispatch_over_cap = 0, and leaves the harness DB clean", async () => {
+    const r = await run("BND-08");
+    expect(r.violations ?? []).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(r.metrics?.dispatch_over_cap).toBe(0);
+    expect((getDb().prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n).toBe(0);
+    expect((getDb().prepare(`SELECT COUNT(*) AS n FROM streams`).get() as { n: number }).n).toBe(0);
   });
 });

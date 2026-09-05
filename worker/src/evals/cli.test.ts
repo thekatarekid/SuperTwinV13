@@ -46,7 +46,7 @@ describe("parseArgs", () => {
 
 describe("selectFixtures", () => {
   const rol = goodFixture();
-  const bnd = goodFixture({ id: "BND-01", category: "BND", pass: "scheduler.dispatch", mode: "code" });
+  const bnd = goodFixture({ id: "BND-01", category: "BND", pass: "bundle", mode: "code" });
   const stb = goodFixture({ id: "STB-01", category: "STB", selftest: true });
 
   it("filters by category and excludes selftest cases from a mixed load", () => {

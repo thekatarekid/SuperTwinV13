@@ -1,0 +1,41 @@
+{
+  "id": "GATE-04",
+  "category": "GATE",
+  "title": "a bridge to an active space",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "sp_goa_dec active with an Airbnb listing bridge (space_bridge_keys url).",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "status": "active",
+        "bridges": [
+          "url:airbnb listing"
+        ]
+      }
+    ]
+  },
+  "input_events": [
+    "a browser visit to the same Airbnb listing"
+  ],
+  "expected": {
+    "gate": {
+      "decision": "hot",
+      "reason": "bridge_to_active_space"
+    }
+  },
+  "wrong": [
+    {
+      "label": "bridge-ignored",
+      "assert_absent": "cold despite the bridge into an active space"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-04 · a bridge to an active space"
+  }
+}

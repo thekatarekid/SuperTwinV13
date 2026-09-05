@@ -9,7 +9,7 @@
 
 import { getDb } from "../db/connection.js";
 import { CRITIC_V4 } from "../prompts/critic.v4.js";
-import type { DeltaBundle } from "../scheduler/dispatch.js";
+import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { resolveEventAliases, type OrientOutput, type OrientRun } from "./orient.js";
 
@@ -208,7 +208,7 @@ export async function runCritic(
         kind: "tick",
         id: `${orientRun.bundle.streamId}:${orientRun.bundle.part}`,
       },
-      lane: "understanding",
+      lane: orientRun.bundle.lane === "live" ? "live" : "understanding",
       origin: orientRun.bundle.lane === "live" ? "live" : "backfill",
       validate: parseCriticOutput,
     },

@@ -1,0 +1,39 @@
+{
+  "id": "GATE-01",
+  "category": "GATE",
+  "title": "an open task makes it hot",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "Open task \"collect advance from Karan\" in a space with an episode on wa:goa-gang.",
+    "open_tasks": [
+      {
+        "title": "collect advance from Karan",
+        "stream": "wa:goa-gang"
+      }
+    ]
+  },
+  "input_events": [
+    "Karan on wa:goa-gang: \"ok\""
+  ],
+  "expected": {
+    "gate": {
+      "decision": "hot",
+      "reason": "open_task_in_stream",
+      "under_ms": 100
+    }
+  },
+  "wrong": [
+    {
+      "label": "char-count-cold",
+      "assert_absent": "2 characters treated as low signal"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-01 · an open task makes it hot"
+  }
+}

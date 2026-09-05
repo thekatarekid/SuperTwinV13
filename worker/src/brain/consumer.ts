@@ -23,7 +23,7 @@
 
 import type { EventEnvelope } from "../db/eventlog.js";
 import { getDb } from "../db/connection.js";
-import { markDispatchedEvents, type DeltaBundle } from "../scheduler/dispatch.js";
+import { markDispatchedEvents, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { clearBundleAttempts, noteBundleAttempt } from "../db/v6core.js";
 import { ensureDigests, recordContextStats } from "../packer/index.js";
 import type { JsonPassDeps } from "./llm.js";

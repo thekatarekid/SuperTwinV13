@@ -62,7 +62,9 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "EXE", name: "Executor (agentic)", n: 6, doc: "V1", pass: "executor" },
   { cat: "AGE", name: "Age-band backfill policy", n: 4, doc: "V1", pass: "scheduler.backfill" },
   // -- GoldenEvals V2 --
-  { cat: "BND", name: "Delta bundling, cursors, dispatch", n: 6, doc: "V2", pass: "scheduler.dispatch" },
+  // V6 P1 S3.3: BND is re-authored against the V6 P1 doc (§5.5, 12 cases) — the
+  // V2 per-stream-window cases were replaced ("the call unit is time, not stream").
+  { cat: "BND", name: "Bundling (V6 P1)", n: 12, doc: "V2", pass: "bundle", authored: true },
   { cat: "ROL", name: "People role resolution", n: 10, doc: "V2", pass: "orient+extract" },
   { cat: "CIR", name: "Circles & relationship value", n: 4, doc: "V2", pass: "circles" },
   { cat: "CAT", name: "Category 1/2, promotion, Digest", n: 6, doc: "V2", pass: "digest" },
@@ -82,6 +84,8 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "CMT", name: "Commit (V6 P1)", n: 5, doc: "V2", pass: "commit", authored: true },
   // GoldenEvals V6 Phase 1 §5.7 — the pack (S3.2). Code-asserted against packer/pack.ts.
   { cat: "PCK", name: "The pack (V6 P1)", n: 7, doc: "V2", pass: "pack", authored: true },
+  // GoldenEvals V6 Phase 1 §5.6 — the state gate (S3.3). Code-asserted against scheduler/v6.
+  { cat: "GATE", name: "The state gate (V6 P1)", n: 10, doc: "V2", pass: "gate", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);
@@ -153,7 +157,8 @@ export class FixtureError extends Error {
   }
 }
 
-const ID_RE = /^[A-Z]{3}-\d{2}$/;
+/** `ROL-01`, and the four-letter V6 P1 categories (`GATE-01`). */
+const ID_RE = /^[A-Z]{3,4}-\d{2}$/;
 const PASS_RE = /^[a-z][a-z0-9.+_-]*$/;
 const GATE_RE = /^[a-z][a-z0-9_]*$/;
 const LABEL_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -218,7 +223,7 @@ export function validateFixture(raw: unknown, file: string): Fixture {
   const id = c.str(o.id, "id");
   if (id && !ID_RE.test(id)) c.fail("id", `must look like "ROL-01", got ${JSON.stringify(id)}`);
   const category = c.str(o.category, "category");
-  const prefix = id.slice(0, 3);
+  const prefix = id.split("-")[0] ?? "";
 
   let selftest: boolean | undefined;
   if (o.selftest !== undefined) {

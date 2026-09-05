@@ -20,7 +20,7 @@ import {
   stateOf,
   toPackEvent,
   type AttachmentRow,
-} from "../scheduler/enrichment-state.js";
+} from "./enrichment-state.js";
 import { setEnrichmentSalienceGate } from "./batch.js";
 import {
   registerBundleForEnrichment,

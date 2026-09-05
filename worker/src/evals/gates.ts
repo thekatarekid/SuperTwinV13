@@ -60,6 +60,8 @@ export const HARD_GATES: readonly Gate[] = [
   { id: "trigger_gate", metric: "trigger_gate (novelty/suppression bypass = 0)", kind: "zero_violations", threshold: null, doc: "V2" },
   { id: "trace_coverage", metric: "trace_coverage = 100%", kind: "min_rate", threshold: 1, doc: "V2" },
   { id: "idempotency", metric: "idempotency (no double-ingest / double-apply)", kind: "zero_violations", threshold: null, doc: "V2" },
+  // -- V6 P1 (GoldenEvals V6 P1 §3.1, BND / GATE) ----------------------------
+  { id: "dispatch_over_cap", metric: "dispatch_over_cap = 0", kind: "zero_violations", threshold: null, doc: "V2" },
 ];
 
 const HARD_BY_ID = new Map(HARD_GATES.map((g) => [g.id, g]));

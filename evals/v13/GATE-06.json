@@ -1,0 +1,38 @@
+{
+  "id": "GATE-06",
+  "category": "GATE",
+  "title": "burst",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "No state at all. K = 4 content-new on one stream within W = 180 s.",
+    "variants": [
+      "4 distinct pages",
+      "3 pages",
+      "4 pages of which 2 share a content hash"
+    ]
+  },
+  "input_events": [
+    "4 distinct product pages on browser:croma.com within 150 s",
+    "only 3 pages",
+    "4 pages of which 2 share a content hash"
+  ],
+  "expected": {
+    "four_distinct": "burst on the 4th → flush now",
+    "three": "cold",
+    "four_with_two_repeats": "cold (only 2 content-new)"
+  },
+  "wrong": [
+    {
+      "label": "burst-on-repeats",
+      "assert_absent": "repeated content counted toward the burst"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-06 · burst"
+  }
+}

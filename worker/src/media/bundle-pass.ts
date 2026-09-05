@@ -40,8 +40,8 @@ import {
   ATTACHMENT_COLUMNS,
   stateOf,
   type AttachmentRow,
-} from "../scheduler/enrichment-state.js";
-import { workId } from "../scheduler/queue.js";
+} from "./enrichment-state.js";
+import { workId } from "../db/work-queue.js";
 import { enrichmentPriority, getEnrichmentSalienceGate } from "./batch.js";
 
 // ---------------------------------------------------------------------------

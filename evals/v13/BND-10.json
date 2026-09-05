@@ -1,0 +1,30 @@
+{
+  "id": "BND-10",
+  "category": "BND",
+  "title": "revalidate at execution",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "HARD. Rows marked dispatched between enqueue and run."
+  },
+  "input_events": [
+    "a bundle collected, its rows stamped by another path, then submitted"
+  ],
+  "expected": {
+    "sink_calls": 0,
+    "status": "stale"
+  },
+  "wrong": [
+    {
+      "label": "stale-call",
+      "assert_absent": "a sink call on a bundle whose rows were already stamped"
+    }
+  ],
+  "gates": [
+    "dispatch_over_cap"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-10 · revalidate at execution"
+  }
+}

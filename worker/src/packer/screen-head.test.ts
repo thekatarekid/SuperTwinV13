@@ -21,7 +21,7 @@ import type { SnapshotFrame } from "../adapters/screen/frames.js";
 import { bundleEventSource } from "../brain/consumer.js";
 import { closeDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
-import { collectTick, type DeltaBundle } from "../scheduler/dispatch.js";
+import { collectTick, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { eventIdentityHead, packOrientContext } from "./pack.js";
 
 let tmpDir: string;

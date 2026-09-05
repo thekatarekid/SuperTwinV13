@@ -1,0 +1,33 @@
+{
+  "id": "GATE-09",
+  "category": "GATE",
+  "title": "history never queues a nudge",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "200 history day bundles pending; a 4-slot LLM pool with the background lanes saturated and parked; then a hot live event.",
+    "history_bundles": 200,
+    "llm": 4
+  },
+  "input_events": [
+    "200 backfill days queued, then Rohan: \"and the villa?\" on a stream with an open episode"
+  ],
+  "expected": {
+    "live_flush": "hot",
+    "live_call_completes_within_s": 30,
+    "reserved_lane": "live"
+  },
+  "wrong": [
+    {
+      "label": "live-behind-history",
+      "assert_absent": "the live call waits behind a parked history call"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-09 · history never queues a nudge"
+  }
+}

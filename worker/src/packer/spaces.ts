@@ -26,7 +26,7 @@
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
-import type { BundleEvent } from "../scheduler/dispatch.js";
+import type { BundleEvent } from "../scheduler/v6/bundle.js";
 import { hybridSearch } from "../retrieval/semantic.js";
 import { searchChunksLexical } from "../retrieval/lexical.js";
 import { planQuery, STOPWORDS } from "../retrieval/query.js";

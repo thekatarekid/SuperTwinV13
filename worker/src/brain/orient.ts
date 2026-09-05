@@ -8,7 +8,7 @@
 // Critic grades first, then brain/commit.ts writes through the single writer.
 // ===========================================================================
 
-import type { DeltaBundle } from "../scheduler/dispatch.js";
+import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { packOrientContext, type PackedContext, type PackOptions } from "../packer/index.js";
 import { ORIENT_V6 } from "../prompts/orient.v6.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
@@ -244,7 +244,8 @@ export async function runOrient(
       user: packed.user,
       role: "orient",
       unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },
-      lane: "understanding",
+      // V6 S3.3: a live flush runs on the pool's reserved live lane (GATE-09).
+      lane: bundle.lane === "live" ? "live" : "understanding",
       origin: bundle.lane === "live" ? "live" : "backfill",
       validate: parseOrientOutput,
     },

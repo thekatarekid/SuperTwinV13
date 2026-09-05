@@ -1,0 +1,32 @@
+{
+  "id": "BND-12",
+  "category": "BND",
+  "title": "bounded waiters",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "10× pool capacity submitted on the understanding lane of a 2-slot LLM pool (one slot reserved for live).",
+    "llm": 2,
+    "submitted": 20
+  },
+  "input_events": [
+    "20 calls on lane understanding while the pool is parked"
+  ],
+  "expected": {
+    "overflow_rejected": 10,
+    "waiting_readable": true,
+    "waiting": 9,
+    "in_flight": 1
+  },
+  "wrong": [
+    {
+      "label": "silent-queue",
+      "assert_absent": "an unbounded queue: nothing rejected, or waiting not readable"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-12 · bounded waiters"
+  }
+}

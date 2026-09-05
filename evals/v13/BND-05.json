@@ -1,30 +1,28 @@
 {
   "id": "BND-05",
   "category": "BND",
-  "title": "Max-size split with predecessor context",
-  "pass": "scheduler.dispatch",
+  "title": "cold max",
+  "pass": "bundle",
   "mode": "code",
-  "setup": "band-D backfill; one chat-month bundle would be 18k events.",
+  "setup": {
+    "note": "Cold window, Balanced preset.",
+    "preset": "balanced"
+  },
   "input_events": [
-    "the oversized delta."
+    "continuous cold events every 10 s"
   ],
-  "expected": "split into capped parts; each successor's dispatch carries the predecessor part's summary; Digest output is cumulative, not amnesiac.",
+  "expected": {
+    "flush_at_s": 540
+  },
   "wrong": [
     {
-      "label": "context-amnesia",
-      "assert_absent": "the 'context-amnesia' failure mode"
-    },
-    {
-      "label": "unbounded-prompt",
-      "assert_absent": "the 'unbounded-prompt' failure mode"
+      "label": "never-flushes",
+      "assert_absent": "no flush while events keep arriving"
     }
   ],
-  "gates": [
-    "prompt_size_max",
-    "continuity_rate"
-  ],
+  "gates": [],
   "source": {
     "doc": "V2",
-    "section": "BND-05 · Max-size split with predecessor context"
+    "section": "GoldenEvals V6P1 §5.5 BND-05 · cold max"
   }
 }

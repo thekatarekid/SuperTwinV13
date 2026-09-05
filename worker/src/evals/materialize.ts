@@ -130,7 +130,7 @@ export function parseGates(text: string): string[] {
 
 /** A parenthetical containing "code" in the title marks a deterministic case. */
 export function isCodeCase(cat: string, title: string): boolean {
-  if (cat === "BND") return true;
+  if (cat === "BND") return true; // every bundling case is code-asserted (authored since S3.3; kept for the doc parser)
   return /\([^)]*\bcode\b[^)]*\)/i.test(title);
 }
 

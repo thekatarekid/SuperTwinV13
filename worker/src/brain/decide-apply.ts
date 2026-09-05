@@ -30,7 +30,7 @@ import {
   evaluateSchedulePolicy,
   normalizePolling,
   type PollingSpec,
-} from "../scheduler/schedule-policy.js";
+} from "../scheduler/v6/schedule-policy.js";
 
 /** Follow-up proposals cap per trigger (spec §11.3: "1–2 most helpful"). */
 export const FOLLOWUPS_PER_TRIGGER = 2;

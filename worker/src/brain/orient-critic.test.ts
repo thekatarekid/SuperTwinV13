@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
-import { collectTick, type DeltaBundle } from "../scheduler/dispatch.js";
+import { collectTick, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
 import type { Provider, Usage } from "../providers/types.js";
 import { ORIENT_V1, ORIENT_V1_CORE } from "../prompts/orient.v1.js";

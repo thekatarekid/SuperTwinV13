@@ -1,0 +1,38 @@
+{
+  "id": "BND-02",
+  "category": "BND",
+  "title": "split at the largest gap",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "History lane. One day, 300 backfill events, 45k chars, 150 events before 02:00 then silence until 08:00.",
+    "events": 300,
+    "chars": 45000,
+    "gap": {
+      "from": "02:00",
+      "to": "08:00"
+    }
+  },
+  "input_events": [
+    "150 messages 00:00–01:59 every 48 s (150 chars each)",
+    "150 messages 08:00–09:59 every 48 s (150 chars each)"
+  ],
+  "expected": {
+    "bundles": 2,
+    "split_at": "02:00 (the 6-hour gap)",
+    "parts_under": 30000
+  },
+  "wrong": [
+    {
+      "label": "split-at-cap-mid-burst",
+      "assert_absent": "a cut inside a 48-second run instead of at the largest gap"
+    }
+  ],
+  "gates": [
+    "containment"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-02 · split at the largest gap"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "id": "GATE-08",
+  "category": "GATE",
+  "title": "bootstrapping",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "Under 20 spaces, then past the 20th space or day 8.",
+    "preset": "balanced"
+  },
+  "input_events": [
+    "a cold event with 5 spaces on day 30",
+    "a cold event with 20 spaces on day 3",
+    "a cold event with 20 spaces on day 8"
+  ],
+  "expected": {
+    "windows": [
+      {
+        "idle_s": 60,
+        "max_s": 180
+      },
+      {
+        "idle_s": 60,
+        "max_s": 180
+      },
+      {
+        "idle_s": 300,
+        "max_s": 540
+      }
+    ]
+  },
+  "wrong": [
+    {
+      "label": "window-stuck",
+      "assert_absent": "the bootstrapping window kept after the 20th space and day 8, or never applied before"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-08 · bootstrapping"
+  }
+}

@@ -58,19 +58,19 @@ describe("parseDoc against the real docs", () => {
     expect(cases.filter((c) => c.id.startsWith("TOP"))).toHaveLength(10);
   });
 
-  it("V2 yields 81 cases including BND", () => {
+  it("V2 yields 75 cases — BND is hand-authored since V6 P1 S3.3 and no longer parsed", () => {
     const cases = parseDoc(v2, "V2");
-    expect(cases).toHaveLength(81);
-    expect(cases.filter((c) => c.id.startsWith("BND"))).toHaveLength(6);
+    expect(cases).toHaveLength(75);
+    expect(cases.filter((c) => c.id.startsWith("BND"))).toHaveLength(0);
   });
 });
 
 describe("materializeDocs", () => {
   const fixtures = materializeDocs(v1, v2);
 
-  it("produces the docs' full coverage — 175 validated fixtures (hand-authored V6 categories excluded)", () => {
+  it("produces the docs' full coverage — 169 validated fixtures (hand-authored V6 categories excluded)", () => {
     expect(fixtures).toHaveLength(MATERIALIZED_CASES);
-    expect(MATERIALIZED_CASES).toBe(175);
+    expect(MATERIALIZED_CASES).toBe(169);
     const perCat = new Map<string, number>();
     for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
     for (const c of CATEGORIES.filter((c) => !c.authored)) expect(perCat.get(c.cat)).toBe(c.n);
@@ -85,7 +85,8 @@ describe("materializeDocs", () => {
     expect(rol1.gates).toContain("false_receiver_assignment");
   });
 
-  it("every BND case is code-mode on pass scheduler.dispatch", () => {
+  it("no BND case is materialized any more (authored under pass bundle)", () => {
+    expect(fixtures.filter((x) => x.category === "BND")).toHaveLength(0);
     for (const f of fixtures.filter((x) => x.category === "BND")) {
       expect(f.mode).toBe("code");
       expect(f.pass).toBe("scheduler.dispatch");

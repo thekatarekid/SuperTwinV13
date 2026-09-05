@@ -23,7 +23,7 @@
 import { getDb } from "../../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
 import { addEpisodeEvents } from "../../db/v6core.js";
-import { collectTick, type DeltaBundle } from "../../scheduler/dispatch.js";
+import { collectTick, type DeltaBundle } from "../../scheduler/v6/bundle.js";
 import { runOrient } from "../../brain/orient.js";
 import type { Provider } from "../../providers/types.js";
 import {

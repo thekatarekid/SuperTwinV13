@@ -1,0 +1,34 @@
+{
+  "id": "BND-08",
+  "category": "BND",
+  "title": "slot cap is absolute",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "HARD. 3,000 undispatched backfill events over 500 streams, one stream per day; cfg.slots = 4; a sink that settles without marking (every tick sees the same backlog), then a sink that never settles.",
+    "events": 3000,
+    "streams": 500,
+    "slots": 4
+  },
+  "input_events": [
+    "500 day bundles pending; 5 ticks with a non-marking sink; then 3 ticks with a parked sink"
+  ],
+  "expected": {
+    "routed_per_tick_max": 4,
+    "routed_per_tick_min": 1,
+    "dispatch_over_cap": 0
+  },
+  "wrong": [
+    {
+      "label": "cap-exceeded",
+      "assert_absent": "more than cfg.slots bundles handed to a sink in one tick, on any path"
+    }
+  ],
+  "gates": [
+    "dispatch_over_cap"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-08 · slot cap is absolute"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "BND-04",
+  "category": "BND",
+  "title": "cold idle flush",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "Cold window, Balanced preset (300 s idle / 540 s max), mature world model.",
+    "preset": "balanced"
+  },
+  "input_events": [
+    "cold events at t = 0, 10, 20 s, then silence"
+  ],
+  "expected": {
+    "flush_at_s": 320,
+    "flushes": 1
+  },
+  "wrong": [
+    {
+      "label": "flush-at-45s",
+      "assert_absent": "a flush before 300 s of silence"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-04 · cold idle flush"
+  }
+}

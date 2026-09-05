@@ -19,7 +19,7 @@ process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
 
 const db = await import("../db/index.js");
 const marks = await import("../db/latency-marks.js");
-const { recordLivePass } = await import("../scheduler/live-budgets.js");
+const { recordLivePass } = await import("../db/live-ledger.js");
 const { register } = await import("../providers/index.js");
 const { claudeLocalProvider } = await import("../providers/claude-local/index.js");
 const { startServer } = await import("./index.js");

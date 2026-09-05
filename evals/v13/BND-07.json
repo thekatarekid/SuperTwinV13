@@ -1,0 +1,31 @@
+{
+  "id": "BND-07",
+  "category": "BND",
+  "title": "novelty",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "Screen heartbeats: one content-new frame, then the same frame every 10 s for two minutes, a flush, then heartbeats only."
+  },
+  "input_events": [
+    "frame A at t = 0",
+    "frame A repeated every 10 s until t = 120 s",
+    "after the flush: frame A every 10 s for 15 minutes"
+  ],
+  "expected": {
+    "timer_reset_by_repeats": false,
+    "repeats_counted": 0,
+    "flushes_after_heartbeats_only": 0
+  },
+  "wrong": [
+    {
+      "label": "heartbeat-keeps-alive",
+      "assert_absent": "a repeat resets the idle timer, counts as new, or heartbeats alone flush"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-07 · novelty"
+  }
+}

@@ -16,7 +16,7 @@
 import { getDb } from "../../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
 import { episodeMemberIds } from "../../db/v6core.js";
-import { collectTick, markDispatchedEvents, type DeltaBundle } from "../../scheduler/dispatch.js";
+import { collectTick, markDispatchedEvents, type DeltaBundle } from "../../scheduler/v6/bundle.js";
 import { commitTick, type CommitReport } from "../../brain/commit.js";
 import { parseCriticOutput, type CriticOutput } from "../../brain/critic.js";
 import { parseOrientOutput, type OrientOutput } from "../../brain/orient.js";

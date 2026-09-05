@@ -133,8 +133,9 @@ describe("caps hold under concurrent load", () => {
 
 describe("the LLM pool is split by lane (§4.4.1.1)", () => {
   it("splits 40 % enrichment / 60 % understanding", () => {
-    expect(laneCaps(8, false)).toEqual({ enrichment: 3, understanding: 5 });
-    expect(laneCaps(16, false)).toEqual({ enrichment: 6, understanding: 10 });
+    // V6 S3.3: one slot is reserved for the live lane; the 40/60 split is over the rest.
+    expect(laneCaps(8, false)).toEqual({ live: 1, enrichment: 3, understanding: 4 });
+    expect(laneCaps(16, false)).toEqual({ live: 1, enrichment: 6, understanding: 9 });
     // Neither lane is ever left with nothing outside first paint.
     expect(laneCaps(2, false).enrichment).toBeGreaterThan(0);
     expect(laneCaps(2, false).understanding).toBeGreaterThan(0);
@@ -159,7 +160,7 @@ describe("the LLM pool is split by lane (§4.4.1.1)", () => {
   it("first paint gives enrichment zero and hands it back afterwards", async () => {
     const pool = new ResourcePool({ firstPaint: true, warmFirst: false });
     expect(pool.laneLimit("enrichment")).toBe(0);
-    expect(pool.laneLimit("understanding")).toBe(8);
+    expect(pool.laneLimit("understanding")).toBe(7); // 8 minus the live lane's reserved slot
 
     let captioned = false;
     const caption = pool.run(
@@ -542,7 +543,9 @@ describe("BND-12 — bounded waiters: 4× capacity queue, the rest rejected", ()
   });
 
   it("10× capacity submitted: capacity runs, 4× waits, the overflow is rejected — and `waiting` is readable", async () => {
-    // First paint: the understanding lane owns the whole (2-slot) LLM pool.
+    // First paint on a 2-slot pool: one slot is the live lane's reserve (V6
+    // S3.3), so the understanding lane holds exactly one. The class cap (2)
+    // still decides admission: 2 free + 8 waiters admitted, 10 rejected.
     const pool = new ResourcePool({ limits: { llm: 2 }, warmFirst: false, firstPaint: true });
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -557,17 +560,18 @@ describe("BND-12 — bounded waiters: 4× capacity queue, the rest rejected", ()
     await tick();
     expect(settled.filter((s) => s === "overflow")).toHaveLength(10);
     expect(settled).not.toContain("other");
-    expect(pool.inFlight("llm")).toBe(2);
-    expect(pool.waiting("llm")).toBe(8);
-    expect(pool.laneWaiting("understanding")).toBe(8);
+    expect(pool.inFlight("llm")).toBe(1); // the understanding lane's one slot; the other is reserved for live
+    expect(pool.waiting("llm")).toBe(9);
+    expect(pool.laneWaiting("understanding")).toBe(9);
     expect(pool.laneWaiting("enrichment")).toBe(0);
+    expect(pool.laneWaiting("live")).toBe(0);
 
     release();
     await Promise.all(submissions);
     expect(settled.filter((s) => s === "ok")).toHaveLength(10);
     expect(pool.waiting("llm")).toBe(0);
     expect(pool.inFlight("llm")).toBe(0);
-    expect(pool.peakInFlight("llm")).toBe(2);
+    expect(pool.peakInFlight("llm")).toBe(1);
   });
 
   it("the rejection names the class, the queue and the cap, and carries POOL_OVERFLOW", async () => {

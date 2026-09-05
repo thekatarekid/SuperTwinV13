@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
-import { collectTick } from "../scheduler/dispatch.js";
+import { collectTick } from "../scheduler/v6/bundle.js";
 import { engagementScore, noteUserReply } from "./promotion.js";
 
 let tmpDir: string;

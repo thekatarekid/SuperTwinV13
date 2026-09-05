@@ -13,7 +13,7 @@
 // DIGEST_V1_CORE means a digest.v2.ts and an eval run, never an edit here.
 // ===========================================================================
 
-import type { BundleEvent } from "../scheduler/dispatch.js";
+import type { BundleEvent } from "../scheduler/v6/bundle.js";
 
 export const DIGEST_V1_ID = "digest.v1";
 

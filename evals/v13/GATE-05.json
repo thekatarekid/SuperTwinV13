@@ -1,0 +1,32 @@
+{
+  "id": "GATE-05",
+  "category": "GATE",
+  "title": "addressed to the twin",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "No state at all."
+  },
+  "input_events": [
+    "a bar utterance (source twin, kind bar.message)"
+  ],
+  "expected": {
+    "gate": {
+      "decision": "hot",
+      "reason": "addressed_to_twin"
+    }
+  },
+  "wrong": [
+    {
+      "label": "twin-ignored",
+      "assert_absent": "a bar utterance left cold"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-05 · addressed to the twin"
+  }
+}

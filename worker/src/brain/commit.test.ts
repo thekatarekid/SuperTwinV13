@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { episodeMemberIds, listDeadLetters } from "../db/v6core.js";
-import { collectTick, markDispatchedEvents, type DeltaBundle } from "../scheduler/dispatch.js";
+import { collectTick, markDispatchedEvents, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
 import type { Provider, Usage } from "../providers/types.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";

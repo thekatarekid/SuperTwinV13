@@ -1,25 +1,31 @@
 {
   "id": "BND-06",
   "category": "BND",
-  "title": "Live preempts backfill",
-  "pass": "scheduler.dispatch",
+  "title": "floor",
+  "pass": "bundle",
   "mode": "code",
-  "setup": "backfill saturating all CLI slots.",
+  "setup": {
+    "note": "Two hot events 5 s apart.",
+    "floor_s": 30
+  },
   "input_events": [
-    "live message arrives: Rohan: \"flight prices dropped, book NOW?\"."
+    "hot event at t = 0",
+    "hot event at t = 5 s"
   ],
-  "expected": "live bundle dispatches in the next window ahead of every backfill batch; backfill resumes after.",
+  "expected": {
+    "first_flush_at_s": 0,
+    "second_flush_at_s": 30,
+    "second_rides_next_flush": true
+  },
   "wrong": [
     {
-      "label": "queue-blind",
-      "assert_absent": "live waits behind backfill"
+      "label": "floor-ignored",
+      "assert_absent": "a second flush before 30 s"
     }
   ],
-  "gates": [
-    "latency_live_p95"
-  ],
+  "gates": [],
   "source": {
     "doc": "V2",
-    "section": "BND-06 · Live preempts backfill"
+    "section": "GoldenEvals V6P1 §5.5 BND-06 · floor"
   }
 }

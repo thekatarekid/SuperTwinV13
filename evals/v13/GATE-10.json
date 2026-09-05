@@ -1,0 +1,33 @@
+{
+  "id": "GATE-10",
+  "category": "GATE",
+  "title": "replay budget",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "A deterministic synthetic 63-day corpus replayed at Balanced (the real 63-day WhatsApp corpus was removed in S0.6): WhatsApp across 25 streams (5 with open tasks), screen frames with heartbeat repeats, browser visits with occasional 4-page bursts.",
+    "days": 63,
+    "preset": "balanced",
+    "seed": 63
+  },
+  "input_events": [
+    "≈ 470 events/day for 63 days, driven through the dispatcher with the clock at each arrival and each due window"
+  ],
+  "expected": {
+    "live_calls_per_day_max": 200,
+    "hot_median_s_max": 60
+  },
+  "wrong": [
+    {
+      "label": "idle-rule-firing",
+      "assert_absent": "more than 200 flushes on any day"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-10 · replay budget"
+  }
+}

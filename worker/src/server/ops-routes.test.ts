@@ -18,7 +18,7 @@ process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
 
 const db = await import("../db/index.js");
 const { getDb } = await import("../db/connection.js");
-const queue = await import("../scheduler/queue.js");
+const queue = await import("../db/work-queue.js");
 const { resourcePool } = await import("../providers/pool.js");
 const budget = await import("../providers/budget.js");
 const { register } = await import("../providers/index.js");

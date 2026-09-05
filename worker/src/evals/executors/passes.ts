@@ -27,7 +27,7 @@ import { bandPolicyLine } from "../../packer/index.js";
 import { fixtureUser } from "./orient.js";
 import { chatCategoryFor, type ChatCategoryFacts } from "../../categories/index.js";
 import { aggregateDomains, DomainCategorizer } from "../../adapters/browser/category.js";
-import { admitWork, planCliSlots, type SlotWork } from "../../scheduler/priority.js";
+import { admitWork, planCliSlots, type SlotWork } from "../../categories/slots.js";
 
 // ---- Band parsing (AGE fixtures carry "Band D" in title/setup) -------------
 

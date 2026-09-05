@@ -1,0 +1,42 @@
+{
+  "id": "BND-11",
+  "category": "BND",
+  "title": "three strikes",
+  "pass": "bundle",
+  "mode": "code",
+  "setup": {
+    "note": "A hot bundle whose output always quarantines; the clock is driven by hand.",
+    "retry_minutes": [
+      0,
+      5,
+      10
+    ]
+  },
+  "input_events": [
+    "open task on wa:goa-gang; Karan: \"ok\" at t = 0; the sink returns quarantined every time"
+  ],
+  "expected": {
+    "attempt_minutes": [
+      0,
+      5,
+      10
+    ],
+    "attempts": 3,
+    "dead_lettered": true,
+    "listed_on": "/api/ops/quarantine (listDeadLetters)",
+    "fourth_attempt": false
+  },
+  "wrong": [
+    {
+      "label": "fourth-attempt",
+      "assert_absent": "a fourth sink call after the dead letter"
+    }
+  ],
+  "gates": [
+    "containment"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.5 BND-11 · three strikes"
+  }
+}

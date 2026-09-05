@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { collectTick } from "../scheduler/dispatch.js";
+import { collectTick } from "../scheduler/v6/bundle.js";
 import { closeDb, getDb, runMigrations } from "./connection.js";
 import {
   admitCapture,

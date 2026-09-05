@@ -32,7 +32,7 @@
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
-import type { DeltaBundle, BundleEvent } from "../scheduler/dispatch.js";
+import type { DeltaBundle, BundleEvent } from "../scheduler/v6/bundle.js";
 import { ftsProjection, type EventEnvelope } from "../db/eventlog.js";
 import {
   newServeCounters,

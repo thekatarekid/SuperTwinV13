@@ -1,0 +1,32 @@
+{
+  "id": "GATE-07",
+  "category": "GATE",
+  "title": "burst is per stream",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "No state at all."
+  },
+  "input_events": [
+    "2 pages on croma and 2 on amazon within 150 s"
+  ],
+  "expected": {
+    "gate": {
+      "decision": "cold"
+    },
+    "max_run_on_one_stream": 2
+  },
+  "wrong": [
+    {
+      "label": "cross-stream-burst",
+      "assert_absent": "four events across two streams counted as one run"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-07 · burst is per stream"
+  }
+}

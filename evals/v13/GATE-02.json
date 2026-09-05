@@ -1,0 +1,32 @@
+{
+  "id": "GATE-02",
+  "category": "GATE",
+  "title": "same bytes, no state, cold",
+  "pass": "gate",
+  "mode": "code",
+  "setup": {
+    "note": "No open tasks anywhere."
+  },
+  "input_events": [
+    "Karan in a different group: \"ok\""
+  ],
+  "expected": {
+    "gate": {
+      "decision": "cold",
+      "reason": null
+    }
+  },
+  "wrong": [
+    {
+      "label": "keyword-hot",
+      "assert_absent": "the text decided the gate"
+    }
+  ],
+  "gates": [
+    "content_gated_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.6 GATE-02 · same bytes, no state, cold"
+  }
+}

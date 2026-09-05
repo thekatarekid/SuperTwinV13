@@ -79,7 +79,16 @@ export const RESOURCE_LIMITS: Record<ResourceClass, ClassLimit> = {
 /** SQLite is a single writer. Fixed, not a setting. */
 export const DB_APPLY_CONCURRENCY = 1;
 
-export type LlmLane = "enrichment" | "understanding";
+/**
+ * `live` is the state-gate flush lane (V6 P1 S3.3, Product_V6 §14.2.4 /
+ * §23.2): it holds RESERVED slots the background lanes can never fill, so a
+ * live flush never queues behind history. `understanding` is history + digest;
+ * `enrichment` is media captions.
+ */
+export type LlmLane = "enrichment" | "understanding" | "live";
+
+/** Slots of the LLM pool held back for the live lane (GATE-09). */
+export const LIVE_RESERVED_SLOTS = 1;
 
 /** Enrichment's share of the LLM pool when first paint is done (§4.4.1.1). */
 export const ENRICHMENT_SHARE = 0.4;
@@ -134,18 +143,23 @@ export function clampLimit(cls: ResourceClass, n: number): number {
 }
 
 /**
- * Lane caps for an effective LLM limit. Under first paint enrichment gets 0 —
- * its acquires simply queue until `setFirstPaint(false)`. Otherwise each lane
- * keeps at least one slot; at small limits the caps deliberately sum above the
- * pool limit, and the shared pool semaphore does the real capping.
+ * Lane caps for an effective LLM limit. The live lane takes its reserved slots
+ * first; the background lanes split the REST, so their caps sum to at most
+ * `limit - LIVE_RESERVED_SLOTS` and a live flush always finds a free pool slot
+ * (GATE-09). Under first paint enrichment gets 0 — its acquires simply queue
+ * until `setFirstPaint(false)`. Every lane keeps at least one slot; at limits
+ * of 1–2 the caps deliberately sum above the pool limit and the shared pool
+ * semaphore does the real capping (no reservation is possible there).
  */
 export function laneCaps(
   limit: number,
   firstPaint: boolean,
 ): Record<LlmLane, number> {
-  if (firstPaint) return { enrichment: 0, understanding: limit };
-  const enrichment = Math.max(1, Math.round(limit * ENRICHMENT_SHARE));
-  return { enrichment, understanding: Math.max(1, limit - enrichment) };
+  const live = Math.max(1, Math.min(LIVE_RESERVED_SLOTS, limit));
+  const rest = Math.max(1, limit - live);
+  if (firstPaint) return { live, enrichment: 0, understanding: rest };
+  const enrichment = Math.max(1, Math.round(rest * ENRICHMENT_SHARE));
+  return { live, enrichment, understanding: Math.max(1, rest - enrichment) };
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +421,7 @@ export class ResourcePool {
     this.laneSems = {
       enrichment: new Semaphore(caps.enrichment),
       understanding: new Semaphore(caps.understanding),
+      live: new Semaphore(caps.live),
     };
   }
 
@@ -719,6 +734,7 @@ export class ResourcePool {
     const caps = laneCaps(limit, this.firstPaint);
     this.laneSems.enrichment.setLimit(caps.enrichment);
     this.laneSems.understanding.setLimit(caps.understanding);
+    this.laneSems.live.setLimit(caps.live);
   }
 
   private async awaitResume(lane: LaneKey): Promise<void> {

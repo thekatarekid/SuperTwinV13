@@ -102,6 +102,8 @@ export class SourceSupervisor {
   private readonly getConsent: (source: string) => ConsentRow | null;
   private readonly readRecordFrom: () => string | null;
   private readonly runningSet = new Set<SupervisedSource>();
+  /** The last stop() failure per source (S1.7 verbs surface it; the row flipped first). */
+  private readonly stopErrors = new Map<SupervisedSource, string>();
 
   constructor(opts: SupervisorOptions) {
     this.drivers = opts.drivers;
@@ -181,12 +183,19 @@ export class SourceSupervisor {
   async stop(source: SupervisedSource): Promise<boolean> {
     if (!this.runningSet.has(source)) return false;
     this.runningSet.delete(source);
+    this.stopErrors.delete(source);
     try {
       await this.drivers[source]?.stop();
     } catch (err) {
+      this.stopErrors.set(source, (err as Error).message);
       this.log(`[sources] ${source}: stop failed: ${(err as Error).message}`);
     }
     return true;
+  }
+
+  /** The message of the most recent stop() failure for the source, if any. */
+  lastStopError(source: SupervisedSource): string | null {
+    return this.stopErrors.get(source) ?? null;
   }
 
   async stopAll(): Promise<void> {

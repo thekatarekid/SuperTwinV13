@@ -98,12 +98,34 @@ async function invokeTray(cmd: string, args?: Record<string, unknown>): Promise<
   }
 }
 
-/** Update the tray glyph: ◉ idle · ◔ processing · ● needs you (n) · ⏸ paused. */
+/** Update the tray glyph: ◉ idle · ⏺ recording · ◔ processing · ● needs you (n) · ⏸ paused. */
 export async function setTrayState(
-  state: "idle" | "processing" | "needs_you" | "paused",
+  state: "idle" | "recording" | "processing" | "needs_you" | "paused",
   needsYou = 0,
 ): Promise<void> {
   await invokeTray("set_tray_state", { state, needsYou });
+}
+
+/**
+ * Commands the Rust tray menu / hotkey emit for the panel to carry out
+ * (V6 S1.7): the menu bar has no HTTP client, the panel does. Payload is the
+ * bare command string. Returns an unlisten function; a no-op outside Tauri.
+ */
+export type TrayCommand = "private-moment" | "stop-capture" | "forget-10";
+export const TRAY_COMMAND_EVENT = "supertwin:capture-command";
+
+export async function onTrayCommand(cb: (cmd: TrayCommand) => void): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    const unlisten = await listen<string>(TRAY_COMMAND_EVENT, (e) => {
+      const cmd = e.payload;
+      if (cmd === "private-moment" || cmd === "stop-capture" || cmd === "forget-10") cb(cmd);
+    });
+    return unlisten;
+  } catch {
+    return () => {};
+  }
 }
 
 /** Show the transient top-right nudge card (one at a time, non-focusing). */

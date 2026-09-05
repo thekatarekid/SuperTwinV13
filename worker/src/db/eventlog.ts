@@ -23,6 +23,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { bridgeIngestedEvents } from "../bridges/ingest.js";
 import { noteSelfAuthoredEvents } from "../categories/promotion.js";
 import { isCapturePaused } from "../library/pause.js";
+import { filterCapture } from "./capture-filter.js";
 import { getDb } from "./connection.js";
 import { admitCapture } from "./consent-gate.js";
 import { writeArchive } from "./v6core.js";
@@ -284,6 +285,26 @@ export function appendEvents(
       // events are dropped at this funnel — never stored-but-hidden. The
       // slot's id is "" (nothing was written and nothing pre-existed).
       if (isCapturePaused(env.source, env.streamKey)) {
+        result.skipped++;
+        result.ids.push("");
+        continue;
+      }
+      // The data filter (V6 S1.7 — db/capture-filter.ts): never-list → user
+      // lists (apps · sites · chats · senders) → pause states (private moment,
+      // quick-pause). A drop here leaves no row anywhere: not indexed, not
+      // understood, not searchable.
+      if (
+        filterCapture(
+          {
+            source: env.source,
+            streamKey: env.streamKey,
+            actor: env.actor,
+            sender: env.roles?.sender ?? null,
+            payload: env.payload,
+          },
+          nowMs,
+        )
+      ) {
         result.skipped++;
         result.ids.push("");
         continue;

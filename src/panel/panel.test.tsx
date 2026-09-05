@@ -12,7 +12,7 @@ import { Nudge, peekOf } from "./Nudge";
 import { GroundedBar } from "../components/GroundedBar";
 import { Home } from "../screens/Home";
 import { homeFixture } from "../test-utils";
-import type { ArtifactRow, PanelData } from "../lib/api";
+import type { ArtifactRow, CaptureState, PanelData } from "../lib/api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -58,6 +58,22 @@ const panelData = (over: Partial<PanelData> = {}): PanelData => ({
   ...over,
 });
 
+const captureState = (over: Partial<CaptureState> = {}): CaptureState => ({
+  capturing: true,
+  recording: ["browser", "whatsapp"],
+  admitted: ["browser", "whatsapp"],
+  paused: false,
+  private_until: null,
+  quick_pause_until: null,
+  private_moment_minutes: 15,
+  sources: [
+    { source: "whatsapp", consent: "connected", running: true, capturing: true },
+    { source: "browser", consent: "connected", running: true, capturing: true },
+    { source: "screen", consent: null, running: false, capturing: false },
+  ],
+  ...over,
+});
+
 function stubFetch(routes: Record<string, unknown>) {
   const calls: { path: string; method: string }[] = [];
   vi.stubGlobal(
@@ -81,6 +97,13 @@ describe("Panel (spec §14.7 anatomy)", () => {
     "/api/artifacts/art_1/seen": { artifact: artifact({ status: "seen" }) },
     "/api/artifacts/art_3/reopen": { artifact: artifact({ id: "art_3", status: "seen" }) },
     "/api/assist/pause": { capture_paused_until: "2026-08-28T15:00:00Z" },
+    "/api/capture/state": captureState(),
+    "/api/capture/private-moment": { ok: true, private_until: "2026-08-28T15:15:00Z", state: captureState({ paused: true }) },
+    "/api/capture/stop": { ok: true, paused: ["browser", "whatsapp"], state: captureState({ capturing: false, recording: [] }) },
+    "/api/capture/forget/preview": {
+      preview: { minutes: 10, events_deleted: 14, episodes_deleted: 1, spaces_touched: 1, tasks_deleted: 0, claims_deleted: 0 },
+    },
+    "/api/capture/forget": { report: { minutes: 10, events_deleted: 14, episodes_deleted: 1 } },
   });
 
   it("renders the fixed order: needs-you, prepared (◆/◇ + ● dot), today, footer", async () => {
@@ -133,17 +156,82 @@ describe("Panel (spec §14.7 anatomy)", () => {
     );
   });
 
-  it("trayStateFor: ⏸ paused > ● needs-you (counted) > ◉ idle", () => {
+  it("trayStateFor: ⏸ paused > ● needs-you (counted) > ⏺ recording > ◉ idle", () => {
     expect(trayStateFor(panelData({ capture_paused_until: "x" }))).toEqual({
       state: "paused",
       needsYou: 0,
     });
     expect(trayStateFor(panelData())).toEqual({ state: "needs_you", needsYou: 3 });
+    const quiet = panelData({ needs_you: { approvals: [], questions: [] }, nudge: null });
+    expect(trayStateFor(quiet)).toEqual({ state: "idle", needsYou: 0 });
+    // The glyph is the funnel's answer (T4-9): recording only when a source is
+    // admitted and running; paused when a private moment or every-source pause holds.
+    expect(trayStateFor(quiet, captureState())).toEqual({ state: "recording", needsYou: 0 });
+    expect(trayStateFor(quiet, captureState({ capturing: false, recording: [] }))).toEqual({ state: "idle", needsYou: 0 });
+    expect(
+      trayStateFor(quiet, captureState({ paused: true, private_until: "2026-08-28T15:15:00Z", capturing: false, recording: [] })),
+    ).toEqual({ state: "paused", needsYou: 0 });
     expect(
       trayStateFor(
-        panelData({ needs_you: { approvals: [], questions: [] }, nudge: null }),
+        quiet,
+        captureState({
+          capturing: false,
+          recording: [],
+          admitted: [],
+          sources: [
+            { source: "whatsapp", consent: "paused", running: false, capturing: false },
+            { source: "browser", consent: "paused", running: false, capturing: false },
+            { source: "screen", consent: null, running: false, capturing: false },
+          ],
+        }),
       ),
-    ).toEqual({ state: "idle", needsYou: 0 });
+    ).toEqual({ state: "paused", needsYou: 0 });
+    // Needs-you still wins over recording.
+    expect(trayStateFor(panelData(), captureState())).toEqual({ state: "needs_you", needsYou: 3 });
+  });
+
+  it("shows the real capture line and the ⏺ glyph while something is captured", async () => {
+    stubFetch(routes());
+    render(<Panel />);
+    await waitFor(() => expect(screen.getByTestId("capture-line").textContent).toContain("capturing browser, whatsapp"));
+    expect(screen.getByLabelText("capture pause").textContent).toContain("⏺");
+  });
+
+  it("private moment posts /api/capture/private-moment (15 min, not a setting)", async () => {
+    const calls = stubFetch(routes());
+    render(<Panel />);
+    await waitFor(() => expect(screen.getByLabelText("capture pause")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("capture pause"));
+    fireEvent.click(screen.getByText("private moment · 15 min"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === "/api/capture/private-moment" && c.method === "POST")).toBe(true),
+    );
+  });
+
+  it("stop capture posts /api/capture/stop — one click, the funnel closes", async () => {
+    const calls = stubFetch(routes());
+    render(<Panel />);
+    await waitFor(() => expect(screen.getByLabelText("capture pause")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("capture pause"));
+    fireEvent.click(screen.getByText("stop capture"));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/capture/stop" && c.method === "POST")).toBe(true));
+  });
+
+  it("forget last 10 min: preview first (14 events, 1 episode), delete only on confirm", async () => {
+    const calls = stubFetch(routes());
+    render(<Panel />);
+    await waitFor(() => expect(screen.getByLabelText("capture pause")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("capture pause"));
+    fireEvent.click(screen.getByText(/forget last 10 min/));
+    await waitFor(() => expect(screen.getByTestId("forget-preview")).toBeTruthy());
+    expect(screen.getByTestId("forget-preview").textContent).toContain("14 events");
+    expect(screen.getByTestId("forget-preview").textContent).toContain("1 episodes");
+    // The preview alone deletes nothing.
+    expect(calls.some((c) => c.path === "/api/capture/forget")).toBe(false);
+    fireEvent.click(screen.getByText("forget"));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/capture/forget" && c.method === "POST")).toBe(true));
+    await waitFor(() => expect(screen.queryByTestId("forget-preview")).toBeNull());
+    expect(screen.getByRole("status").textContent).toContain("forgot 14 events");
   });
 });
 

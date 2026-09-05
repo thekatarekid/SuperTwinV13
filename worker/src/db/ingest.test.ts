@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { getDb, runMigrations, runMigrationsOn } from "./connection.js";
 import { closeDb } from "./connection.js";
 import type { MediaClaimFilter, TranscriptClaimFilter } from "./ingest.js";
+import { deleteSourceData } from "../library/source-verbs.js";
 import {
   applyEdit,
   applyRevoke,
@@ -36,7 +37,6 @@ import {
   recordTranscript,
   recordVideoPoster,
   rescanMedia,
-  resetSourceData,
   searchEvents,
   toFtsMatchQuery,
   upsertActor,
@@ -1262,10 +1262,11 @@ describe("upsertActor name-update semantics (Rev 2 §R2.4)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Rev 2 §R2.3 — resetSourceData().
+// Rev 2 §R2.3 — source reset, now deleteSourceData() (V6 S1.7, T4-12): the
+// same contract, routed through the honest cascade instead of raw DELETEs.
 // ---------------------------------------------------------------------------
 
-describe("resetSourceData (Rev 2 §R2.3)", () => {
+describe("deleteSourceData (Rev 2 §R2.3 contract, V6 S1.7 cascade)", () => {
   it("clears events/channels/actors + orphan people + import flags, returns counts", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
     const chA = upsertStream({ sourceId: "whatsapp", sourceExtId: "A@x", name: "Alice", kind: "dm" });
@@ -1281,8 +1282,8 @@ describe("resetSourceData (Rev 2 §R2.3)", () => {
     appStateSet(importDoneKey("whatsapp"), "true");
     appStateSet(importRangeKey("whatsapp"), "7d");
 
-    const cleared = resetSourceData("whatsapp");
-    expect(cleared).toEqual({ events: 3, streams: 2, actors: 2 });
+    const cleared = deleteSourceData("whatsapp");
+    expect(cleared).toEqual(expect.objectContaining({ events: 3, streams: 2, actors: 2 }));
 
     const db = getDb();
     expect((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n).toBe(0);
@@ -1320,8 +1321,8 @@ describe("resetSourceData (Rev 2 §R2.3)", () => {
       rawJson: null,
     });
 
-    const cleared = resetSourceData("whatsapp");
-    expect(cleared).toEqual({ events: 1, streams: 1, actors: 1 });
+    const cleared = deleteSourceData("whatsapp");
+    expect(cleared).toEqual(expect.objectContaining({ events: 1, streams: 1, actors: 1 }));
 
     const db = getDb();
     // The other source's rows survive.
@@ -1336,7 +1337,9 @@ describe("resetSourceData (Rev 2 §R2.3)", () => {
 
   it("is a no-op-safe on an empty DB (returns zero counts)", () => {
     upsertSource({ id: "whatsapp", type: "whatsapp", name: "WhatsApp" });
-    expect(resetSourceData("whatsapp")).toEqual({ events: 0, streams: 0, actors: 0 });
+    expect(deleteSourceData("whatsapp")).toEqual(
+      expect.objectContaining({ events: 0, streams: 0, actors: 0 }),
+    );
   });
 });
 

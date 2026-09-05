@@ -40,13 +40,13 @@ import {
   importRangeKey,
   insertEvent,
   pausedKey,
-  resetSourceData,
   setSelfIdentity,
   upsertActor,
   upsertSource,
   upsertStream,
 } from "../db/ingest.js";
 import type { MediaMeta } from "../db/ingest.js";
+import { deleteSourceData, type SourceDeleteResult } from "../library/source-verbs.js";
 import {
   hasUnsealedStreams,
   markSourceBackfillComplete,
@@ -403,7 +403,7 @@ export class Ingestion {
 
   /**
    * Clear the in-memory import flags after a reset (Rev 2 §R2.3). The persisted
-   * app_state rows are cleared inside resetSourceData()'s transaction; this
+   * app_state rows are cleared inside deleteSourceData()'s transaction; this
    * keeps the live /status snapshot consistent (importDone:false) without a
    * relaunch.
    */
@@ -885,12 +885,13 @@ export class Ingestion {
    *   (2) clear the persisted import flags (+ in-memory snapshot),
    *   (3) send `logout` to the daemon — it clears its session and exits 0; the
    *       adapter restarts it fresh into pairing (need_pairing → qr on pair).
-   * resetSourceData() already clears the import flags inside its transaction;
-   * we still clear the in-memory snapshot so /status reports importDone:false
-   * immediately without a relaunch.
+   * deleteSourceData() (V6 S1.7 — every event through the honest cascade, then
+   * the shells) clears the import flags inside its transaction; we still clear
+   * the in-memory snapshot so /status reports importDone:false immediately
+   * without a relaunch.
    */
-  async relink(): Promise<ReturnType<typeof resetSourceData>> {
-    const cleared = resetSourceData(this.sourceId);
+  async relink(): Promise<SourceDeleteResult> {
+    const cleared = deleteSourceData(this.sourceId, { reason: "user re-linked WhatsApp (clean re-sync)" });
     this.clearImportState();
     await this.adapter.logout();
     return cleared;

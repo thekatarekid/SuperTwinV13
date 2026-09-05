@@ -155,6 +155,9 @@ import { handleExecutorRoute } from "./executor-routes.js";
 // Timeline + grounded bar (P4.1, spec §14.3.1 / §14.8): paged event-log
 // reads, the day scrubber, and the bar's intent-routed submissions.
 import { handleGroundedRoute } from "./grounded-routes.js";
+// Capture filter lists, private moment, forget-last-N, per-source verbs with
+// previews, and the tray's real capture state (V6 S1.7).
+import { handleCaptureRoute } from "./capture-routes.js";
 import {
   augmentMessage,
   getEventDetail,
@@ -833,6 +836,13 @@ async function handle(
   // §14.7): the menu-bar panel, nudge window and in-app surfaces read here.
   if (path.startsWith("/api/assist/") || path.startsWith("/api/artifacts")) {
     const handled = await handleAssistRoute(req, res);
+    if (handled) return;
+  }
+
+  // Capture (V6 S1.7): filter lists, private moment, forget, source verbs,
+  // tray state. Owns everything under /api/capture/.
+  if (path.startsWith("/api/capture/")) {
+    const handled = await handleCaptureRoute(req, res);
     if (handled) return;
   }
 

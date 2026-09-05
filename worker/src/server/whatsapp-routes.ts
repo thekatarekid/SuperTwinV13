@@ -54,10 +54,10 @@ import {
   getEventById,
   getStreamMessages,
   listInboxChats,
-  resetSourceData,
   searchEvents,
   type EventMediaRow,
 } from "../db/ingest.js";
+import { deleteSourceData } from "../library/source-verbs.js";
 
 /**
  * Which stored file of an event a media request wants. Every one of them is an
@@ -373,7 +373,8 @@ export async function handleSourceRoute(
       // ---- POST reset (Rev 2 §R2.3)
       // Wipe this source's ingested data + import flags. Keeps its session.
       case "POST reset": {
-        const cleared = resetSourceData(route.sourceId);
+        // V6 S1.7 (T4-12): through the cascade, never a raw DELETE.
+        const cleared = deleteSourceData(route.sourceId, { reason: "user reset the source" });
         // Also clear the adapter's in-memory import state so /status immediately
         // reports importDone:false (the DB flags were cleared inside the tx).
         ingestion?.clearImportState();

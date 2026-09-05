@@ -31,6 +31,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { appStateGet, appStateSet, pausedKey } from "../db/ingest.js";
+import { CAPTURE_LIST_KEYS, readCaptureList, setCaptureList } from "../db/capture-filter.js";
 import {
   getNotificationsEnabled,
   setNotificationsEnabled,
@@ -74,8 +75,12 @@ export const HOTKEY_BAR_KEY = "general.hotkey_bar";
 export const LAUNCH_AT_LOGIN_KEY = "general.launch_at_login";
 export const BRIEF_TIMES_KEY = "general.brief_times";
 export const APPEARANCE_KEY = "general.appearance";
-export const APP_BLOCKLIST_KEY = "capture.app_blocklist";
-export const DOMAIN_BLOCKLIST_KEY = "capture.domain_blocklist";
+// The four filter lists live in db/capture-filter.ts (V6 S1.7) — the funnel
+// reads them; these two names stay for the callers that already use them.
+export const APP_BLOCKLIST_KEY = CAPTURE_LIST_KEYS.apps;
+export const DOMAIN_BLOCKLIST_KEY = CAPTURE_LIST_KEYS.sites;
+export const CHAT_BLOCKLIST_KEY = CAPTURE_LIST_KEYS.chats;
+export const SENDER_BLOCKLIST_KEY = CAPTURE_LIST_KEYS.senders;
 export const PAGETEXT_RULES_KEY = "capture.pagetext_rules";
 export const TRACES_RETENTION_DAYS_KEY = "traces.retention_days";
 
@@ -251,8 +256,10 @@ function captureSettings(): Record<string, unknown> {
   }
   return {
     sources,
-    app_blocklist: readStringList(APP_BLOCKLIST_KEY),
-    domain_blocklist: readStringList(DOMAIN_BLOCKLIST_KEY),
+    app_blocklist: readCaptureList("apps"),
+    domain_blocklist: readCaptureList("sites"),
+    chat_blocklist: readCaptureList("chats"),
+    sender_blocklist: readCaptureList("senders"),
     pagetext_rules: readStringList(PAGETEXT_RULES_KEY),
     // Shown for trust, never editable: incognito is ALWAYS excluded (§14.9.2).
     incognito: "always-off",
@@ -362,9 +369,11 @@ export async function handleSettingsRoute(
         if (typeof v === "boolean") appStateSet(pausedKey(s), v ? "1" : "0");
       }
     }
-    if (body.app_blocklist !== undefined) writeStringList(APP_BLOCKLIST_KEY, body.app_blocklist);
-    if (body.domain_blocklist !== undefined)
-      writeStringList(DOMAIN_BLOCKLIST_KEY, body.domain_blocklist);
+    // The lists the funnel enforces (db/capture-filter.ts, V6 S1.7).
+    if (body.app_blocklist !== undefined) setCaptureList("apps", body.app_blocklist);
+    if (body.domain_blocklist !== undefined) setCaptureList("sites", body.domain_blocklist);
+    if (body.chat_blocklist !== undefined) setCaptureList("chats", body.chat_blocklist);
+    if (body.sender_blocklist !== undefined) setCaptureList("senders", body.sender_blocklist);
     if (body.pagetext_rules !== undefined) writeStringList(PAGETEXT_RULES_KEY, body.pagetext_rules);
     sendJson(res, 200, captureSettings());
     return true;

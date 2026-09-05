@@ -3,13 +3,20 @@
 // The tray is a TEMPLATE icon (monochrome, macOS re-tints it) with a state
 // glyph rendered as the tray TITLE next to it:
 //
-//   ◉ idle · ◔ processing · ● needs you (n) · ⏸ capture paused
+//   ◉ idle · ⏺ recording · ◔ processing · ● needs you (n) · ⏸ capture paused
 //
-// Clicking the tray toggles the 360px glass PANEL window (label "panel"),
-// which loads the same Vite bundle with `#panel` — the React side renders the
-// §14.7 anatomy (Needs-you / Prepared / Today / ask-bar / quick-pause) and
-// drives the tray state through the `set_tray_state` command as it polls the
-// worker.
+// Left-clicking the tray toggles the 360px glass PANEL window (label
+// "panel"), which loads the same Vite bundle with `#panel` — the React side
+// renders the §14.7 anatomy (Needs-you / Prepared / Today / ask-bar /
+// quick-pause) and drives the tray state through the `set_tray_state` command
+// as it polls the worker's REAL capture state (/api/capture/state — V6 S1.7,
+// T4-9: the glyph is the funnel's answer, not an assist flag).
+//
+// Right-clicking opens the menu: "Private moment (15 min)", "Stop capture",
+// "Forget last 10 min…", "Open SuperTwin". The shell has no HTTP client, so a
+// menu item EMITS `supertwin:capture-command` with the command string and the
+// panel (always alive, hidden) carries it out against the worker. The ⌘⇧P
+// hotkey (hotkey.rs) emits the same private-moment command.
 //
 // The NUDGE window (label "nudge", top-right, one at a time) also always
 // exists and stays hidden; its React half polls /api/assist/nudge and calls
@@ -18,8 +25,9 @@
 // don't destroy, so state survives.
 
 use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder,
 };
 
 const TRAY_ID: &str = "supertwin-tray";
@@ -32,9 +40,30 @@ const NUDGE_WIDTH: f64 = 380.0;
 const NUDGE_HEIGHT: f64 = 200.0;
 const SCREEN_MARGIN: f64 = 12.0;
 
-/// The four §14.7 tray states, rendered as the tray title glyph.
-fn glyph_for(state: &str, needs_you: u32) -> String {
+/// The event the tray menu / hotkey emit; the panel listens (lib/tauri.ts).
+pub const CAPTURE_COMMAND_EVENT: &str = "supertwin:capture-command";
+pub const CMD_PRIVATE_MOMENT: &str = "private-moment";
+pub const CMD_STOP_CAPTURE: &str = "stop-capture";
+pub const CMD_FORGET_10: &str = "forget-10";
+
+const MENU_PRIVATE: &str = "tray-private-moment";
+const MENU_STOP: &str = "tray-stop-capture";
+const MENU_FORGET: &str = "tray-forget-10";
+const MENU_OPEN: &str = "tray-open-main";
+
+/// Emit a capture command for the panel to carry out. Also makes sure the
+/// panel window exists (hidden is fine — its React app is polling).
+pub fn emit_capture_command(app: &AppHandle, cmd: &str) {
+    let _ = ensure_panel(app);
+    if let Err(err) = app.emit(CAPTURE_COMMAND_EVENT, cmd.to_string()) {
+        eprintln!("[supertwinv13] capture command emit failed ({cmd}): {err}");
+    }
+}
+
+/// The §14.7 tray states (+ ⏺ recording, V6 S1.7), rendered as the tray title glyph.
+pub fn glyph_for(state: &str, needs_you: u32) -> String {
     match state {
+        "recording" => "⏺".to_string(),
         "processing" => "◔".to_string(),
         "needs_you" => {
             if needs_you > 1 {
@@ -143,11 +172,23 @@ pub fn toggle_panel(app: &AppHandle, at: Option<LogicalPosition<f64>>) {
 // Commands (the panel/nudge React apps call these)
 // ---------------------------------------------------------------------------
 
-/// Update the tray glyph: state ∈ idle|processing|needs_you|paused.
+/// Update the tray glyph: state ∈ idle|recording|processing|needs_you|paused.
 #[tauri::command]
 pub fn set_tray_state(app: AppHandle, state: String, needs_you: Option<u32>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_title(Some(glyph_for(&state, needs_you.unwrap_or(0))));
+        let _ = tray.set_tooltip(Some(tooltip_for(&state)));
+    }
+}
+
+/// Hover text — says what the glyph means, in words.
+pub fn tooltip_for(state: &str) -> &'static str {
+    match state {
+        "recording" => "SuperTwin — capturing (right-click to stop)",
+        "paused" => "SuperTwin — capture paused",
+        "processing" => "SuperTwin — processing",
+        "needs_you" => "SuperTwin — needs you",
+        _ => "SuperTwin",
     }
 }
 
@@ -196,6 +237,15 @@ pub fn setup(app: &AppHandle) {
         .icon_as_template(true)
         .title("◉")
         .tooltip("SuperTwin")
+        // Left click = panel; the menu is right-click only.
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            MENU_PRIVATE => emit_capture_command(app, CMD_PRIVATE_MOMENT),
+            MENU_STOP => emit_capture_command(app, CMD_STOP_CAPTURE),
+            MENU_FORGET => emit_capture_command(app, CMD_FORGET_10),
+            MENU_OPEN => open_main(app.clone()),
+            _ => {}
+        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -218,6 +268,20 @@ pub fn setup(app: &AppHandle) {
         Ok(img) => builder = builder.icon(img),
         Err(err) => eprintln!("[supertwinv13] tray template icon unreadable: {err}"),
     }
+    // The right-click menu (V6 S1.7): one click stops capture; the private
+    // moment is fifteen minutes and not a setting.
+    let menu = MenuItem::with_id(app, MENU_PRIVATE, "Private moment (15 min)\t⌘⇧P", true, None::<&str>)
+        .and_then(|private| {
+            let stop = MenuItem::with_id(app, MENU_STOP, "Stop capture", true, None::<&str>)?;
+            let forget = MenuItem::with_id(app, MENU_FORGET, "Forget last 10 min…", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, MENU_OPEN, "Open SuperTwin", true, None::<&str>)?;
+            let sep = PredefinedMenuItem::separator(app)?;
+            Menu::with_items(app, &[&private, &stop, &forget, &sep, &open])
+        });
+    match menu {
+        Ok(m) => builder = builder.menu(&m),
+        Err(err) => eprintln!("[supertwinv13] tray menu unavailable: {err}"),
+    }
     if let Err(err) = builder.build(app) {
         eprintln!("[supertwinv13] tray unavailable: {err}");
     }
@@ -225,4 +289,36 @@ pub fn setup(app: &AppHandle) {
     // Pre-create the aux windows so first use is instant.
     let _ = ensure_panel(app);
     let _ = ensure_nudge(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glyphs_cover_every_state_including_recording() {
+        assert_eq!(glyph_for("idle", 0), "◉");
+        assert_eq!(glyph_for("recording", 0), "⏺");
+        assert_eq!(glyph_for("processing", 0), "◔");
+        assert_eq!(glyph_for("needs_you", 1), "●");
+        assert_eq!(glyph_for("needs_you", 3), "● 3");
+        assert_eq!(glyph_for("paused", 0), "⏸");
+        assert_eq!(glyph_for("anything-else", 0), "◉");
+    }
+
+    #[test]
+    fn tooltips_name_the_state() {
+        assert!(tooltip_for("recording").contains("capturing"));
+        assert!(tooltip_for("paused").contains("paused"));
+        assert_eq!(tooltip_for("idle"), "SuperTwin");
+    }
+
+    #[test]
+    fn commands_match_the_panel_listener() {
+        // lib/tauri.ts accepts exactly these three strings on this event.
+        assert_eq!(CAPTURE_COMMAND_EVENT, "supertwin:capture-command");
+        assert_eq!(CMD_PRIVATE_MOMENT, "private-moment");
+        assert_eq!(CMD_STOP_CAPTURE, "stop-capture");
+        assert_eq!(CMD_FORGET_10, "forget-10");
+    }
 }

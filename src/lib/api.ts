@@ -932,6 +932,9 @@ export interface CaptureSettings {
   sources: Record<string, { paused: boolean }>;
   app_blocklist: string[];
   domain_blocklist: string[];
+  /** V6 S1.7: the two lists the funnel enforces beside apps and sites. */
+  chat_blocklist?: string[];
+  sender_blocklist?: string[];
   pagetext_rules: string[];
   incognito: string;
 }
@@ -1495,3 +1498,109 @@ export interface StorageOverview {
 export const fetchLibraryStorage = (): Promise<StorageOverview> => request("/api/library/storage");
 export const saveDiskBudgets = (patch: Partial<DiskBudgets>): Promise<{ budgets: DiskBudgets }> =>
   request("/api/library/budgets", post(patch));
+
+// ---- Capture: filter lists, private moment, forget, verbs, tray state (V6 S1.7)
+
+/** What the tray renders: the funnel's real answer per source, plus the pauses. */
+export interface CaptureSourceState {
+  source: string;
+  consent: "connected" | "paused" | "disconnected" | "revoked" | null;
+  running: boolean;
+  capturing: boolean;
+}
+
+export interface CaptureState {
+  /** Something can land in the log right now. */
+  capturing: boolean;
+  /** Sources admitted AND running (empty while a pause deadline is live). */
+  recording: string[];
+  admitted: string[];
+  paused: boolean;
+  private_until: string | null;
+  quick_pause_until: string | null;
+  private_moment_minutes: number;
+  sources: CaptureSourceState[];
+}
+
+export const fetchCaptureState = (): Promise<CaptureState> => request("/api/capture/state");
+
+/** One-click stop: pause every admitted source (consent flips first). */
+export const stopAllCapture = (): Promise<{ ok: boolean; paused: string[]; state: CaptureState }> =>
+  request("/api/capture/stop", post());
+
+/** Fifteen minutes unless told otherwise; `{ end: true }` ends it early. */
+export const startPrivateMoment = (
+  minutes?: number,
+): Promise<{ ok: boolean; private_until: string | null; state: CaptureState }> =>
+  request("/api/capture/private-moment", post(minutes ? { minutes } : {}));
+
+export const endPrivateMoment = (): Promise<{ ok: boolean; private_until: null; state: CaptureState }> =>
+  request("/api/capture/private-moment", post({ end: true }));
+
+/** The cascade's numbers as a dry run — what the confirm will do, exactly. */
+export interface CascadePreview extends CascadeReport {
+  spaces_touched: number;
+  first_ts: string | null;
+  last_ts: string | null;
+}
+
+export const previewForget = (minutes: number): Promise<{ preview: CascadePreview & { minutes: number } }> =>
+  request("/api/capture/forget/preview", post({ minutes }));
+
+export const forgetLastMinutes = (minutes: number): Promise<{ report: CascadeReport & { minutes: number } }> =>
+  request("/api/capture/forget", post({ minutes }));
+
+export interface SourceVerbOutcome {
+  source: string;
+  verb: "pause" | "resume" | "disconnect" | "delete";
+  consent: { state: string } | null;
+  captureAllowed: boolean;
+  stopped: boolean;
+  teardownError: string | null;
+  decision_id: string | null;
+}
+
+export const pauseCaptureSource = (source: string): Promise<SourceVerbOutcome> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/pause`, post());
+export const resumeCaptureSource = (source: string): Promise<SourceVerbOutcome> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/resume`, post());
+export const disconnectCaptureSource = (source: string): Promise<SourceVerbOutcome> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/disconnect`, post());
+
+export interface SourceDeletePreview extends CascadePreview {
+  streams: number;
+  actors: number;
+}
+
+export const previewDeleteSource = (source: string): Promise<{ preview: SourceDeletePreview }> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/delete/preview`, post());
+
+export const deleteCaptureSource = (
+  source: string,
+): Promise<SourceVerbOutcome & { deleted: { events: number; streams: number; actors: number; cascade: CascadeReport } }> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/delete`, post());
+
+/** Episodes understood before a shortened window (CNS-08), labelled. */
+export interface OutsideWindowReview {
+  source: string;
+  understand_from: string | null;
+  episodes: {
+    id: string;
+    space_id: string | null;
+    summary: string | null;
+    first_ts: string | null;
+    last_ts: string | null;
+    events: number;
+    label: "outside-understand-window";
+  }[];
+  event_ids: string[];
+}
+
+export const fetchOutsideWindow = (source: string): Promise<OutsideWindowReview> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/outside-window`);
+export const previewDeleteOutsideWindow = (
+  source: string,
+): Promise<{ preview: CascadePreview & { episodes: number } }> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/outside-window/preview`, post());
+export const deleteOutsideWindow = (source: string): Promise<{ report: CascadeReport & { episodes: number } }> =>
+  request(`/api/capture/sources/${encodeURIComponent(source)}/outside-window/delete`, post());

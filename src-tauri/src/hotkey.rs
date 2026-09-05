@@ -67,17 +67,25 @@ pub fn toggle_main_window(app: &AppHandle) {
     }
 }
 
-/// Register the configurable fallback shortcut (⌘⇧S) through the global
-/// shortcut plugin. Called from setup; failures log and continue.
+/// Register the configurable fallback shortcut (⌘⇧S) and the private-moment
+/// hotkey (⌘⇧P — V6 S1.7: fifteen minutes of no capture, same command the
+/// tray menu emits) through the global shortcut plugin. Called from setup;
+/// failures log and continue.
 pub fn register_fallback_shortcut(app: &AppHandle) {
     use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
     let shortcut = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyS);
+    let private_moment = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyP);
     let result = app.plugin(
         tauri_plugin_global_shortcut::Builder::new()
             .with_handler(move |handle, fired, event| {
-                if fired == &shortcut && event.state() == ShortcutState::Pressed {
+                if event.state() != ShortcutState::Pressed {
+                    return;
+                }
+                if fired == &shortcut {
                     toggle_main_window(handle);
+                } else if fired == &private_moment {
+                    crate::tray::emit_capture_command(handle, crate::tray::CMD_PRIVATE_MOMENT);
                 }
             })
             .build(),
@@ -87,6 +95,9 @@ pub fn register_fallback_shortcut(app: &AppHandle) {
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             if let Err(err) = app.global_shortcut().register(shortcut) {
                 eprintln!("[supertwinv13] fallback shortcut register failed: {err}");
+            }
+            if let Err(err) = app.global_shortcut().register(private_moment) {
+                eprintln!("[supertwinv13] private-moment shortcut register failed: {err}");
             }
         }
         Err(err) => eprintln!("[supertwinv13] global-shortcut plugin init failed: {err}"),

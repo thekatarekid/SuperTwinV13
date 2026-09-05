@@ -29,10 +29,10 @@ import {
   insertEvent,
   recordMediaDescription,
   recordTranscript,
-  resetSourceData,
   upsertStream,
   upsertSource,
 } from "./ingest.js";
+import { deleteSourceData } from "../library/source-verbs.js";
 
 let tmpDir: string;
 
@@ -239,7 +239,7 @@ describe("stored vectors", () => {
     seed([{ externalId: "m1", text: "booked oye kake" }]);
     putEventEmbedding({ eventId: "whatsapp:m1", ...MINILM, vector: vec(1, 0, 0, 0) });
 
-    resetSourceData("whatsapp");
+    deleteSourceData("whatsapp");
     expect(
       (getDb().prepare(`SELECT COUNT(*) AS n FROM event_embeddings`).get() as {
         n: number;

@@ -17,6 +17,7 @@
 import type Database from "better-sqlite3";
 
 import { isStreamCapturePaused } from "../library/pause.js";
+import { filterCapture } from "./capture-filter.js";
 import { getDb } from "./connection.js";
 import { admitCapture } from "./consent-gate.js";
 import { legacyEnvelopeFields } from "./eventlog.js";
@@ -635,14 +636,6 @@ interface IngestStatements {
   appStateGet: Database.Statement;
   appStateSet: Database.Statement;
   appStateDelete: Database.Statement;
-  countSourceEvents: Database.Statement;
-  countSourceStreams: Database.Statement;
-  countSourceActors: Database.Statement;
-  deleteSourceEvents: Database.Statement;
-  deleteSourceStreams: Database.Statement;
-  deleteSourceChannels: Database.Statement;
-  deleteSourceActors: Database.Statement;
-  deleteOrphanPeople: Database.Statement;
 }
 
 let stmts: IngestStatements | null = null;
@@ -1287,30 +1280,6 @@ function statements(): IngestStatements {
         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
     `),
     appStateDelete: db.prepare(`DELETE FROM app_state WHERE key = ?`),
-    // Reset (Rev 2 §R2.3): count then delete all rows for one source. Deleting
-    // events lets the FTS triggers (0017_reply_fts) keep events_fts in sync — we never
-    // touch events_fts directly. Order: events → channels → actors → orphan people.
-    countSourceEvents: db.prepare(
-      `SELECT COUNT(*) AS n FROM events WHERE source_id = ?`,
-    ),
-    countSourceStreams: db.prepare(
-      `SELECT COUNT(*) AS n FROM streams WHERE source_id = ?`,
-    ),
-    countSourceActors: db.prepare(
-      `SELECT COUNT(*) AS n FROM actors WHERE source_id = ?`,
-    ),
-    deleteSourceEvents: db.prepare(`DELETE FROM events WHERE source_id = ?`),
-    deleteSourceStreams: db.prepare(`DELETE FROM streams WHERE source_id = ?`),
-    // The legacy mirror goes with it (see upsertStream).
-    deleteSourceChannels: db.prepare(`DELETE FROM channels WHERE source_id = ?`),
-    deleteSourceActors: db.prepare(`DELETE FROM actors WHERE source_id = ?`),
-    // People left with no remaining actors after the actor delete.
-    deleteOrphanPeople: db.prepare(`
-      DELETE FROM legacy_people
-       WHERE NOT EXISTS (
-         SELECT 1 FROM actors a WHERE a.person_id = legacy_people.id
-       )
-    `),
   };
   return stmts;
 }
@@ -1417,6 +1386,31 @@ export function insertEvent(row: InsertEventRow): InsertEventResult {
       text: row.text,
       isHistorical: row.isHistorical,
     });
+  // The data filter (V6 S1.7 — db/capture-filter.ts): never-list (status
+  // updates) → user lists (chats · senders · sites via the link) → pause
+  // states. Dropped means dropped: no row, no archive, nothing to search.
+  // Node ids are `<source>:st:<ext>` / `<source>:ac:<ext>` (streamId/actorId
+  // below); the lists hold the source-native keys, so strip to those.
+  const strip = (id: string | null, tag: "st" | "ac"): string | null => {
+    if (!id) return null;
+    const p = `${row.sourceId}:${tag}:`;
+    if (id.startsWith(p)) return id.slice(p.length);
+    const q = `${row.sourceId}:`;
+    return id.startsWith(q) ? id.slice(q.length) : id;
+  };
+  if (
+    filterCapture({
+      source: row.sourceId,
+      streamKey: strip(row.streamId, "st"),
+      streamExternalKey: strip(row.streamId, "st"),
+      actor: envelope.actor,
+      sender: null,
+      actorExternalKey: strip(row.actorId, "ac"),
+      payload: row.linkUrl ? { link_url: row.linkUrl } : null,
+    })
+  ) {
+    return { id, inserted: false };
+  }
   // The consent gate (V6 S1.2, T4-1/T4-2 — db/consent-gate.ts): no live
   // 'connected' consent for the source, or ts outside its INDEX window → the
   // event is dropped here. Inside INDEX but outside UNDERSTAND → written as
@@ -2200,52 +2194,13 @@ export function clearImportFlags(sourceId: string): void {
   s.appStateDelete.run(importRangeKey(sourceId));
 }
 
-// ---- Reset (Rev 2 §R2.3) --------------------------------------------------
-
-export interface ResetSourceResult {
-  events: number;
-  streams: number;
-  actors: number;
-}
-
-/** @deprecated One release only — the name `channel` is now `stream`. */
-export type ResetWhatsappResult = ResetSourceResult;
-
-/**
- * Wipe all ingested data for ONE source in a single transaction and clear that
- * source's persisted import flags (arch §3.3 leak 2 — the old helper was called
- * `resetWhatsappData` and defaulted its own source id, so "reset" meant "reset
- * WhatsApp" no matter who asked).
- *
- * Deletes events (FTS auto-syncs via the 0017_reply_fts triggers — we never
- * touch events_fts), then streams + the legacy channels mirror, then actors,
- * then any people orphaned by the actor delete. Watermarks go with their
- * streams (ON DELETE CASCADE).
- *
- * Does NOT touch the source's own session store (whatsmeow keeps its own DB).
- * After reset, /status reports importDone:false so the UI returns to the range
- * picker. Returns the deleted-row counts.
- */
-export function resetSourceData(sourceId: string): ResetSourceResult {
-  const s = statements();
-  const tx = s.db.transaction((): ResetSourceResult => {
-    const events = (s.countSourceEvents.get(sourceId) as { n: number }).n;
-    const streams = (s.countSourceStreams.get(sourceId) as { n: number }).n;
-    const actors = (s.countSourceActors.get(sourceId) as { n: number }).n;
-
-    s.deleteSourceEvents.run(sourceId);
-    s.deleteSourceStreams.run(sourceId);
-    s.deleteSourceChannels.run(sourceId);
-    s.deleteSourceActors.run(sourceId);
-    s.deleteOrphanPeople.run();
-
-    s.appStateDelete.run(importDoneKey(sourceId));
-    s.appStateDelete.run(importRangeKey(sourceId));
-
-    return { events, streams, actors };
-  });
-  return tx();
-}
+// ---- Reset -------------------------------------------------------------------
+//
+// `resetSourceData` is gone (V6 S1.7, T4-12). It ran raw DELETEs over events
+// and stranded every episode, claim, task and edge that cited them. Source
+// deletion is `library/source-verbs.ts deleteSourceData()`, which routes every
+// event through `library/delete-cascade.ts hardDeleteEvents()` and only then
+// drops the stream / actor shells and the import flags.
 
 // ---- Deterministic id helpers ---------------------------------------------
 

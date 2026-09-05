@@ -15,6 +15,7 @@
 //     P1.x tasks land them, exactly the way BND does.
 // ===========================================================================
 
+import { setConsentGateMode } from "../../db/consent-gate.js";
 import { assertEvalDbIsolated } from "../home.js";
 import { registerExecutor } from "../runner.js";
 import { bndExecutor, bndHookAvailable } from "./bnd.js";
@@ -75,6 +76,10 @@ export async function registerProductExecutors(): Promise<void> {
   // these executors while pointed at the production DB is refused here, so the
   // leak cannot come back by someone forgetting the CLI's setup step.
   assertEvalDbIsolated("registerProductExecutors()");
+  // The executors seed fixture events with no consent rows; they measure
+  // passes, not the funnel. The consent gate (V6 S1.2) is asserted by the
+  // CNS vitest suites, so the harness opens it here.
+  setConsentGateMode("open");
   registerExecutor("selftest.stub", stubExecutor);
   if (await bndHookAvailable()) {
     registerExecutor("scheduler.dispatch", bndExecutor);

@@ -24,6 +24,8 @@ import { bridgeIngestedEvents } from "../bridges/ingest.js";
 import { noteSelfAuthoredEvents } from "../categories/promotion.js";
 import { isCapturePaused } from "../library/pause.js";
 import { getDb } from "./connection.js";
+import { admitCapture } from "./consent-gate.js";
+import { writeArchive } from "./v6core.js";
 
 // ---- Envelope types (spec §6.1) -------------------------------------------
 
@@ -77,7 +79,9 @@ export interface AppendResult {
   skipped: number;
   /**
    * ids in input order; for a skipped duplicate, the EXISTING row's id; for
-   * an envelope dropped by a capture pause (P2.4), "" — nothing was written.
+   * an envelope dropped by a capture pause (P2.4) or by the consent gate
+   * (V6 S1.2 — no consent, or outside the INDEX window), "" — nothing was
+   * written.
    */
   ids: string[];
 }
@@ -188,11 +192,13 @@ function statements(): Stmts {
       INSERT INTO events
         (id, source_id, source_type, stream_id, stream_key, ts, captured_at,
          kind, origin, age_band, actor, roles_json, payload_json, text,
-         content_hash, blob_refs_json, is_historical, consent_id, tier)
+         content_hash, blob_refs_json, is_historical, consent_id, tier,
+         dispatched_at)
       VALUES
         (@id, @sourceId, @sourceType, @streamId, @streamKey, @ts, @capturedAt,
          @kind, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @text,
-         @contentHash, @blobRefsJson, @isHistorical, @consentId, @tier)
+         @contentHash, @blobRefsJson, @isHistorical, @consentId, @tier,
+         @dispatchedAt)
     `),
     read: db.prepare(`
       SELECT id, source_type, stream_key, ts, captured_at, kind, origin,
@@ -222,6 +228,9 @@ export function appendEvents(
   const s = statements();
   const result: AppendResult = { inserted: 0, skipped: 0, ids: [] };
   const insertedIds: string[] = [];
+  // Inserted rows that go to the model. Archive-tier rows (outside the
+  // UNDERSTAND window) are excluded: bridges do not run on tier (b) (T4-2).
+  const understoodIds: string[] = [];
 
   const run = db.transaction(() => {
     for (const env of envelopes) {
@@ -240,6 +249,18 @@ export function appendEvents(
         result.ids.push("");
         continue;
       }
+      // The consent gate (V6 S1.2, T4-1/T4-2 — db/consent-gate.ts): no live
+      // 'connected' consent for the source, or ts outside its INDEX window →
+      // dropped here, id "" (nothing written, no source/stream row either).
+      // Inside INDEX but outside UNDERSTAND → written as origin='archive'
+      // with dispatched_at = capture_ts, so no dispatcher ever selects it.
+      const capturedAt = env.capturedAt ?? new Date(nowMs).toISOString();
+      const gate = admitCapture(env.source, env.ts, capturedAt, env.origin);
+      if (!gate.admitted) {
+        result.skipped++;
+        result.ids.push("");
+        continue;
+      }
       s.upsertSource.run({ id: env.source });
       const streamId = v13StreamId(env.source, env.streamKey);
       s.upsertStream.run({
@@ -249,6 +270,7 @@ export function appendEvents(
       });
       const id = env.id ?? mintEventId(nowMs);
       const text = typeof env.payload.text === "string" ? env.payload.text : null;
+      const consentId = env.consentId ?? gate.consentId;
       s.insert.run({
         id,
         sourceId: env.source,
@@ -256,9 +278,9 @@ export function appendEvents(
         streamId,
         streamKey: env.streamKey,
         ts: env.ts,
-        capturedAt: env.capturedAt ?? new Date(nowMs).toISOString(),
+        capturedAt,
         kind: env.kind,
-        origin: env.origin,
+        origin: gate.origin,
         ageBand: env.ageBand ?? ageBandFor(env.ts, nowMs),
         actor: env.actor,
         rolesJson: JSON.stringify(env.roles),
@@ -267,12 +289,30 @@ export function appendEvents(
         contentHash: hash,
         blobRefsJson: JSON.stringify(env.blobRefs ?? []),
         isHistorical: env.origin === "backfill" ? 1 : 0,
-        consentId: env.consentId ?? null,
+        consentId,
         tier: env.tier ?? null,
+        dispatchedAt: gate.dispatchedAt,
+      });
+      // Layer 1 (T5-1): every admitted event gets its narrow archive row in
+      // the same transaction — "everything consented to is indexed", whether
+      // or not it is understood. Idempotent by content_hash.
+      writeArchive({
+        eventId: id,
+        source: env.source,
+        streamKey: env.streamKey,
+        ts: env.ts,
+        kind: env.kind,
+        actor: env.actor,
+        consentId,
+        tier: env.tier ?? null,
+        contentHash: hash,
+        text,
+        payload: env.payload,
       });
       result.inserted++;
       result.ids.push(id);
       insertedIds.push(id);
+      if (gate.tier === "understand") understoodIds.push(id);
     }
   });
   run();
@@ -280,12 +320,15 @@ export function appendEvents(
   // it"): url/phone/email/order-id literals → event_bridge_keys + bridges.
   // Best-effort by design: an event without bridge keys is an event, not an
   // error, so extraction failure never unwinds an append that committed.
-  if (insertedIds.length > 0) {
+  // Archive-tier rows are skipped (T4-2: bridges do not run on tier b).
+  if (understoodIds.length > 0) {
     try {
-      bridgeIngestedEvents(insertedIds);
+      bridgeIngestedEvents(understoodIds);
     } catch (err) {
       console.error("[eventlog] bridge extraction failed (continuing):", err);
     }
+  }
+  if (insertedIds.length > 0) {
     // Engagement + Cat-2 -> Cat-1 promotion (P1.6, spec §5.1, eval CAT-03):
     // a self-authored envelope is user engagement — never throws, never
     // unwinds the append that committed.

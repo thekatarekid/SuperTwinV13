@@ -18,7 +18,9 @@ import type Database from "better-sqlite3";
 
 import { isStreamCapturePaused } from "../library/pause.js";
 import { getDb } from "./connection.js";
+import { admitCapture } from "./consent-gate.js";
 import { legacyEnvelopeFields } from "./eventlog.js";
+import { writeArchive } from "./v6core.js";
 import {
   invalidateEventEmbedding,
   invalidateEventEmbeddingByExternalId,
@@ -606,6 +608,7 @@ interface IngestStatements {
   upsertActor: Database.Statement;
   getActorId: Database.Statement;
   insertEvent: Database.Statement;
+  streamKeyOf: Database.Statement;
   applyEdit: Database.Statement;
   applyRevoke: Database.Statement;
   deleteReaction: Database.Statement;
@@ -764,16 +767,19 @@ function statements(): IngestStatements {
          media_mime, media_filename, media_size, media_sha256, media_thumb_path, media_seconds, media_meta_json, media_desc_status, is_forwarded,
          link_url, link_title, link_description, link_thumb_path, link_preview_type, link_scrape_status,
          is_historical, transcript_status,
-         stream_key, captured_at, origin, age_band, actor, roles_json, payload_json, content_hash, blob_refs_json)
+         stream_key, captured_at, origin, age_band, actor, roles_json, payload_json, content_hash, blob_refs_json,
+         consent_id, dispatched_at)
       VALUES
         (@id, @sourceId, @sourceType, @streamId, @streamId, @actorId, @ts, @kind, @text, @mediaPath, @rawJson, @externalId, @replyToExternalId, @replyToText,
          @mediaMime, @mediaFilename, @mediaSize, @mediaSha256, @mediaThumbPath, @mediaSeconds, @mediaMetaJson, @mediaDescStatus, @isForwarded,
          @linkUrl, @linkTitle, @linkDescription, @linkThumbPath, @linkPreviewType, @linkScrapeStatus,
          @isHistorical, @transcriptStatus,
          (SELECT external_key FROM streams WHERE id = @streamId),
-         @capturedAt, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @contentHash, @blobRefsJson)
+         @capturedAt, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @contentHash, @blobRefsJson,
+         @consentId, @dispatchedAt)
       ON CONFLICT(source_id, external_id) DO NOTHING
     `),
+    streamKeyOf: db.prepare(`SELECT external_key FROM streams WHERE id = ?`),
     // Edit (media spec §5): the edit event carries the NEW body and updates its
     // target in place — the original row keeps its id, ts and threading, so
     // reactions and quoted replies pointing at it survive the edit.
@@ -1411,40 +1417,85 @@ export function insertEvent(row: InsertEventRow): InsertEventResult {
       text: row.text,
       isHistorical: row.isHistorical,
     });
-  const info = statements().insertEvent.run({
-    ...envelope,
-    id,
-    sourceId: row.sourceId,
-    sourceType: row.sourceType,
-    streamId: row.streamId,
-    actorId: row.actorId,
-    ts: row.ts,
-    kind: row.kind,
-    text: row.text,
-    mediaPath: row.mediaPath,
-    rawJson: row.rawJson,
-    externalId: row.externalId,
-    replyToExternalId: row.replyToExternalId ?? null,
-    replyToText: row.replyToText ?? null,
-    mediaMime: row.mediaMime ?? null,
-    mediaFilename: row.mediaFilename ?? null,
-    mediaSize: row.mediaSize ?? null,
-    mediaSha256: row.mediaSha256 ?? null,
-    mediaThumbPath: row.mediaThumbPath ?? null,
-    mediaSeconds: row.mediaSeconds ?? null,
-    mediaMetaJson: row.mediaMetaJson ?? null,
-    mediaDescStatus: mediaDescStatusFor(row),
-    isForwarded: row.isForwarded ? 1 : 0,
-    linkUrl: row.linkUrl ?? null,
-    linkTitle: row.linkTitle ?? null,
-    linkDescription: row.linkDescription ?? null,
-    linkThumbPath: row.linkThumbPath ?? null,
-    linkPreviewType: row.linkPreviewType ?? null,
-    linkScrapeStatus: linkScrapeStatusFor(row),
-    isHistorical: row.isHistorical ? 1 : 0,
-    transcriptStatus: transcriptStatusFor(row),
+  // The consent gate (V6 S1.2, T4-1/T4-2 — db/consent-gate.ts): no live
+  // 'connected' consent for the source, or ts outside its INDEX window → the
+  // event is dropped here. Inside INDEX but outside UNDERSTAND → written as
+  // origin='archive' with dispatched_at = capture_ts (never dispatched).
+  const gate = admitCapture(
+    row.sourceId,
+    row.ts ?? envelope.capturedAt,
+    envelope.capturedAt,
+    envelope.origin,
+  );
+  if (!gate.admitted) {
+    return { id, inserted: false };
+  }
+  const s = statements();
+  const write = s.db.transaction((): boolean => {
+    const info = s.insertEvent.run({
+      ...envelope,
+      origin: gate.origin,
+      consentId: gate.consentId,
+      dispatchedAt: gate.dispatchedAt,
+      id,
+      sourceId: row.sourceId,
+      sourceType: row.sourceType,
+      streamId: row.streamId,
+      actorId: row.actorId,
+      ts: row.ts,
+      kind: row.kind,
+      text: row.text,
+      mediaPath: row.mediaPath,
+      rawJson: row.rawJson,
+      externalId: row.externalId,
+      replyToExternalId: row.replyToExternalId ?? null,
+      replyToText: row.replyToText ?? null,
+      mediaMime: row.mediaMime ?? null,
+      mediaFilename: row.mediaFilename ?? null,
+      mediaSize: row.mediaSize ?? null,
+      mediaSha256: row.mediaSha256 ?? null,
+      mediaThumbPath: row.mediaThumbPath ?? null,
+      mediaSeconds: row.mediaSeconds ?? null,
+      mediaMetaJson: row.mediaMetaJson ?? null,
+      mediaDescStatus: mediaDescStatusFor(row),
+      isForwarded: row.isForwarded ? 1 : 0,
+      linkUrl: row.linkUrl ?? null,
+      linkTitle: row.linkTitle ?? null,
+      linkDescription: row.linkDescription ?? null,
+      linkThumbPath: row.linkThumbPath ?? null,
+      linkPreviewType: row.linkPreviewType ?? null,
+      linkScrapeStatus: linkScrapeStatusFor(row),
+      isHistorical: row.isHistorical ? 1 : 0,
+      transcriptStatus: transcriptStatusFor(row),
+    });
+    if (info.changes === 0) return false;
+    // Layer 1 (T5-1): the narrow archive row rides in the same transaction.
+    const streamKey =
+      row.streamId === null
+        ? null
+        : ((s.streamKeyOf.get(row.streamId) as { external_key: string } | undefined)
+            ?.external_key ?? null);
+    let payload: unknown = null;
+    try {
+      payload = JSON.parse(envelope.payloadJson) as unknown;
+    } catch {
+      payload = envelope.payloadJson;
+    }
+    writeArchive({
+      eventId: id,
+      source: row.sourceId,
+      streamKey,
+      ts: row.ts ?? envelope.capturedAt,
+      kind: row.kind,
+      actor: envelope.actor,
+      consentId: gate.consentId,
+      contentHash: envelope.contentHash,
+      text: row.text,
+      payload,
+    });
+    return true;
   });
-  return { id, inserted: info.changes > 0 };
+  return { id, inserted: write() };
 }
 
 /**

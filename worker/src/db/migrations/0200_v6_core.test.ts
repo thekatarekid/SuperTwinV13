@@ -241,9 +241,9 @@ describe("archive", () => {
   });
 
   it("cascades with the event it mirrors", () => {
+    // S1.2: the funnel writes the archive row itself, in the append transaction.
     const { id } = appendEvent(envelope());
-    writeArchive({ eventId: id, source: "wa", ts: "2026-08-25T14:12:10.000Z", contentHash: "h-ev", text: "lock goa", payload: { text: "lock goa" } });
-    expect(readArchiveByEvent(id)?.text).toBe("lock goa");
+    expect(readArchiveByEvent(id)?.text).toBe("lock goa 18-21 dec");
     getDb().prepare(`DELETE FROM events WHERE id = ?`).run(id);
     expect(readArchiveByEvent(id)).toBeNull();
     expect(archiveCount()).toBe(0);

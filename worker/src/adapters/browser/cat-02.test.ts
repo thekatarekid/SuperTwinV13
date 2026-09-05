@@ -4,20 +4,15 @@
 //
 // Setup: history contains goibibo.com (14 visits, typed, 6 min dwell), a
 // tracker redirect chain (0.4s dwells), news.ycombinator.com (bookmarked).
-// Expected: goibibo + HN → Cat 1; tracker chain → Cat 2/dropped by gate;
-// ambiguous domains get ONE cached cheap call, never repeated.
+// Expected: goibibo + HN → Cat 1; tracker chain → Cat 2 (kept — there is no
+// drop policy since V6 P1 S0.5 / T6-6); ambiguous domains get ONE cached
+// cheap call, never repeated.
 // Wrong: `tracker-as-interest` ("user interested in adclick.doubleclick").
 // ===========================================================================
 
 import { describe, expect, it } from "vitest";
 
-import {
-  aggregateDomains,
-  DomainCategorizer,
-  isDroppableTrackerHop,
-  isTrackerDomain,
-  REPEAT_VISITS_MIN,
-} from "./category.js";
+import { aggregateDomains, DomainCategorizer, REPEAT_VISITS_MIN } from "./category.js";
 import { MemorySink } from "./sink.js";
 import { BrowserWatcher } from "./watcher.js";
 import type { RawVisit } from "./history-db.js";
@@ -84,19 +79,16 @@ describe("CAT-02 · browser domain category", () => {
     expect(cat.categorize(stats.get("news.ycombinator.com")!)).toBe("cat1");
   });
 
-  it("tracker chain → Cat 2 / dropped by gate — never an interest (wrong: tracker-as-interest)", () => {
+  it("tracker chain → Cat 2 by the redirect-hop rule — never an interest (wrong: tracker-as-interest)", () => {
     const stats = aggregateDomains(cat02Visits(), bookmarked);
     const cat = new DomainCategorizer();
     for (const domain of ["adclick.doubleclick.net", "googleadservices.com"]) {
       const s = stats.get(domain)!;
       expect(cat.categorize(s), domain).toBe("cat2"); // ad_immunity: cat1 here is the failure
     }
-    // And the emit gate drops the pure hops entirely.
-    const hop = cat02Visits().find((v) => v.url.includes("doubleclick"))!;
-    expect(isDroppableTrackerHop("adclick.doubleclick.net", hop)).toBe(true);
   });
 
-  it("end-to-end: watcher emits goibibo+HN as cat1 and drops tracker hops", () => {
+  it("end-to-end: watcher emits goibibo+HN as cat1 and KEEPS the tracker hops as cat2", () => {
     const sink = new MemorySink();
     const w = new BrowserWatcher({ sink, profiles: [], now: () => NOW });
     const events = w.visitEvents(cat02Visits(), bookmarked);
@@ -108,8 +100,10 @@ describe("CAT-02 · browser domain category", () => {
     }
     expect(byDomain.get("goibibo.com")!.every((p) => p.category === "cat1")).toBe(true);
     expect(byDomain.get("news.ycombinator.com")!.every((p) => p.category === "cat1")).toBe(true);
-    expect(byDomain.has("adclick.doubleclick.net")).toBe(false);
-    expect(byDomain.has("googleadservices.com")).toBe(false);
+    // 100% of URLs are kept (T6-6): the hops land, ordered late as Cat 2.
+    expect(byDomain.get("adclick.doubleclick.net")!.every((p) => p.category === "cat2")).toBe(true);
+    expect(byDomain.get("googleadservices.com")!.every((p) => p.category === "cat2")).toBe(true);
+    expect(events).toHaveLength(cat02Visits().length);
   });
 
   it("ambiguous domains get ONE cached cheap call, never repeated", () => {
@@ -134,12 +128,6 @@ describe("CAT-02 · browser domain category", () => {
 });
 
 describe("heuristics edges", () => {
-  it("tracker suffix matching covers subdomains, not lookalikes", () => {
-    expect(isTrackerDomain("adclick.doubleclick.net")).toBe(true);
-    expect(isTrackerDomain("doubleclick.net")).toBe(true);
-    expect(isTrackerDomain("notdoubleclick.net")).toBe(false);
-  });
-
   it("repeat visits alone reach Cat 1 at the floor", () => {
     const cat = new DomainCategorizer();
     const visits = Array.from({ length: REPEAT_VISITS_MIN }, (_, i) =>

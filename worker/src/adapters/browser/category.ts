@@ -4,64 +4,18 @@
 // Code-first: no model call decides a domain the heuristics can decide.
 //
 //   Cat 1: typed visits, bookmarked domains, repeat visits, real dwell.
-//   Cat 2: ad/tracker domains (blocklist), one-touch redirect hops (~0 dwell).
+//   Cat 2: one-touch redirect hops (~0 dwell).
 //   Ambiguous: ONE cached cheap call (resolver hook, wired to the tier caller
 //   in P1) — cached forever per domain, never repeated (CAT-02 gate).
 //
 // Safety (spec §5.1): Cat 2 is later + coarser, NEVER dropped; engagement
 // (e.g. bookmarking) instantly promotes. Misclassification costs latency,
-// never data — so `dropped` exists only for pure tracker redirect hops.
+// never data. There is no drop policy at all: 100% of URLs are kept (V6 P1
+// S0.5 / T6-6 deleted the tracker blocklist and `isDroppableTrackerHop`).
 // ===========================================================================
 
 import type { BrowserCategory } from "./envelope.js";
 import { domainOf } from "./envelope.js";
-
-// ---- Tracker / ad blocklist ------------------------------------------------
-
-/**
- * Domain suffixes that are ad/tracker infrastructure, never user interest
- * ("user interested in adclick.doubleclick" is the CAT-02 `wrong[]`).
- * Matched on the domain or any parent suffix.
- */
-export const TRACKER_SUFFIXES: readonly string[] = [
-  "doubleclick.net",
-  "googleadservices.com",
-  "googlesyndication.com",
-  "googletagmanager.com",
-  "google-analytics.com",
-  "adservice.google.com",
-  "adnxs.com",
-  "adsrvr.org",
-  "criteo.com",
-  "criteo.net",
-  "taboola.com",
-  "outbrain.com",
-  "scorecardresearch.com",
-  "quantserve.com",
-  "moatads.com",
-  "rubiconproject.com",
-  "pubmatic.com",
-  "openx.net",
-  "casalemedia.com",
-  "amazon-adsystem.com",
-  "facebook.net",
-  "branch.io",
-  "app.link",
-  "adjust.com",
-  "appsflyer.com",
-  "onelink.me",
-  "bing.com/aclick",
-  "awstrack.me",
-  "mailchimp.com/track",
-  "list-manage.com",
-  "sendgrid.net",
-  "click.email",
-];
-
-export function isTrackerDomain(domain: string): boolean {
-  if (!domain) return false;
-  return TRACKER_SUFFIXES.some((s) => domain === s || domain.endsWith(`.${s}`));
-}
 
 // ---- Per-domain aggregation ------------------------------------------------
 
@@ -132,12 +86,11 @@ export class DomainCategorizer {
 
   /** Pure heuristic verdict — null when the code cannot decide. */
   heuristic(stats: DomainStats): BrowserCategory | null {
-    if (isTrackerDomain(stats.domain)) return "cat2";
     if (stats.typedVisits > 0) return "cat1";
     if (stats.bookmarked) return "cat1";
     if (stats.visits >= REPEAT_VISITS_MIN) return "cat1";
     if (stats.maxDwellMs >= REAL_DWELL_MS) return "cat1";
-    // One-touch redirect hops with ~0 dwell: tracker-shaped even off-blocklist.
+    // One-touch redirect hops with ~0 dwell: plumbing, ordered late (never dropped).
     if (stats.allRedirects && stats.maxDwellMs <= ZERO_DWELL_MS) return "cat2";
     return null;
   }
@@ -163,13 +116,4 @@ export class DomainCategorizer {
   invalidate(domain: string): void {
     this.cache.delete(domain);
   }
-}
-
-/**
- * Should this visit event be emitted at all? Pure tracker redirect hops with
- * ~0 dwell are the ONE thing the gate drops (CAT-02 "dropped by gate") — they
- * are plumbing, not behaviour. Everything else is kept (Cat 2 ≠ dropped).
- */
-export function isDroppableTrackerHop(domain: string, visit: VisitLike): boolean {
-  return isTrackerDomain(domain) && visit.redirect && visit.dwellMs <= ZERO_DWELL_MS;
 }

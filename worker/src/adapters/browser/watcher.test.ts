@@ -44,7 +44,7 @@ function chromeProfile(dir: string) {
 }
 
 describe("BrowserWatcher end-to-end (fixture profiles)", () => {
-  it("emits browser.visit envelopes with chains, category, content_pending", () => {
+  it("emits browser.visit envelopes with chains and category", () => {
     const dir = tmpDir();
     makeChromeHistory(dir, [
       { url: "https://goibibo.com/", title: "Goibibo", tsMs: NOW - 40 * MIN, transition: T_TYPED, dwellMs: 6 * MIN },
@@ -75,7 +75,6 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
       transition: "typed",
       referrer: null,
       category: "cat1",
-      content_pending: true, // Cat-1, no AX coverage → fetch later (spec §4.2.3)
       browser: "chrome",
     });
     // Chain: second visit shares the stream key and carries the referrer URL.
@@ -88,27 +87,9 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
       title: "HN",
       folder: expect.stringContaining("Tech"),
       category: "cat1",
-      content_pending: true,
       domain: "news.ycombinator.com",
     });
     expect(bookmarks[0]!.stream_key).toBe("browser:chrome:bookmarks");
-  });
-
-  it("AX coverage suppresses content_pending", () => {
-    const dir = tmpDir();
-    makeChromeHistory(dir, [
-      { url: "https://goibibo.com/", tsMs: NOW - 10 * MIN, transition: T_TYPED, dwellMs: 2 * MIN },
-    ]);
-    const sink = new MemorySink();
-    const w = new BrowserWatcher({
-      sink,
-      profiles: [{ ...chromeProfile(dir), bookmarksPath: null }],
-      sinceMs: 0,
-      now: () => NOW,
-      hasAxCoverage: () => true,
-    });
-    w.poll();
-    expect((sink.events[0]!.payload as BrowserVisitPayload).content_pending).toBe(false);
   });
 
   it("polls are idempotent: cursor + content_hash yield no duplicates", () => {

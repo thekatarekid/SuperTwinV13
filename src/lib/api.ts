@@ -360,12 +360,15 @@ export const deleteScreenSpan = (req: {
 /** Import-range enum the source adapters accept (worker adapters/types.ts). */
 export const IMPORT_RANGES = [
   "24h",
+  "3d",
   "7d",
   "30d",
   "90d",
   "180d",
   "1y",
   "2y",
+  "3y",
+  "4y",
   "5y",
   "all",
 ] as const;
@@ -374,12 +377,15 @@ export type ImportRange = (typeof IMPORT_RANGES)[number];
 
 export const RANGE_LABELS: Record<ImportRange, string> = {
   "24h": "last 24 hours",
+  "3d": "last 3 days",
   "7d": "last 7 days",
   "30d": "last 30 days",
   "90d": "last 3 months",
   "180d": "last 6 months",
   "1y": "last year",
   "2y": "last 2 years",
+  "3y": "last 3 years",
+  "4y": "last 4 years",
   "5y": "last 5 years",
   all: "everything WhatsApp will give",
 };

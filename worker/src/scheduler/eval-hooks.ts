@@ -4,7 +4,7 @@
 //
 // Each golden BND case (GoldenEvals V2, deterministic layer) is materialized
 // here as a code scenario run against the REAL dispatcher — collectTick /
-// markDispatched / orphanScan / assignSlots on a scratch SQLite database —
+// markDispatched / assignSlots on a scratch SQLite database —
 // mirroring the invariants asserted by dispatch.test.ts, but reporting
 // through the harness contract: { ok, output, violations[], metrics }.
 // Violation labels match the fixture's wrong[] labels exactly, so a detected
@@ -15,6 +15,10 @@
 // the scenario body below (same numbers as the golden doc, except BND-05,
 // which scales the "18k-event chat-month" to 350 events against a 100-event
 // cap — same split arithmetic, four parts, in milliseconds not minutes).
+//
+// V6 P1 S0.5 retired BND-02 (low-signal deferral) and BND-04 (orphan scan)
+// with the behaviour they asserted (Build §2.3). The V6 BND-01..12 set is
+// re-specified against the S3 scheduler in GoldenEvals_V6_Phase1 §5.5.
 // ===========================================================================
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -27,9 +31,7 @@ import {
   assignSlots,
   collectTick,
   DEFAULT_DISPATCH_CONFIG,
-  isLowSignal,
   markDispatched,
-  orphanScan,
   type DispatchConfig,
   type TickPlan,
 } from "./dispatch.js";
@@ -156,15 +158,13 @@ function planShape(plan: TickPlan): unknown {
       lane: b.lane,
       ageBand: b.ageBand,
       events: b.events.length,
-      forced: b.forced ?? false,
       part: b.part,
       partCount: b.partCount,
     })),
-    deferred: plan.deferred.map((d) => ({ eventCount: d.eventCount })),
   };
 }
 
-// -- the six golden scenarios ----------------------------------------------
+// -- the four surviving golden scenarios ----------------------------------------------
 
 /** BND-01 · window cut, one bundle per active stream. */
 function bnd01(): BndCaseResult {
@@ -200,40 +200,8 @@ function bnd01(): BndCaseResult {
   for (const b of plan.bundles)
     c.check(cursorOf(b.streamId) > 0, "cursor advances on successful dispatch");
   c.wrong(undispatchedCount() !== 0, "cursor-skip", "cursor advanced past undispatched events");
-  c.check(collectTick(T0 + 10 * MIN).bundles.length === 0, "nothing left for the next window");
+  c.check(collectTick(T0 + 10 * MIN).bundles.length === 0, "nothing left for the next tick");
   return c.result(planShape(plan));
-}
-
-/** BND-02 · low-signal deferral with max-defer bound. */
-function bnd02(): BndCaseResult {
-  const c = new Case();
-  const cfg: DispatchConfig = { ...DEFAULT_DISPATCH_CONFIG, maxDeferMs: 45 * MIN };
-  appendEvents([msg("tanvi-dm@s.net", 4, "👍")], T0 + 4 * MIN);
-
-  c.check(isLowSignal([{ text: "👍" }]), "the floor treats 👍 as low signal");
-
-  // noise-call guard: not dispatched alone at 12:05 (or the windows after).
-  const windows = [5, 15, 20, 35, 49];
-  let dispatchedEarly = false;
-  let lastPlan: TickPlan | null = null;
-  for (const mins of windows) {
-    lastPlan = collectTick(T0 + mins * MIN, cfg);
-    if (lastPlan.bundles.length > 0) dispatchedEarly = true;
-    c.check(lastPlan.deferred.length === 1 || lastPlan.bundles.length > 0, "the stream stays visible as deferred");
-  }
-  c.wrong(dispatchedEarly, "noise-call", "a lone 👍 was dispatched inside the defer bound");
-
-  // noise-grave guard: the max-defer bound force-dispatches it.
-  const wForce = collectTick(T0 + 51 * MIN, cfg);
-  c.wrong(wForce.bundles.length === 0, "noise-grave", "the 👍 never reached Orient after the bound");
-  if (wForce.bundles.length === 1) {
-    c.check(wForce.bundles[0].forced === true, "the bound dispatch is marked forced");
-    c.check(wForce.bundles[0].events.length === 1, "the 👍 rides in its own bundle");
-    markDispatched(wForce.bundles[0], T0 + 51 * MIN);
-  }
-  c.wrong(undispatchedCount() !== 0, "noise-grave", "event left behind after force-dispatch");
-  c.metrics.containment = undispatchedCount() === 0 ? 1 : 0;
-  return c.result(planShape(wForce));
 }
 
 /** BND-03 · mid-conversation cut is harmless at the dispatch layer. */
@@ -269,51 +237,6 @@ function bnd03(): BndCaseResult {
   c.check(undispatchedCount() === 0, "cumulative coverage across the cut");
   c.metrics.continuity_rate = c.ok ? 1 : 0;
   return c.result({ window1: planShape(w1), window2: planShape(w2) });
-}
-
-/** BND-04 · backfill wave orphan scan. */
-function bnd04(): BndCaseResult {
-  const c = new Case();
-  const cfg: DispatchConfig = { ...DEFAULT_DISPATCH_CONFIG };
-
-  const wave1 = Array.from({ length: 400 }, (_, i) =>
-    msg("goa-gang@g.us", -60 * 24 + i, `wave one history message ${i}`, { origin: "backfill" }),
-  );
-  c.check(appendEvents(wave1, T0).inserted === 400, "wave 1 lands");
-  const w1 = collectTick(T0 + 5 * MIN, cfg);
-  for (const b of w1.bundles) markDispatched(b, T0 + 5 * MIN);
-  c.check(undispatchedCount() === 0, "wave 1 processes");
-
-  // Wave 2: 3,100 OLDER events, new rowids — 20 min later.
-  const wave2 = Array.from({ length: 3100 }, (_, i) =>
-    msg("goa-gang@g.us", -60 * 24 * 200 + i, `wave two older message ${i}`, { origin: "backfill" }),
-  );
-  c.check(appendEvents(wave2, T0 + 25 * MIN).inserted === 3100, "wave 2 lands");
-
-  // double-ingest guard: re-delivery inserts nothing.
-  const redelivered = appendEvents(wave2, T0 + 26 * MIN);
-  c.wrong(redelivered.inserted !== 0, "double-ingest", `${redelivered.inserted} rows re-inserted on redelivery`);
-  const total = (getDb().prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n;
-  c.check(total === 3500, "3,500 events total after redelivery");
-  c.metrics.idempotency = redelivered.inserted === 0 ? 1 : 0;
-
-  // The normal cursor path sees the wave; the orphan scan backstops it.
-  const w2 = collectTick(T0 + 30 * MIN, cfg);
-  const seen = w2.bundles.reduce((n, b) => n + b.events.length, 0);
-  c.check(seen === 3100, "the rowid cursor picks up the older wave");
-  const scan = orphanScan(T0 + 30 * MIN + cfg.orphanWindows * cfg.windowMs + MIN, cfg);
-  c.wrong(
-    scan.orphanCount !== 3100,
-    "watermark-lie",
-    `orphan scan saw ${scan.orphanCount}/3100 unprocessed events`,
-  );
-
-  for (const b of w2.bundles) markDispatched(b, T0 + 30 * MIN);
-  const contained = 3500 - undispatchedCount();
-  c.metrics.containment = contained / 3500;
-  c.check(c.metrics.containment >= 0.95, "final containment >= 95% of 3,500");
-  c.check(orphanScan(T0 + 60 * MIN, cfg).orphanCount === 0, "orphan scan settles at zero");
-  return c.result({ total, redeliveredInserted: redelivered.inserted, orphanCount: scan.orphanCount });
 }
 
 /** BND-05 · max-size split with predecessor context. */
@@ -399,15 +322,12 @@ function bnd06(): BndCaseResult {
     next.bundles.length === 6 && next.bundles.every((b) => b.lane === "backfill"),
     "backfill resumes after the live bundle",
   );
-  c.metrics.latency_live_p95 = DEFAULT_DISPATCH_CONFIG.windowMs / MIN; // minutes to the next cut
   return c.result(planShape(plan));
 }
 
 const SCENARIOS: Record<string, () => BndCaseResult> = {
   "BND-01": bnd01,
-  "BND-02": bnd02,
   "BND-03": bnd03,
-  "BND-04": bnd04,
   "BND-05": bnd05,
   "BND-06": bnd06,
 };

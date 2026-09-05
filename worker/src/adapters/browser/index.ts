@@ -30,9 +30,6 @@ export {
 export {
   aggregateDomains,
   DomainCategorizer,
-  isDroppableTrackerHop,
-  isTrackerDomain,
-  TRACKER_SUFFIXES,
   type AmbiguousResolver,
   type DomainStats,
 } from "./category.js";

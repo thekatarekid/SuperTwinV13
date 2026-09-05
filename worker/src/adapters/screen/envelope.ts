@@ -7,9 +7,9 @@
 // stream_key + content_hash + the diff, so a restart replaying the same
 // frame dedupes while a genuine revert (A→B→A) still lands.
 //
-// Reference enrichment (spec §4.2.2, P0.8 pattern): links/files seen in the
-// tree ride on the payload marked `content_pending: true` — the backlog of
-// things lane E / the SuperTwin Browser fetches later stays queryable.
+// References (spec §4.2.2): links/files seen in the tree ride on the payload
+// as plain strings. The `content_pending` marker was deleted in V6 P1 S0.5
+// (Build §2.3 / T6-14): writers existed, readers never did.
 // ===========================================================================
 
 import { createHash } from "node:crypto";
@@ -19,12 +19,6 @@ import { ageBandOf, SELF_ROLES } from "../browser/envelope.js";
 import type { SnapshotFrame } from "./frames.js";
 
 export const SCREEN_SOURCE_ID = "screen";
-
-/** A link/file seen in the AX tree, queued for fetch-by-reference. */
-export interface PendingRef {
-  ref: string;
-  content_pending: true;
-}
 
 export interface ScreenSnapshotPayload extends Record<string, unknown> {
   bundle_id: string;
@@ -38,8 +32,10 @@ export interface ScreenSnapshotPayload extends Record<string, unknown> {
   char_count: number;
   /** FTS projection (db/eventlog.ts) — the `new_chars` diff. */
   text: string;
-  links: PendingRef[];
-  files: PendingRef[];
+  /** Links seen in the AX tree + spelled out in the new text. */
+  links: string[];
+  /** File references seen in the AX tree. */
+  files: string[];
 }
 
 const URL_RE = /https?:\/\/[^\s"'<>)\]]+/g;
@@ -93,8 +89,8 @@ export function toScreenEnvelope(
     content_hash: frame.content_hash,
     char_count: frame.char_count,
     text: frame.new_chars,
-    links: collectLinks(frame).map((ref) => ({ ref, content_pending: true })),
-    files: frame.files.map((ref) => ({ ref, content_pending: true })),
+    links: collectLinks(frame),
+    files: [...frame.files],
   };
   return {
     ts: frame.ts,

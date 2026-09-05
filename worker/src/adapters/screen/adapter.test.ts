@@ -10,7 +10,7 @@
 //   - privacy drops, HARD: password-manager / private-window content never
 //     reaches the sink even when a (buggy) sidecar emits it; drop frames
 //     carry no content; pause and per-app pause block ingestion;
-//   - reference enrichment: links/files marked content_pending;
+//   - references: links/files ride the payload as plain strings;
 //   - lifecycle: queued commands flush on ready, shutdown sent on disconnect,
 //     crash schedules a restart.
 // ===========================================================================
@@ -102,9 +102,9 @@ describe("ScreenAdapter", () => {
     const p = e.payload as ScreenSnapshotPayload;
     expect(p.text).toBe("meeting notes"); // FTS projection = new_chars
     expect(p.trigger).toBe("app_switch");
-    // Reference enrichment: content_pending, the P0.8 pattern.
-    expect(p.links).toEqual([{ ref: "https://docs.example.com/x", content_pending: true }]);
-    expect(p.files).toEqual([{ ref: "file:///a", content_pending: true }]);
+    // References ride the payload as plain strings (no content_pending — S0.5).
+    expect(p.links).toEqual(["https://docs.example.com/x"]);
+    expect(p.files).toEqual(["file:///a"]);
     expect(adapter.getStatus().snapshots).toBe(1);
   });
 
@@ -118,7 +118,7 @@ describe("ScreenAdapter", () => {
       links: ["https://docs.example.com/x"],
     }));
     const p = sink.events[0]!.payload as ScreenSnapshotPayload;
-    expect(p.links.map((l) => l.ref)).toEqual([
+    expect(p.links).toEqual([
       "https://docs.example.com/x",
       "https://issues.example.com/42",
     ]);

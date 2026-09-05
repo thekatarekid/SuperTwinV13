@@ -26,6 +26,7 @@ import { LIBRARY_FRESHNESS } from "./migrations/0106_library_freshness.js";
 import { CONTENT_ECONOMY } from "./migrations/0102_content_economy.js";
 import { ENRICHMENT_BUNDLES } from "./migrations/0103_enrichment_bundles.js";
 import { T3_GRADUATION } from "./migrations/0107_t3_graduation.js";
+import { PRUNE_SOURCES } from "./migrations/0108_prune_sources.js";
 
 export interface Migration {
   id: string;
@@ -957,4 +958,7 @@ export const MIGRATIONS: Migration[] = [
   // Graduation metric ledger (gates per day, 14-day streak → auto-create)
   // and T3's cross-space links (build P4.3, spec §15.3 + §14.9).
   { id: "0107_t3_graduation", sql: T3_GRADUATION },
+  // V6 P1 S0.5 (Build §2.3, T4-13): drop the dead consent-shaped columns
+  // sources.connected_at / sources.enabled — zero readers, zero writers.
+  { id: "0108_prune_sources", sql: PRUNE_SOURCES },
 ];

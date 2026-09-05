@@ -6,11 +6,8 @@
 // the sink. Stream keys are tab chains (referrer links + 30-min gap,
 // ./chains.ts). Per-domain Cat-1/2 by code heuristics (./category.ts).
 //
-// Page content (spec §4.2.3): AX capture (P2.1) covers frontmost pages;
-// fetch-by-reference lands with the SuperTwin Browser (P3.4). Until then,
-// every uncovered Cat-1 visit and every bookmark is marked
-// `content_pending: true` so the backlog is fetchable later. The AX-coverage
-// probe is a hook (default: nothing covered).
+// Every visit is kept — there is no drop policy (V6 P1 S0.5 / T6-6 deleted the
+// tracker blocklist) and no `content_pending` flag (writers, zero readers).
 //
 // Guarding: a machine with none of the profiles present, a locked DB, a
 // missing table — all degrade to "0 events this poll", never a crash.
@@ -33,12 +30,7 @@ import {
 } from "./envelope.js";
 import { readChromiumBookmarks, type RawBookmark } from "./bookmarks.js";
 import { assignChains, type ChainedVisit } from "./chains.js";
-import {
-  aggregateDomains,
-  DomainCategorizer,
-  isDroppableTrackerHop,
-  type AmbiguousResolver,
-} from "./category.js";
+import { aggregateDomains, DomainCategorizer, type AmbiguousResolver } from "./category.js";
 import { readChromiumHistory, readSafariHistory, type RawVisit } from "./history-db.js";
 import type { V13EventSink } from "./sink.js";
 
@@ -97,8 +89,6 @@ export interface BrowserWatcherOptions {
   sinceMs?: number;
   /** Cached-cheap-call hook for ambiguous domains (wired to tiers in P1). */
   ambiguousResolver?: AmbiguousResolver | null;
-  /** AX-coverage probe (P2.1): true = page text already captured for ts+url. */
-  hasAxCoverage?: (url: string, tsMs: number) => boolean;
   log?: (line: string) => void;
   now?: () => number;
 }
@@ -111,7 +101,6 @@ export class BrowserWatcher {
   private readonly pollMs: number;
   private readonly log: (line: string) => void;
   private readonly now: () => number;
-  private readonly hasAxCoverage: (url: string, tsMs: number) => boolean;
   private readonly categorizer: DomainCategorizer;
 
   /** Per history-path high-water mark (unix ms of the newest visit seen). */
@@ -126,7 +115,6 @@ export class BrowserWatcher {
     this.pollMs = opts.pollMs ?? 60_000;
     this.log = opts.log ?? (() => {});
     this.now = opts.now ?? (() => Date.now());
-    this.hasAxCoverage = opts.hasAxCoverage ?? (() => false);
     this.categorizer = new DomainCategorizer(opts.ambiguousResolver ?? null);
     const floor = opts.sinceMs ?? this.now() - 90 * DAY_MS;
     for (const p of this.profiles) this.cursors.set(p.historyPath, floor);
@@ -211,10 +199,6 @@ export class BrowserWatcher {
     for (const v of chained) {
       const domain = domainOf(v.url);
       const s = stats.get(domain);
-      // Gate: pure tracker redirect hops are plumbing, not behaviour.
-      if (isDroppableTrackerHop(domain, { url: v.url, typed: v.typed, redirect: v.redirect, dwellMs: v.inferredDwellMs })) {
-        continue;
-      }
       const category: BrowserCategory = s ? this.categorizer.categorize(s) : "ambiguous";
       out.push(this.visitEvent(v, domain, category));
     }
@@ -223,7 +207,6 @@ export class BrowserWatcher {
 
   private visitEvent(v: ChainedVisit, domain: string, category: BrowserCategory): V13Event {
     const nowMs = this.now();
-    const contentPending = category === "cat1" && !this.hasAxCoverage(v.url, v.tsMs);
     return {
       id: ulid(nowMs),
       ts: new Date(v.tsMs).toISOString(),
@@ -245,7 +228,6 @@ export class BrowserWatcher {
         dwell_ms: v.inferredDwellMs,
         domain,
         category,
-        content_pending: contentPending,
         browser: v.browser,
       },
       content_hash: browserContentHash([BROWSER_SOURCE_ID, "visit", v.browser, v.url, v.tsMs, v.visitId]),
@@ -311,7 +293,6 @@ export class BrowserWatcher {
           added_ts: new Date(tsMs).toISOString(),
           domain,
           category: "cat1" as const,
-          content_pending: true,
           browser,
         },
         content_hash: browserContentHash([BROWSER_SOURCE_ID, "bookmark", browser, b.url, b.addedMs]),

@@ -1,7 +1,8 @@
 // ===========================================================================
-// Golden BND-01…BND-06 (GoldenEvals V2 — deterministic layer, code-asserted,
+// Golden BND-01/03/05/06 (GoldenEvals V2 — deterministic layer, code-asserted,
 // no model calls) + the cursor/mark invariants they hang off (build P0.5,
-// spec §6.2).
+// spec §6.2). BND-02 (low-signal deferral) and BND-04 (orphan scan) were
+// retired with that behaviour in V6 P1 S0.5 (Build §2.3).
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,9 +16,7 @@ import {
   assignSlots,
   collectTick,
   DEFAULT_DISPATCH_CONFIG,
-  isLowSignal,
   markDispatched,
-  orphanScan,
   type DispatchConfig,
 } from "./dispatch.js";
 
@@ -128,56 +127,6 @@ describe("BND-01 · window cut, one bundle per active stream", () => {
   });
 });
 
-describe("BND-02 · low-signal deferral with max-defer bound", () => {
-  const cfg: DispatchConfig = { ...DEFAULT_DISPATCH_CONFIG, maxDeferMs: 45 * MIN };
-
-  it("a 👍 defers window after window, then force-dispatches inside the bound", () => {
-    appendEvents([msg("tanvi-dm@s.net", 4, "👍")], T0 + 4 * MIN);
-
-    // noise-call guard: NOT dispatched alone at 12:05 — deferred instead.
-    const w1 = collectTick(T0 + 5 * MIN, cfg);
-    expect(w1.bundles).toEqual([]);
-    expect(w1.deferred.length).toBe(1);
-    expect(w1.deferred[0].eventCount).toBe(1);
-
-    // Still deferred through the following windows.
-    for (const mins of [10, 15, 30, 44]) {
-      const w = collectTick(T0 + (5 + mins) * MIN, cfg);
-      expect(w.bundles).toEqual([]);
-      expect(w.deferred.length).toBe(1);
-    }
-
-    // noise-grave guard: at 12:50+ the max-defer bound force-dispatches it.
-    const wForce = collectTick(T0 + 51 * MIN, cfg);
-    expect(wForce.bundles.length).toBe(1);
-    expect(wForce.bundles[0].forced).toBe(true);
-    expect(wForce.bundles[0].events.map((e) => e.text)).toEqual(["👍"]);
-    markDispatched(wForce.bundles[0], T0 + 51 * MIN);
-    expect(undispatchedCount()).toBe(0);
-  });
-
-  it("accumulating real signal releases a deferred stream at the next window", () => {
-    appendEvents([msg("tanvi-dm@s.net", 4, "👍")], T0 + 4 * MIN);
-    expect(collectTick(T0 + 5 * MIN, cfg).bundles).toEqual([]);
-    appendEvents(
-      [msg("tanvi-dm@s.net", 7, "also can you book the cab for tomorrow 9am?")],
-      T0 + 7 * MIN,
-    );
-    const w2 = collectTick(T0 + 10 * MIN, cfg);
-    expect(w2.bundles.length).toBe(1);
-    // The 👍 rides along with the signal that released the stream.
-    expect(w2.bundles[0].events.length).toBe(2);
-    expect(w2.bundles[0].events[0].text).toBe("👍");
-  });
-
-  it("the floor is deterministic", () => {
-    expect(isLowSignal([{ text: "👍" }])).toBe(true);
-    expect(isLowSignal([{ text: "ok" }])).toBe(true);
-    expect(isLowSignal([{ text: "book it now" }])).toBe(false); // intent verb
-    expect(isLowSignal([{ text: "flat 1402?" }])).toBe(false); // entity-ish
-  });
-});
-
 describe("BND-03 · mid-conversation cut is harmless at the dispatch layer", () => {
   it("two windows over one conversation → two pure bundles, same stream, full coverage, no overlap", () => {
     // Villa discussion 12:03–12:08, cut at 12:05 and 12:10.
@@ -210,58 +159,6 @@ describe("BND-03 · mid-conversation cut is harmless at the dispatch layer", () 
     for (const e of w2.bundles[0].events) expect(ids1.has(e.id)).toBe(false);
     markDispatched(w2.bundles[0], T0 + 10 * MIN);
     expect(undispatchedCount()).toBe(0);
-  });
-});
-
-describe("BND-04 · backfill wave orphan scan", () => {
-  it("wave 2 lands after wave 1 processed → orphan scan re-queues it; containment 100%; no double-ingest", () => {
-    const cfg: DispatchConfig = { ...DEFAULT_DISPATCH_CONFIG };
-
-    // Wave 1: 400 events, lands and processes.
-    const wave1 = Array.from({ length: 400 }, (_, i) =>
-      msg("goa-gang@g.us", -60 * 24 + i, `wave one history message ${i}`, {
-        origin: "backfill",
-      }),
-    );
-    expect(appendEvents(wave1, T0).inserted).toBe(400);
-    const w1 = collectTick(T0 + 5 * MIN, cfg);
-    for (const b of w1.bundles) markDispatched(b, T0 + 5 * MIN);
-    expect(undispatchedCount()).toBe(0);
-
-    // Wave 2: 3,100 OLDER events land 20 minutes later. Their timestamps sit
-    // far behind the stream's history but their rowids are new — the rowid
-    // cursor still sees them.
-    const wave2 = Array.from({ length: 3100 }, (_, i) =>
-      msg("goa-gang@g.us", -60 * 24 * 200 + i, `wave two older message ${i}`, {
-        origin: "backfill",
-      }),
-    );
-    expect(appendEvents(wave2, T0 + 25 * MIN).inserted).toBe(3100);
-
-    // double-ingest guard: re-delivering wave 2 inserts nothing.
-    const redelivered = appendEvents(wave2, T0 + 26 * MIN);
-    expect(redelivered.inserted).toBe(0);
-    expect(redelivered.skipped).toBe(3100);
-    const total = (
-      getDb().prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }
-    ).n;
-    expect(total).toBe(3500);
-
-    // The next window picks the wave up through the normal cursor path…
-    const w2 = collectTick(T0 + 30 * MIN, cfg);
-    const seen = w2.bundles.reduce((n, b) => n + b.events.length, 0);
-    expect(seen).toBe(3100);
-
-    // …and even if that tick had been lost, the orphan scan re-queues every
-    // unprocessed event once it is older than N windows (watermark-lie guard:
-    // nothing downstream treats the stream as complete while these sit here).
-    const scan = orphanScan(T0 + 30 * MIN + cfg.orphanWindows * cfg.windowMs + MIN, cfg);
-    expect(scan.orphanCount).toBe(3100);
-
-    for (const b of w2.bundles) markDispatched(b, T0 + 30 * MIN);
-    expect(undispatchedCount()).toBe(0); // containment: 3500/3500 processed
-    const after = orphanScan(T0 + 60 * MIN, cfg);
-    expect(after.orphanCount).toBe(0);
   });
 });
 

@@ -29,8 +29,6 @@ import { startScreenWatcher, type ScreenAdapter } from "./adapters/screen/index.
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
-import { startDispatcher } from "./scheduler/dispatch.js";
-import { startBrainConsumer } from "./brain/consumer.js";
 import { startConsolidationJob } from "./consolidation/index.js";
 import { startAssistLane } from "./assist/index.js";
 import { backfillTiers } from "./tiers/derive.js";
@@ -175,16 +173,11 @@ async function main(): Promise<void> {
   // hashed + sampled full-keeps). One sweep shortly after boot, then daily.
   const traceRetention = startTraceRetentionJob();
 
-  // ---- Dispatch windows (P0.5, spec §6.2): the 5-min window clock that turns
-  // per-stream deltas into priority-ordered bundles (live > backfill A>B>C>D,
-  // low-signal deferral, orphan scan). The sink is the P1.3 brain consumer:
-  // digest → pack (§6.4) → Orient → Critic → single-writer commit →
-  // markDispatched. Cat-2 backfill still routes to the Digest pass.
-  const brainConsumer = startBrainConsumer({}, (line) => console.error(line));
-  const dispatcher = startDispatcher({
-    onBundle: brainConsumer.onBundle,
-    log: (line) => console.error(line),
-  });
+  // ---- Dispatch (V6 P1 S0.5): the 5-minute window clock and the orphan scan
+  // are deleted (Build §2.3). Nothing turns the event log into bundles in the
+  // background until S3 wires the state gate to scheduler/dispatch.ts
+  // runDispatchTick and the brain consumer (brain/consumer.ts). Until then the
+  // worker ingests and indexes; it does not understand.
 
   // ---- Consolidation + reduce (P1.4/P1.5, spec §6.3.2 / §15.2): every
   // minute — sweep newly-activated spaces, flag-triggered T2, drain the
@@ -210,7 +203,6 @@ async function main(): Promise<void> {
       // Kill any live children so nothing is orphaned...
       claudeLocalProvider.killAll();
       parentWatch.stop();
-      dispatcher.stop();
       consolidation.stop();
       assistLane.stop();
       traceRetention.stop();

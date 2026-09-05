@@ -25,15 +25,9 @@ import { calendarBlock, fixtureSeed } from "./seeds.js";
 import { DIGEST_V1_SYSTEM, parseDigestV1, type DigestParse } from "../../prompts/digest.v1.js";
 import { bandPolicyLine } from "../../packer/index.js";
 import { fixtureUser } from "./orient.js";
-import { chatCategoryFor, noteUserReply, type ChatCategoryFacts } from "../../categories/index.js";
-import {
-  aggregateDomains,
-  DomainCategorizer,
-  isDroppableTrackerHop,
-} from "../../adapters/browser/category.js";
+import { chatCategoryFor, type ChatCategoryFacts } from "../../categories/index.js";
+import { aggregateDomains, DomainCategorizer } from "../../adapters/browser/category.js";
 import { admitWork, planCliSlots, type SlotWork } from "../../scheduler/priority.js";
-import { getDb } from "../../db/connection.js";
-import { appendEvents } from "../../db/eventlog.js";
 
 // ---- Band parsing (AGE fixtures carry "Band D" in title/setup) -------------
 
@@ -310,9 +304,11 @@ function cat02(): ExecutorResult {
   for (let i = 0; i < 14; i += 1) {
     visits.push({ url: "https://www.goibibo.com/flights/", typed: true, redirect: false, dwellMs: 6 * MIN });
   }
-  const trackerHopA = { url: "https://adclick.doubleclick.net/r?x=1", typed: false, redirect: true, dwellMs: 400 };
-  const trackerHopB = { url: "https://www.googleadservices.com/pagead/aclk?y=2", typed: false, redirect: true, dwellMs: 400 };
-  visits.push(trackerHopA, trackerHopB);
+  // A tracker redirect chain: kept (no drop policy — S0.5 / T6-6), ordered late as Cat 2.
+  visits.push(
+    { url: "https://adclick.doubleclick.net/r?x=1", typed: false, redirect: true, dwellMs: 400 },
+    { url: "https://www.googleadservices.com/pagead/aclk?y=2", typed: false, redirect: true, dwellMs: 400 },
+  );
   visits.push({ url: "https://news.ycombinator.com/item?id=1", typed: false, redirect: false, dwellMs: 2000 });
 
   const stats = aggregateDomains(visits, new Set(["news.ycombinator.com"]));
@@ -339,65 +335,13 @@ function cat02(): ExecutorResult {
       violations.length === 0,
     output: {
       verdicts,
-      trackerHopsDropped: [
-        isDroppableTrackerHop("adclick.doubleclick.net", trackerHopA),
-        isDroppableTrackerHop("googleadservices.com", trackerHopB),
-      ],
+      trackerHopsKept: true,
       ambiguousCheapCalls: cheapCalls,
       cheapCallCached: true,
     },
     violations,
     metrics: { cheap_calls: cheapCalls },
     notes: ["Per-domain heuristics + one cached cheap call for ambiguous domains (spec §5.1)."],
-  };
-}
-
-function cat03(): ExecutorResult {
-  // Real product path on the (scratch) eval DB: seed a digested Cat-2 stream,
-  // deliver the first user reply, and report what the promotion hook did.
-  const NOW = Date.now();
-  const streamKey = `sunrise-402-eval-${NOW}@g.us`;
-  const streamId = `wa:st:${streamKey}`;
-  const msg = (daysAgo: number, text: string) => ({
-    ts: new Date(NOW - daysAgo * 86_400_000).toISOString(),
-    source: "wa",
-    kind: "wa.message",
-    origin: "backfill" as const,
-    streamKey,
-    actor: "contact:secretary",
-    roles: { sender: "contact:secretary", audience: ["self"], receiver: [], mentions: [] },
-    payload: { text },
-  });
-  appendEvents([msg(40, "plumber contact: 98200-11111"), msg(35, "water shutdown tomorrow"), msg(33, "maintenance collection next week")], NOW);
-  const db = getDb();
-  db.prepare(`UPDATE streams SET category = 'cat2' WHERE id = ?`).run(streamId);
-  db.prepare(`UPDATE events SET dispatched_at = ? WHERE stream_id = ?`).run(new Date(NOW).toISOString(), streamId);
-
-  const report = noteUserReply(streamId, new Date(NOW).toISOString(), NOW);
-  const after = db
-    .prepare(`SELECT category, cursor_rowid FROM streams WHERE id = ?`)
-    .get(streamId) as { category: string; cursor_rowid: number } | undefined;
-  const decision = db
-    .prepare(`SELECT id, reason FROM decisions WHERE target_id = ? AND action = 'promote'`)
-    .get(streamId) as { id: string; reason: string } | undefined;
-
-  const violations: Violation[] = [];
-  if (after?.category !== "cat1") {
-    violations.push({ label: "caste-system", note: `stream stayed ${after?.category ?? "missing"}` });
-  }
-  return {
-    ok: report.promoted && after?.category === "cat1" && decision !== undefined,
-    output: {
-      promoted: report.promoted,
-      categoryAfter: after?.category,
-      requeuedForFullProcessing: report.requeued,
-      cursorRewoundTo: after?.cursor_rowid,
-      promotionLogged: decision !== undefined,
-      decisionReason: decision?.reason,
-      note: "the reply text itself re-enters the pipeline as a live event and takes the normal task/space path",
-    },
-    violations,
-    metrics: { promotion_latency_ms: 0, requeued: report.requeued },
   };
 }
 
@@ -486,8 +430,6 @@ export const digestExecutor: Executor = async (ctx) => {
       return cat01();
     case "CAT-02":
       return cat02();
-    case "CAT-03":
-      return cat03();
     case "CAT-05":
       return cat05();
     case "CAT-06":

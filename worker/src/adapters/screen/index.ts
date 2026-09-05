@@ -27,7 +27,6 @@ export {
   SCREEN_SOURCE_ID,
   screenEventHash,
   toScreenEnvelope,
-  type PendingRef,
   type ScreenSnapshotPayload,
 } from "./envelope.js";
 export {

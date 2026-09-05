@@ -9,9 +9,10 @@
 // run ledger → committed episodes enqueued for the Reduce step (P1.4) →
 // markDispatched, which is the ONLY cursor move.
 //
-// A quarantined Orient call does NOT markDispatched: the orphan scan re-queues
-// the events, and the quarantine row holds the story (containment ≥95% is a
-// property of never dropping a bundle on the floor).
+// A quarantined Orient call does NOT markDispatched: the cursor never moved,
+// so the next tick re-collects the events, and the quarantine row holds the
+// story (containment ≥95% is a property of never dropping a bundle on the
+// floor).
 // ===========================================================================
 
 import type { EventEnvelope } from "../db/eventlog.js";
@@ -65,7 +66,7 @@ function toEnvelope(bundle: DeltaBundle, i: number): EventEnvelope {
  */
 /**
  * Bundle identity for the in-flight registry (T0-2): the same rows submitted
- * twice — planned path + orphan path, or two windows over a slow tick — must
+ * twice — two ticks over a slow run, or any future re-dispatch path — must
  * cost one model call, not two.
  */
 export function bundleKey(bundle: DeltaBundle): string {
@@ -82,8 +83,8 @@ export function bundleKey(bundle: DeltaBundle): string {
 /**
  * Re-validate at execution time (T0-3): a bundle that sat in the queue may
  * have been dispatched by another path in the meantime. Any event already
- * stamped makes the bundle stale — the still-unmarked remainder (if any)
- * re-enters through the orphan scan as a fresh bundle.
+ * stamped makes the bundle stale — the still-unmarked remainder (if any) is
+ * re-collected by the next tick as a fresh bundle.
  */
 export function isBundleStale(bundle: DeltaBundle): boolean {
   if (bundle.events.length === 0) return true;
@@ -120,7 +121,7 @@ export async function runBrainTick(
 
   const orientRun = await runOrient(bundle, deps);
   if (!orientRun.output) {
-    // Quarantined — the runner parked the unit; the orphan scan will re-queue.
+    // Quarantined — the runner parked the unit; the next tick re-collects.
     return {
       bundle,
       status: "quarantined",
@@ -179,7 +180,7 @@ export interface BrainConsumer {
 }
 
 /**
- * The production consumer for startDispatcher({onBundle}) — one Orient call
+ * The production consumer for runDispatchTick({onBundle}) — one Orient call
  * per bundle, concurrent across bundles (the llm pool lane is the throttle),
  * serial per stream by construction (a stream yields one bundle per window,
  * and an unmarked bundle re-collects rather than double-dispatching).

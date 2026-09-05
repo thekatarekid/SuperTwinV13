@@ -757,7 +757,7 @@ async function fix02(): Promise<ExecutorResult> {
 async function fix04(): Promise<ExecutorResult> {
   const db = getDb();
   const streamId = mintEvalId("st_eval_fix04");
-  db.prepare(`INSERT OR IGNORE INTO sources (id, type, enabled, mode) VALUES ('wa', 'wa', 1, 'bootstrap')`).run();
+  db.prepare(`INSERT OR IGNORE INTO sources (id, type, mode) VALUES ('wa', 'wa', 'bootstrap')`).run();
   db.prepare(
     `INSERT INTO streams (id, source_id, external_key, label, stream_kind) VALUES (?, 'wa', ?, 'College Memes', 'group')`,
   ).run(streamId, `eval-fix04-${streamId}@g.us`);

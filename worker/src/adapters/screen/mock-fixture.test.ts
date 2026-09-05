@@ -74,10 +74,9 @@ describe.skipIf(!available)("screenwatch --mock e2e", () => {
     expect(third.text).toBe("\naction: email finance");
     expect(third.trigger).toBe("typing_pause");
 
-    // Reference enrichment marked pending.
+    // References ride the payload as plain strings.
     const chrome = sink.events[1]!.payload as ScreenSnapshotPayload;
-    expect(chrome.links.every((l) => l.content_pending)).toBe(true);
-    expect(chrome.links.map((l) => l.ref)).toContain("https://issues.example.com/42");
+    expect(chrome.links).toContain("https://issues.example.com/42");
 
     // HARD privacy: no fixture secret anywhere in what landed.
     const all = JSON.stringify(sink.events);

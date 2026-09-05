@@ -132,6 +132,8 @@ describe("0020_v2_core applies", () => {
       "0106_library_freshness",
       // P4.3: graduation metric ledger + T3 space links — new tables only.
       "0107_t3_graduation",
+      // V6 P1 S0.5: drops sources.connected_at / sources.enabled (T4-13).
+      "0108_prune_sources",
     ]);
 
     expect(

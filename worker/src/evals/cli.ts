@@ -7,6 +7,12 @@
 //   npm run eval -- --dir evals/v13/selftest --judge stub
 //   npm run eval -- --liveness            TRC-03 pass-liveness job
 //   npm run eval -- --materialize         re-emit evals/v13 from the docs
+//   npm run eval -- --mode code           only deterministic cases (zero model calls)
+//   npm run eval -- --baseline            print the frozen evals/baseline/v13.json
+//   npm run eval -- ... --record-baseline merge this run's tallies into that file
+//                       [--calls-log FILE | --model-calls N] [--note "..."]
+//                       (--calls-log: a file a CLAUDE_BIN counting shim appends one
+//                        line to per invocation; the run records the line delta)
 //
 // ISOLATED BY CONSTRUCTION: a fixture run gets its OWN home (a temp
 // SUPERTWIN_HOME, printed at the top of the report) and refuses to start when
@@ -23,11 +29,20 @@
 //             3 the run could not be set up (bad flag).
 // ===========================================================================
 
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  baselinePath,
+  gitShortSha,
+  readBaseline,
+  recordBaseline,
+  renderBaseline,
+  writeBaseline,
+} from "./baseline.js";
 import { registerProductExecutors } from "./executors/index.js";
-import { coverageGaps, loadDirectory, type Fixture } from "./fixtures.js";
+import { coverageGaps, FIXTURE_MODES, loadDirectory, type Fixture, type FixtureMode } from "./fixtures.js";
 import { ALLOW_PRODUCTION_FLAG, establishEvalHome, EvalHomeLeakError } from "./home.js";
 import { haikuJudge, stubJudge, type Judge } from "./judge.js";
 import { assessLiveness, collectRunCounts, renderLiveness } from "./liveness.js";
@@ -48,6 +63,18 @@ export interface CliOptions {
   materialize: boolean;
   /** Waive the eval-home boundary and seed fixtures into ~/SuperTwinV13. */
   allowProductionHome: boolean;
+  /** Only cases of this mode (`code` = zero model calls). null = both. */
+  mode: FixtureMode | null;
+  /** Print evals/baseline/v13.json and exit. */
+  baseline: boolean;
+  /** After the run, merge this run's per-category tallies into the baseline file. */
+  recordBaseline: boolean;
+  /** Operator-counted `claude` invocations for --record-baseline; null = not counted. */
+  modelCalls: number | null;
+  /** File that grows one line per `claude` invocation; the run records its line delta. */
+  callsLog: string | null;
+  /** Free-text method note stored with the recorded run. */
+  note: string | null;
 }
 
 export function repoRoot(): string {
@@ -67,6 +94,12 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     liveness: false,
     materialize: false,
     allowProductionHome: false,
+    mode: null,
+    baseline: false,
+    recordBaseline: false,
+    modelCalls: null,
+    callsLog: null,
+    note: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
@@ -119,6 +152,33 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--materialize":
         options.materialize = true;
         break;
+      case "--mode": {
+        const mode = next();
+        if (!(FIXTURE_MODES as readonly string[]).includes(mode)) {
+          throw new Error(`--mode must be ${FIXTURE_MODES.join("|")}, got ${mode}`);
+        }
+        options.mode = mode as FixtureMode;
+        options.checkCoverage = false;
+        break;
+      }
+      case "--baseline":
+        options.baseline = true;
+        break;
+      case "--record-baseline":
+        options.recordBaseline = true;
+        break;
+      case "--model-calls": {
+        const n = Number(next());
+        if (!Number.isInteger(n) || n < 0) throw new Error("--model-calls needs a non-negative integer");
+        options.modelCalls = n;
+        break;
+      }
+      case "--calls-log":
+        options.callsLog = resolve(process.cwd(), next());
+        break;
+      case "--note":
+        options.note = next();
+        break;
       case ALLOW_PRODUCTION_FLAG:
         options.allowProductionHome = true;
         break;
@@ -126,7 +186,17 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         throw new Error(`unknown flag ${arg}`);
     }
   }
+  if (options.callsLog !== null && options.modelCalls !== null) {
+    throw new Error("--calls-log and --model-calls are exclusive");
+  }
   return options;
+}
+
+/** Lines in a file (0 when it does not exist yet). */
+export function countLines(path: string): number {
+  if (!existsSync(path)) return 0;
+  const text = readFileSync(path, "utf8");
+  return text.length === 0 ? 0 : text.split("\n").filter((l) => l.length > 0).length;
 }
 
 export function selectFixtures(fixtures: readonly Fixture[], options: CliOptions): Fixture[] {
@@ -138,6 +208,7 @@ export function selectFixtures(fixtures: readonly Fixture[], options: CliOptions
     if (f.selftest && !onlySelftest) return false;
     if (options.cats && !options.cats.includes(f.category)) return false;
     if (options.ids && !options.ids.includes(f.id)) return false;
+    if (options.mode && f.mode !== options.mode) return false;
     return true;
   });
 }
@@ -176,6 +247,23 @@ export async function main(argv: readonly string[], out: (line: string) => void 
   }
 
   if (options.liveness) return runLiveness(out);
+
+  if (options.baseline) {
+    const path = baselinePath(repoRoot());
+    let file;
+    try {
+      file = readBaseline(path);
+    } catch (err) {
+      out(`eval: ${(err as Error).message}`);
+      return 2;
+    }
+    if (!file) {
+      out(`eval: no baseline at ${path} — record one with \`npm run eval -- --record-baseline\``);
+      return 2;
+    }
+    out(renderBaseline(file, path));
+    return 0;
+  }
 
   const loaded = loadDirectory(options.dir);
   if (loaded.errors.length > 0) {
@@ -231,8 +319,26 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     if (options.judge === "haiku") judge = haikuJudge();
     else if (options.judge === "stub") judge = stubJudge;
 
+    const callsBefore = options.callsLog ? countLines(options.callsLog) : 0;
     const suite = await runSuite(selectFixtures(loaded.fixtures, options), { judge });
     out(renderReport(suite, options.dir, { hideNoDataGates: options.hideNoDataGates }));
+
+    if (options.recordBaseline) {
+      const path = baselinePath(repoRoot());
+      const previous = readBaseline(path);
+      const modelCalls = options.callsLog ? countLines(options.callsLog) - callsBefore : options.modelCalls;
+      const file = recordBaseline(previous, suite, {
+        git: gitShortSha(repoRoot()),
+        argv,
+        modelCalls,
+        ...(options.note ? { note: options.note } : {}),
+      });
+      writeBaseline(path, file);
+      out("");
+      out(
+        `eval: recorded ${suite.categories.length} category tally(ies) into ${path} (model calls: ${modelCalls ?? "not counted"})`,
+      );
+    }
 
     let ok = verdict(suite).ok;
     if (options.strict) {

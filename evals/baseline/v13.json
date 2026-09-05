@@ -1,0 +1,407 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-09-05T18:54:58.199Z",
+  "git": "67b54bb",
+  "method": [
+    "Frozen V13 golden-set baseline (SuperTwinV13_Build_V6_Phase1 S0.1). Per-category tallies of `npm run eval` on the tree at `git`.",
+    "The file is merged run-by-run: each recorded run replaces only the categories it ran; `runs[]` lists every contributing run with its argv and counted model calls.",
+    "Regression rule (GoldenEvals_V6_Phase1 §1.1/§3.1): a V2 category (ROL, CIR, CHP, SCH, FUP, USR, FIX, TIM, TRC) scoring below its `rate` here is a hard fail."
+  ],
+  "model_calls": 68,
+  "runs": [
+    {
+      "at": "2026-09-05T18:44:57.317Z",
+      "git": "67b54bb",
+      "argv": [
+        "--mode",
+        "code",
+        "--record-baseline",
+        "--calls-log",
+        "/private/tmp/claude-501/-Users-adityakatare-Documents-SuperTwinV13/658a00e8-fc4b-47a6-8b6f-c956004f1c23/scratchpad/calls.log",
+        "--note",
+        "Deterministic pass: every mode=code fixture in evals/v13. Model calls counted by a CLAUDE_BIN shim (one line per claude invocation); the 2 calls are AST-02's deliberate evaluator probe (gate-fires path)."
+      ],
+      "categories": [
+        "AST",
+        "BND",
+        "BRW",
+        "CAT",
+        "SCH",
+        "TRC"
+      ],
+      "cases": 13,
+      "model_calls": 2,
+      "note": "Deterministic pass: every mode=code fixture in evals/v13. Model calls counted by a CLAUDE_BIN shim (one line per claude invocation); the 2 calls are AST-02's deliberate evaluator probe (gate-fires path)."
+    },
+    {
+      "at": "2026-09-05T18:46:41.286Z",
+      "git": "67b54bb",
+      "argv": [
+        "--cat",
+        "CIR,TRC,ROL,TIM",
+        "--record-baseline",
+        "--calls-log",
+        "/private/tmp/claude-501/-Users-adityakatare-Documents-SuperTwinV13/658a00e8-fc4b-47a6-8b6f-c956004f1c23/scratchpad/calls.log",
+        "--note",
+        "Live pass (real passes + haiku judge) for baseline-gated V2 categories CIR, TRC, ROL, TIM; CLAUDE_BIN shim counted the calls."
+      ],
+      "categories": [
+        "CIR",
+        "ROL",
+        "TIM",
+        "TRC"
+      ],
+      "cases": 21,
+      "model_calls": 10,
+      "note": "Live pass (real passes + haiku judge) for baseline-gated V2 categories CIR, TRC, ROL, TIM; CLAUDE_BIN shim counted the calls."
+    },
+    {
+      "at": "2026-09-05T18:50:01.422Z",
+      "git": "67b54bb",
+      "argv": [
+        "--cat",
+        "CHP,FUP",
+        "--record-baseline",
+        "--calls-log",
+        "/private/tmp/claude-501/-Users-adityakatare-Documents-SuperTwinV13/658a00e8-fc4b-47a6-8b6f-c956004f1c23/scratchpad/calls.log",
+        "--note",
+        "Live pass (real passes + haiku judge) for baseline-gated V2 categories CHP, FUP; CLAUDE_BIN shim counted the calls."
+      ],
+      "categories": [
+        "CHP",
+        "FUP"
+      ],
+      "cases": 11,
+      "model_calls": 21,
+      "note": "Live pass (real passes + haiku judge) for baseline-gated V2 categories CHP, FUP; CLAUDE_BIN shim counted the calls."
+    },
+    {
+      "at": "2026-09-05T18:54:58.199Z",
+      "git": "67b54bb",
+      "argv": [
+        "--cat",
+        "SCH,USR,FIX",
+        "--record-baseline",
+        "--calls-log",
+        "/private/tmp/claude-501/-Users-adityakatare-Documents-SuperTwinV13/658a00e8-fc4b-47a6-8b6f-c956004f1c23/scratchpad/calls.log",
+        "--note",
+        "Live pass (real passes + haiku judge) for baseline-gated V2 categories SCH, USR, FIX; CLAUDE_BIN shim counted the calls. SCH-08 (code) re-ran here and replaces the code-only SCH row."
+      ],
+      "categories": [
+        "FIX",
+        "SCH",
+        "USR"
+      ],
+      "cases": 20,
+      "model_calls": 35,
+      "note": "Live pass (real passes + haiku judge) for baseline-gated V2 categories SCH, USR, FIX; CLAUDE_BIN shim counted the calls. SCH-08 (code) re-ran here and replaces the code-only SCH row."
+    }
+  ],
+  "categories": {
+    "AGE": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "ASN": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "AST": {
+      "total": 1,
+      "pass": 1,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "code",
+      "cases": {
+        "AST-02": "pass"
+      },
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "BND": {
+      "total": 6,
+      "pass": 6,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "code",
+      "cases": {
+        "BND-01": "pass",
+        "BND-02": "pass",
+        "BND-03": "pass",
+        "BND-04": "pass",
+        "BND-05": "pass",
+        "BND-06": "pass"
+      },
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "BRW": {
+      "total": 1,
+      "pass": 1,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "code",
+      "cases": {
+        "BRW-02": "pass"
+      },
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "CAT": {
+      "total": 2,
+      "pass": 2,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "code",
+      "cases": {
+        "CAT-01": "pass",
+        "CAT-05": "pass"
+      },
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "CHP": {
+      "total": 6,
+      "pass": 6,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "CHP-01": "pass",
+        "CHP-02": "pass",
+        "CHP-03": "pass",
+        "CHP-04": "pass",
+        "CHP-05": "pass",
+        "CHP-06": "pass"
+      },
+      "recorded_at": "2026-09-05T18:50:01.422Z"
+    },
+    "CIR": {
+      "total": 4,
+      "pass": 1,
+      "fail": 0,
+      "pending": 3,
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "CIR-01": "pending",
+        "CIR-02": "pending",
+        "CIR-03": "pending",
+        "CIR-04": "pass"
+      },
+      "recorded_at": "2026-09-05T18:46:41.286Z"
+    },
+    "CLM": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "CLS": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "CON": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "CRE": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "CRI": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "EXE": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "FIX": {
+      "total": 6,
+      "pass": 5,
+      "fail": 0,
+      "pending": 1,
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "FIX-01": "pass",
+        "FIX-02": "pass",
+        "FIX-03": "pass",
+        "FIX-04": "pass",
+        "FIX-05": "pass",
+        "FIX-06": "pending"
+      },
+      "recorded_at": "2026-09-05T18:54:58.199Z"
+    },
+    "FUP": {
+      "total": 5,
+      "pass": 5,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "FUP-01": "pass",
+        "FUP-02": "pass",
+        "FUP-03": "pass",
+        "FUP-04": "pass",
+        "FUP-05": "pass"
+      },
+      "recorded_at": "2026-09-05T18:50:01.422Z"
+    },
+    "ROL": {
+      "total": 10,
+      "pass": 0,
+      "fail": 0,
+      "pending": 10,
+      "rate": null,
+      "measured": "pending",
+      "cases": {
+        "ROL-01": "pending",
+        "ROL-02": "pending",
+        "ROL-03": "pending",
+        "ROL-04": "pending",
+        "ROL-05": "pending",
+        "ROL-06": "pending",
+        "ROL-07": "pending",
+        "ROL-08": "pending",
+        "ROL-09": "pending",
+        "ROL-10": "pending"
+      },
+      "recorded_at": "2026-09-05T18:46:41.286Z"
+    },
+    "SCH": {
+      "total": 8,
+      "pass": 5,
+      "fail": 3,
+      "pending": 0,
+      "rate": 0.625,
+      "measured": "live",
+      "cases": {
+        "SCH-01": "fail",
+        "SCH-02": "fail",
+        "SCH-03": "fail",
+        "SCH-04": "pass",
+        "SCH-05": "pass",
+        "SCH-06": "pass",
+        "SCH-07": "pass",
+        "SCH-08": "pass"
+      },
+      "recorded_at": "2026-09-05T18:54:58.199Z"
+    },
+    "TIM": {
+      "total": 4,
+      "pass": 3,
+      "fail": 1,
+      "pending": 0,
+      "rate": 0.75,
+      "measured": "live",
+      "cases": {
+        "TIM-01": "pass",
+        "TIM-02": "pass",
+        "TIM-03": "pass",
+        "TIM-04": "fail"
+      },
+      "recorded_at": "2026-09-05T18:46:41.286Z"
+    },
+    "TOP": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "TRC": {
+      "total": 3,
+      "pass": 1,
+      "fail": 0,
+      "pending": 2,
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "TRC-01": "pending",
+        "TRC-02": "pass",
+        "TRC-03": "pending"
+      },
+      "recorded_at": "2026-09-05T18:46:41.286Z"
+    },
+    "TSK": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "USR": {
+      "total": 6,
+      "pass": 6,
+      "fail": 0,
+      "pending": 0,
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "USR-01": "pass",
+        "USR-02": "pass",
+        "USR-03": "pass",
+        "USR-04": "pass",
+        "USR-05": "pass",
+        "USR-06": "pass"
+      },
+      "recorded_at": "2026-09-05T18:54:58.199Z"
+    }
+  }
+}

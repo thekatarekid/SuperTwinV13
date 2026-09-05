@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { main, parseArgs, repoRoot, selectFixtures } from "./cli.js";
+import { BASELINE_ENV } from "./baseline.js";
+import { countLines, main, parseArgs, repoRoot, selectFixtures } from "./cli.js";
 import { goodFixture } from "./testutil.js";
 
 describe("parseArgs", () => {
@@ -22,6 +23,25 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--frozen"])).toThrow(/unknown flag/);
     expect(() => parseArgs(["--judge", "gpt"])).toThrow(/haiku\|stub\|none/);
   });
+
+  it("--mode code narrows to deterministic cases and drops the coverage check", () => {
+    const o = parseArgs(["--mode", "code"]);
+    expect(o.mode).toBe("code");
+    expect(o.checkCoverage).toBe(false);
+    expect(() => parseArgs(["--mode", "frozen"])).toThrow(/live\|code/);
+  });
+
+  it("parses the baseline flags", () => {
+    expect(parseArgs(["--baseline"]).baseline).toBe(true);
+    const o = parseArgs(["--record-baseline", "--model-calls", "12", "--note", "live TIM"]);
+    expect(o.recordBaseline).toBe(true);
+    expect(o.modelCalls).toBe(12);
+    expect(o.note).toBe("live TIM");
+    expect(parseArgs([]).modelCalls).toBeNull();
+    expect(() => parseArgs(["--model-calls", "-1"])).toThrow(/non-negative integer/);
+    expect(parseArgs(["--calls-log", "x.log"]).callsLog).toBe(join(process.cwd(), "x.log"));
+    expect(() => parseArgs(["--calls-log", "x.log", "--model-calls", "1"])).toThrow(/exclusive/);
+  });
 });
 
 describe("selectFixtures", () => {
@@ -40,6 +60,30 @@ describe("selectFixtures", () => {
     const picked = selectFixtures([stb], parseArgs(["--dir", "evals/v13/selftest"]));
     expect(picked.map((f) => f.id)).toEqual(["STB-01"]);
   });
+
+  it("--mode code keeps only code cases", () => {
+    const picked = selectFixtures([rol, bnd], parseArgs(["--mode", "code"]));
+    expect(picked.map((f) => f.id)).toEqual(["BND-01"]);
+    expect(selectFixtures([rol, bnd], parseArgs(["--mode", "live"])).map((f) => f.id)).toEqual(["ROL-01"]);
+  });
+});
+
+describe("countLines", () => {
+  it("counts non-empty lines and reads a missing file as 0", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(join(tmpdir(), "evals-calls-"));
+    try {
+      expect(countLines(join(dir, "none.log"))).toBe(0);
+      const p = join(dir, "calls.log");
+      writeFileSync(p, "");
+      expect(countLines(p)).toBe(0);
+      writeFileSync(p, "a\nb\nc\n");
+      expect(countLines(p)).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("main", () => {
@@ -52,6 +96,52 @@ describe("main", () => {
     const text = lines.join("\n");
     expect(text).toContain("VERDICT: green");
     expect(code).toBe(0);
+  });
+
+  it("--record-baseline writes the run's tallies and --baseline prints them — stub judge, no live calls", async () => {
+    const { mkdtempSync, existsSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(join(tmpdir(), "evals-baseline-"));
+    const path = join(dir, "v13.json");
+    // Two pre-existing lines: the run must record the DELTA (0), not the total.
+    const callsLog = join(dir, "calls.log");
+    (await import("node:fs")).writeFileSync(callsLog, "earlier\nearlier\n");
+    process.env[BASELINE_ENV] = path;
+    try {
+      const missing: string[] = [];
+      expect(await main(["--baseline"], (l) => missing.push(l))).toBe(2);
+      expect(missing.join("\n")).toContain("no baseline at");
+
+      const recorded: string[] = [];
+      const code = await main(
+        [
+          "--dir",
+          join(repoRoot(), "evals", "v13", "selftest"),
+          "--judge",
+          "stub",
+          "--record-baseline",
+          "--calls-log",
+          callsLog,
+          "--note",
+          "harness self-test",
+        ],
+        (l) => recorded.push(l),
+      );
+      expect(code).toBe(0);
+      expect(recorded.join("\n")).toContain(`recorded 1 category tally(ies) into ${path} (model calls: 0)`);
+      expect(existsSync(path)).toBe(true);
+
+      const printed: string[] = [];
+      expect(await main(["--baseline"], (l) => printed.push(l))).toBe(0);
+      const text = printed.join("\n");
+      expect(text).toContain(`eval baseline — ${path}`);
+      expect(text).toMatch(/STB\s+3\s+3\s+0\s+0\s+100%\s+live/);
+      expect(text).toContain("model calls: 0");
+      expect(text).toContain("harness self-test");
+    } finally {
+      delete process.env[BASELINE_ENV];
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("exits 3 on a bad flag", async () => {

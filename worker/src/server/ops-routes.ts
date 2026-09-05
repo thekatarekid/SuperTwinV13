@@ -12,7 +12,7 @@
 //   POST /api/ops/quarantine/:id/replay  back to `ready` after a fix
 //   GET  /api/ops/questions              open questions, oldest first
 //   POST /api/ops/questions/:id/answer   record the human's answer
-//   GET  /api/ops/lanes                  pause state per lane, live
+//   GET  /api/ops/lanes                  pause state, waiters, breakers per lane, live
 //   POST /api/ops/lanes/pause            { lane, ms } manual pause (unbounded)
 //   POST /api/ops/lanes/resume           { lane } clear a pause early
 //   GET  /api/ops/spend                  budget windows, latch, kill switch
@@ -39,7 +39,13 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { getDb } from "../db/connection.js";
 import { runUndoPreview, undoRun } from "../consolidation/run-undo.js";
 import { budgetStatus, resetBudgetLatch, setModelActivityPaused } from "../providers/budget.js";
-import { resourcePool, RESOURCE_LIMITS, type LaneKey } from "../providers/pool.js";
+import {
+  resourcePool,
+  RESOURCE_LIMITS,
+  type BreakerTrip,
+  type LaneKey,
+  type ResourceClass,
+} from "../providers/pool.js";
 import {
   listQuarantined,
   queueDepth,
@@ -172,19 +178,43 @@ export interface LaneStateView {
   paused: boolean;
   /** Configured concurrency ceiling for the class (LLM lanes share `llm`). */
   limit: number;
+  /** Callers holding a slot right now (LLM lanes report the class). */
+  inFlight: number;
+  /**
+   * Callers queued behind the cap (BND-12, S0.7). The class rejects the next
+   * caller once this reaches `waiterCap`; an LLM lane reports its own share.
+   */
+  waiting: number;
+  waiterCap: number;
+  /** The breaker holding this lane, when one is (SPD-07) — the banner. */
+  breaker: BreakerTrip | null;
 }
 
 function laneStates(): LaneStateView[] {
   const llmLimit = resourcePool.effectiveLlmLimit();
   return OPS_LANES.map((lane) => {
-    const cls = lane.startsWith("llm") ? "llm" : (lane as keyof typeof RESOURCE_LIMITS);
+    const cls: ResourceClass = lane.startsWith("llm") ? "llm" : (lane as ResourceClass);
+    const llmLane = lane === "llm:understanding" ? "understanding" : lane === "llm:enrichment" ? "enrichment" : null;
     return {
       lane,
       pausedForMs: resourcePool.pausedForMs(lane),
       paused: resourcePool.isPaused(lane),
       limit: cls === "llm" ? llmLimit : RESOURCE_LIMITS[cls].default,
+      inFlight: resourcePool.inFlight(cls),
+      waiting: llmLane ? resourcePool.laneWaiting(llmLane) : resourcePool.waiting(cls),
+      waiterCap: resourcePool.waiterCap(cls),
+      breaker: resourcePool.breakerFor(lane),
     };
   });
+}
+
+/** Queued callers per class — the whole invisible queue, one read (BND-12). */
+function waitingByClass(): Record<ResourceClass, number> {
+  const out = {} as Record<ResourceClass, number>;
+  for (const cls of Object.keys(RESOURCE_LIMITS) as ResourceClass[]) {
+    out[cls] = resourcePool.waiting(cls);
+  }
+  return out;
 }
 
 /** Handle an ops request. Returns true when this module owns the path. */
@@ -200,6 +230,8 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
       coverage: readCoverage("global", "all"),
       depth: queueDepth(),
       lanes: laneStates(),
+      waiting: waitingByClass(),
+      breakers: resourcePool.breakers(),
     });
     return true;
   }
@@ -246,7 +278,11 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
 
   // ---- GET /api/ops/lanes -------------------------------------------------
   if (method === "GET" && path === "/api/ops/lanes") {
-    sendJson(res, 200, { lanes: laneStates() });
+    sendJson(res, 200, {
+      lanes: laneStates(),
+      waiting: waitingByClass(),
+      breakers: resourcePool.breakers(),
+    });
     return true;
   }
 

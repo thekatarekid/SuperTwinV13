@@ -109,7 +109,8 @@ describe("caps hold under concurrent load", () => {
     const whisper = tracker();
     await Promise.all([
       ...Array.from({ length: 20 }, (_, i) => pool.run("llm", llm.task(`l${i}`))),
-      ...Array.from({ length: 6 }, (_, i) =>
+      // 5 = one slot plus the 4× waiter cap (BND-12); a sixth would be rejected.
+      ...Array.from({ length: 5 }, (_, i) =>
         pool.run("transcribe", whisper.task(`w${i}`)),
       ),
     ]);
@@ -398,5 +399,226 @@ describe("error policy (§4.6)", () => {
     await wake();
     await p;
     expect(ran).toBe(true);
+  });
+});
+
+// ===========================================================================
+// V6 P1 S0.7 — breaker (T0-10, SPD-07) and bounded waiters (T0-12, BND-12).
+// ===========================================================================
+
+import {
+  BREAKER_FAILURES,
+  BREAKER_PAUSE_MS,
+  PoolOverflowError,
+  WAITER_CAP_MULTIPLIER,
+  isPoolOverflow,
+  waiterCapFor,
+} from "./pool.js";
+
+/** Let admitted callers reach their semaphores (a macrotask, not one microtask). */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/** A clock the pool's own sleeps advance — a paused lane can be waited out. */
+function fakeClock() {
+  let t = 0;
+  return {
+    now: () => t,
+    sleep: async (ms: number) => {
+      t += ms;
+    },
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
+}
+
+describe("SPD-07 — breaker: ten consecutive non-refusal failures pause the lane", () => {
+  const boom = { code: "CLI_ERROR", message: "exit 1" };
+
+  it("counts non-refusal failures, trips at 10, pauses 30 min and raises the banner", () => {
+    const clock = fakeClock();
+    const pool = new ResourcePool({ now: clock.now, sleep: clock.sleep });
+    const seen: string[] = [];
+    pool.onBreaker((trip) => seen.push(trip.lane));
+
+    for (let i = 1; i < BREAKER_FAILURES; i++) {
+      const d = pool.noteFailure("llm:understanding", boom, 3);
+      expect(d.breakerTripped).toBeUndefined();
+      expect(pool.consecutiveFailures("llm:understanding")).toBe(i);
+      expect(pool.isPaused("llm:understanding")).toBe(false);
+    }
+    expect(pool.breakers()).toEqual([]);
+
+    const tenth = pool.noteFailure("llm:understanding", boom, 3);
+    expect(tenth.breakerTripped).toBe(true);
+    // The unit's own decision is the ladder's — a tripped breaker is not a
+    // reason to retry the unit that tripped it.
+    expect(tenth.action).toBe("quarantine");
+    expect(pool.isPaused("llm:understanding")).toBe(true);
+    expect(pool.pausedForMs("llm:understanding")).toBe(BREAKER_PAUSE_MS);
+    expect(BREAKER_PAUSE_MS).toBe(30 * 60_000);
+    // The other lane keeps working.
+    expect(pool.isPaused("llm:enrichment")).toBe(false);
+    expect(pool.isPaused("llm")).toBe(false);
+
+    const banners = pool.breakers();
+    expect(banners).toHaveLength(1);
+    expect(banners[0].lane).toBe("llm:understanding");
+    expect(banners[0].failures).toBe(BREAKER_FAILURES);
+    expect(banners[0].lastCode).toBe("CLI_ERROR");
+    expect(banners[0].lastError).toBe("exit 1");
+    expect(banners[0].untilMs).toBe(BREAKER_PAUSE_MS);
+    expect(pool.breakerFor("llm:understanding")?.lane).toBe("llm:understanding");
+    expect(seen).toEqual(["llm:understanding"]);
+    // The counter restarts after a trip.
+    expect(pool.consecutiveFailures("llm:understanding")).toBe(0);
+  });
+
+  it("a success in between resets the count — ten failures must be consecutive", () => {
+    const clock = fakeClock();
+    const pool = new ResourcePool({ now: clock.now, sleep: clock.sleep });
+    for (let i = 0; i < BREAKER_FAILURES - 1; i++) pool.noteFailure("llm:understanding", boom, 0);
+    pool.noteSuccess("llm:understanding");
+    expect(pool.consecutiveFailures("llm:understanding")).toBe(0);
+    for (let i = 0; i < BREAKER_FAILURES - 1; i++) pool.noteFailure("llm:understanding", boom, 0);
+    expect(pool.isPaused("llm:understanding")).toBe(false);
+    expect(pool.breakers()).toEqual([]);
+  });
+
+  it("refusals and cancels are not breaker failures", () => {
+    const clock = fakeClock();
+    const pool = new ResourcePool({ now: clock.now, sleep: clock.sleep });
+    for (let i = 0; i < BREAKER_FAILURES + 2; i++) {
+      pool.noteFailure("llm:understanding", { code: "CANCELLED" });
+    }
+    expect(pool.consecutiveFailures("llm:understanding")).toBe(0);
+    expect(pool.breakers()).toEqual([]);
+    // A refusal pauses with its own backoff and leaves the breaker count alone.
+    pool.resumeLane("llm:understanding");
+    for (let i = 0; i < BREAKER_FAILURES + 2; i++) {
+      pool.noteFailure("llm:understanding", { code: "QUOTA_EXCEEDED", message: "usage limit" });
+    }
+    expect(pool.consecutiveFailures("llm:understanding")).toBe(0);
+    expect(pool.breakers()).toEqual([]);
+    expect(pool.isPaused("llm:understanding")).toBe(true); // the refusal pause, not the breaker
+  });
+
+  it("the banner comes down when the pause ends or an operator resumes the lane", () => {
+    const clock = fakeClock();
+    const pool = new ResourcePool({ now: clock.now, sleep: clock.sleep });
+    for (let i = 0; i < BREAKER_FAILURES; i++) pool.noteFailure("llm:enrichment", boom, 0);
+    expect(pool.breakers()).toHaveLength(1);
+    clock.advance(BREAKER_PAUSE_MS);
+    expect(pool.isPaused("llm:enrichment")).toBe(false);
+    expect(pool.breakers()).toEqual([]);
+
+    for (let i = 0; i < BREAKER_FAILURES; i++) pool.noteFailure("llm:enrichment", boom, 0);
+    expect(pool.breakers()).toHaveLength(1);
+    pool.resumeLane("llm:enrichment");
+    expect(pool.isPaused("llm:enrichment")).toBe(false);
+    expect(pool.breakers()).toEqual([]);
+  });
+
+  it("a tripped lane holds new work until the 30 minutes are up (no silent retry)", async () => {
+    const clock = fakeClock();
+    const pool = new ResourcePool({ now: clock.now, sleep: clock.sleep });
+    for (let i = 0; i < BREAKER_FAILURES; i++) pool.noteFailure("llm:understanding", boom, 0);
+    const startedAt: number[] = [];
+    await pool.run("llm", () => startedAt.push(clock.now()), { lane: "understanding" });
+    expect(startedAt).toEqual([BREAKER_PAUSE_MS]);
+  });
+});
+
+describe("BND-12 — bounded waiters: 4× capacity queue, the rest rejected", () => {
+  it("caps waiters at 4× the class capacity", () => {
+    expect(WAITER_CAP_MULTIPLIER).toBe(4);
+    expect(waiterCapFor(8)).toBe(32);
+    expect(waiterCapFor(2)).toBe(8);
+    // A zero-slot lane (enrichment under first paint) still admits a queue.
+    expect(waiterCapFor(0)).toBe(4);
+    const pool = new ResourcePool({ limits: { llm: 4, embed: 2 } });
+    expect(pool.waiterCap("llm")).toBe(16);
+    expect(pool.waiterCap("embed")).toBe(8);
+  });
+
+  it("10× capacity submitted: capacity runs, 4× waits, the overflow is rejected — and `waiting` is readable", async () => {
+    // First paint: the understanding lane owns the whole (2-slot) LLM pool.
+    const pool = new ResourcePool({ limits: { llm: 2 }, warmFirst: false, firstPaint: true });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const settled: Array<"ok" | "overflow" | "other"> = [];
+    const submissions = Array.from({ length: 20 }, () =>
+      pool
+        .run("llm", () => gate, { lane: "understanding" })
+        .then(() => settled.push("ok"))
+        .catch((err: unknown) => settled.push(isPoolOverflow(err) ? "overflow" : "other")),
+    );
+    // Rejections are synchronous with the submission: nothing was queued.
+    await tick();
+    expect(settled.filter((s) => s === "overflow")).toHaveLength(10);
+    expect(settled).not.toContain("other");
+    expect(pool.inFlight("llm")).toBe(2);
+    expect(pool.waiting("llm")).toBe(8);
+    expect(pool.laneWaiting("understanding")).toBe(8);
+    expect(pool.laneWaiting("enrichment")).toBe(0);
+
+    release();
+    await Promise.all(submissions);
+    expect(settled.filter((s) => s === "ok")).toHaveLength(10);
+    expect(pool.waiting("llm")).toBe(0);
+    expect(pool.inFlight("llm")).toBe(0);
+    expect(pool.peakInFlight("llm")).toBe(2);
+  });
+
+  it("the rejection names the class, the queue and the cap, and carries POOL_OVERFLOW", async () => {
+    const pool = new ResourcePool({ limits: { embed: 1 } });
+    const hold = new Promise<void>(() => {});
+    // One runs, four wait: the queue is full.
+    const held = Array.from({ length: 5 }, () => pool.run("embed", () => hold));
+    await tick();
+    expect(pool.inFlight("embed")).toBe(1);
+    expect(pool.waiting("embed")).toBe(4);
+    let caught: unknown;
+    try {
+      await pool.run("embed", () => "never");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PoolOverflowError);
+    const e = caught as PoolOverflowError;
+    expect(e.code).toBe("POOL_OVERFLOW");
+    expect(e.cls).toBe("embed");
+    expect(e.waiting).toBe(4);
+    expect(e.cap).toBe(4);
+    expect(e.message).toMatch(/embed.*4 callers already waiting/);
+    void held;
+  });
+
+  it("a paused lane's held callers count as waiting, and are capped like any other", async () => {
+    const clock = fakeClock();
+    // Never advance: the pause is permanent for this test.
+    const pool = new ResourcePool({ limits: { llm: 1 }, now: clock.now, sleep: () => new Promise(() => {}) });
+    pool.pauseLane("llm:understanding", 60_000);
+    // The one free slot's claimant plus a full queue of four — all held by the pause.
+    const held = Array.from({ length: 5 }, () => pool.run("llm", () => "x", { lane: "understanding" }));
+    await tick();
+    expect(pool.waiting("llm")).toBe(5);
+    expect(pool.inFlight("llm")).toBe(0);
+    await expect(pool.run("llm", () => "x", { lane: "understanding" })).rejects.toBeInstanceOf(
+      PoolOverflowError,
+    );
+    void held;
+  });
+
+  it("classes are bounded independently", async () => {
+    const pool = new ResourcePool({ limits: { embed: 1, ffmpeg: 1 } });
+    const hold = new Promise<void>(() => {});
+    const held = Array.from({ length: 5 }, () => pool.run("embed", () => hold));
+    await tick();
+    await expect(pool.run("embed", () => "x")).rejects.toBeInstanceOf(PoolOverflowError);
+    // ffmpeg is untouched by embed's queue.
+    expect(pool.waiting("ffmpeg")).toBe(0);
+    await expect(pool.run("ffmpeg", () => "ok")).resolves.toBe("ok");
+    void held;
   });
 });

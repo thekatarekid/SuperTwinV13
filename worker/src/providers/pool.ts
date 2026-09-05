@@ -11,7 +11,7 @@
 // serialization for free (arch §4.4.2 — "compute in parallel, apply through a
 // serialized writer").
 //
-// Three behaviours beyond plain counting, all load-bearing:
+// Five behaviours beyond plain counting, all load-bearing:
 //
 //  1. LANE SPLIT (§4.4.1.1). Enrichment (media captions) and understanding
 //     (extraction) are both LLM calls competing for one rate limit. The pool is
@@ -32,6 +32,19 @@
 //     a whole backlog gets quarantined. Every other failure retries
 //     2 s / 10 s / 30 s and is then quarantined so the rest keep moving.
 //     The code set is the provider's existing seven; there is no AUTH_REQUIRED.
+//
+//  4. BREAKER (V6 P1 S0.7 / T0-10, Product §23.4, SPD-07). Ten consecutive
+//     NON-refusal failures on one lane pause that lane for 30 minutes and raise
+//     a banner (`breakers()`, surfaced on /api/ops). A refusal is an outage and
+//     already has its own backoff; the breaker is for the other shape — a
+//     model, prompt or transport that is failing every call and would otherwise
+//     quarantine the whole backlog one unit at a time while spending on each.
+//
+//  5. BOUNDED WAITERS (S0.7 / T0-12, BND-12). A class admits at most 4× its
+//     capacity of queued callers; the next `run()` is rejected with
+//     PoolOverflowError instead of joining a queue nobody can see. That turns a
+//     silent eight-hour wait into a visible rejection the dispatcher can act
+//     on, and `waiting()` is readable on /api/ops.
 // ===========================================================================
 
 import type { ProviderErrorCode } from "./types.js";
@@ -76,6 +89,43 @@ export const DEGRADE_WINDOW_MS = 600_000;
 
 /** Consecutive refusals on one lane before the whole LLM pool is halved. */
 export const DEGRADE_AFTER_REFUSALS = 2;
+
+/** Consecutive NON-refusal failures on one lane that trip its breaker (SPD-07). */
+export const BREAKER_FAILURES = 10;
+
+/** How long a tripped breaker holds the lane (Product §23.4: 30 minutes). */
+export const BREAKER_PAUSE_MS = 30 * 60_000;
+
+/** Queued callers a class admits, as a multiple of its capacity (BND-12). */
+export const WAITER_CAP_MULTIPLIER = 4;
+
+/** Waiters a class of `capacity` slots may hold before `run()` rejects. */
+export function waiterCapFor(capacity: number): number {
+  return Math.max(WAITER_CAP_MULTIPLIER, WAITER_CAP_MULTIPLIER * Math.max(0, Math.floor(capacity)));
+}
+
+/**
+ * Thrown by `run()` when the class already holds its full complement of
+ * waiters. Nothing was started: the caller still owns the unit, and the right
+ * response is backpressure (dispatch less), never a retry loop.
+ */
+export class PoolOverflowError extends Error {
+  readonly code = "POOL_OVERFLOW" as const;
+  constructor(
+    readonly cls: ResourceClass,
+    readonly waiting: number,
+    readonly cap: number,
+  ) {
+    super(`pool "${cls}" is full: ${waiting} callers already waiting (cap ${cap})`);
+    this.name = "PoolOverflowError";
+  }
+}
+
+export function isPoolOverflow(err: unknown): err is PoolOverflowError {
+  return err instanceof PoolOverflowError || (
+    typeof err === "object" && err !== null && (err as { code?: unknown }).code === "POOL_OVERFLOW"
+  );
+}
 
 export function clampLimit(cls: ResourceClass, n: number): number {
   const { max } = RESOURCE_LIMITS[cls];
@@ -201,6 +251,27 @@ export interface FailureDecision {
   /** A refusal must NEVER consume the unit's retry budget. */
   spendsRetryBudget: boolean;
   reason: "refusal" | "error" | "cancelled";
+  /**
+   * Set on the failure that tripped the lane's breaker (SPD-07): the lane is
+   * now paused for BREAKER_PAUSE_MS and a banner is up. The unit's own
+   * decision (retry / quarantine) is unchanged — the pause is served by the
+   * pool on its next `run()`, not by this unit waiting in place.
+   */
+  breakerTripped?: boolean;
+}
+
+/** One tripped breaker — the banner's payload (SPD-07). */
+export interface BreakerTrip {
+  lane: LaneKey;
+  /** ISO time of the trip. */
+  trippedAt: string;
+  /** Epoch ms the lane resumes on its own. */
+  untilMs: number;
+  /** Consecutive failures that tripped it (== BREAKER_FAILURES). */
+  failures: number;
+  /** The last failure's code and message — what the banner explains. */
+  lastCode: string | null;
+  lastError: string | null;
 }
 
 /** True for the outage-shaped failures: rate limit, quota, auth. */
@@ -308,6 +379,13 @@ export class ResourcePool {
   private degradedUntil = 0;
   private readonly pausedUntilMs = new Map<LaneKey, number>();
   private readonly refusalStreak = new Map<LaneKey, number>();
+  /** Consecutive NON-refusal failures per lane — the breaker's counter. */
+  private readonly errorStreak = new Map<LaneKey, number>();
+  private readonly trips = new Map<LaneKey, BreakerTrip>();
+  private readonly breakerListeners = new Set<(trip: BreakerTrip) => void>();
+  /** Callers admitted to `run()` for a class that do not hold a slot yet. */
+  private readonly waitingByClass = new Map<ResourceClass, number>();
+  private readonly waitingByLane = new Map<LlmLane, number>();
 
   constructor(opts: PoolOptions = {}) {
     this.now = opts.now ?? Date.now;
@@ -381,32 +459,86 @@ export class ResourcePool {
     return this.laneSems[lane].peakInFlight;
   }
 
+  /** Callers queued for a class — admitted to `run()`, not yet holding a slot. */
+  waiting(cls: ResourceClass): number {
+    return this.waitingByClass.get(cls) ?? 0;
+  }
+
+  /** Queued callers on one LLM lane (a subset of `waiting("llm")`). */
+  laneWaiting(lane: LlmLane): number {
+    return this.waitingByLane.get(lane) ?? 0;
+  }
+
+  /** Most waiters a class admits before `run()` rejects (4× its ceiling). */
+  waiterCap(cls: ResourceClass): number {
+    // The LLM cap follows the user's ceiling, not the degraded limit: an
+    // outage halving concurrency must not also start rejecting the backlog.
+    return waiterCapFor(cls === "llm" ? this.llmCeiling : this.sems[cls].capacity);
+  }
+
   // ---- running work -------------------------------------------------------
 
-  /** Run `fn` holding one slot of `cls` (and of its LLM lane, when llm). */
+  /**
+   * Run `fn` holding one slot of `cls` (and of its LLM lane, when llm).
+   *
+   * Rejects with PoolOverflowError — before anything is queued — when the
+   * class already holds 4× its capacity in waiters (BND-12). Everything from
+   * admission to slot grant counts as waiting: a paused lane's hold, the lane
+   * cap and the class cap alike, so `waiting()` is the whole invisible queue.
+   */
   async run<T>(
     cls: ResourceClass,
     fn: () => Promise<T> | T,
     opts: RunOptions = {},
   ): Promise<T> {
+    // Admission is counted, not observed: a caller is "waiting" from the
+    // moment it is admitted until it holds a slot, so a burst submitted in one
+    // tick is judged as the queue it WILL form — capacity runs, 4× capacity
+    // waits, the rest is rejected before it queues at all.
+    const queued = this.waiting(cls);
+    const cap = this.waiterCap(cls);
+    const free = Math.max(0, this.sems[cls].capacity - this.sems[cls].inFlight);
+    if (queued >= cap + free) throw new PoolOverflowError(cls, queued - free, cap);
+
     if (cls !== "llm") {
-      await this.awaitResume(cls);
-      return this.sems[cls].run(fn);
+      this.bumpWaiting(cls, undefined, +1);
+      let release: Release | undefined;
+      try {
+        await this.awaitResume(cls);
+        release = await this.sems[cls].acquire();
+      } finally {
+        this.bumpWaiting(cls, undefined, -1);
+      }
+      try {
+        return await fn();
+      } finally {
+        release!();
+      }
     }
+
     const lane = opts.lane ?? "understanding";
-    // A pause on the bare "llm" family (the ops surface's "LLM pool" row)
-    // holds BOTH lanes; a composite pause holds just its lane. Re-check both
-    // until neither is paused — one can be re-paused while the other waits.
-    while (this.isPaused("llm") || this.isPaused(`llm:${lane}`)) {
-      await this.awaitResume("llm");
-      await this.awaitResume(`llm:${lane}`);
-    }
-    this.refreshLlm();
-    const laneRelease = await this.laneSems[lane].acquire();
+    this.bumpWaiting("llm", lane, +1);
+    let laneRelease: Release | undefined;
+    let slotRelease: Release | undefined;
     try {
-      return await this.sems.llm.run(fn);
+      // A pause on the bare "llm" family (the ops surface's "LLM pool" row)
+      // holds BOTH lanes; a composite pause holds just its lane. Re-check both
+      // until neither is paused — one can be re-paused while the other waits.
+      while (this.isPaused("llm") || this.isPaused(`llm:${lane}`)) {
+        await this.awaitResume("llm");
+        await this.awaitResume(`llm:${lane}`);
+      }
+      this.refreshLlm();
+      laneRelease = await this.laneSems[lane].acquire();
+      slotRelease = await this.sems.llm.acquire();
     } finally {
-      laneRelease();
+      this.bumpWaiting("llm", lane, -1);
+    }
+    try {
+      return await fn();
+    } finally {
+      slotRelease!();
+      laneRelease!();
     }
   }
 
@@ -444,7 +576,11 @@ export class ResourcePool {
     err: ProviderFailure,
     retriesSpent = 0,
   ): FailureDecision {
-    if (isRefusal(err) && err.code !== "CANCELLED") {
+    if (err.code === "CANCELLED") {
+      // A cancel is nobody's failure: neither streak moves.
+      return classifyFailure(err, retriesSpent, 0);
+    }
+    if (isRefusal(err)) {
       const streak = (this.refusalStreak.get(lane) ?? 0) + 1;
       this.refusalStreak.set(lane, streak);
       const decision = classifyFailure(err, retriesSpent, streak);
@@ -457,12 +593,80 @@ export class ResourcePool {
       }
       return decision;
     }
-    return classifyFailure(err, retriesSpent, 0);
+    // A non-refusal failure: the unit walks its ladder as before, and the lane
+    // counts towards its breaker (SPD-07). Ten in a row with no success between
+    // them is not ten unlucky units — it is a lane that cannot currently work.
+    const decision = classifyFailure(err, retriesSpent, 0);
+    const streak = (this.errorStreak.get(lane) ?? 0) + 1;
+    if (streak >= BREAKER_FAILURES) {
+      this.errorStreak.delete(lane);
+      this.tripBreaker(lane, streak, err);
+      return { ...decision, breakerTripped: true };
+    }
+    this.errorStreak.set(lane, streak);
+    return decision;
   }
 
-  /** A completed call clears the lane's refusal streak. */
+  /** A completed call clears the lane's refusal streak and its breaker count. */
   noteSuccess(lane: LaneKey): void {
     this.refusalStreak.delete(lane);
+    this.errorStreak.delete(lane);
+  }
+
+  /** Consecutive non-refusal failures on `lane` since its last success. */
+  consecutiveFailures(lane: LaneKey): number {
+    return this.errorStreak.get(lane) ?? 0;
+  }
+
+  /** Every breaker currently holding a lane — the banners (SPD-07). */
+  breakers(): BreakerTrip[] {
+    const now = this.now();
+    const live: BreakerTrip[] = [];
+    for (const [lane, trip] of this.trips) {
+      if (trip.untilMs > now && this.isPaused(lane)) live.push(trip);
+      else this.trips.delete(lane);
+    }
+    return live;
+  }
+
+  /** The breaker holding `lane`, or null when it is not tripped. */
+  breakerFor(lane: LaneKey): BreakerTrip | null {
+    return this.breakers().find((t) => t.lane === lane) ?? null;
+  }
+
+  /** Be told when a breaker trips (the operator log, a notification). */
+  onBreaker(listener: (trip: BreakerTrip) => void): () => void {
+    this.breakerListeners.add(listener);
+    return () => {
+      this.breakerListeners.delete(listener);
+    };
+  }
+
+  private tripBreaker(lane: LaneKey, failures: number, err: ProviderFailure): void {
+    const now = this.now();
+    this.pauseLane(lane, BREAKER_PAUSE_MS);
+    const trip: BreakerTrip = {
+      lane,
+      trippedAt: new Date(now).toISOString(),
+      untilMs: now + BREAKER_PAUSE_MS,
+      failures,
+      lastCode: err.code === undefined ? null : String(err.code),
+      lastError: err.message ?? null,
+    };
+    this.trips.set(lane, trip);
+    // Never a silent retry (SPD-07 wrong mode): the trip is in the operator
+    // log the moment it happens, and on /api/ops until the lane resumes.
+    console.error(
+      `[breaker] ${lane} paused ${Math.round(BREAKER_PAUSE_MS / 60_000)}m after ` +
+        `${failures} consecutive failures — last: ${trip.lastCode ?? "?"} ${trip.lastError ?? ""}`.trimEnd(),
+    );
+    for (const listener of this.breakerListeners) {
+      try {
+        listener(trip);
+      } catch {
+        // A listener's failure must not take the pool with it.
+      }
+    }
   }
 
   /** Milliseconds until `lane` may run again; 0 when it is not paused. */
@@ -490,6 +694,8 @@ export class ResourcePool {
   resumeLane(lane: LaneKey): void {
     this.pausedUntilMs.delete(lane);
     this.refusalStreak.delete(lane);
+    this.errorStreak.delete(lane);
+    this.trips.delete(lane);
   }
 
   /** Effective LLM limit right now — halved while degraded. */
@@ -501,6 +707,11 @@ export class ResourcePool {
   }
 
   // ---- internals ----------------------------------------------------------
+
+  private bumpWaiting(cls: ResourceClass, lane: LlmLane | undefined, delta: 1 | -1): void {
+    this.waitingByClass.set(cls, Math.max(0, this.waiting(cls) + delta));
+    if (lane) this.waitingByLane.set(lane, Math.max(0, this.laneWaiting(lane) + delta));
+  }
 
   private refreshLlm(): void {
     const limit = this.effectiveLlmLimit();

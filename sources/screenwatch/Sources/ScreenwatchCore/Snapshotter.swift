@@ -26,12 +26,20 @@ public enum PipelineOutput: Sendable {
 public struct Snapshotter: Sendable {
     public var privacy = PrivacyFilter()
     private var deduper = Deduper()
-    /// Injected tree-hasher: the live layer passes a structural walk hash;
-    /// default derives a content-blind shape signature from the text.
+    /// Tree-hasher: `structureHash` by default — the AX roles walk when the
+    /// capture carries one (live), the content-blind text shape otherwise
+    /// (fixtures). Injectable for tests.
     private let treeHasher: @Sendable (RawCapture) -> String
+    /// New-chars floor for switch-triggered captures (V6 S1.6 / T6-16).
+    /// 0 disables it.
+    public var switchNewCharsFloor: Int
 
-    public init(treeHasher: @escaping @Sendable (RawCapture) -> String = { textShapeSignature($0.text) }) {
+    public init(
+        treeHasher: @escaping @Sendable (RawCapture) -> String = { structureHash($0) },
+        switchNewCharsFloor: Int = defaultSwitchNewCharsFloor
+    ) {
         self.treeHasher = treeHasher
+        self.switchNewCharsFloor = switchNewCharsFloor
     }
 
     public mutating func process(_ raw: RawCapture) -> PipelineOutput {
@@ -42,8 +50,12 @@ public struct Snapshotter: Sendable {
         let key = streamKey(bundleId: raw.bundleId, docKey: raw.docKey)
         let tree = treeHasher(raw)
         let content = sha256Hex(raw.text)
-        switch deduper.check(streamKey: key, treeHash: tree, contentHash: content, text: raw.text) {
-        case .duplicate:
+        let floor = raw.trigger.isSwitch ? switchNewCharsFloor : 0
+        switch deduper.check(
+            streamKey: key, treeHash: tree, contentHash: content, text: raw.text,
+            minNewChars: floor
+        ) {
+        case .duplicate, .belowFloor:
             return .suppressed
         case .changed(let diff):
             return .snapshot(SnapshotFrame(

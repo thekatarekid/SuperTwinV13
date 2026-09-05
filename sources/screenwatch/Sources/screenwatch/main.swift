@@ -49,6 +49,7 @@ var checkPermissionOnly = false
 var fixturePath: String? = nil
 var heartbeatS: Double = 60
 var idleS: Double = 120
+var switchFloor: Int = defaultSwitchNewCharsFloor
 
 var args = Array(CommandLine.arguments.dropFirst())
 while !args.isEmpty {
@@ -59,6 +60,7 @@ while !args.isEmpty {
     case "--fixture": fixturePath = args.isEmpty ? nil : args.removeFirst()
     case "--heartbeat-s": heartbeatS = Double(args.isEmpty ? "" : args.removeFirst()) ?? 60
     case "--idle-s": idleS = Double(args.isEmpty ? "" : args.removeFirst()) ?? 120
+    case "--switch-floor": switchFloor = Int(args.isEmpty ? "" : args.removeFirst()) ?? defaultSwitchNewCharsFloor
     case "--log-level": _ = args.isEmpty ? "" : args.removeFirst() // accepted for parity
     default: logErr("ignoring unknown flag \(a)")
     }
@@ -78,7 +80,9 @@ if checkPermissionOnly {
 
 /// Everything runs on this serial queue: captures, commands, emissions.
 let work = DispatchQueue(label: "screenwatch.pipeline")
-var snapshotter = Snapshotter()
+// Structure hash from the live AX roles walk (falls back to the text shape
+// for fixtures) and the switch-trigger new-chars floor (V6 S1.6).
+var snapshotter = Snapshotter(switchNewCharsFloor: switchFloor)
 var shuttingDown = false
 
 func handleCommand(_ line: String) {

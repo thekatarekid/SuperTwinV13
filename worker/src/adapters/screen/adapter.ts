@@ -21,8 +21,9 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { appStateGet, appStateSet } from "../../db/ingest.js";
 import type { ChildLike, SpawnFn } from "../whatsapp/adapter.js";
-import { toScreenEnvelope } from "./envelope.js";
+import { ScreenTextStore, toScreenEnvelope, type BlobPut, type StoredScreenText } from "./envelope.js";
 import {
   isSnapshotFrame,
   type ScreenDropFrame,
@@ -119,6 +120,38 @@ function moduleDir(): string {
   }
 }
 
+// ---- Persisted pause state (V6 S1.6 / T4-8) --------------------------------
+// `adapter.paused` used to be in-memory only, so a pause died with the worker
+// and a restart resumed capture the user had stopped. Both switches now live
+// in app_state and are seeded into the adapter at construction, before the
+// sidecar is spawned — the `ready` handler then re-installs them in the child.
+
+/** app_state key: "1" while the kill-switch is on. */
+export const SCREEN_PAUSED_KEY = "screen.paused";
+/** app_state key: JSON array of lowercased bundle ids under per-app pause. */
+export const SCREEN_PAUSED_APPS_KEY = "screen.paused_apps";
+
+/** The two app_state accessors the adapter needs — injectable for tests. */
+export interface ScreenPauseState {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+const dbPauseState: ScreenPauseState = {
+  get: (key) => appStateGet(key),
+  set: (key, value) => appStateSet(key, value),
+};
+
+function parsePausedApps(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").map((x) => x.toLowerCase()) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ---- Adapter ---------------------------------------------------------------
 
 export interface ScreenAdapterStatus {
@@ -137,6 +170,10 @@ export interface ScreenAdapterOptions {
   spawn?: SpawnFn;
   binPath?: string;
   sink?: ScreenEventSink;
+  /** Blob writer for the anchor + diff store (default: v6core.putBlob). */
+  putBlob?: BlobPut;
+  /** Pause persistence (default: app_state via db/ingest). */
+  pauseState?: ScreenPauseState;
   mock?: boolean;
   fixturePath?: string;
   backoffBaseMs?: number;
@@ -157,6 +194,10 @@ export class ScreenAdapter {
   private readonly backoffMaxMs: number;
   private readonly autoRestart: boolean;
   private readonly log: (line: string) => void;
+  private readonly textStore: ScreenTextStore;
+  private readonly pauseState: ScreenPauseState;
+  private blobWarned = false;
+  private pauseStateWarned = false;
 
   private child: ChildLike | null = null;
   private stdoutBuf = "";
@@ -188,6 +229,38 @@ export class ScreenAdapter {
     this.backoffMaxMs = opts.backoffMaxMs ?? 15_000;
     this.autoRestart = opts.autoRestart ?? true;
     this.log = opts.log ?? (() => {});
+    this.textStore = new ScreenTextStore(opts.putBlob ? { put: opts.putBlob } : {});
+    this.pauseState = opts.pauseState ?? dbPauseState;
+    this.seedPauseState();
+  }
+
+  /** Seed paused / pausedApps from app_state (T4-8) — before any spawn. */
+  private seedPauseState(): void {
+    try {
+      this.paused = this.pauseState.get(SCREEN_PAUSED_KEY) === "1";
+      for (const app of parsePausedApps(this.pauseState.get(SCREEN_PAUSED_APPS_KEY))) {
+        this.pausedApps.add(app);
+      }
+      if (this.paused) this.state = "paused";
+    } catch (err) {
+      // A DB without app_state (bare tests) — start unpaused, say so once.
+      this.warnPauseState(err);
+    }
+  }
+
+  private persistPauseState(): void {
+    try {
+      this.pauseState.set(SCREEN_PAUSED_KEY, this.paused ? "1" : "0");
+      this.pauseState.set(SCREEN_PAUSED_APPS_KEY, JSON.stringify([...this.pausedApps].sort()));
+    } catch (err) {
+      this.warnPauseState(err);
+    }
+  }
+
+  private warnPauseState(err: unknown): void {
+    if (this.pauseStateWarned) return;
+    this.pauseStateWarned = true;
+    this.log(`[screen] pause state not persisted: ${(err as Error).message}`);
   }
 
   onSnapshot(cb: (f: SnapshotFrame) => void): void {
@@ -217,18 +290,24 @@ export class ScreenAdapter {
     this.spawnSidecar();
   }
 
-  /** Kill-switch (spec §4.3): pause/resume all capture. */
+  /**
+   * Kill-switch (spec §4.3): pause/resume all capture. Persisted to app_state
+   * FIRST (T4-8) — the switch must survive a worker restart even if the
+   * sidecar command never lands.
+   */
   async pause(paused: boolean): Promise<void> {
     this.paused = paused;
+    this.persistPauseState();
     this.send({ cmd: paused ? "pause" : "resume" });
     this.setState(paused ? "paused" : "capturing");
   }
 
-  /** Per-app capture pause (spec §4.3, Library privacy controls). */
+  /** Per-app capture pause (spec §4.3, Library privacy controls). Persisted. */
   async pauseApp(bundleId: string, paused: boolean): Promise<void> {
     const id = bundleId.toLowerCase();
     if (paused) this.pausedApps.add(id);
     else this.pausedApps.delete(id);
+    this.persistPauseState();
     this.send({ cmd: paused ? "pause_app" : "resume_app", bundle_id: bundleId });
     this.emitStatus();
   }
@@ -436,7 +515,19 @@ export class ScreenAdapter {
       return;
     }
     this.snapshotCount += 1;
-    this.sink.append([toScreenEnvelope(frame)]);
+    // Full text into blobs as anchor + diff (V6 S1.6 / T6-8). A blob failure
+    // never drops the capture: the event lands with its diff, refs absent.
+    let stored: StoredScreenText | null = null;
+    try {
+      stored = this.textStore.record(frame);
+      this.blobWarned = false;
+    } catch (err) {
+      if (!this.blobWarned) {
+        this.blobWarned = true;
+        this.log(`[screen] full-text blob write failed (event lands without refs): ${(err as Error).message}`);
+      }
+    }
+    this.sink.append([toScreenEnvelope(frame, Date.now(), stored)]);
     for (const cb of this.snapshotCbs) cb(frame);
   }
 

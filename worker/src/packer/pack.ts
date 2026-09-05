@@ -23,7 +23,7 @@
 
 import { getDb } from "../db/connection.js";
 import type { DeltaBundle, BundleEvent } from "../scheduler/dispatch.js";
-import type { EventEnvelope } from "../db/eventlog.js";
+import { ftsProjection, type EventEnvelope } from "../db/eventlog.js";
 import {
   newServeCounters,
   readCachedDigest,
@@ -81,6 +81,24 @@ function short(ts: string | null): string {
   return m ? `${m[1]} ${m[2]}` : ts;
 }
 
+/**
+ * The identity part of an event head (V6 S1.6 / T6-7, SRC-03): what the
+ * funnel projected — app · window title · doc key for a screen snapshot,
+ * tab title · URL for a browser visit, nothing for a chat message. Every
+ * source therefore renders a DIFFERENT head shape; before this, every event
+ * in every bundle ever sent looked identical across sources.
+ */
+export function eventIdentityHead(payload: Record<string, unknown>): string {
+  const id = ftsProjection(payload);
+  const parts = [id.app, id.windowTitle, id.docKey].filter(
+    (p): p is string => typeof p === "string" && p.length > 0,
+  );
+  // A browser visit whose title equals its URL, or a window whose doc key is
+  // its title: say it once.
+  const uniq = parts.filter((p, i) => parts.indexOf(p) === i);
+  return uniq.map((p) => p.slice(0, 160)).join(" · ");
+}
+
 function toEnvelope(e: BundleEvent, streamKey: string, contentHash?: string): EventEnvelope {
   let payload: Record<string, unknown> = {};
   let roles = { sender: e.actor ?? "?", audience: [], receiver: [], mentions: [] };
@@ -98,7 +116,7 @@ function toEnvelope(e: BundleEvent, streamKey: string, contentHash?: string): Ev
   return {
     id: e.id,
     ts: e.ts ?? "",
-    source: "",
+    source: e.sourceId ?? "",
     kind: e.kind ?? "",
     origin: e.origin,
     ageBand: e.ageBand,
@@ -255,10 +273,16 @@ export async function packOrientContext(
     const env = toEnvelope(e, bundle.streamKey, hashes.get(e.id));
     const digest = env.contentHash ? readCachedDigest(env.contentHash) : null;
     const body = serveContent(env, "L1", { counters, consumer: "packer.orient", digest });
-    const head = `e${i + 1} ${short(e.ts)} ${e.actor ?? "?"}`;
+    // Kind + identity in EVERY head (V6 S1.6 / T6-7, SRC-03): a screen
+    // snapshot reads `… self [screen.snapshot] TextEdit · notes.txt · /path`,
+    // a chat message `… contact:rohan [wa.message]`.
+    const identity = eventIdentityHead(env.payload);
+    const head =
+      `e${i + 1} ${short(e.ts)} ${e.actor ?? "?"} [${e.kind ?? "?"}]` +
+      (identity ? ` ${identity}` : "");
     if (digest) {
       // Heavy event: L0 digest line up top, L1 distillation beneath.
-      return `${head} [${e.kind}] ${renderDigestLine(digest)}\n    ${body.replace(/\n/g, "\n    ")}`;
+      return `${head} ${renderDigestLine(digest)}\n    ${body.replace(/\n/g, "\n    ")}`;
     }
     return `${head}: ${(body || (e.text ?? "")).slice(0, 1200)}`;
   });

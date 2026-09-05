@@ -62,6 +62,8 @@ export const DEFAULT_DISPATCH_CONFIG: DispatchConfig = {
 export interface BundleEvent {
   rowid: number;
   id: string;
+  /** events.source_id — "wa" | "browser" | "screen" | … (V6 S1.6 / T6-7). */
+  sourceId?: string | null;
   ts: string | null;
   kind: string | null;
   text: string | null;
@@ -131,6 +133,7 @@ const BAND_ORDER: Record<AgeBand, number> = { A: 0, B: 1, C: 2, D: 3 };
 interface UndispatchedRow {
   rowid: number;
   id: string;
+  source_id: string | null;
   stream_id: string | null;
   stream_key: string;
   ts: string | null;
@@ -186,6 +189,7 @@ function toBundleEvent(r: UndispatchedRow): BundleEvent {
   return {
     rowid: r.rowid,
     id: r.id,
+    sourceId: r.source_id ?? null,
     ts: r.ts,
     kind: r.kind,
     text: r.text,
@@ -212,7 +216,7 @@ export function collectTick(
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT e.rowid AS rowid, e.id, e.stream_id, e.stream_key, e.ts, e.kind,
+      `SELECT e.rowid AS rowid, e.id, e.source_id, e.stream_id, e.stream_key, e.ts, e.kind,
               e.text, e.actor, e.origin, e.age_band, e.roles_json, e.payload_json
          FROM events e
         WHERE e.dispatched_at IS NULL

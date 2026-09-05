@@ -28,12 +28,13 @@ func expectEq<T: Equatable>(_ got: T, _ want: T, _ label: String, line: Int = #l
 
 func cap(
     bundle: String = "com.apple.TextEdit", title: String = "w", doc: String = "/a.txt",
-    text: String, trigger: CaptureTrigger = .heartbeat, axPrivate: Bool = false
+    text: String, trigger: CaptureTrigger = .heartbeat, axPrivate: Bool = false,
+    roles: [String] = []
 ) -> RawCapture {
     return RawCapture(
         ts: "2026-08-28T10:00:00.000Z", bundleId: bundle, appName: "app",
         windowTitle: title, docKey: doc, trigger: trigger, text: text,
-        axPrivate: axPrivate
+        axPrivate: axPrivate, roles: roles
     )
 }
 
@@ -120,6 +121,89 @@ do {
         expectEq(second.newChars, "inserted\n", "new_chars diff")
         expectEq(second.charCount, "line one\ninserted\nline two".count, "char_count")
     } else { expect(false, "changed content must emit") }
+}
+
+// ---- Structure hash from AX roles (V6 S1.6 / T6-12) -----------------------
+
+do {
+    // Roles present → the hash is the roles walk, not the text shape.
+    let withRoles = cap(text: "hello", roles: ["AXWindow", "AXTextArea", "AXStaticText"])
+    expectEq(structureHash(withRoles), rolesSignature(withRoles.roles), "roles → rolesSignature")
+    expect(structureHash(withRoles) != textShapeSignature("hello"), "roles hash differs from text shape")
+    // No roles (fixtures) → text-shape fallback, unchanged behaviour.
+    expectEq(structureHash(cap(text: "hello")), textShapeSignature("hello"), "no roles → text shape")
+    // Same words, different structure: the two signals are distinct again.
+    let a = cap(text: "hello", roles: ["AXWindow", "AXTextArea"])
+    let b = cap(text: "hello", roles: ["AXWindow", "AXButton", "AXTextArea"])
+    expect(structureHash(a) != structureHash(b), "structure change hashes differently")
+    expectEq(sha256Hex(a.text), sha256Hex(b.text), "content hash identical")
+    // Order matters — element kinds + order, as documented.
+    expect(rolesSignature(["AXWindow", "AXButton"]) != rolesSignature(["AXButton", "AXWindow"]), "roles order")
+
+    // Through the pipeline: a pure structure change (same text, new roles)
+    // on a heartbeat is not a duplicate — the layout signal reaches the wire.
+    var s = Snapshotter()
+    if case .snapshot = s.process(a) {} else { expect(false, "first must emit") }
+    if case .suppressed = s.process(a) {} else { expect(false, "identical must suppress") }
+    if case .snapshot(let f) = s.process(b) {
+        expectEq(f.newChars, "", "structure-only change carries no new chars")
+        expectEq(f.treeHash, rolesSignature(b.roles), "tree hash on the wire is the roles hash")
+    } else { expect(false, "structure change must emit on heartbeat") }
+}
+
+// ---- New-chars floor on switch triggers (V6 S1.6 / T6-16) ------------------
+
+do {
+    var s = Snapshotter(switchNewCharsFloor: 24)
+    // A stream's first snapshot is never floored, however short.
+    if case .snapshot(let f) = s.process(cap(text: "hi", trigger: .windowSwitch)) {
+        expectEq(f.newChars, "hi", "first snapshot passes the floor")
+    } else { expect(false, "first switch capture must emit") }
+    // Switching back with a 3-char change (clock, badge) is suppressed…
+    if case .suppressed = s.process(cap(text: "hi 1", trigger: .windowSwitch)) {
+    } else { expect(false, "tiny switch diff must be suppressed") }
+    // …and NOT recorded: the state still holds "hi", so the change accumulates.
+    if case .suppressed = s.process(cap(text: "hi 12", trigger: .appSwitch)) {
+    } else { expect(false, "tiny app-switch diff must be suppressed") }
+    // A non-switch trigger reports the accumulated change, however small.
+    if case .snapshot(let f) = s.process(cap(text: "hi 12", trigger: .typingPause)) {
+        expectEq(f.newChars, " 12", "typing pause is never floored; diff is against the un-advanced state")
+    } else { expect(false, "typing pause must emit") }
+    // A switch carrying real new content passes.
+    let big = "hi 12\n" + String(repeating: "new paragraph of real text. ", count: 3)
+    if case .snapshot(let f) = s.process(cap(text: big, trigger: .tabSwitch)) {
+        expect(f.newChars.count >= 24, "switch with real content emits")
+    } else { expect(false, "switch with ≥floor new chars must emit") }
+    // Floor 0 disables it.
+    var off = Snapshotter(switchNewCharsFloor: 0)
+    _ = off.process(cap(text: "hi", trigger: .windowSwitch))
+    if case .snapshot = off.process(cap(text: "hi!", trigger: .windowSwitch)) {
+    } else { expect(false, "floor 0 must not suppress") }
+    // The default is the documented constant.
+    expectEq(Snapshotter().switchNewCharsFloor, defaultSwitchNewCharsFloor, "default floor")
+    expect(CaptureTrigger.appSwitch.isSwitch && CaptureTrigger.windowSwitch.isSwitch && CaptureTrigger.tabSwitch.isSwitch, "switch triggers")
+    expect(!CaptureTrigger.typingPause.isSwitch && !CaptureTrigger.scrollStop.isSwitch && !CaptureTrigger.heartbeat.isSwitch, "non-switch triggers")
+}
+
+// ---- RawCapture decoding: roles optional in fixtures -----------------------
+
+do {
+    let json = """
+    {"ts":"2026-08-28T10:00:00.000Z","bundle_id":"b","app_name":"a","window_title":"t",
+     "doc_key":"d","trigger":"heartbeat","text":"x"}
+    """
+    if let raw = try? JSONDecoder().decode(RawCapture.self, from: Data(json.utf8)) {
+        expectEq(raw.roles, [], "missing roles decode as empty")
+        expectEq(raw.links, [], "missing links decode as empty")
+        expectEq(raw.axPrivate, false, "missing ax_private decodes false")
+    } else { expect(false, "RawCapture without roles must decode") }
+    let withRoles = """
+    {"ts":"2026-08-28T10:00:00.000Z","bundle_id":"b","app_name":"a","window_title":"t",
+     "doc_key":"d","trigger":"heartbeat","text":"x","roles":["AXWindow","AXTextArea"]}
+    """
+    if let raw = try? JSONDecoder().decode(RawCapture.self, from: Data(withRoles.utf8)) {
+        expectEq(raw.roles, ["AXWindow", "AXTextArea"], "roles decode")
+    } else { expect(false, "RawCapture with roles must decode") }
 }
 
 // ---- Multitask keying (SEG-06-equivalent) ----------------------------------

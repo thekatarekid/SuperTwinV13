@@ -36,11 +36,18 @@ public struct RawCapture: Codable, Sendable {
     public var files: [String]
     /// True when the browser exposed a private/incognito AX attribute.
     public var axPrivate: Bool
+    /// AX roles of every visited element, in walk order (V6 S1.6 / T6-12):
+    /// the tree's STRUCTURE, content-blind. The live layer fills this from
+    /// the walk; the structure hash is derived from it, so "the layout
+    /// changed" and "the words changed" are two different signals again.
+    /// Fixtures may omit it (decoded as empty → text-shape fallback hash).
+    public var roles: [String]
 
     public init(
         ts: String, bundleId: String, appName: String, windowTitle: String,
         docKey: String, trigger: CaptureTrigger, text: String,
-        links: [String] = [], files: [String] = [], axPrivate: Bool = false
+        links: [String] = [], files: [String] = [], axPrivate: Bool = false,
+        roles: [String] = []
     ) {
         self.ts = ts
         self.bundleId = bundleId
@@ -52,6 +59,7 @@ public struct RawCapture: Codable, Sendable {
         self.links = links
         self.files = files
         self.axPrivate = axPrivate
+        self.roles = roles
     }
 
     enum CodingKeys: String, CodingKey {
@@ -65,6 +73,22 @@ public struct RawCapture: Codable, Sendable {
         case links
         case files
         case axPrivate = "ax_private"
+        case roles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ts = try c.decode(String.self, forKey: .ts)
+        bundleId = try c.decode(String.self, forKey: .bundleId)
+        appName = try c.decode(String.self, forKey: .appName)
+        windowTitle = try c.decode(String.self, forKey: .windowTitle)
+        docKey = try c.decode(String.self, forKey: .docKey)
+        trigger = try c.decode(CaptureTrigger.self, forKey: .trigger)
+        text = try c.decode(String.self, forKey: .text)
+        links = try c.decodeIfPresent([String].self, forKey: .links) ?? []
+        files = try c.decodeIfPresent([String].self, forKey: .files) ?? []
+        axPrivate = try c.decodeIfPresent(Bool.self, forKey: .axPrivate) ?? false
+        roles = try c.decodeIfPresent([String].self, forKey: .roles) ?? []
     }
 }
 
@@ -75,6 +99,15 @@ public enum CaptureTrigger: String, Codable, Sendable {
     case typingPause = "typing_pause"
     case scrollStop = "scroll_stop"
     case heartbeat
+
+    /// Switch triggers fire on identity change, not on content change — the
+    /// ones the new-chars floor applies to (V6 S1.6 / T6-16).
+    public var isSwitch: Bool {
+        switch self {
+        case .appSwitch, .windowSwitch, .tabSwitch: return true
+        case .typingPause, .scrollStop, .heartbeat: return false
+        }
+    }
 }
 
 /// A snapshot that PASSED privacy + dedup — the only frame that carries

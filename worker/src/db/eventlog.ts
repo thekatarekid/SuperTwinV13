@@ -45,6 +45,18 @@ export interface EventRoles {
   mentions: string[];
 }
 
+/**
+ * app · window title · doc key (V6 S1.6, Product_V6_Phase1 §"Screen") — the
+ * identity a source can state explicitly instead of leaving the funnel to
+ * infer it from payload field names. Projected to events.app / window_title /
+ * doc_key (0202_v6_fts_projection); the packed head renders it (SRC-03).
+ */
+export interface EventIdentity {
+  app: string | null;
+  windowTitle: string | null;
+  docKey: string | null;
+}
+
 export interface EventEnvelope {
   /** ULID-ish id; minted here when absent. */
   id?: string;
@@ -64,6 +76,8 @@ export interface EventEnvelope {
   /** e.g. "contact:rohan" | "self". */
   actor: string;
   roles: EventRoles;
+  /** Explicit identity (V6 S1.6); when absent, inferred via ftsProjection(payload). */
+  identity?: EventIdentity;
   /** Typed per kind. `payload.text` is projected into events.text for FTS. */
   payload: Record<string, unknown>;
   contentHash?: string;
@@ -218,11 +232,7 @@ function v13StreamId(source: string, streamKey: string): string {
 }
 
 /** Projected identity columns for the lexical index (0202_v6_fts_projection). */
-export interface FtsProjection {
-  app: string | null;
-  windowTitle: string | null;
-  docKey: string | null;
-}
+export type FtsProjection = EventIdentity;
 
 function str(v: unknown): string | null {
   return typeof v === "string" && v.trim().length > 0 ? v : null;
@@ -299,7 +309,8 @@ export function appendEvents(
       });
       const id = env.id ?? mintEventId(nowMs);
       const text = typeof env.payload.text === "string" ? env.payload.text : null;
-      const projected = ftsProjection(env.payload);
+      // Explicit identity wins (V6 S1.6); payload inference is the fallback.
+      const projected = env.identity ?? ftsProjection(env.payload);
       const consentId = env.consentId ?? gate.consentId;
       s.insert.run({
         ...projected,

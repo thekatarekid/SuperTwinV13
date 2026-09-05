@@ -4,13 +4,21 @@
 // Two hashes per capture:
 //   - contentHash: sha256 of the full distilled text — "did the words change".
 //   - treeHash: sha256 of a content-blind structural signature — "did the
-//     layout change". The live layer feeds a real element-kind walk; the mock
-//     derives a line-shape signature from the text so fixtures exercise the
-//     same code path.
+//     layout change". `structureHash` derives it from the AX roles the live
+//     walk collected (V6 S1.6 / T6-12); a capture without roles (fixtures)
+//     falls back to a line-shape signature of the text so the mock path
+//     exercises the same code.
 //
 // Dedup is PER STREAM (bundleId¦docKey): a capture whose tree hash AND
 // content hash both match the stream's previous snapshot is suppressed —
 // this is what keeps the heartbeat silent while a window sits still.
+//
+// New-chars floor (V6 S1.6 / T6-16): a SWITCH-triggered capture (app,
+// window, tab) whose diff against the stream's previous text is shorter
+// than the floor is suppressed too, WITHOUT advancing the stream state —
+// switching back to a window whose clock ticked or badge count changed is
+// not a capture worth 22 KB of storage; the small change accumulates until
+// something real lands (or a non-switch trigger reports it).
 //
 // `new_chars` is the middle of the new text after trimming the longest
 // common prefix and suffix against the previous text — cheap, and exactly
@@ -42,6 +50,23 @@ public func textShapeSignature(_ text: String) -> String {
     return sha256Hex("shape:" + shape)
 }
 
+/// Content-blind structural signature from the AX roles the live walk saw,
+/// in walk order: element kinds + order, no text (V6 S1.6 / T6-12).
+public func rolesSignature(_ roles: [String]) -> String {
+    return sha256Hex("roles:" + roles.joined(separator: ","))
+}
+
+/// The structure hash for a capture: the roles walk when the live layer
+/// provided one, the text-shape fallback otherwise (fixtures, mock).
+public func structureHash(_ raw: RawCapture) -> String {
+    return raw.roles.isEmpty ? textShapeSignature(raw.text) : rolesSignature(raw.roles)
+}
+
+/// Minimum `new_chars` length a switch-triggered capture must carry to be
+/// emitted (V6 S1.6 / T6-16). Measured: 64% of events were `window_switch`,
+/// some carrying 2–3 characters of new text.
+public let defaultSwitchNewCharsFloor = 24
+
 /// Longest-common-prefix/suffix diff: what `new` contains that `old` did not.
 /// Returns the full new text when there is no overlap (first snapshot).
 public func newChars(old: String, new: String) -> String {
@@ -71,16 +96,27 @@ public struct Deduper: Sendable {
         case duplicate
         /// Content changed; carry this diff.
         case changed(newChars: String)
+        /// Changed, but by fewer than `minNewChars` characters against a
+        /// stream that already has a snapshot — suppressed, state NOT
+        /// advanced, so the change accumulates rather than vanishes.
+        case belowFloor(newChars: String)
     }
 
+    /// `minNewChars` > 0 applies the new-chars floor (switch triggers). A
+    /// stream's FIRST snapshot is never floored: there is nothing to diff
+    /// against, and the full text is the anchor the reader needs.
     public mutating func check(
-        streamKey: String, treeHash: String, contentHash: String, text: String
+        streamKey: String, treeHash: String, contentHash: String, text: String,
+        minNewChars: Int = 0
     ) -> Verdict {
         let prev = streams[streamKey]
         if let prev, prev.treeHash == treeHash, prev.contentHash == contentHash {
             return .duplicate
         }
         let diff = newChars(old: prev?.text ?? "", new: text)
+        if prev != nil, minNewChars > 0, diff.count < minNewChars {
+            return .belowFloor(newChars: diff)
+        }
         streams[streamKey] = StreamState(treeHash: treeHash, contentHash: contentHash, text: text)
         return .changed(newChars: diff)
     }

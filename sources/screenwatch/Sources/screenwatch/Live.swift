@@ -164,10 +164,13 @@ final class LiveWatcher {
         // Private-mode AX attribute where the browser exposes one (Safari).
         let axPrivate = copyBool(window, "AXPrivateBrowsing") ?? false
         // Document identity: AXDocument (file path / URL), else the focused
-        // web area's URL, else the window title.
+        // web area's URL, else the window title, else a per-window fallback.
+        // The old chain ended at the title, so every untitled window of an
+        // app collapsed into ONE stream keyed `bundle¦` (V6 S1.6 / T6-16).
         var docKey = copyString(window, kAXDocumentAttribute) ?? ""
         if docKey.isEmpty { docKey = focusedWebURL(axApp) ?? "" }
         if docKey.isEmpty { docKey = title }
+        if docKey.isEmpty { docKey = untitledDocKey(window) }
         return FrontWindow(
             bundleId: bundleId, appName: app.localizedName ?? bundleId,
             pid: app.processIdentifier, window: window, title: title,
@@ -190,8 +193,20 @@ final class LiveWatcher {
             text: walk.texts.joined(separator: "\n"),
             links: walk.links,
             files: walk.files,
-            axPrivate: front.axPrivate
+            axPrivate: front.axPrivate,
+            roles: walk.roles
         )
+    }
+
+    /// Stable identity for a window that exposes no document, URL or title:
+    /// its AXIdentifier when the app sets one, else the AX element's own
+    /// identity (CFHash of an AXUIElement is stable for the same window
+    /// within a process). Never "" — an empty doc key is not a stream.
+    private func untitledDocKey(_ window: AXUIElement) -> String {
+        if let ident = copyString(window, kAXIdentifierAttribute), !ident.isEmpty {
+            return "untitled:" + ident
+        }
+        return "untitled:#" + String(CFHash(window))
     }
 
     private func focusedWebURL(_ axApp: AXUIElement) -> String? {

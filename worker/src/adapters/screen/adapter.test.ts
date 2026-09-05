@@ -15,12 +15,21 @@
 //     crash schedules a restart.
 // ===========================================================================
 
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 
 import type { EventEnvelope } from "../../db/eventlog.js";
-import { ScreenAdapter, type ChildLike, type SpawnFn } from "./adapter.js";
-import type { ScreenSnapshotPayload } from "./envelope.js";
+import {
+  SCREEN_PAUSED_APPS_KEY,
+  SCREEN_PAUSED_KEY,
+  ScreenAdapter,
+  type ChildLike,
+  type ScreenAdapterOptions,
+  type ScreenPauseState,
+  type SpawnFn,
+} from "./adapter.js";
+import { reconstructScreenText, type BlobPut, type ScreenSnapshotPayload } from "./envelope.js";
 import type { SnapshotFrame } from "./frames.js";
 import { MemoryScreenSink } from "./sink.js";
 
@@ -76,12 +85,52 @@ function snapshot(over: Partial<SnapshotFrame> = {}): SnapshotFrame {
   return { ...base, ...over };
 }
 
-function harness(): { adapter: ScreenAdapter; child: FakeChild; sink: MemoryScreenSink } {
+/** In-memory app_state stand-in (V6 S1.6: pause persisted + seeded at boot). */
+class MemoryPauseState implements ScreenPauseState {
+  readonly rows = new Map<string, string>();
+  get(key: string): string | null {
+    return this.rows.get(key) ?? null;
+  }
+  set(key: string, value: string): void {
+    this.rows.set(key, value);
+  }
+}
+
+/** In-memory content-addressed blob store standing in for v6core.putBlob. */
+class MemoryBlobs {
+  readonly blobs = new Map<string, { kind: string; data: string }>();
+  put: BlobPut = (data, kind) => {
+    const sha256 = createHash("sha256").update(data, "utf8").digest("hex");
+    this.blobs.set(sha256, { kind, data });
+    return { sha256 };
+  };
+  text(sha256: string): string | null {
+    return this.blobs.get(sha256)?.data ?? null;
+  }
+}
+
+function harness(over: Partial<ScreenAdapterOptions> = {}): {
+  adapter: ScreenAdapter;
+  child: FakeChild;
+  sink: MemoryScreenSink;
+  state: MemoryPauseState;
+  blobs: MemoryBlobs;
+} {
   const child = new FakeChild();
   const spawn: SpawnFn = () => child;
   const sink = new MemoryScreenSink();
-  const adapter = new ScreenAdapter({ spawn, sink, autoRestart: false, mock: true });
-  return { adapter, child, sink };
+  const state = (over.pauseState as MemoryPauseState | undefined) ?? new MemoryPauseState();
+  const blobs = new MemoryBlobs();
+  const adapter = new ScreenAdapter({
+    spawn,
+    sink,
+    autoRestart: false,
+    mock: true,
+    pauseState: state,
+    putBlob: blobs.put,
+    ...over,
+  });
+  return { adapter, child, sink, state, blobs };
 }
 
 describe("ScreenAdapter", () => {
@@ -316,5 +365,121 @@ describe("EventEnvelope integrity", () => {
     expect(p.char_count).toBe(50);
     expect(p.trigger).toBe("typing_pause");
     expect(e.ageBand).toBeDefined();
+  });
+});
+
+// ---- V6 S1.6: pause persisted in app_state and seeded at boot (T4-8) --------
+
+describe("ScreenAdapter — persisted pause (V6 S1.6 / T4-8)", () => {
+  it("pause() writes app_state before the sidecar command; a fresh adapter seeds from it", async () => {
+    const { adapter, child, state } = harness();
+    await adapter.connect();
+    child.ready();
+    await adapter.pause(true);
+    expect(state.get(SCREEN_PAUSED_KEY)).toBe("1");
+    expect(child.writes.some((w) => w.includes('"cmd":"pause"'))).toBe(true);
+
+    await adapter.pauseApp("com.apple.Mail", true);
+    expect(JSON.parse(state.get(SCREEN_PAUSED_APPS_KEY) ?? "[]")).toEqual(["com.apple.mail"]);
+
+    // The worker restarts: a NEW adapter over the same app_state starts paused,
+    // before any spawn, and re-installs both switches in the new sidecar.
+    const again = harness({ pauseState: state });
+    expect(again.adapter.getStatus().paused).toBe(true);
+    expect(again.adapter.getStatus().state).toBe("paused");
+    expect(again.adapter.getStatus().pausedApps).toEqual(["com.apple.mail"]);
+    await again.adapter.connect();
+    again.child.ready();
+    expect(again.child.writes.some((w) => w.includes('"cmd":"pause"'))).toBe(true);
+    expect(again.child.writes.some((w) => w.includes('"cmd":"pause_app"') && w.includes("com.apple.mail"))).toBe(true);
+
+    // And it ingests nothing while seeded-paused, even if the sidecar emits.
+    again.child.line(snapshot());
+    expect(again.sink.events).toHaveLength(0);
+    expect(again.adapter.getStatus().drops.paused).toBe(1);
+
+    // Resume clears the persisted switch; per-app resume clears the list.
+    await again.adapter.pause(false);
+    await again.adapter.pauseApp("com.apple.Mail", false);
+    expect(state.get(SCREEN_PAUSED_KEY)).toBe("0");
+    expect(JSON.parse(state.get(SCREEN_PAUSED_APPS_KEY) ?? "[]")).toEqual([]);
+    const third = harness({ pauseState: state });
+    expect(third.adapter.getStatus().paused).toBe(false);
+    expect(third.adapter.getStatus().pausedApps).toEqual([]);
+  });
+
+  it("a pause store that throws never blocks the adapter (starts unpaused, logs once)", async () => {
+    const lines: string[] = [];
+    const broken: ScreenPauseState = {
+      get: () => {
+        throw new Error("no such table: app_state");
+      },
+      set: () => {
+        throw new Error("no such table: app_state");
+      },
+    };
+    const { adapter, child, sink } = harness({ pauseState: broken, log: (l) => lines.push(l) });
+    expect(adapter.getStatus().paused).toBe(false);
+    await adapter.connect();
+    child.ready();
+    await adapter.pause(true);
+    await adapter.pause(false);
+    child.line(snapshot());
+    expect(sink.events).toHaveLength(1);
+    expect(lines.filter((l) => l.includes("pause state not persisted"))).toHaveLength(1);
+  });
+});
+
+// ---- V6 S1.6: full text persisted as anchor + diff (T6-8 / T5-4) ------------
+
+describe("ScreenAdapter — full text into blobs (V6 S1.6)", () => {
+  it("first capture of a stream is the anchor; the next is a diff whose anchor ref resolves", async () => {
+    const { adapter, child, sink, blobs } = harness();
+    await adapter.connect();
+    child.ready();
+    const full1 = "meeting notes\nagenda: budget";
+    const full2 = "meeting notes\nagenda: budget\naction: email finance";
+    child.line(snapshot({ text: full1, new_chars: full1 }));
+    child.line(
+      snapshot({
+        ts: "2026-08-28T10:00:40.000Z",
+        text: full2,
+        new_chars: "\naction: email finance",
+        content_hash: "ch-2",
+      }),
+    );
+    expect(sink.events).toHaveLength(2);
+    const [a, d] = sink.events as [EventEnvelope, EventEnvelope];
+    const pa = a.payload as ScreenSnapshotPayload;
+    const pd = d.payload as ScreenSnapshotPayload;
+    expect(pa.storage).toBe("anchor");
+    expect(a.blobRefs).toEqual([pa.text_ref]);
+    expect(blobs.text(pa.text_ref!)).toBe(full1);
+    expect(pd.storage).toBe("diff");
+    expect(pd.anchor_ref).toBe(pa.text_ref);
+    expect(d.blobRefs).toEqual([pd.text_ref, pa.text_ref]);
+    // The row still carries only the diff; the blobs give back the whole text.
+    expect(pd.text).toBe("\naction: email finance");
+    expect(reconstructScreenText(pd, (sha) => blobs.text(sha))).toBe(full2);
+    // Identity rides on the envelope (SRC-03 upstream).
+    expect(a.identity).toEqual({ app: "TextEdit", windowTitle: "notes.txt", docKey: "/Users/u/notes.txt" });
+  });
+
+  it("a blob writer that throws never drops the capture — the event lands without refs", async () => {
+    const lines: string[] = [];
+    const failing: BlobPut = () => {
+      throw new Error("disk full");
+    };
+    const { adapter, child, sink } = harness({ putBlob: failing, log: (l) => lines.push(l) });
+    await adapter.connect();
+    child.ready();
+    child.line(snapshot());
+    expect(sink.events).toHaveLength(1);
+    const p = sink.events[0]!.payload as ScreenSnapshotPayload;
+    expect(p.storage).toBeUndefined();
+    expect(p.text_ref).toBeUndefined();
+    expect(sink.events[0]!.blobRefs).toEqual([]);
+    expect(p.text).toBe("meeting notes");
+    expect(lines.some((l) => l.includes("full-text blob write failed"))).toBe(true);
   });
 });

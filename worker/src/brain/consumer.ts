@@ -37,6 +37,17 @@ export interface TickReport {
   criticRunIds: string[];
 }
 
+/**
+ * The source a bundle event came from (V6 S1.6 / T6-7 — this used to be ""
+ * on every envelope the consumer built): the row's source_id, else the
+ * `<source>:st:<key>` stream-id scheme both funnels mint.
+ */
+export function bundleEventSource(bundle: DeltaBundle, e: { sourceId?: string | null }): string {
+  if (e.sourceId) return e.sourceId;
+  const i = bundle.streamId.indexOf(":st:");
+  return i > 0 ? bundle.streamId.slice(0, i) : "";
+}
+
 function toEnvelope(bundle: DeltaBundle, i: number): EventEnvelope {
   const e = bundle.events[i];
   let payload: Record<string, unknown> = {};
@@ -48,7 +59,7 @@ function toEnvelope(bundle: DeltaBundle, i: number): EventEnvelope {
   return {
     id: e.id,
     ts: e.ts ?? "",
-    source: "",
+    source: bundleEventSource(bundle, e),
     kind: e.kind ?? "",
     origin: e.origin,
     ageBand: e.ageBand,

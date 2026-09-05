@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/thekatarekid/supertwin/sources/whatsapp-go/internal/protocol"
+	"github.com/thekatarekid/supertwin/sources/whatsapp-go/internal/rangefilter"
 )
 
 // 1x1 transparent PNG (used when a fixture media entry supplies no bytes).
@@ -120,6 +121,49 @@ func (e *Engine) SetRange(r protocol.Range) {
 	e.widest = r
 	e.haveRange = true
 	e.mu.Unlock()
+}
+
+// CountRange answers `count_range` (S1.5) for the mock: per-window counts
+// measured over the fixture through the SAME BuildPlan filters an import runs,
+// so the frame's numbers equal what `import <range>` would emit — CNS-09's
+// "events exact" holds against the mock daemon too. The fixture is replayed on
+// demand rather than pushed, so nothing is "buffered"; the sync type reads FULL
+// (bulk history is available) and live holds are zero.
+func (e *Engine) CountRange() {
+	now := time.Now()
+	counts := make(map[protocol.Range]protocol.RangeCount, 12)
+	var oldest, newest time.Time
+	for _, r := range rangefilter.AllRanges() {
+		plan := e.fixture.BuildPlan(r, now)
+		counts[r] = protocol.RangeCount{Chats: len(plan.Channels), Messages: len(plan.Events)}
+		for _, pe := range plan.Events {
+			if oldest.IsZero() || pe.TS.Before(oldest) {
+				oldest = pe.TS
+			}
+			if pe.TS.After(newest) {
+				newest = pe.TS
+			}
+		}
+	}
+	e.mu.Lock()
+	have, widest := e.haveRange, e.widest
+	e.mu.Unlock()
+	out := protocol.RangeCounts{
+		Counts:         counts,
+		Chats:          counts[protocol.RangeAll].Chats,
+		Messages:       counts[protocol.RangeAll].Messages,
+		Batches:        1,
+		SyncTypes:      []string{"FULL"},
+		RangeInstalled: have,
+	}
+	if have {
+		out.Range = widest
+	}
+	if !oldest.IsZero() {
+		out.OldestTS = protocol.FormatTime(oldest)
+		out.NewestTS = protocol.FormatTime(newest)
+	}
+	_ = e.w.RangeCounts(out)
 }
 
 // SeedAnchors is a no-op for the mock: it replays a fixture rather than

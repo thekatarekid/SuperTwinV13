@@ -303,6 +303,56 @@ type sendResultMsg struct {
 	Detail     string `json:"detail,omitempty"`
 }
 
+// RangeCount is what ONE import window would deliver: the chats whose most
+// recent activity falls inside the window and the messages inside it (the two
+// contract §4 filters, applied exactly as an import would apply them).
+type RangeCount struct {
+	Chats    int `json:"chats"`
+	Messages int `json:"messages"`
+}
+
+// RangeCounts answers a `count_range` command (V6 P1 S1.5, backlog T4-7). It is
+// MEASURED over the history the daemon has actually received from WhatsApp —
+// the post-pairing HistorySync batches held in the pre-range buffer plus any
+// already processed this process — never estimated. The connect flow shows these
+// numbers per window before the user confirms, so the card can say "38,412
+// messages in 214 chats" and mean it.
+//
+// The honesty caveats ride alongside: SyncTypes says whether WhatsApp has sent
+// only the INITIAL_BOOTSTRAP so far (counts will still rise) or bulk FULL
+// chunks; OldestTS is how far back what arrived actually reaches, so "everything"
+// can be labelled as "everything WhatsApp has sent", not everything on the phone.
+type RangeCounts struct {
+	// Counts keyed by Range ("24h" … "all").
+	Counts map[Range]RangeCount `json:"counts"`
+	// Chats / Messages seen across every history payload so far (noise chats
+	// excluded), before any range filter — equals Counts["all"].
+	Chats    int `json:"chats"`
+	Messages int `json:"messages"`
+	// OldestTS / NewestTS bound the history received, ISO-8601; empty when none.
+	OldestTS string `json:"oldest_ts,omitempty"`
+	NewestTS string `json:"newest_ts,omitempty"`
+	// BufferedBatches is how many HistorySync payloads are still held unprocessed
+	// (no range installed yet); Batches is every payload seen this process.
+	BufferedBatches int `json:"buffered_batches"`
+	Batches         int `json:"batches"`
+	// SyncTypes lists the whatsmeow sync-type names seen (INITIAL_BOOTSTRAP,
+	// FULL, RECENT, …), sorted, so the worker can tell bootstrap-only from bulk.
+	SyncTypes []string `json:"sync_types"`
+	// RangeInstalled is true once Import/SetRange has confirmed a window; from
+	// then on history flows through instead of buffering.
+	RangeInstalled bool  `json:"range_installed"`
+	Range          Range `json:"range,omitempty"`
+	// PendingLive counts live messages held back because no window is confirmed
+	// yet (S1.5: no live ingest between pairing and confirm).
+	PendingLive int `json:"pending_live"`
+}
+
+type rangeCountsMsg struct {
+	T string `json:"t"`
+	RangeCounts
+}
+
 // --- Inbound command (worker -> daemon, one per stdin line) ---
 
 // Anchor is ONE chat's oldest-known message, supplied by the worker on the

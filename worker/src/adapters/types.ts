@@ -377,6 +377,42 @@ export interface ExtendOutcome {
   mayHaveMore: boolean;
 }
 
+/** What one import window would deliver, measured (S1.5 / T4-7). */
+export interface RangeCountEntry {
+  chats: number;
+  messages: number;
+}
+
+/**
+ * The daemon's answer to `count_range` (V6 P1 S1.5, backlog T4-7): per-window
+ * counts MEASURED over the history WhatsApp has actually sent — the buffered
+ * post-pairing HistorySync plus anything already processed — never estimated.
+ * The connect flow shows these before the user confirms a window, and the
+ * caveat fields keep the numbers honest: `syncTypes` says whether only the
+ * INITIAL_BOOTSTRAP has arrived (counts still rising), `oldestTs` how far back
+ * what arrived reaches, `pendingLive` how many live messages are held until
+ * confirm.
+ */
+export interface RangeCounts {
+  counts: Record<Range, RangeCountEntry>;
+  /** Totals across everything seen (== counts.all). */
+  chats: number;
+  messages: number;
+  oldestTs?: string;
+  newestTs?: string;
+  /** HistorySync payloads still held unprocessed (no window confirmed yet). */
+  bufferedBatches: number;
+  /** HistorySync payloads seen this daemon process. */
+  batches: number;
+  /** whatsmeow sync-type names seen, sorted (INITIAL_BOOTSTRAP, FULL, RECENT, …). */
+  syncTypes: string[];
+  /** True once a window is installed (Import/SetRange) — history flows through. */
+  rangeInstalled: boolean;
+  range?: Range;
+  /** Live messages held between pairing and confirm (S1.5). */
+  pendingLive: number;
+}
+
 /**
  * A status update surfaced to consumers via `onStatus`. Discriminated by
  * `type`; unifies the daemon's status/qr/progress/paired/error lines into one
@@ -407,7 +443,9 @@ export type StatusUpdate =
   // Outcome of one `send_message` command (P0.6). `ok:false` covers both the
   // daemon's approval-token refusal (SEND_REFUSED) and a transport failure;
   // `externalId` is the sent message's "<chat>/<id>" on success.
-  | { type: "send_result"; ok: boolean; externalId?: string; detail?: string };
+  | { type: "send_result"; ok: boolean; externalId?: string; detail?: string }
+  // The daemon answered `count_range` (S1.5): measured per-window counts.
+  | { type: "range_counts"; counts: RangeCounts };
 
 /**
  * Live-ingest nudge frame (Rev 2 §R2.2). Emitted (debounced) by the worker

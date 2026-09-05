@@ -8,8 +8,11 @@
 //
 // Not connected is a FIRST-CLASS state, not an empty list: unpaired shows the
 // real pairing flow (POST /api/sources/whatsapp/pair, QR over the source SSE
-// stream), paired-but-never-imported shows the history range picker. Both are
-// the same flows the V11 onboarding drove — only the shell around them is new.
+// stream); paired-but-unconfirmed shows the windows card (V6 S1.5): MEASURED
+// counts per window from GET …/counts (never guesses), the INDEX and UNDERSTAND
+// windows, the honest caveats, and one confirm — POST …/confirm stores the card
+// text verbatim in `decisions`, grants the consent row, and only then imports.
+// Nothing is read between pairing and that confirm.
 //
 // STRICTLY READ-ONLY: there is no composer anywhere in this view.
 // ===========================================================================
@@ -20,17 +23,19 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   IMPORT_RANGES,
   RANGE_LABELS,
+  confirmSource,
   extendSource,
   fetchChatMessages,
   fetchLibraryChats,
+  fetchSourceCounts,
   fetchSourceStatus,
-  importSource,
   pairSource,
   pauseSource,
   pauseStream,
   type ChatStreamRow,
   type ImportRange,
   type InboxMessageRow,
+  type SourceCounts,
   type SourceStatus,
 } from "../../lib/api";
 import { workerUrl } from "../../lib/config";
@@ -38,7 +43,43 @@ import { ConnectCard, hhmm, knowsFromLabel, relative } from "./shared";
 
 const SOURCE = "whatsapp";
 const POLL_MS = 5_000;
-const DEFAULT_RANGE: ImportRange = "1y";
+/** Defaults (Product_V6_Phase1): INDEX everything, UNDERSTAND the last 30 days. */
+const DEFAULT_RANGE: ImportRange = "all";
+const DEFAULT_UNDERSTAND: ImportRange = "30d";
+
+const ACCURACY_TEXT = {
+  measured: "measured",
+  "so-far": "so far — still arriving",
+  none: "nothing received yet",
+} as const;
+
+function fmt(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/** The option label for a window: the measured count rides on the range name. */
+function windowLabel(range: ImportRange, counts: SourceCounts | null): string {
+  const row = counts?.windows.find((w) => w.range === range);
+  if (!row) return RANGE_LABELS[range];
+  return `${RANGE_LABELS[range]} · ${fmt(row.messages)} messages in ${fmt(row.chats)} chats`;
+}
+
+/**
+ * The card's text, exactly as shown — this string is what POST …/confirm stores
+ * verbatim in `decisions` (T4-10 / CNS-09), so the record says what the user saw.
+ */
+function cardText(index: ImportRange, understand: ImportRange | null, counts: SourceCounts | null): string {
+  const idx = counts?.windows.find((w) => w.range === index);
+  const und = understand ? counts?.windows.find((w) => w.range === understand) : null;
+  const lines = [
+    `Index ${RANGE_LABELS[index]}: ${idx ? `${fmt(idx.messages)} messages in ${fmt(idx.chats)} chats over ${fmt(idx.days)} days (${ACCURACY_TEXT[idx.accuracy]})` : "count pending"}.`,
+    understand
+      ? `Understand ${RANGE_LABELS[understand]}: ${und ? `${fmt(und.messages)} messages over ${fmt(und.days)} days (${ACCURACY_TEXT[und.accuracy]})` : "count pending"}.`
+      : "Understand: nothing goes to the model.",
+    ...(counts?.caveats ?? []),
+  ];
+  return lines.join("\n");
+}
 
 const STATE_TEXT: Record<string, string> = {
   starting: "starting…",
@@ -94,6 +135,8 @@ export function WhatsAppLibrary(props: {
   const [messages, setMessages] = useState<InboxMessageRow[] | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [range, setRange] = useState<ImportRange>(DEFAULT_RANGE);
+  const [understand, setUnderstand] = useState<ImportRange | null>(DEFAULT_UNDERSTAND);
+  const [counts, setCounts] = useState<SourceCounts | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollMs = props.pollMs ?? POLL_MS;
@@ -154,6 +197,29 @@ export function WhatsAppLibrary(props: {
     es.onerror = () => es.close();
     return () => es.close();
   }, [paired]);
+
+  // Paired but not yet confirmed: ask the daemon what each window would import
+  // (measured over the history it is holding) and keep asking while WhatsApp is
+  // still sending — the bootstrap lands first, the bulk follows within minutes.
+  const awaitingConfirm = paired && status?.importDone !== true;
+  useEffect(() => {
+    if (!awaitingConfirm) return;
+    let stop = false;
+    const load = async () => {
+      try {
+        const c = await fetchSourceCounts(SOURCE);
+        if (!stop && alive.current) setCounts(c);
+      } catch {
+        // the daemon is not answering yet (still connecting) — the card says so
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), pollMs);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, [awaitingConfirm, pollMs]);
 
   const openChat = useCallback(async (id: string) => {
     setSelected(id);
@@ -228,22 +294,44 @@ export function WhatsAppLibrary(props: {
   }
 
   if (status && status.paired && !status.importDone) {
+    // Understand can never exceed Index (CNS-03): the options stop at the index.
+    const understandOptions = IMPORT_RANGES.filter(
+      (r) => IMPORT_RANGES.indexOf(r) <= IMPORT_RANGES.indexOf(range),
+    );
+    const effectiveUnderstand =
+      understand && understandOptions.includes(understand) ? understand : understand === null ? null : range;
+    const text = cardText(range, effectiveUnderstand, counts);
+    const totalRow = counts?.windows.find((w) => w.range === "all");
     return (
       <ConnectCard
         glyph="◙"
         title="Choose how far back"
-        body="WhatsApp is linked. Pick how much history to import — the twin only knows you from as far back as you let it read."
+        body={
+          counts && totalRow && totalRow.accuracy !== "none"
+            ? `WhatsApp is linked and has sent ${fmt(counts.counts.messages)} messages in ${fmt(counts.counts.chats)} chats so far. Nothing is read until you confirm. Pick what the twin keeps (Index) and what it reads closely (Understand).`
+            : "WhatsApp is linked. Counting what it has sent — nothing is read until you confirm. Pick what the twin keeps (Index) and what it reads closely (Understand)."
+        }
         actions={[
           {
-            label: "Import history",
-            onClick: () => void run(() => importSource(SOURCE, range), "import failed"),
+            label: "Confirm and import",
+            onClick: () =>
+              void run(
+                () =>
+                  confirmSource(SOURCE, {
+                    index: range,
+                    understand: effectiveUnderstand,
+                    card_text: text,
+                    ...(counts ? { counts: counts.counts } : {}),
+                  }),
+                "confirm failed",
+              ),
             disabled: busy,
           },
         ]}
         note={`Linked as ${status.pushName ?? "this account"} · ${STATE_TEXT[status.state] ?? status.state}`}
       >
         <label className="connect-field">
-          <span>history</span>
+          <span>index (kept, searchable)</span>
           <select
             aria-label="import range"
             value={range}
@@ -251,11 +339,33 @@ export function WhatsAppLibrary(props: {
           >
             {IMPORT_RANGES.map((r) => (
               <option key={r} value={r}>
-                {RANGE_LABELS[r]}
+                {windowLabel(r, counts)}
               </option>
             ))}
           </select>
         </label>
+        <label className="connect-field">
+          <span>understand (read by the model)</span>
+          <select
+            aria-label="understand range"
+            value={effectiveUnderstand ?? "none"}
+            onChange={(e) => setUnderstand(e.target.value === "none" ? null : (e.target.value as ImportRange))}
+          >
+            {understandOptions.map((r) => (
+              <option key={r} value={r}>
+                {windowLabel(r, counts)}
+              </option>
+            ))}
+            <option value="none">nothing goes to the model</option>
+          </select>
+        </label>
+        <ul className="connect-caveats" aria-label="counts caveats">
+          {(counts?.caveats ?? ["Counting what WhatsApp has sent…"]).map((line) => (
+            <li key={line} className="meta">
+              {line}
+            </li>
+          ))}
+        </ul>
       </ConnectCard>
     );
   }

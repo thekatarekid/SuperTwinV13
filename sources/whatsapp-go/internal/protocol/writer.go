@@ -82,6 +82,12 @@ func (w *Writer) HistorySync(h HistorySync) error {
 	return w.emit(historySyncMsg{T: "history_sync", HistorySync: h})
 }
 
+// RangeCounts answers one `count_range` command (S1.5): measured per-window
+// counts over the history the daemon holds, plus the honesty caveats.
+func (w *Writer) RangeCounts(c RangeCounts) error {
+	return w.emit(rangeCountsMsg{T: "range_counts", RangeCounts: c})
+}
+
 func (w *Writer) Error(code, message string, fatal bool) error {
 	return w.emit(errorMsg{T: "error", Code: code, Message: message, Fatal: fatal})
 }

@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 
 import { normalizeSourceEvent } from "../normalize.js";
 import type { SourceAdapter } from "../source-adapter.js";
+import { isRange, RANGES } from "../types.js";
 import { buildWhatsAppEnvelope } from "./envelope.js";
 import type {
   Actor,
@@ -31,6 +32,7 @@ import type {
   HistorySyncPayload,
   Progress,
   Range,
+  RangeCounts,
   SourceEvent,
   SourceState,
   StatusUpdate,
@@ -82,6 +84,8 @@ export interface WhatsAppAdapterOptions {
 }
 
 const SHUTDOWN_GRACE_MS = 3_000;
+/** How long `countRange()` waits for the daemon's `range_counts` answer. */
+export const COUNT_RANGE_TIMEOUT_MS = 5_000;
 /** See WhatsAppAdapterOptions.maxRestarts. */
 export const DEFAULT_MAX_RESTARTS = 8;
 
@@ -215,6 +219,16 @@ export class WhatsAppAdapter implements SourceAdapter {
    * is the side that can read it.
    */
   private anchorProvider: (() => AnchorLike[]) | null = null;
+  /**
+   * Callers of countRange() waiting on the daemon's next `range_counts` frame
+   * (S1.5). Every waiter is settled by the next answer — the frame is a
+   * snapshot of the same buffer, so two overlapping asks share one answer.
+   */
+  private countWaiters: Array<{
+    resolve: (c: RangeCounts) => void;
+    reject: (err: Error) => void;
+    timer: NodeJS.Timeout;
+  }> = [];
 
   private status: AdapterStatus = {
     state: "starting",
@@ -296,6 +310,27 @@ export class WhatsAppAdapter implements SourceAdapter {
   async setRange(range: Range): Promise<void> {
     this.installedRange = range;
     if (this.ready) this.send({ cmd: "set_range", range });
+  }
+
+  /**
+   * Measured per-window counts over the history the daemon holds (S1.5, T4-7):
+   * writes `count_range`, resolves on the next `range_counts` frame, rejects
+   * after COUNT_RANGE_TIMEOUT_MS (daemon down, not ready, or an older daemon
+   * that ignores the command). Read-only on the daemon: it installs nothing.
+   */
+  async countRange(timeoutMs: number = COUNT_RANGE_TIMEOUT_MS): Promise<RangeCounts> {
+    if (this.shuttingDown || !this.child) {
+      throw new Error("COUNTS_UNAVAILABLE: whatsapp daemon is not running");
+    }
+    return new Promise<RangeCounts>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.countWaiters = this.countWaiters.filter((w) => w.timer !== timer);
+        reject(new Error("COUNTS_UNAVAILABLE: daemon did not answer count_range in time"));
+      }, timeoutMs);
+      timer.unref?.();
+      this.countWaiters.push({ resolve, reject, timer });
+      this.send({ cmd: "count_range" });
+    });
   }
 
   async backfill(range: Range): Promise<void> {
@@ -653,6 +688,9 @@ export class WhatsAppAdapter implements SourceAdapter {
         this.emitStatus({ type: "backfill_complete", range, chats, messages });
         break;
       }
+      case "range_counts":
+        this.handleRangeCountsMsg(msg);
+        break;
       case "send_result": {
         // Outcome of one gated send (P0.6). Forwarded verbatim so the API layer
         // (and P3's approval modal) can confirm or surface the refusal.
@@ -820,6 +858,43 @@ export class WhatsAppAdapter implements SourceAdapter {
         `emitted=${payload.messagesEmitted} filtered=${payload.messagesFiltered}`,
     );
     this.emitStatus({ type: "history_sync", payload });
+  }
+
+  /**
+   * The daemon's answer to `count_range` (S1.5). Parsed defensively — every
+   * field defaults — then handed to every waiting countRange() caller and
+   * forwarded on the status stream so an SSE subscriber can render it too.
+   */
+  private handleRangeCountsMsg(msg: Record<string, unknown>): void {
+    const rawCounts = (msg["counts"] as Record<string, unknown> | undefined) ?? {};
+    const counts = {} as Record<Range, { chats: number; messages: number }>;
+    for (const r of RANGES) {
+      const c = (rawCounts[r] as Record<string, unknown> | undefined) ?? {};
+      counts[r] = { chats: Number(c["chats"] ?? 0), messages: Number(c["messages"] ?? 0) };
+    }
+    const range = msg["range"];
+    const payload: RangeCounts = {
+      counts,
+      chats: Number(msg["chats"] ?? counts.all.chats),
+      messages: Number(msg["messages"] ?? counts.all.messages),
+      ...(str(msg["oldest_ts"]) ? { oldestTs: str(msg["oldest_ts"])! } : {}),
+      ...(str(msg["newest_ts"]) ? { newestTs: str(msg["newest_ts"])! } : {}),
+      bufferedBatches: Number(msg["buffered_batches"] ?? 0),
+      batches: Number(msg["batches"] ?? 0),
+      syncTypes: Array.isArray(msg["sync_types"])
+        ? (msg["sync_types"] as unknown[]).filter((t): t is string => typeof t === "string")
+        : [],
+      rangeInstalled: Boolean(msg["range_installed"]),
+      ...(isRange(range) ? { range } : {}),
+      pendingLive: Number(msg["pending_live"] ?? 0),
+    };
+    const waiters = this.countWaiters;
+    this.countWaiters = [];
+    for (const w of waiters) {
+      clearTimeout(w.timer);
+      w.resolve(payload);
+    }
+    this.emitStatus({ type: "range_counts", counts: payload });
   }
 
   private handleErrorMsg(msg: Record<string, unknown>): void {

@@ -498,6 +498,62 @@ export const extendSource = (source: string, range: ImportRange): Promise<{ ok: 
 export const pauseSource = (source: string, paused: boolean): Promise<{ ok: boolean }> =>
   request(`/api/sources/${encodeURIComponent(source)}/pause`, post({ paused }));
 
+// ---- Connect flow: measured counts → windows → confirm (V6 S1.5) ----------
+
+/** What one window would import, measured by the daemon over what it holds. */
+export interface WindowRow {
+  range: ImportRange;
+  chats: number;
+  messages: number;
+  /** Days the window spans (for `all`: the span of history actually received). */
+  days: number;
+  /** measured = bulk history arrived · so-far = bootstrap only, will rise · none = nothing yet */
+  accuracy: "measured" | "so-far" | "none";
+}
+
+export interface SourceCounts {
+  counts: {
+    counts: Record<ImportRange, { chats: number; messages: number }>;
+    chats: number;
+    messages: number;
+    oldestTs?: string;
+    newestTs?: string;
+    bufferedBatches: number;
+    batches: number;
+    syncTypes: string[];
+    rangeInstalled: boolean;
+    range?: ImportRange;
+    pendingLive: number;
+  };
+  windows: WindowRow[];
+  /** The honest lines under the numbers — facts from the daemon, never guesses. */
+  caveats: string[];
+}
+
+/** `GET /api/sources/:id/counts` — read-only; installs no window, ingests nothing. */
+export const fetchSourceCounts = (source: string): Promise<SourceCounts> =>
+  request(`/api/sources/${encodeURIComponent(source)}/counts`);
+
+export interface ConfirmSourceRequest {
+  /** INDEX window — kept and searchable. */
+  index: ImportRange;
+  /** UNDERSTAND window — read by the model; null = nothing goes to the model. */
+  understand: ImportRange | null;
+  /** The card's text, stored verbatim in `decisions` (T4-10 / CNS-09). */
+  card_text: string;
+  counts?: SourceCounts["counts"];
+}
+
+export interface ConfirmSourceResponse {
+  ok: boolean;
+  consent: { id: string; source: string; state: string; indexAll: boolean; indexFrom: string | null; understandFrom: string | null; decisionId: string | null };
+  decision_id: string;
+}
+
+/** `POST /api/sources/:id/confirm` — the yes: decision + consent, then the import starts. */
+export const confirmSource = (source: string, req: ConfirmSourceRequest): Promise<ConfirmSourceResponse> =>
+  request(`/api/sources/${encodeURIComponent(source)}/confirm`, post(req));
+
 /** One message row of the chat pane (`/api/inbox/chats/:id/messages`). */
 export interface InboxMessageRow {
   id: string;

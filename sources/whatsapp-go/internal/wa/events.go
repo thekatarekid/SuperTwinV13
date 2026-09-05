@@ -610,6 +610,12 @@ func (e *Engine) onMessage(m *events.Message) {
 	if e.isPaused() {
 		return
 	}
+	// S1.5: no live ingest between pairing and confirm. Until Import/SetRange
+	// installs the user's window, a live arrival is HELD (bounded), not emitted —
+	// and not lost either: drainPendingLive releases it on confirm.
+	if e.holdIfNoRange(m) {
+		return
+	}
 	ev, chanMeta, actorMeta, ok := e.mapMessage(m.Info, m.Message)
 	if !ok {
 		return
@@ -636,10 +642,145 @@ func (e *Engine) onHistorySync(hs *events.HistorySync) {
 	// extend/paginator responses for an already-installed range and are never
 	// buffered.
 	onDemand := hs.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND
+	// Measure BEFORE the buffering decision so count_range can answer while the
+	// batch is still held (S1.5 / T4-7): the connect flow counts, then confirms.
+	e.recordHistoryStamps(hs)
 	if !onDemand && e.bufferIfNoRange(hs) {
 		return
 	}
 	e.processHistorySync(hs)
+}
+
+// maxPendingLive bounds the pairing→confirm live hold (S1.5). A confirm card left
+// open for hours in a busy group must not grow memory without limit; on overflow
+// the OLDEST held message is dropped (the worker's funnel would have dropped all
+// of them before this hold existed).
+const maxPendingLive = 2000
+
+// holdIfNoRange holds a live message while no import window is confirmed and
+// reports whether it did. Check and append happen under one lock so a concurrent
+// SetRange cannot strand a message between them.
+func (e *Engine) holdIfNoRange(m *events.Message) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.haveImport {
+		return false
+	}
+	if len(e.pendingLive) >= maxPendingLive {
+		e.pendingLive = e.pendingLive[1:]
+		e.logf("live hold full (%d messages, no range confirmed yet); dropping the oldest", maxPendingLive)
+	}
+	e.pendingLive = append(e.pendingLive, m)
+	return true
+}
+
+// drainPendingLive emits every live message held before the window was confirmed,
+// in arrival order, through the normal live path. Callers install the range
+// FIRST (Import/SetRange), so holdIfNoRange lets them through.
+func (e *Engine) drainPendingLive() {
+	e.mu.Lock()
+	held := e.pendingLive
+	e.pendingLive = nil
+	e.mu.Unlock()
+	if len(held) > 0 {
+		e.logf("releasing %d live messages held until the window was confirmed", len(held))
+	}
+	for _, m := range held {
+		e.onMessage(m)
+	}
+}
+
+// recordHistoryStamps notes (chat, ts) for every message in a HistorySync payload
+// plus its sync type, so CountRange can measure per-window counts over what
+// WhatsApp actually sent — whether or not the batch is buffered, processed, or
+// filtered out later. Noise chats (status/newsletter/broadcast) are skipped the
+// way processHistorySync skips them; a message with no timestamp is skipped too.
+func (e *Engine) recordHistoryStamps(hs *events.HistorySync) {
+	if hs == nil || hs.Data == nil {
+		return
+	}
+	c := e.newCanonicalizer()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.histBatches++
+	if e.histSyncTypes == nil {
+		e.histSyncTypes = map[string]bool{}
+	}
+	if e.histStamps == nil {
+		e.histStamps = map[string]rangefilter.Stamp{}
+	}
+	e.histSyncTypes[hs.Data.GetSyncType().String()] = true
+	for _, conv := range hs.Data.GetConversations() {
+		chatJID, err := types.ParseJID(conv.GetID())
+		if err != nil || skipChatJID(chatJID) {
+			continue
+		}
+		chat := jidString(c.canonicalJID(chatJID))
+		for _, hm := range conv.GetMessages() {
+			wm := hm.GetMessage()
+			if wm == nil {
+				continue
+			}
+			ts := wm.GetMessageTimestamp()
+			if ts == 0 {
+				continue
+			}
+			id := wm.GetKey().GetID()
+			if id == "" {
+				continue
+			}
+			e.histStamps[chat+"/"+id] = rangefilter.Stamp{Chat: chat, TS: time.Unix(int64(ts), 0)}
+		}
+	}
+}
+
+// CountRange answers `count_range` (S1.5, T4-7) with a `range_counts` frame:
+// per-window chat/message counts MEASURED over every history message this
+// process has seen, plus the caveats that make the number honest — which sync
+// types arrived (bootstrap-only means the count will still rise), how far back
+// the received history reaches, how much is still buffered, and how many live
+// messages are held pending the confirm. Read-only: installs and drains nothing.
+func (e *Engine) CountRange() {
+	e.mu.Lock()
+	stamps := make([]rangefilter.Stamp, 0, len(e.histStamps))
+	for _, s := range e.histStamps {
+		stamps = append(stamps, s)
+	}
+	syncTypes := make([]string, 0, len(e.histSyncTypes))
+	for k := range e.histSyncTypes {
+		syncTypes = append(syncTypes, k)
+	}
+	buffered := len(e.pendingHistory)
+	batches := e.histBatches
+	have := e.haveImport
+	r := e.importRange
+	pendingLive := len(e.pendingLive)
+	e.mu.Unlock()
+	sort.Strings(syncTypes)
+
+	now := time.Now()
+	counts := rangefilter.CountByRange(stamps, now)
+	oldest, newest := rangefilter.Bounds(stamps)
+	out := protocol.RangeCounts{
+		Counts:          counts,
+		Chats:           counts[protocol.RangeAll].Chats,
+		Messages:        counts[protocol.RangeAll].Messages,
+		BufferedBatches: buffered,
+		Batches:         batches,
+		SyncTypes:       syncTypes,
+		RangeInstalled:  have,
+		PendingLive:     pendingLive,
+	}
+	if have {
+		out.Range = r
+	}
+	if !oldest.IsZero() {
+		out.OldestTS = protocol.FormatTime(oldest)
+		out.NewestTS = protocol.FormatTime(newest)
+	}
+	e.logf("count_range: %d messages in %d chats across %d payloads (%d buffered, %d live held, types %v)",
+		out.Messages, out.Chats, batches, buffered, pendingLive, syncTypes)
+	_ = e.w.RangeCounts(out)
 }
 
 // processHistorySync ingests one HistorySync batch filtered by the installed

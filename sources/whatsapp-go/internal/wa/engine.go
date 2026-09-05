@@ -61,8 +61,26 @@ type Engine struct {
 	// (drainPendingHistory). Bounded by maxPendingHistory; overflow flushes at the
 	// default so memory stays bounded and no history is lost. Guarded by mu.
 	pendingHistory []*events.HistorySync
-	emittedChans   map[string]bool
-	emittedActs    map[string]bool
+	// pendingLive holds LIVE messages that arrive between pairing and the user's
+	// range confirm (haveImport == false). S1.5: no live ingest between pairing
+	// and confirm — the worker's funnel would drop them anyway (no consent row
+	// yet), and dropping them here too means a message that lands while the
+	// confirm card is open is not lost: it is released, in order, the moment
+	// Import/SetRange installs the window. Bounded by maxPendingLive (oldest
+	// dropped on overflow). Guarded by mu.
+	pendingLive []*events.Message
+	// histStamps records one (chat, ts) per history message SEEN this process —
+	// buffered or processed, in range or not — keyed by "<chat>/<msgID>" so a
+	// re-delivered message counts once. CountRange measures the per-window counts
+	// over it (S1.5 / T4-7: measured, never guessed). Guarded by mu.
+	histStamps map[string]rangefilter.Stamp
+	// histSyncTypes / histBatches record which HistorySync types have arrived
+	// and how many payloads, so the worker can label a bootstrap-only count as
+	// provisional. Guarded by mu.
+	histSyncTypes map[string]bool
+	histBatches   int
+	emittedChans  map[string]bool
+	emittedActs   map[string]bool
 	// emittedChanName / emittedActName remember the LAST name we emitted for a
 	// channel/actor so we only re-emit an UPDATED channel/actor line when a
 	// BETTER name is learned later (contract §R2.4, bug 4). Keyed by canonical
@@ -221,6 +239,8 @@ func New(w *protocol.Writer, logf func(string, ...any), sessionDB, mediaDir, log
 		waLog:               newStderrLogger("wa", logLevel),
 		emittedChans:        map[string]bool{},
 		emittedActs:         map[string]bool{},
+		histStamps:          map[string]rangefilter.Stamp{},
+		histSyncTypes:       map[string]bool{},
 		emittedChanName:     map[string]string{},
 		emittedActName:      map[string]string{},
 		groupNames:          map[string]string{},
@@ -459,6 +479,9 @@ func (e *Engine) Import(r protocol.Range) {
 	// Completion stays owned by the paginator settle / quiet watcher, exactly as
 	// before this buffering existed; resetBackfill then zeroes the counters.
 	e.drainPendingHistory()
+	// Then the live messages held while no window was confirmed (S1.5) — after
+	// the history so a reply that arrived live lands after the message it quotes.
+	e.drainPendingLive()
 
 	run := e.resetBackfill(r, false)
 
@@ -627,8 +650,10 @@ func (e *Engine) SetRange(r protocol.Range) {
 	e.importRange = r
 	e.haveImport = true
 	e.mu.Unlock()
-	// Process any history buffered before the range was known, filtered by r.
+	// Process any history buffered before the range was known, filtered by r,
+	// then release the live messages held while no window was confirmed (S1.5).
 	e.drainPendingHistory()
+	e.drainPendingLive()
 }
 
 // resetBackfill (re)initializes the backfill counters for a new import/extend

@@ -11,6 +11,7 @@ import type {
   Actor,
   AdapterStatus,
   Range,
+  RangeCounts,
   SourceEvent,
   StatusUpdate,
   Stream,
@@ -37,6 +38,13 @@ export interface SourceAdapter {
    * this — their pushed history is buffered daemon-side until the user picks.
    */
   setRange?(range: Range): Promise<void>;
+  /**
+   * Ask the source what each import window would deliver, MEASURED over the
+   * history it already holds (S1.5 / T4-7). Optional: only sources that buffer
+   * a pre-confirm history push can answer. Rejects when the daemon is not up
+   * or does not answer in time — the connect flow shows "counting…" then.
+   */
+  countRange?(): Promise<RangeCounts>;
   /**
    * Send ONE message through the source (P0.6). Optional: only sources with a
    * send path implement it. `approvalToken` is a minted, still-unused

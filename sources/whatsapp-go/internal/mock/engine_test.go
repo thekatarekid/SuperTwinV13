@@ -583,3 +583,49 @@ func TestMockEventsAreHistorical(t *testing.T) {
 		t.Fatal("the mock emitted no events to check")
 	}
 }
+
+// TestMockCountRangeEqualsImportEmission (S1.5 / CNS-09 "events exact"): the
+// `range_counts` frame the mock answers count_range with must equal, window for
+// window, the number of events an `import <window>` of the same fixture emits —
+// a measured count, not a guess, and the number the confirm card shows.
+func TestMockCountRangeEqualsImportEmission(t *testing.T) {
+	fixture := BuiltinFixture()
+	for _, r := range []protocol.Range{protocol.Range24h, protocol.Range7d, protocol.Range90d, protocol.RangeAll} {
+		var countBuf bytes.Buffer
+		counter := New(protocol.NewWriter(&countBuf), func(string, ...any) {}, fixture, t.TempDir())
+		counter.CountRange()
+		var frame map[string]any
+		for _, l := range decodeLines(t, &countBuf) {
+			if l["t"] == "range_counts" {
+				frame = l
+			}
+		}
+		if frame == nil {
+			t.Fatal("count_range emitted no range_counts frame")
+		}
+		if frame["range_installed"] != false {
+			t.Errorf("range_installed = %v before any import, want false", frame["range_installed"])
+		}
+		entry := frame["counts"].(map[string]any)[string(r)].(map[string]any)
+		wantMsgs, wantChats := int(entry["messages"].(float64)), int(entry["chats"].(float64))
+
+		var importBuf bytes.Buffer
+		importer := New(protocol.NewWriter(&importBuf), func(string, ...any) {}, fixture, t.TempDir()).WithQuietWindow(time.Millisecond)
+		importer.StartPairing()
+		importer.Import(r)
+		events, chans := 0, map[string]bool{}
+		for _, l := range decodeLines(t, &importBuf) {
+			switch l["t"] {
+			case "event":
+				events++
+				chans[l["event"].(map[string]any)["channel_ext_id"].(string)] = true
+			}
+		}
+		if events != wantMsgs {
+			t.Errorf("range %s: count_range says %d messages, import emitted %d", r, wantMsgs, events)
+		}
+		if len(chans) != wantChats {
+			t.Errorf("range %s: count_range says %d chats, import touched %d", r, wantChats, len(chans))
+		}
+	}
+}

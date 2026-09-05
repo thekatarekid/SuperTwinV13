@@ -358,7 +358,7 @@ describe("Library › WhatsApp", () => {
     );
   });
 
-  it("PAIRED BUT NEVER IMPORTED: shows the history range picker", async () => {
+  it("PAIRED BUT NOT CONFIRMED: measured counts per window, then one confirm (S1.5)", async () => {
     const stub = stubLibrary();
     stub.routes.set("/api/sources/whatsapp/status", {
       state: "connected",
@@ -366,14 +366,54 @@ describe("Library › WhatsApp", () => {
       paused: false,
       importDone: false,
     });
+    const entry = (chats: number, messages: number) => ({ chats, messages });
+    const counts = {
+      counts: {
+        "24h": entry(3, 41), "3d": entry(5, 120), "7d": entry(12, 1597), "30d": entry(40, 6091),
+        "90d": entry(80, 8131), "180d": entry(120, 15000), "1y": entry(180, 26000), "2y": entry(214, 38412),
+        "3y": entry(214, 38412), "4y": entry(214, 38412), "5y": entry(214, 38412), all: entry(214, 38412),
+      },
+      chats: 214,
+      messages: 38412,
+      oldestTs: "2024-09-01T00:00:00.000Z",
+      bufferedBatches: 4,
+      batches: 4,
+      syncTypes: ["FULL", "INITIAL_BOOTSTRAP"],
+      rangeInstalled: false,
+      pendingLive: 2,
+    };
+    stub.routes.set("/api/sources/whatsapp/counts", {
+      counts,
+      windows: [
+        { range: "7d", chats: 12, messages: 1597, days: 7, accuracy: "measured" },
+        { range: "30d", chats: 40, messages: 6091, days: 30, accuracy: "measured" },
+        { range: "2y", chats: 214, messages: 38412, days: 730, accuracy: "measured" },
+        { range: "all", chats: 214, messages: 38412, days: 735, accuracy: "measured" },
+      ],
+      caveats: ["2 messages arrived since pairing and are held until you confirm — nothing is read before then."],
+    });
+    stub.routes.set("/api/sources/whatsapp/confirm", { ok: true, decision_id: "dec_1" });
     render(<Library />);
     const card = await screen.findByLabelText("connect Choose how far back");
+    // The counts are MEASURED and shown on the windows, with the honest caveat.
+    await waitFor(() => expect(card.textContent).toContain("38,412 messages in 214 chats"));
+    expect(within(card).getByLabelText("counts caveats").textContent).toContain("held until you confirm");
     fireEvent.change(within(card).getByLabelText("import range"), { target: { value: "2y" } });
-    fireEvent.click(within(card).getByText("Import history"));
+    fireEvent.change(within(card).getByLabelText("understand range"), { target: { value: "7d" } });
+    fireEvent.click(within(card).getByText("Confirm and import"));
     await waitFor(() => {
-      const call = stub.calls.find((c) => c.path === "/api/sources/whatsapp/import");
-      expect(call!.body).toEqual({ range: "2y" });
+      const call = stub.calls.find((c) => c.path === "/api/sources/whatsapp/confirm");
+      expect(call).toBeTruthy();
+      const body = call!.body as { index: string; understand: string; card_text: string };
+      expect(body.index).toBe("2y");
+      expect(body.understand).toBe("7d");
+      // The card text travels verbatim: the numbers the user saw are in it.
+      expect(body.card_text).toContain("38,412 messages in 214 chats");
+      expect(body.card_text).toContain("1,597 messages");
+      expect(body.card_text).toContain("held until you confirm");
     });
+    // The old direct import is gone: nothing is imported without the confirm.
+    expect(stub.calls.some((c) => c.path === "/api/sources/whatsapp/import")).toBe(false);
   });
 });
 

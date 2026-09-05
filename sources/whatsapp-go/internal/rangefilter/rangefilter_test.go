@@ -137,3 +137,77 @@ func TestRangeMonotonic(t *testing.T) {
 		t.Error("all must include a 100d-old message")
 	}
 }
+
+// TestCountByRangeMatchesImportFilters (S1.5 / CNS-09 "events exact"): the
+// per-window counts are exactly what an import of that window would emit — the
+// chat-activity filter and the message filter applied in that order.
+func TestCountByRangeMatchesImportFilters(t *testing.T) {
+	h := time.Hour
+	stamps := []Stamp{
+		// Active chat: newest 2h ago, three messages spread over 40 days.
+		{Chat: "a@g.us", TS: now.Add(-2 * h)},
+		{Chat: "a@g.us", TS: now.Add(-5 * 24 * h)},
+		{Chat: "a@g.us", TS: now.Add(-40 * 24 * h)},
+		// Stale chat: newest 10 days ago — outside 24h/3d/7d ENTIRELY, even its
+		// messages that would be "in range" by ts alone are excluded.
+		{Chat: "b@s.whatsapp.net", TS: now.Add(-10 * 24 * h)},
+		{Chat: "b@s.whatsapp.net", TS: now.Add(-12 * 24 * h)},
+		// Ancient chat: 3 years back.
+		{Chat: "c@s.whatsapp.net", TS: now.Add(-3 * 365 * 24 * h)},
+	}
+	got := CountByRange(stamps, now)
+
+	want := map[protocol.Range]protocol.RangeCount{
+		protocol.Range24h:  {Chats: 1, Messages: 1},
+		protocol.Range3d:   {Chats: 1, Messages: 1},
+		protocol.Range7d:   {Chats: 1, Messages: 2},
+		protocol.Range30d:  {Chats: 2, Messages: 4},
+		protocol.Range90d:  {Chats: 2, Messages: 5},
+		protocol.Range180d: {Chats: 2, Messages: 5},
+		protocol.Range1y:   {Chats: 2, Messages: 5},
+		protocol.Range2y:   {Chats: 2, Messages: 5},
+		protocol.Range3y:   {Chats: 3, Messages: 6}, // ts == cutoff is IN range (>=), like MessageInRange
+		protocol.Range4y:   {Chats: 3, Messages: 6},
+		protocol.Range5y:   {Chats: 3, Messages: 6},
+		protocol.RangeAll:  {Chats: 3, Messages: 6},
+	}
+	for _, r := range AllRanges() {
+		if got[r] != want[r] {
+			t.Errorf("CountByRange[%s] = %+v, want %+v", r, got[r], want[r])
+		}
+	}
+	// Cross-check against the filters an import actually runs, message by message.
+	for _, r := range AllRanges() {
+		last := map[string]time.Time{}
+		for _, s := range stamps {
+			if s.TS.After(last[s.Chat]) {
+				last[s.Chat] = s.TS
+			}
+		}
+		n := 0
+		for _, s := range stamps {
+			if ChatInRange(r, last[s.Chat], now) && MessageInRange(r, s.TS, now) {
+				n++
+			}
+		}
+		if n != got[r].Messages {
+			t.Errorf("range %s: filter walk counts %d, CountByRange %d", r, n, got[r].Messages)
+		}
+	}
+	oldest, newest := Bounds(stamps)
+	if !oldest.Equal(now.Add(-3*365*24*h)) || !newest.Equal(now.Add(-2*h)) {
+		t.Errorf("Bounds = %v / %v", oldest, newest)
+	}
+}
+
+func TestCountByRangeEmpty(t *testing.T) {
+	got := CountByRange(nil, now)
+	for _, r := range AllRanges() {
+		if got[r] != (protocol.RangeCount{}) {
+			t.Errorf("empty CountByRange[%s] = %+v, want zero", r, got[r])
+		}
+	}
+	if o, n := Bounds(nil); !o.IsZero() || !n.IsZero() {
+		t.Errorf("Bounds(nil) = %v/%v, want zero", o, n)
+	}
+}

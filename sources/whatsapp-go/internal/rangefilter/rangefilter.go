@@ -65,3 +65,62 @@ func AllRanges() []protocol.Range {
 		protocol.RangeAll,
 	}
 }
+
+// Stamp is the minimum a message contributes to a window count: the chat it
+// belongs to and when it was sent. The count_range flow (V6 P1 S1.5, T4-7)
+// records one per history message as batches arrive, so a per-window count can
+// be MEASURED over what WhatsApp actually sent instead of estimated.
+type Stamp struct {
+	Chat string
+	TS   time.Time
+}
+
+// CountByRange applies the two contract §4 filters to every stamp for every
+// range — exactly the way an import of that range would — and returns what each
+// window would deliver. Filter 1: a chat is in range iff its most recent stamp
+// is at or after the cutoff. Filter 2: a message is in range iff its own ts is
+// at or after the cutoff. A chat that survives filter 1 with no messages past
+// filter 2 cannot happen (its newest message IS at or after the cutoff), so
+// Chats counts chats with at least one in-range message.
+func CountByRange(stamps []Stamp, now time.Time) map[protocol.Range]protocol.RangeCount {
+	last := make(map[string]time.Time, 64)
+	for _, s := range stamps {
+		if cur, ok := last[s.Chat]; !ok || s.TS.After(cur) {
+			last[s.Chat] = s.TS
+		}
+	}
+	out := make(map[protocol.Range]protocol.RangeCount, len(AllRanges()))
+	for _, r := range AllRanges() {
+		cutoff := RangeCutoff(r, now)
+		chats := 0
+		for _, lastTS := range last {
+			if !lastTS.Before(cutoff) {
+				chats++
+			}
+		}
+		msgs := 0
+		for _, s := range stamps {
+			if last[s.Chat].Before(cutoff) {
+				continue
+			}
+			if !s.TS.Before(cutoff) {
+				msgs++
+			}
+		}
+		out[r] = protocol.RangeCount{Chats: chats, Messages: msgs}
+	}
+	return out
+}
+
+// Bounds returns the oldest and newest stamp timestamps (zero when empty).
+func Bounds(stamps []Stamp) (oldest, newest time.Time) {
+	for _, s := range stamps {
+		if oldest.IsZero() || s.TS.Before(oldest) {
+			oldest = s.TS
+		}
+		if newest.IsZero() || s.TS.After(newest) {
+			newest = s.TS
+		}
+	}
+	return oldest, newest
+}

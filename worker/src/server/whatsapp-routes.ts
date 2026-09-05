@@ -15,6 +15,8 @@
 //   GET  /api/sources/:source_id/status
 //   GET  /api/sources/:source_id/stream  (SSE: status|qr|progress|paired|error)
 //   POST /api/sources/:source_id/pair
+//   GET  /api/sources/:source_id/counts   measured per-window counts (S1.5)
+//   POST /api/sources/:source_id/confirm  { index, understand, card_text } (S1.5)
 //   POST /api/sources/:source_id/import   { range }
 //   POST /api/sources/:source_id/extend   { range }
 //   POST /api/sources/:source_id/pause    { paused }
@@ -39,8 +41,14 @@ import { extname, join, resolve, sep } from "node:path";
 
 import { registeredSources } from "../adapters/registry.js";
 import { getSourceSupervisor } from "../adapters/supervisor.js";
+import {
+  confirmWhatsAppWindows,
+  countsCaveats,
+  describeWindows,
+  WindowChoiceError,
+} from "../adapters/whatsapp/connect.js";
 import { mintApprovalToken } from "../approvals/tokens.js";
-import { isRange, type StatusUpdate } from "../adapters/types.js";
+import { isRange, type RangeCounts, type StatusUpdate } from "../adapters/types.js";
 import type { Ingestion } from "../ingest/index.js";
 import {
   getEventById,
@@ -194,6 +202,86 @@ export async function handleSourceRoute(
         await getSourceSupervisor()?.ensureWhatsAppDaemon();
         await ingestion.pair();
         sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      // ---- GET counts (V6 S1.5, T4-7)
+      // What each import window would deliver, MEASURED by the daemon over the
+      // history it holds in its pre-confirm buffer — never a guess. Read-only:
+      // installs no range, ingests nothing. `windows` are the card rows,
+      // `caveats` the honest lines (bootstrap-only, how far back, held live).
+      case "GET counts": {
+        if (!ingestion) return notReady(res);
+        let counts: RangeCounts;
+        try {
+          counts = await ingestion.countRange();
+        } catch (err) {
+          sendJson(res, 503, { error: "counts-unavailable", detail: (err as Error).message });
+          return true;
+        }
+        const now = Date.now();
+        sendJson(res, 200, {
+          counts,
+          windows: describeWindows(counts, now),
+          caveats: countsCaveats(counts, now),
+        });
+        return true;
+      }
+
+      // ---- POST confirm { index, understand, card_text, counts? } (V6 S1.5)
+      // The user's yes. Order matters: card text VERBATIM into `decisions`,
+      // consent row granted pointing at it (T4-10 / CNS-09), THEN the daemon is
+      // told to import the confirmed window — it drains the buffered history
+      // filtered by it and releases the live messages it held, and the funnel,
+      // now with a connected row, admits them. Nothing was ingested before this.
+      case "POST confirm": {
+        if (!ingestion) return notReady(res);
+        const body = (await readJsonBody(req)) as
+          | { index?: unknown; understand?: unknown; card_text?: unknown; counts?: unknown }
+          | undefined;
+        if (!body) {
+          sendJson(res, 400, { error: "invalid JSON body" });
+          return true;
+        }
+        let confirmed;
+        try {
+          confirmed = confirmWhatsAppWindows({
+            index: body.index as never,
+            understand: body.understand as never,
+            cardText: typeof body.card_text === "string" ? body.card_text : "",
+            counts: (body.counts as RangeCounts | undefined) ?? null,
+          });
+        } catch (err) {
+          if (err instanceof WindowChoiceError) {
+            sendJson(res, 400, { error: "invalid-windows", detail: err.message });
+            return true;
+          }
+          throw err;
+        }
+        // The daemon is normally already up from pairing (ensureWhatsAppDaemon);
+        // if it is not — a confirm after a worker restart — start it under the
+        // consent that now exists.
+        const supervisor = getSourceSupervisor();
+        if (supervisor && !supervisor.isRunning("whatsapp")) {
+          const outcome = await supervisor.start("whatsapp");
+          if (!outcome.started && outcome.reason !== "already-running") {
+            sendJson(res, 500, {
+              error: "start-failed",
+              reason: outcome.reason,
+              detail: outcome.detail,
+              consent: confirmed.consent,
+              decision_id: confirmed.decisionId,
+            });
+            return true;
+          }
+        }
+        await ingestion.importRange(confirmed.choice.index);
+        sendJson(res, 200, {
+          ok: true,
+          consent: confirmed.consent,
+          decision_id: confirmed.decisionId,
+          floors: confirmed.floors,
+        });
         return true;
       }
 

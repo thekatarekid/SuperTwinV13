@@ -73,6 +73,7 @@ func TestChannelBusinessFlag(t *testing.T) {
 func TestBusinessFlagSurvivesNameUpgrade(t *testing.T) {
 	e, buf := newTestEngine()
 	biz := mustJID(t, "919538251513@s.whatsapp.net")
+	e.SetRange(protocol.Range7d) // S1.5: live is held until a window is confirmed
 
 	// First sight: the certificate names it and marks it a business.
 	e.onMessage(&events.Message{
@@ -109,6 +110,7 @@ func TestBusinessFlagSurvivesNameUpgrade(t *testing.T) {
 func TestBusinessFlagReachesAnAlreadyNamedChat(t *testing.T) {
 	e, buf := newTestEngine()
 	biz := mustJID(t, "919538251513@s.whatsapp.net")
+	e.SetRange(protocol.Range7d) // S1.5: live is held until a window is confirmed
 	e.contactNameFn = func(types.JID) string { return "Jio Support" }
 
 	e.onMessage(&events.Message{

@@ -41,6 +41,12 @@ type Engine interface {
 	// this a restarted daemon has nothing to paginate from and Extend is a
 	// silent no-op. The worker sends `seed_anchors` at connect and before extend.
 	SeedAnchors(anchors []protocol.Anchor)
+	// CountRange answers a `count_range` command with a `range_counts` frame:
+	// per-window chat/message counts MEASURED over the history the daemon holds
+	// (V6 P1 S1.5, T4-7). The connect flow calls it after pairing, while the
+	// post-pairing HistorySync sits in the pre-range buffer, so the confirm card
+	// shows what each window would actually import. Never estimates.
+	CountRange()
 	// Pause halts event emission.
 	Pause()
 	// Resume resumes event emission.
@@ -131,6 +137,10 @@ func handleCommand(engine Engine, w *protocol.Writer, logf func(string, ...any),
 		// Restore back-pagination anchors from the worker's DB. Sent at connect
 		// (and before extend) so a restarted daemon can still page older history.
 		engine.SeedAnchors(cmd.Anchors)
+	case "count_range":
+		// Measured per-window counts over buffered/seen history (S1.5). Read-only:
+		// installs nothing, drains nothing, emits one `range_counts` frame.
+		engine.CountRange()
 	case "send_message":
 		// The ONLY send path, and it is code-gated (spec §2.13, P0.6): a
 		// send_message without a non-empty, never-before-seen approval token is

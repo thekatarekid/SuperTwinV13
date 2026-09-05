@@ -24,6 +24,7 @@ import type {
   AdapterStatus,
   MediaInfo,
   Range,
+  RangeCounts,
   SourceEvent,
   StatusUpdate,
   Stream,
@@ -797,6 +798,20 @@ export class Ingestion {
 
   async pair(): Promise<void> {
     await this.adapter.startPairing();
+  }
+
+  /**
+   * Measured per-window counts from the daemon (S1.5 / T4-7) — what each
+   * import window would deliver, over the history it has actually received.
+   * Read-only: no range is installed, nothing is ingested. Rejects when the
+   * source cannot answer (no daemon, no count support, timeout).
+   */
+  async countRange(): Promise<RangeCounts> {
+    const adapter = this.adapter;
+    if (typeof adapter.countRange !== "function") {
+      throw new Error("COUNTS_UNAVAILABLE: source cannot measure windows");
+    }
+    return adapter.countRange();
   }
 
   async importRange(range: Range): Promise<void> {

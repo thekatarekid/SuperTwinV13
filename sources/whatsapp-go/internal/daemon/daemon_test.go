@@ -20,6 +20,7 @@ type fakeEngine struct {
 	lastRange    protocol.Range
 	lastAnchors  []protocol.Anchor
 	sends        []string // "to|text" per SendMessage call
+	countCalls   int
 }
 
 func (f *fakeEngine) Start(ctx context.Context) error { return nil }
@@ -35,6 +36,11 @@ func (f *fakeEngine) SetRange(r protocol.Range) {
 func (f *fakeEngine) SeedAnchors(anchors []protocol.Anchor) {
 	f.mu.Lock()
 	f.lastAnchors = anchors
+	f.mu.Unlock()
+}
+func (f *fakeEngine) CountRange() {
+	f.mu.Lock()
+	f.countCalls++
 	f.mu.Unlock()
 }
 func (f *fakeEngine) Pause()  {}
@@ -241,5 +247,23 @@ func TestShutdownReturnsZero(t *testing.T) {
 	fe2.mu.Unlock()
 	if !ok {
 		t.Fatal("shutdownWithDeadline should call engine.Shutdown() within the deadline")
+	}
+}
+
+// TestCountRangeCommandDispatches proves the `count_range` command (S1.5) reaches
+// engine.CountRange and touches nothing else: no range installed, no import.
+func TestCountRangeCommandDispatches(t *testing.T) {
+	eng := &fakeEngine{}
+	var buf bytes.Buffer
+	w := protocol.NewWriter(&buf)
+	handleCommand(eng, w, func(string, ...any) {}, protocol.Command{Cmd: "count_range"}, func() {})
+	eng.mu.Lock()
+	calls, rangeSet := eng.countCalls, eng.rangeSet
+	eng.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("CountRange called %d times, want 1", calls)
+	}
+	if rangeSet {
+		t.Fatal("count_range must not install a range")
 	}
 }

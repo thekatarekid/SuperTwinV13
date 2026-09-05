@@ -256,11 +256,10 @@ const ZERO_USAGE: Usage = {
   outputTokens: 0,
 };
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((r) => {
-    const t = setTimeout(r, ms);
-    t.unref?.();
-  });
+// NOT unref'd: a retry wait is live work. An unref'd timer let a process with
+// nothing else on its loop (the eval CLI, a one-shot script) exit 0 silently
+// mid-ladder, before the retry, the ledger status and the trace flush (S0-gate).
+const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function sumUsage(a: Usage, b: Usage): Usage {
   const cost =

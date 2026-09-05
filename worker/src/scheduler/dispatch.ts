@@ -626,12 +626,19 @@ export function startDispatcher(opts: DispatcherOptions = {}): DispatcherHandle 
       for (const bundle of slotted) route(bundle);
       const orphans = orphanScan(now, cfg);
       // Orphans re-enter through the same CAT-05 gate: a Cat-2 orphan waits
-      // for Cat-1 to finish exactly like a planned Cat-2 bundle would.
-      const admittedOrphans = orphans.bundles.filter(
-        (b) =>
-          !isDigestBundle(b) ||
-          admitWork({ id: b.streamId, lane: b.lane, kind: "data", category: "cat2" }, gate),
-      );
+      // for Cat-1 to finish exactly like a planned Cat-2 bundle would — AND
+      // through the same slot gate (S0.3 / T0-1, BND-08): the slot cap is
+      // absolute per tick, planned + orphan combined. orphanScan yields
+      // streams oldest-rowid-first, so the slice keeps the oldest orphans;
+      // the rest stay undispatched and re-enter on a later window.
+      const freeSlots = Math.max(0, cfg.slots - slotted.length);
+      const admittedOrphans = orphans.bundles
+        .filter(
+          (b) =>
+            !isDigestBundle(b) ||
+            admitWork({ id: b.streamId, lane: b.lane, kind: "data", category: "cat2" }, gate),
+        )
+        .slice(0, freeSlots);
       for (const bundle of admittedOrphans) route(bundle);
       if (slotted.length > 0 || orphans.orphanCount > 0) {
         log(

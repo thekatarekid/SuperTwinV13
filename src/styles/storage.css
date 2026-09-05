@@ -1,0 +1,210 @@
+/* ==========================================================================
+   Library › Storage + the confirm card — V6 P1 S1.8 (T4-10, T5-6, T5-7).
+   Two bars on one track per source; four numbers each with its own accuracy
+   label; two disk budgets with two controls.
+   ========================================================================== */
+
+.subnav-row {
+  gap: var(--sp-2);
+}
+
+.library-storage-pill {
+  margin-left: var(--sp-2);
+}
+
+/* ---- storage panel ------------------------------------------------------ */
+
+.storage-head {
+  margin-bottom: var(--sp-4);
+}
+
+.storage-lead {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--ink);
+  margin: 0 0 var(--sp-1);
+}
+
+.storage-lead strong {
+  font-weight: 400;
+}
+
+.storage-copy {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.storage-source {
+  padding: var(--sp-3) 0;
+  border-top: var(--glass-border);
+}
+
+.storage-source-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.storage-source-head .meta {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* The one track: the outer bar is everything kept (searchable), the inner
+   bar — same left edge, same height — is the subset sent to the model. */
+.storage-track {
+  position: relative;
+  height: 14px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--glass-1-bg);
+}
+
+.storage-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width 240ms ease;
+}
+
+.storage-bar-searchable {
+  background: rgba(74, 95, 196, 0.22);
+}
+
+.storage-bar-understood {
+  background: var(--accent);
+}
+
+.storage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-2);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.storage-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.storage-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.storage-swatch-searchable {
+  background: rgba(74, 95, 196, 0.22);
+}
+
+.storage-swatch-understood {
+  background: var(--accent);
+}
+
+.storage-note {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  max-width: 72ch;
+}
+
+.storage-budgets {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: var(--glass-border);
+}
+
+.storage-budget {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.storage-budget input[type="number"] {
+  width: 7ch;
+}
+
+.storage-budget-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+/* ---- confirm card -------------------------------------------------------- */
+
+.confirm-card {
+  padding: var(--sp-4);
+}
+
+.confirm-windows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+  margin-bottom: var(--sp-3);
+}
+
+.confirm-window-hint {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.confirm-numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.confirm-number {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--glass-2-bg);
+  border: var(--glass-border);
+}
+
+.confirm-number-name {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.confirm-number-value {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--ink);
+}
+
+.confirm-number-accuracy {
+  align-self: flex-start;
+}
+
+.confirm-number-note {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+.confirm-text {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--glass-1-bg);
+}

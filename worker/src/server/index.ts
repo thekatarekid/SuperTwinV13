@@ -144,6 +144,9 @@ import { handleSettingsRoute } from "./settings-routes.js";
 import { handleAssistRoute } from "./assist-routes.js";
 // Freshness chip + Library screens (P2.4, spec §5.4 / §14.3.2).
 import { handleLibraryRoute } from "./library-routes.js";
+// V6 S1.8: confirm card + consent rows; Library storage (two bars, two budgets).
+import { handleConsentRoute } from "./consent-routes.js";
+import { handleLibraryStorageRoute } from "./library-storage-routes.js";
 // SuperTwin Browser (P3.4, spec §12): status / kill-switch / connect-accounts.
 import { browserManager, handleBrowserRoute } from "../browser/routes.js";
 // Task run + approvals glue (P3.5, spec §14.6): the task modal's live states,
@@ -811,8 +814,18 @@ async function handle(
 
   // Freshness ("Knows you: X → Y") + Library screens (P2.4): per-source
   // capture views, per-stream pause, and the honest cascading screen delete.
+  if (path.startsWith("/api/library/")) {
+    const handled = await handleLibraryStorageRoute(req, res);
+    if (handled) return;
+  }
   if (path === "/api/freshness" || path.startsWith("/api/library/")) {
     const handled = await handleLibraryRoute(req, res);
+    if (handled) return;
+  }
+
+  // V6 S1.8: the confirm card (preview + confirm) and the consent rows.
+  if (path === "/api/consent" || path.startsWith("/api/consent/")) {
+    const handled = await handleConsentRoute(req, res);
     if (handled) return;
   }
 

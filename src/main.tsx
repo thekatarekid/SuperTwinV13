@@ -16,6 +16,7 @@ import "./styles/tokens.css";
 import "./styles/app.css";
 // Screen-scoped chrome that owns its own rules (Settings subtab row).
 import "./styles/settings.css";
+import "./styles/storage.css";
 
 // Inside Tauri the body stays transparent (vibrancy paints beneath it);
 // in a plain browser app.css supplies the stand-in gradient.

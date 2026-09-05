@@ -1317,3 +1317,125 @@ export const saveTracesRetention = (
   days: number,
 ): Promise<{ retention: { traces_days: number } }> =>
   request("/api/settings/data/retention", post({ traces_days: days }));
+
+// ---- V6 S1.8: confirm card + consent rows ----------------------------------
+
+export type CardAccuracy = "exact" | "about" | "estimate ±40%" | "estimate ±30%";
+
+export interface CardNumber {
+  value: number | null;
+  unit: "events" | "usd" | "seconds" | "bytes";
+  accuracy: CardAccuracy;
+  display: string;
+  note: string | null;
+}
+
+export interface ConfirmCardData {
+  version: string;
+  source: string;
+  indexAll: boolean;
+  indexFrom: string | null;
+  understandFrom: string | null;
+  understandDays: number;
+  indexDays: number | null;
+  events: CardNumber;
+  cost: CardNumber;
+  time: CardNumber;
+  disk: CardNumber;
+  stopAskUsd: number;
+  computedAt: string;
+  text: string;
+}
+
+export interface CardCounts {
+  index: number | null;
+  understand: number | null;
+  exact: boolean;
+}
+
+export interface ConsentWindowsRequest {
+  source: string;
+  index_all: boolean;
+  index_from: string | null;
+  understand_from: string | null;
+  counts?: CardCounts | null;
+  scope?: unknown;
+}
+
+export interface ConsentRowView {
+  id: string;
+  source: string;
+  state: "connected" | "paused" | "disconnected" | "revoked";
+  granted_at: string;
+  granted_build: string | null;
+  index_all: boolean;
+  index_from: string | null;
+  understand_from: string | null;
+  decision_id: string | null;
+  card_text: string | null;
+}
+
+export interface ConfirmConsentResult {
+  consent: {
+    id: string;
+    source: string;
+    state: string;
+    index_all: boolean;
+    index_from: string | null;
+    understand_from: string | null;
+    decision_id: string;
+  };
+  card: ConfirmCardData;
+  decision_id: string;
+  change: "granted" | "widened" | "shortened" | "unchanged";
+  replayed: number;
+  started: string;
+}
+
+export const previewConsentCard = (req: ConsentWindowsRequest): Promise<{ card: ConfirmCardData }> =>
+  request("/api/consent/card", post(req));
+export const confirmConsent = (req: ConsentWindowsRequest): Promise<ConfirmConsentResult> =>
+  request("/api/consent/confirm", post(req));
+export const fetchConsents = (): Promise<{ consents: ConsentRowView[] }> => request("/api/consent");
+
+// ---- V6 S1.8: Library storage — two bars, two budgets --------------------------
+
+export interface TierBar {
+  events: number;
+  bytes: number;
+  from: string | null;
+  to: string | null;
+}
+
+export interface SourceStorage {
+  source: string;
+  label: string;
+  consent: {
+    state: "connected" | "paused" | "disconnected" | "revoked";
+    index_all: boolean;
+    index_from: string | null;
+    understand_from: string | null;
+    decision_id: string | null;
+  } | null;
+  searchable: TierBar;
+  understood: TierBar;
+  searchable_only: TierBar & { label: "searchable-only"; note: string };
+}
+
+export interface DiskBudgets {
+  events_bytes_per_year: number;
+  media_bytes: number;
+  media_retention_days: number;
+}
+
+export interface StorageOverview {
+  disk: { free_bytes: number | null; total_bytes: number | null };
+  used: { events_derived_bytes: number; media_bytes: number };
+  budgets: DiskBudgets;
+  sources: SourceStorage[];
+  copy: { lead: string; searchable_only: string };
+}
+
+export const fetchLibraryStorage = (): Promise<StorageOverview> => request("/api/library/storage");
+export const saveDiskBudgets = (patch: Partial<DiskBudgets>): Promise<{ budgets: DiskBudgets }> =>
+  request("/api/library/budgets", post(patch));

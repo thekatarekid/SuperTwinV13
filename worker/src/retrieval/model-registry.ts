@@ -334,6 +334,82 @@ export function embeddingModelSpecBytes(spec: EmbeddingModelSpec): number {
 }
 
 // ---------------------------------------------------------------------------
+// The reranker (V6 P1 S2.4; Product_V6 §23 — "bge-reranker class, local").
+//
+// A cross-encoder reads (question, passage) PAIRS and returns one relevance
+// logit per pair. It is a different kind of model from the encoders above — it
+// produces no vectors and indexes nothing — but its files are fetched, pinned,
+// verified and located exactly the same way, so it is the same record shape
+// with `kind: "reranker"`: the download manager and the presence check work on
+// it unchanged, and it lives in its own list so nothing that enumerates
+// ENCODERS (the picker, the swap, the benchmark) ever offers it as one.
+//
+// Digests and lengths were read from huggingface.co at the pinned revision
+// (LFS oid = sha256 for the large files; the small ones fetched and hashed).
+// ---------------------------------------------------------------------------
+
+export interface RerankerModelSpec extends EmbeddingModelSpec {
+  kind: "reranker";
+}
+
+/**
+ * bge-reranker-base: 12-layer XLM-R cross-encoder, 278 MB int8, multilingual
+ * (the same tokenizer family as E5). `dim` is the classifier head: one logit.
+ * The prefixes are empty because a cross-encoder takes the pair as-is.
+ */
+export const RERANKER_MODEL: RerankerModelSpec = {
+  kind: "reranker",
+  id: "Xenova/bge-reranker-base",
+  upstream: "BAAI/bge-reranker-base",
+  dim: 1,
+  source: "https://huggingface.co/Xenova/bge-reranker-base",
+  revision: "280bcc27a84e0b898c251e06fddb25171bd9b101",
+  files: [
+    {
+      path: "config.json",
+      bytes: 782,
+      sha256: "b6575b9d5be20d6747417c8e20c5a0db1636356e0b6d422d7244c628423c4d4c",
+    },
+    {
+      path: "tokenizer_config.json",
+      bytes: 443,
+      sha256: "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b",
+    },
+    {
+      path: "special_tokens_map.json",
+      bytes: 279,
+      sha256: "d5469a60db23249c7f8945013d78df30b44b6bf686c6bb4740f4223f77b1b535",
+    },
+    {
+      path: "tokenizer.json",
+      bytes: 17_098_079,
+      sha256: "48564c5c7d3fa64d85d95e65414a542385f88b0f128fd8d4163fd7a57f2be05c",
+    },
+    {
+      path: "onnx/model_quantized.onnx",
+      bytes: 279_301_077,
+      sha256: "dd98f3e67837d23210a6b7550c08cced4f61845b940ac45be3565840a10f3244",
+    },
+  ],
+  queryPrefix: "",
+  passagePrefix: "",
+  dtype: "q8",
+  label: "BGE Reranker Base",
+  note:
+    "Re-reads the fused candidates as (question, passage) pairs and re-orders " +
+    "them. 278 MB, local, no vectors — retrieval works without it, just less precisely.",
+  bundled: false,
+  recommended: true,
+};
+
+export const RERANKER_MODELS: readonly RerankerModelSpec[] = [RERANKER_MODEL];
+
+export function findRerankerModel(id: string | null | undefined): RerankerModelSpec | null {
+  if (!id) return null;
+  return RERANKER_MODELS.find((m) => m.id === id) ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Which one is active.
 //
 // Stored in app_state rather than a column, for the same reason every other

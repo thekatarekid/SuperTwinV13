@@ -102,7 +102,29 @@ export {
   MIN_SIMILARITY_SIGMAS,
   MIN_SIMILARITY_SIGMAS_IN_POOL,
   type SemanticStatus,
+  // V6 S2.4: bounded candidates → RRF → cross-encoder (T5-2).
+  hybridSearch,
+  rrfFuse,
+  candidateMatch,
+  semanticScanStats,
+  FTS_CANDIDATE_LIMIT,
+  CHUNK_CANDIDATE_LIMIT,
+  MAX_CANDIDATE_TERM_DF,
+  RRF_K,
+  RERANK_WINDOW,
+  type HybridHit,
+  type HybridSearchOptions,
+  type SemanticScanStats,
 } from "./semantic.js";
+export {
+  getReranker,
+  setReranker,
+  forgetReranker,
+  rerankerStatus,
+  LEXICAL_OVERLAP_RERANKER,
+  type Reranker,
+  type RerankerStatus,
+} from "./reranker.js";
 export {
   startSemanticIndexer,
   stopSemanticIndexer,

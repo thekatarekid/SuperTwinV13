@@ -25,3 +25,29 @@ export async function pipeline(task, model, options) {
     return { data, dims: [input.length, dim] };
   };
 }
+
+// The reranker's half of the seam (reranker.ts, V6 S2.4): a tokenizer that
+// records the (query, passage) pairs it was handed, and a sequence-classification
+// head whose logit for each pair is the passage length minus the query length,
+// so "did the pairs arrive, in order, and did sigmoid run" is observable.
+export const AutoTokenizer = {
+  async from_pretrained(model) {
+    globalThis.__transformersStub.calls.push({ tokenizer: model });
+    return function tokenize(text, options) {
+      globalThis.__transformersStub.calls.push({ tokenize: [...text], options: { ...options, text_pair: [...options.text_pair] } });
+      return { text: [...text], text_pair: [...options.text_pair] };
+    };
+  },
+};
+
+export const AutoModelForSequenceClassification = {
+  async from_pretrained(model, options) {
+    globalThis.__transformersStub.calls.push({ classifier: model, options });
+    return async function classify(inputs) {
+      const n = inputs.text.length;
+      const data = new Float32Array(n);
+      for (let i = 0; i < n; i++) data[i] = (inputs.text_pair[i].length - inputs.text[i].length) / 10;
+      return { logits: { data, dims: [n, 1] } };
+    };
+  },
+};

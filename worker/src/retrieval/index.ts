@@ -130,6 +130,39 @@ export {
   type ChunkIndexStatus,
 } from "./chunk-index.js";
 export { ensureDefaultEmbeddingModelDownload, type FirstRunDownloadOutcome } from "./default-model.js";
+// V6 S2.5: structured (SQL over typed fields) and time window (unscored range scan).
+export {
+  structuredQuery,
+  structuredForQuery,
+  planStructured,
+  resolvePeriod,
+  lastMonthRange,
+  thisMonthRange,
+  MERCHANT_CATEGORIES,
+  STATUS_WORDS,
+  DEFAULT_LIST_LIMIT,
+  DEFAULT_CITATION_ROWS,
+  type StructuredOp,
+  type StructuredFilters,
+  type StructuredQuery,
+  type StructuredResult,
+  type StructuredRow,
+  type StructuredPlan,
+  type CurrencySum,
+} from "./structured.js";
+export {
+  resolveTimeWindow,
+  timeWindowScan,
+  timeWindowForQuery,
+  windowFor,
+  DAY_PARTS,
+  DEFAULT_TIME_WINDOW_LIMIT,
+  type DayPart,
+  type TimeWindow,
+  type TimeWindowEvent,
+  type TimeWindowResult,
+  type TimeWindowScanOptions,
+} from "./time-window.js";
 
 import { readChannelEventIds } from "../db/retrieval.js";
 import { formatContextBlock, DEFAULT_CONTEXT_CHARS } from "./format.js";

@@ -39,7 +39,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
-import { logExtractionRun, writeRunLedger, type LogRunParams } from "../db/index.js";
+import {
+  addUsage as meterQuotaUsage,
+  logExtractionRun,
+  writeRunLedger,
+  type AddUsageParams,
+  type LogRunParams,
+} from "../db/index.js";
 import {
   recordRun,
   type RecordRunParams,
@@ -187,6 +193,11 @@ export interface RunnerDeps {
   recordRun?: (p: RecordRunParams) => string;
   /** The `extraction_runs` mirror on its own. See {@link recordRun} above. */
   logExtractionRun?: (p: LogRunParams) => void;
+  /**
+   * The quota meter (`db.addUsage`, S0.7 / T0-11, SPD-08). Like the mirror it
+   * defaults OFF when `recordRun` is swapped — no database, no meter.
+   */
+  addUsage?: (p: AddUsageParams) => void;
   quarantine?: (row: QuarantineRow) => void;
   newId?: () => string;
   now?: () => Date;
@@ -277,6 +288,7 @@ export class PromptRunner {
   private readonly pool: ResourcePool;
   private readonly write: (p: RecordRunParams) => string;
   private readonly mirror: (p: LogRunParams) => void;
+  private readonly meter: (p: AddUsageParams) => void;
   private readonly park: (row: QuarantineRow) => void;
   private readonly newId: () => string;
   private readonly now: () => Date;
@@ -289,6 +301,7 @@ export class PromptRunner {
     // it out has said it has no database, so the mirror must not go looking
     // for one either. Both halves are real, or neither is.
     this.mirror = deps.logExtractionRun ?? (deps.recordRun ? noMirror : logExtractionRun);
+    this.meter = deps.addUsage ?? (deps.recordRun ? () => {} : meterQuotaUsage);
     this.park = deps.quarantine ?? defaultQuarantine;
     this.newId = deps.newId ?? randomUUID;
     this.now = deps.now ?? (() => new Date());
@@ -480,6 +493,15 @@ export class PromptRunner {
             return rid;
           })()
         : writeRunLedger({ run, log });
+    // Background passes spend against the same rolling window as the chat turn
+    // (T0-11, SPD-08): one quota_usage row per extraction_runs row, always.
+    this.meter({
+      inputTokens: call.usage.inputTokens,
+      cacheCreationInputTokens: call.usage.cacheCreationInputTokens,
+      cacheReadInputTokens: call.usage.cacheReadInputTokens,
+      outputTokens: call.usage.outputTokens,
+      runCount: 1,
+    });
     return id;
   }
 
@@ -514,6 +536,14 @@ export class PromptRunner {
         { code: call.errorCode, message: call.errorMessage },
         retriesSpent,
       );
+      if (decision.breakerTripped) {
+        // The lane's breaker just tripped on this failure (S0.7, SPD-07): the
+        // lane is paused 30 min with a banner up, and this unit is quarantined
+        // now rather than waiting the pause out to retry — that is the
+        // `silent-retry` shape the eval names as wrong.
+        log(call, "quarantined");
+        return call;
+      }
       if (decision.action === "pause" && pauses < maxPauses) {
         // The pool holds the pause; the next acquire waits it out. The unit's
         // retry budget is deliberately untouched (§4.6.1).

@@ -10,7 +10,17 @@
 //      invocation lands in the trace store. A call without a trace throws in
 //      dev — there is no untraced path out of this module.
 //   2. EVERY CALL WRITES A `runs` ROW (+ its `extraction_runs` mirror), via
-//      the same recordRun/logExtractionRun pair the wire runner uses.
+//      the same recordRun/logExtractionRun pair the wire runner uses — and
+//      METERS the call into the rolling quota window (`db.addUsage`, S0.7 /
+//      T0-11, SPD-08): one `quota_usage` row per `extraction_runs` row, so a
+//      background pass spends against the same window the chat turn does.
+//   2b. THE POOL'S ERROR POLICY IS HONOURED (S0.7 / T0-10, SPD-07). Every
+//      outcome is reported to `pool.noteSuccess` / `pool.noteFailure` and the
+//      returned decision is followed: a refusal pauses the lane (the pool holds
+//      the next acquire), an ordinary failure walks 2 s / 10 s / 30 s and is
+//      then quarantined, and ten consecutive non-refusal failures trip the
+//      lane's breaker — 30 minutes paused, banner up. A pool overflow
+//      (BND-12) is returned to the caller as backpressure, never retried.
 //   3. ONE REPAIR ROUND. An answer that does not parse as JSON matching the
 //      pass's schema is re-asked once, shown its own previous answer verbatim;
 //      a second failure quarantines the unit with the parse error.
@@ -30,7 +40,13 @@ import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
 import { reasoningForPass } from "./reasoning.js";
-import { logExtractionRun, writeRunLedger, type LogRunParams } from "../db/index.js";
+import {
+  addUsage as meterQuotaUsage,
+  logExtractionRun,
+  writeRunLedger,
+  type AddUsageParams,
+  type LogRunParams,
+} from "../db/index.js";
 import {
   recordRun,
   type RecordRunParams,
@@ -38,7 +54,13 @@ import {
   type RunRole,
 } from "../db/run-accounting.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
-import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
+import {
+  isPoolOverflow,
+  resourcePool,
+  type LaneKey,
+  type LlmLane,
+  type ResourcePool,
+} from "../providers/pool.js";
 import type { Provider, Usage } from "../providers/types.js";
 import {
   annotateTrace,
@@ -203,6 +225,15 @@ export interface JsonPassDeps {
   /** Replaces BOTH accounting halves — a test with no DB observes every call. */
   recordRun?: (p: RecordRunParams) => string;
   logExtractionRun?: (p: LogRunParams) => void;
+  /** The quota meter (`db.addUsage`). Defaults off when `recordRun` is swapped. */
+  addUsage?: (p: AddUsageParams) => void;
+  /**
+   * Lane pauses one call waits out before giving up (default 3, as the wire
+   * runner). The pool serves the pause; this only bounds one unit's patience.
+   */
+  maxPauses?: number;
+  /** Waits out a retry delay (2 s / 10 s / 30 s). Tests inject a no-op. */
+  sleep?: (ms: number) => Promise<void>;
   quarantine?: (row: {
     id: string;
     unitKind: string;
@@ -225,7 +256,13 @@ const ZERO_USAGE: Usage = {
   outputTokens: 0,
 };
 
-function addUsage(a: Usage, b: Usage): Usage {
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((r) => {
+    const t = setTimeout(r, ms);
+    t.unref?.();
+  });
+
+function sumUsage(a: Usage, b: Usage): Usage {
   const cost =
     a.costUsd === undefined && b.costUsd === undefined
       ? undefined
@@ -385,7 +422,9 @@ async function callOnce<T>(
       ok: false,
       text,
       usage,
-      errorCode: failureCode ?? "CLI_ERROR",
+      // A full pool is backpressure, not a model failure: it carries its own
+      // code so dispatch() can hand it back without touching the breaker.
+      errorCode: isPoolOverflow(err) ? "POOL_OVERFLOW" : (failureCode ?? "CLI_ERROR"),
       errorMessage: err instanceof Error ? err.message : String(err),
       startedAt,
       endedAt: now().toISOString(),
@@ -395,12 +434,80 @@ async function callOnce<T>(
   }
 }
 
+/**
+ * One call plus the pool's §4.6 ladder around it (T0-10, mirroring
+ * prompts/runner.ts `dispatch`). Every outcome is reported to the pool; the
+ * decision it returns is followed:
+ *
+ *   pause      — a refusal: the pool holds the lane; wait it out and re-call,
+ *                up to `maxPauses` times. The unit's retry budget is untouched.
+ *   retry      — an ordinary failure: sleep the ladder's delay and re-call.
+ *   quarantine — the ladder is spent: hand the failure back.
+ *   cancelled  — hand it back untouched.
+ *   breaker    — this failure was the lane's tenth in a row (SPD-07): the lane
+ *                is paused 30 min and the banner is up. The unit is handed back
+ *                NOW, whatever rung of the ladder it was on — sitting on the
+ *                pause and re-calling afterwards is the `silent-retry` shape.
+ *
+ * Every attempt that is followed by another one writes its own `runs` row as
+ * "retried" here; the final attempt is logged by the caller, who alone knows
+ * whether it was clean, repaired or quarantined. A POOL_OVERFLOW (BND-12) is
+ * returned at once: nothing ran, the lane is not at fault, and the right
+ * response is upstream backpressure — never a retry from inside the call.
+ */
+async function dispatch<T>(
+  spec: JsonPassSpec<T>,
+  system: string,
+  userText: string,
+  deps: JsonPassDeps,
+  sink: CallOutcome[],
+): Promise<CallOutcome> {
+  const pool = deps.pool ?? resourcePool;
+  const lane: LaneKey = `llm:${spec.lane ?? "understanding"}`;
+  const maxPauses = deps.maxPauses ?? 3;
+  const sleep = deps.sleep ?? defaultSleep;
+  let retriesSpent = 0;
+  let pauses = 0;
+  for (;;) {
+    const call = await callOnce(spec, system, userText, deps);
+    sink.push(call);
+    if (call.ok) {
+      pool.noteSuccess(lane);
+      return call;
+    }
+    if (call.errorCode === "POOL_OVERFLOW") return call;
+    const decision = pool.noteFailure(
+      lane,
+      { code: call.errorCode, message: call.errorMessage },
+      retriesSpent,
+    );
+    if (decision.breakerTripped) return call;
+    if (decision.action === "pause" && pauses < maxPauses) {
+      pauses += 1;
+      logRun(spec, call, "retried", deps);
+      continue;
+    }
+    if (decision.action === "retry") {
+      retriesSpent += 1;
+      logRun(spec, call, "retried", deps);
+      await sleep(decision.waitMs);
+      continue;
+    }
+    return call;
+  }
+}
+
 function logRun<T>(
   spec: JsonPassSpec<T>,
   call: CallOutcome,
   status: "ok" | "retried" | "quarantined" | "error",
   deps: JsonPassDeps,
 ): void {
+  // The quota meter rides beside the mirror (T0-11, SPD-08): a call that
+  // wrote an `extraction_runs` row wrote a `quota_usage` row, unconditionally
+  // — the spend of a timed-out or cancelled call is real, and mostly cache.
+  const meter =
+    deps.addUsage ?? (deps.recordRun ? () => {} : meterQuotaUsage);
   const model = spec.model ?? modelForPass(spec.pass);
   const run: RecordRunParams = {
     id: call.runId,
@@ -450,6 +557,13 @@ function logRun<T>(
     // transaction — a run can no longer exist without its trace.
     writeRunLedger({ run, log });
   }
+  meter({
+    inputTokens: call.usage.inputTokens,
+    cacheCreationInputTokens: call.usage.cacheCreationInputTokens,
+    cacheReadInputTokens: call.usage.cacheReadInputTokens,
+    outputTokens: call.usage.outputTokens,
+    runCount: 1,
+  });
 }
 
 function parkUnit<T>(
@@ -509,17 +623,19 @@ async function execute<T>(
     ...(parts.output !== undefined ? { output: parts.output } : {}),
     responses: calls.map((c) => c.text),
     runIds: calls.map((c) => c.runId),
-    usage: calls.reduce((acc, c) => addUsage(acc, c.usage), { ...ZERO_USAGE }),
+    usage: calls.reduce((acc, c) => sumUsage(acc, c.usage), { ...ZERO_USAGE }),
     ...(parts.error ? { error: parts.error } : {}),
     ...(parts.quarantineId ? { quarantineId: parts.quarantineId } : {}),
   });
 
-  const first = await callOnce(spec, system, spec.user, deps);
-  calls.push(first);
+  const first = await dispatch(spec, system, spec.user, deps, calls);
   if (!first.ok) {
     const code = String(first.errorCode ?? "CLI_ERROR");
-    logRun(spec, first, code === "CANCELLED" ? "error" : "quarantined", deps);
-    if (code === "CANCELLED") {
+    // A cancel and a full pool are both "not now", not the unit's fault:
+    // logged as an error, handed back unquarantined.
+    const handBack = code === "CANCELLED" || code === "POOL_OVERFLOW";
+    logRun(spec, first, handBack ? "error" : "quarantined", deps);
+    if (handBack) {
       return finish("failed", { error: { code, message: first.errorMessage ?? "" } });
     }
     return finish("quarantined", {
@@ -547,11 +663,14 @@ async function execute<T>(
     "Answer again with ONLY the JSON object required by the schema — no prose,",
     "no code fences, no commentary.",
   ].join("\n");
-  const second = await callOnce(spec, system, repairUser, deps);
-  calls.push(second);
+  const second = await dispatch(spec, system, repairUser, deps, calls);
   if (!second.ok) {
     const code = String(second.errorCode ?? "CLI_ERROR");
-    logRun(spec, second, "quarantined", deps);
+    const handBack = code === "CANCELLED" || code === "POOL_OVERFLOW";
+    logRun(spec, second, handBack ? "error" : "quarantined", deps);
+    if (handBack) {
+      return finish("failed", { error: { code, message: second.errorMessage ?? "" } });
+    }
     return finish("quarantined", {
       error: { code, message: second.errorMessage ?? "" },
       quarantineId: parkUnit(spec, deps, second.runId, code, second.errorMessage ?? "", 2),

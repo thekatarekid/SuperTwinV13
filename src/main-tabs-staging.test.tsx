@@ -127,7 +127,7 @@ const CALENDAR: CalendarViewResponse = {
   from: "2026-09-01",
   to: "2026-10-01",
   tz: "Asia/Kolkata",
-  now: "2026-09-01T00:00:00.000Z",
+  layers: ["my_events", "my_tasks", "twin_tasks", "people"],
   counts: { my_events: 1, my_tasks: 0, twin_tasks: 0, people: 0 },
   items: [
     {

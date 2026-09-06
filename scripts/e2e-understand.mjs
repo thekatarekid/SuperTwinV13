@@ -261,15 +261,23 @@ async function main() {
       // what "drained" can mean.
       pend12: one(db, `SELECT COUNT(*) n FROM events e LEFT JOIN streams s ON s.id = e.stream_id
                         WHERE e.dispatched_at IS NULL AND COALESCE(s.tier,'T1') NOT IN ('T3','T4')`).n,
+      // The MEMORY half (V6 P1 E1). It has its own queue and its own, slower
+      // clock, so "the dispatch backlog is drained" is not "understanding is
+      // done" — stopping on the first alone killed the worker mid-extract and
+      // asserted `claims = 0` against a lane that had never had a turn.
+      cl: one(db, `SELECT COUNT(*) n FROM claims`).n,
+      exq: one(db, `SELECT COUNT(*) n FROM extract_queue`).n,
       cost: (one(db, `SELECT ROUND(SUM(cost_usd),3) c FROM runs`).c ?? 0),
     };
     db.close();
     const line = `  runs=${s.runs} (ok ${s.ok}) episodes=${s.ep} spaces=${s.sp} tasks=${s.tk} ` +
-      `pending=${s.pend} (T1-2 ${s.pend12}) $${s.cost}`;
+      `claims=${s.cl} (xq ${s.exq}) pending=${s.pend} (T1-2 ${s.pend12}) $${s.cost}`;
     if (line !== last) { console.log(line); last = line; }
-    // Done when the backlog is drained AND something was understood.
-    if (!PAUSED && s.pend12 === 0 && s.ep > 0 && s.sp > 0) {
-      console.log(`  understanding backlog drained (${s.pend} tier-3 rows wait for the weekly digest).\n`);
+    // Done when BOTH halves have run: the dispatch backlog is drained, spaces
+    // and episodes exist, and the extract queue has either produced claims or
+    // emptied. --minutes still bounds the wait.
+    if (!PAUSED && s.pend12 === 0 && s.ep > 0 && s.sp > 0 && (s.cl > 0 || s.exq === 0)) {
+      console.log(`  understanding backlog drained, both halves (${s.pend} tier-3 rows wait for the weekly digest).\n`);
       break;
     }
     if (worker.exitCode !== null) { console.log("  worker exited early.\n"); break; }

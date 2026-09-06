@@ -313,8 +313,12 @@ async function main(): Promise<void> {
 
   // ---- Consolidation + reduce (P1.4/P1.5, spec §6.3.2 / §15.2): every
   // minute — sweep newly-activated spaces, flag-triggered T2, drain the
-  // Decide work queue; every hour — the rolling T2 (merge/split/dormancy,
-  // second-look, unsorted review). Each duty is fenced inside the job.
+  // Decide work queue; every five minutes, ON ITS OWN TIMER — drain the
+  // Extract queue, which is the memory half of the same reduce step (V6 P1
+  // E1: claims, people, tone, feelings, then code-only circles); every hour —
+  // the rolling T2 (merge/split/dormancy, second-look, unsorted review). Each
+  // duty is fenced inside the job, and Extract has its own timer precisely so
+  // a long Decide drain cannot hold it (see EXTRACT STARVATION in job.ts).
   const consolidation = optionalStep("consolidation", () => startConsolidationJob({ log }), { log });
 
   // ---- The assist lane is GONE (R1, build §2.3 / §7.3 step 3). Its watcher

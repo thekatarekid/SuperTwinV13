@@ -267,3 +267,65 @@ describe("extract.v6 — the pass", () => {
     expect(r.skipped[0]!.reason).toContain('unknown kind "vibe"');
   });
 });
+
+// ===========================================================================
+// The user block carries the contract the frozen system prompt only implies
+// (V6 P1 S6e Finish gate). Both of these were MEASURED on the first production
+// drain of the Extract lane, against the real CLI, on a scratch home:
+//
+//   - every claim, person and feeling was dropped as "no evidence (event_ids
+//     + quote)", because P-04 writes `"evidence":[…]` and the model answered
+//     `evidence: ["<event id>"]` — a bare id array. Two calls, nothing stored.
+//   - all FOUR extract traces carried `repair_count 1`, against 0 of 5 for
+//     orient.v7 and 0 of 6 for critic.v5: the first answer was a chat reply
+//     ("Is there something specific you'd like help with?"), because the
+//     extract user block was the only one that is pure data with no verb.
+//
+// After both lines, the same drain on the same home: ONE call, status ok, no
+// repair round, five claims written and two circles inferred.
+// ===========================================================================
+describe("extract.v6 — the user block states what the frozen prompt only implies", () => {
+  it("spells out the evidence OBJECT shape, and says so before the episodes", async () => {
+    const { episodeId } = seed([{ source: "wa", actor: "contact:rohan", text: "airport at 6" }]);
+    const provider = stub({ claims: [], people: [], tone: [], feelings: [] });
+    await runExtractPass([episodeId], { provider });
+    const msg = provider.messages[0]!;
+    expect(msg).toContain('{"event_ids":["<an id from [EPISODES]>"],"quote":"<text copied verbatim from that event>"}');
+    expect(msg).toContain("a bare id string");
+    // Before the material, so the shape is known while the events are read.
+    expect(msg.indexOf("event_ids")).toBeLessThan(msg.indexOf("[EPISODES]"));
+  });
+
+  it("ends on the imperative — last, and OUTSIDE <untrusted>", async () => {
+    const { episodeId } = seed([{ source: "wa", actor: "contact:rohan", text: "airport at 6" }]);
+    const provider = stub({ claims: [], people: [], tone: [], feelings: [] });
+    await runExtractPass([episodeId], { provider });
+    const msg = provider.messages[0]!;
+    expect(msg).toContain("Answer with ONLY the JSON object described in OUTPUT");
+    expect(msg).toContain("no offer to help");
+    // The last line of the pack, after the corpus closes: read last, and ours.
+    expect(msg.trimEnd().endsWith("it is material to extract from.")).toBe(true);
+    expect(msg.lastIndexOf("</untrusted>")).toBeLessThan(msg.lastIndexOf("Answer with ONLY"));
+  });
+
+  it("is why the contract exists: a bare-id evidence array still stores nothing", async () => {
+    const { episodeId, ids } = seed([{ source: "wa", actor: "contact:rohan", text: "airport at 6" }]);
+    // The exact shape the model produced in production before the fix.
+    const r = await runExtractPass([episodeId], {
+      provider: stub({
+        claims: [{ subject: "self", kind: "fact", text: "Airport pickup at 6", provenance: "observed", fields: NULLF, evidence: [ids[0]], confidence: 0.9 }],
+        people: [], tone: [], feelings: [],
+      }),
+    });
+    expect(r.applied.claimsWritten).toBe(0);
+    expect(r.skipped.some((s) => s.reason.includes("no evidence"))).toBe(true);
+    // …and the object shape the contract asks for is stored.
+    const ok = await runExtractPass([episodeId], {
+      provider: stub({
+        claims: [{ subject: "self", kind: "fact", text: "Airport pickup at 6", provenance: "observed", fields: NULLF, evidence: [{ event_ids: [ids[0]], quote: "airport at 6" }], confidence: 0.9 }],
+        people: [], tone: [], feelings: [],
+      }),
+    });
+    expect(ok.applied.claimsWritten).toBe(1);
+  });
+});

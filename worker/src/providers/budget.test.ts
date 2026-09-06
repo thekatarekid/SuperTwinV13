@@ -29,6 +29,7 @@ import {
   resetBudgetLatch,
   setModelActivityPaused,
 } from "./budget.js";
+import { resetSpendHeartbeatForTests, spendHeartbeatLine } from "./spend-heartbeat.js";
 
 const stage = mkdtempSync(join(tmpdir(), "supertwin-budget-"));
 const fakeCli = join(stage, "claude");
@@ -132,6 +133,26 @@ describe("SPD-01 — ceiling throws before spawn", () => {
     expect(Number.isNaN(Date.parse(tripped as string))).toBe(false);
     // ...and the refused call was not counted.
     expect(budgetStatus().hour.calls).toBe(400);
+  });
+
+  it("the refusal reaches the heartbeat: a blocked minute cannot read as an idle one (C3)", async () => {
+    // The user's 13.11.5 install: latch set, lanes still asking, every ask
+    // refused before spawn — and every `[spend]` line saying "0 calls", which
+    // is what a worker whose dispatcher never started also says.
+    resetSpendHeartbeatForTests();
+    admitMany(DEFAULT_CEILINGS.callsPerHour, Date.now() - 60_000);
+    const { claudeLocalProvider } = await import("./claude-local/index.js");
+    for (const runId of ["c3-a", "c3-b"]) {
+      await expect(
+        withTraceContext(BACKGROUND, () =>
+          claudeLocalProvider.send({ runId, message: "hello", plainCompletion: true, onEvent: () => {} }),
+        ),
+      ).rejects.toBeInstanceOf(BudgetExceededError);
+    }
+    expect(existsSync(spawnMarker)).toBe(false);
+    const line = spendHeartbeatLine(Date.now());
+    expect(line).toContain("BLOCKED: 2 refused this interval (BUDGET_EXCEEDED ×2), 2 since boot");
+    resetSpendHeartbeatForTests();
   });
 
   it("the spend ceiling trips the same way: $3 in the hour, next background call refused", () => {

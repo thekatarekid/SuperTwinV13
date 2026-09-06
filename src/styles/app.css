@@ -2050,3 +2050,57 @@ body.aux-window {
   border-left: 2px solid var(--accent);
   padding-left: var(--sp-2);
 }
+
+/* ---------------------------------------------------------------------------
+   Halt banner (C3) — the pipeline is stopped, on every tab.
+
+   Deliberately not a toast and not dismissible: it states a standing fact and
+   carries the only control that ends it. Warn-coloured rather than danger —
+   nothing is broken, something is paused. */
+
+.halt-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin: 0 auto var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  max-width: 900px;
+  width: 100%;
+  border-radius: var(--r-md);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, var(--glass-2-bg));
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
+}
+
+.halt-banner .halt-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1, 4px);
+  min-width: 0;
+}
+
+.halt-banner strong {
+  font-size: var(--text-md);
+  color: var(--ink);
+}
+
+.halt-banner .meta {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.halt-banner .halt-caution {
+  color: var(--warn);
+}
+
+.halt-banner .error {
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
+.halt-banner .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

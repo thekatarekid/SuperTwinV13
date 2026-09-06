@@ -20,6 +20,32 @@
 // test injects its own clock and log. noteSpend() never starts a timer, so a
 // transport test that happens to complete a fake call leaves no interval
 // behind.
+//
+// ---------------------------------------------------------------------------
+// REFUSALS ARE NOT SILENCE (13.11.6 · C3)
+//
+// WHAT WAS BROKEN. On the user's own install the pipeline burned the $3 hourly
+// ceiling in 41 minutes, latched `budget_tripped_at`, and from then on threw
+// BUDGET_EXCEEDED at the gate BEFORE spawn — roughly once a minute, forever,
+// because the latch never clears on its own. Every heartbeat after the trip
+// read:
+//
+//     [spend] 60s: 0 calls, 0 tok, ~$0.00 | run 3h07m: 144 calls, 3.2M tok, ~$3.11
+//
+// Calls are counted when ADMITTED, so a refused call is admitted zero times.
+// A pipeline being refused sixty times an hour and a pipeline that never
+// started are the same line. That line is what sent the investigation looking
+// for a dispatcher that had never run, when in fact the dispatcher was running
+// and being turned away at the door.
+//
+// THE RULE. Count what was refused, next to what was admitted, with the code
+// that refused it — and when an interval admitted nothing while refusing
+// something, say BLOCKED, because that is the state:
+//
+//     [spend] 60s: 0 calls, 0 tok, ~$0.00 | run 3h07m: 144 calls, … | BLOCKED: 12 refused this interval (BUDGET_EXCEEDED ×12), 240 since boot
+//
+// The clause is absent when nothing was refused, so a genuinely idle minute
+// still reads exactly as it always did.
 // ===========================================================================
 
 import type { Usage } from "./types.js";
@@ -36,6 +62,9 @@ const zero = (): Counters => ({ calls: 0, tokens: 0, usd: 0 });
 
 const window: Counters = zero();
 const total: Counters = zero();
+/** Refusals at the gate, by code. Interval map is cleared on every tick. */
+const windowRefusals = new Map<string, number>();
+const totalRefusals = new Map<string, number>();
 let bootedAt: number | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -56,6 +85,65 @@ export function noteSpend(usage: Usage | undefined): void {
   total.calls += 1;
   total.tokens += tokens;
   total.usd += usd;
+}
+
+/**
+ * The refusing code, as the log should name it. `BudgetExceededError` and
+ * `ModelActivityPausedError` both carry a literal `code`; anything else falls
+ * back to its class name so an unexpected pre-spawn throw is still countable
+ * rather than silently absent.
+ */
+export function refusalCode(err: unknown): string {
+  if (typeof err === "string" && err.trim() !== "") return err.trim();
+  if (err && typeof err === "object") {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === "string" && code.trim() !== "") return code.trim();
+    const name = (err as { name?: unknown }).name;
+    if (typeof name === "string" && name.trim() !== "") return name.trim();
+  }
+  return "REFUSED";
+}
+
+/**
+ * Count one call the gate turned away BEFORE spawn. Called from the same spawn
+ * site as noteSpend(), on the throwing path instead of the completing one, so
+ * "nothing ran" and "nothing was allowed to run" stop being the same line.
+ */
+export function noteRefusal(err: unknown): void {
+  const code = refusalCode(err);
+  windowRefusals.set(code, (windowRefusals.get(code) ?? 0) + 1);
+  totalRefusals.set(code, (totalRefusals.get(code) ?? 0) + 1);
+}
+
+function sumCounts(m: Map<string, number>): number {
+  let n = 0;
+  for (const v of m.values()) n += v;
+  return n;
+}
+
+/** `BUDGET_EXCEEDED ×12, MEDIA_UNAVAILABLE ×1` — commonest first, then a-z. */
+function fmtCodes(m: Map<string, number>): string {
+  return [...m.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([code, n]) => `${code} ×${n}`)
+    .join(", ");
+}
+
+/**
+ * The refusal clause, or "" when the gate turned nobody away. BLOCKED is the
+ * word for an interval that admitted nothing and refused something — the exact
+ * state a bare "0 calls" made look like an idle pipeline.
+ */
+export function refusalClause(): string {
+  const interval = sumCounts(windowRefusals);
+  const run = sumCounts(totalRefusals);
+  if (interval === 0 && run === 0) return "";
+  if (interval === 0) return ` | 0 refused this interval, ${run.toLocaleString("en-US")} since boot`;
+  const tag = window.calls === 0 ? "BLOCKED: " : "";
+  return (
+    ` | ${tag}${interval.toLocaleString("en-US")} refused this interval` +
+    ` (${fmtCodes(windowRefusals)}), ${run.toLocaleString("en-US")} since boot`
+  );
 }
 
 /** 1.9M / 41.2K / 812 — three significant figures at most, like the bill. */
@@ -80,7 +168,10 @@ function fmt(c: Counters): string {
 /** The line as written. Exported so a test can pin the exact shape. */
 export function spendHeartbeatLine(now: number, intervalMs: number = SPEND_HEARTBEAT_MS): string {
   const since = bootedAt ?? now;
-  return `[spend] ${Math.round(intervalMs / 1000)}s: ${fmt(window)} | run ${formatUptime(now - since)}: ${fmt(total)}`;
+  return (
+    `[spend] ${Math.round(intervalMs / 1000)}s: ${fmt(window)}` +
+    ` | run ${formatUptime(now - since)}: ${fmt(total)}${refusalClause()}`
+  );
 }
 
 export interface SpendHeartbeatOptions {
@@ -110,6 +201,7 @@ export function startSpendHeartbeat(opts: SpendHeartbeatOptions = {}): SpendHear
     const line = spendHeartbeatLine(now(), intervalMs);
     log(line);
     Object.assign(window, zero());
+    windowRefusals.clear();
     return line;
   };
   timer = setInterval(tick, intervalMs);
@@ -127,5 +219,7 @@ export function resetSpendHeartbeatForTests(): void {
   stopSpendHeartbeat();
   Object.assign(window, zero());
   Object.assign(total, zero());
+  windowRefusals.clear();
+  totalRefusals.clear();
   bootedAt = null;
 }

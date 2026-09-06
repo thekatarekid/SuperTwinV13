@@ -36,6 +36,7 @@ import {
 import { hideMainWindow } from "./lib/tauri";
 import { FreshnessChip } from "./components/FreshnessChip";
 import { AccessibilityOnboarding } from "./components/AccessibilityOnboarding";
+import { HaltBanner } from "./components/HaltBanner";
 import { GroundedBar, type BarLock } from "./components/GroundedBar";
 import { Calendar } from "./screens/Calendar";
 import { Home } from "./screens/Home";
@@ -265,6 +266,12 @@ export function App(): JSX.Element {
       </div>
 
       <AccessibilityOnboarding />
+
+      {/* C3: a stopped understanding pipeline announces itself on every tab.
+          Before this, the budget latch was visible in exactly one place —
+          Settings › General — behind an 11-second read, so an app that had
+          hard-stopped simply looked empty. */}
+      <HaltBanner />
 
       <main className="screen">
         {tab === "home" && (

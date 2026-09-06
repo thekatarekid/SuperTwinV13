@@ -96,7 +96,7 @@ import {
   recordProviderInvocation,
 } from "../../traces/context.js";
 import { admitCall, budgetCeilings, recordCallCost } from "../budget.js";
-import { noteSpend } from "../spend-heartbeat.js";
+import { noteRefusal, noteSpend } from "../spend-heartbeat.js";
 
 // The shaping half of the adapter lives in ./cli.ts; re-exported here so the
 // adapter stays one import for callers and tests.
@@ -222,7 +222,17 @@ class ClaudeLocalProvider implements Provider {
       // chat and the grounded bar are counted but never blocked. The kill
       // switch (S0.8, SPD-03) is checked first at the same site and blocks
       // everyone: ModelActivityPausedError (code MODEL_ACTIVITY_PAUSED).
-      admitCall();
+      //
+      // 13.11.6 (C3): a refusal is counted too. The heartbeat below counts
+      // ADMITTED calls, so a latched budget turned every minute into
+      // "0 calls" — indistinguishable from a pipeline that never dispatched,
+      // which is exactly how a hard-stopped install read as an idle one.
+      try {
+        admitCall();
+      } catch (err) {
+        noteRefusal(err);
+        throw err;
+      }
       const attempt = await this.runOnce({
         ...args,
         onEvent: (ev) => {

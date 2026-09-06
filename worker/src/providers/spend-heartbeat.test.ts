@@ -9,7 +9,9 @@ import {
   SPEND_HEARTBEAT_MS,
   formatTokens,
   formatUptime,
+  noteRefusal,
   noteSpend,
+  refusalCode,
   resetSpendHeartbeatForTests,
   spendHeartbeatLine,
   startSpendHeartbeat,
@@ -80,6 +82,72 @@ describe("SPD-06 — heartbeat", () => {
     expect(usageTokens(undefined)).toBe(0);
     noteSpend(undefined);
     expect(spendHeartbeatLine(Date.now())).toBe("[spend] 60s: 1 calls, 0 tok, ~$0.00 | run 0h00m: 1 calls, 0 tok, ~$0.00");
+  });
+
+  it("a refused call is not an idle minute: BLOCKED, the count and the code", () => {
+    // The user's own steady state: the latch is set, the lanes keep asking,
+    // every ask is refused before spawn. Before C3 this minute read
+    // "[spend] 60s: 0 calls, 0 tok, ~$0.00 | run 0h01m: 0 calls, …" — the same
+    // line a worker whose dispatcher never started would write.
+    const lines: string[] = [];
+    startSpendHeartbeat({ log: (l) => lines.push(l) });
+    for (let i = 0; i < 12; i += 1) noteRefusal({ code: "BUDGET_EXCEEDED" });
+    vi.advanceTimersByTime(SPEND_HEARTBEAT_MS);
+    expect(lines[0]).toBe(
+      "[spend] 60s: 0 calls, 0 tok, ~$0.00 | run 0h01m: 0 calls, 0 tok, ~$0.00" +
+        " | BLOCKED: 12 refused this interval (BUDGET_EXCEEDED ×12), 12 since boot",
+    );
+    expect(lines[0]).toContain("BLOCKED");
+  });
+
+  it("the refusal count resets each interval; the run total does not", () => {
+    const lines: string[] = [];
+    startSpendHeartbeat({ log: (l) => lines.push(l) });
+    for (let i = 0; i < 3; i += 1) noteRefusal({ code: "BUDGET_EXCEEDED" });
+    vi.advanceTimersByTime(SPEND_HEARTBEAT_MS);
+    expect(lines[0]).toContain("BLOCKED: 3 refused this interval (BUDGET_EXCEEDED ×3), 3 since boot");
+    // A quiet minute AFTER a refusal still says the pipeline is being turned
+    // away — the run total is the standing fact, not a one-minute blip.
+    vi.advanceTimersByTime(SPEND_HEARTBEAT_MS);
+    expect(lines[1]).toBe(
+      "[spend] 60s: 0 calls, 0 tok, ~$0.00 | run 0h02m: 0 calls, 0 tok, ~$0.00 | 0 refused this interval, 3 since boot",
+    );
+    noteRefusal({ code: "MODEL_ACTIVITY_PAUSED" });
+    noteRefusal({ code: "BUDGET_EXCEEDED" });
+    noteRefusal({ code: "BUDGET_EXCEEDED" });
+    vi.advanceTimersByTime(SPEND_HEARTBEAT_MS);
+    // Commonest code first, so the reason that dominates is the one you read.
+    expect(lines[2]).toContain("BLOCKED: 3 refused this interval (BUDGET_EXCEEDED ×2, MODEL_ACTIVITY_PAUSED ×1), 6 since boot");
+  });
+
+  it("admitted and refused in the same minute: counted apart, and not BLOCKED", () => {
+    const lines: string[] = [];
+    startSpendHeartbeat({ log: (l) => lines.push(l) });
+    noteSpend(usage()); // the bar is latch-exempt and still answers
+    noteRefusal({ code: "BUDGET_EXCEEDED" });
+    vi.advanceTimersByTime(SPEND_HEARTBEAT_MS);
+    expect(lines[0]).toBe(
+      "[spend] 60s: 1 calls, 30.5K tok, ~$0.01 | run 0h01m: 1 calls, 30.5K tok, ~$0.01" +
+        " | 1 refused this interval (BUDGET_EXCEEDED ×1), 1 since boot",
+    );
+    expect(lines[0]).not.toContain("BLOCKED");
+  });
+
+  it("a genuinely idle minute is unchanged — no clause, no false alarm", () => {
+    const lines: string[] = [];
+    startSpendHeartbeat({ log: (l) => lines.push(l) });
+    vi.advanceTimersByTime(SPEND_HEARTBEAT_MS);
+    expect(lines[0]).toBe("[spend] 60s: 0 calls, 0 tok, ~$0.00 | run 0h01m: 0 calls, 0 tok, ~$0.00");
+  });
+
+  it("names the code the gate threw, and never loses an unexpected throw", () => {
+    expect(refusalCode({ code: "BUDGET_EXCEEDED" })).toBe("BUDGET_EXCEEDED");
+    expect(refusalCode(Object.assign(new Error("x"), { name: "ModelActivityPausedError" }))).toBe(
+      "ModelActivityPausedError",
+    );
+    expect(refusalCode("MEDIA_UNAVAILABLE")).toBe("MEDIA_UNAVAILABLE");
+    expect(refusalCode(null)).toBe("REFUSED");
+    expect(refusalCode({})).toBe("REFUSED");
   });
 
   it("formats like the backlog line: 1.9M tok, run 8h56m", () => {

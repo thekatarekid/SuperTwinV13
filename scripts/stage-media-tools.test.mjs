@@ -95,7 +95,10 @@ describe("the encoder (v7 §7)", () => {
       })),
     ).toEqual(EMBEDDING_MODEL.files.map((f) => ({ ...f })));
     for (const f of MANIFEST.embeddings.files) {
-      expect(f.url).toBe(embeddingModelFileUrl(f.path));
+      // Named explicitly, never `activeEmbeddingModel()`: the manifest stages
+      // the BUNDLED encoder, and it stages the same bytes whichever model the
+      // user later switches the index to.
+      expect(f.url).toBe(embeddingModelFileUrl(f.path, EMBEDDING_MODEL));
     }
   });
 

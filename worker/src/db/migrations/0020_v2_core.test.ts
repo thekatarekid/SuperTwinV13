@@ -159,6 +159,7 @@ describe("0020_v2_core applies", () => {
       // family) the detector flags. New table only; it used to be a
       // module-scope CREATE TABLE inside safety/injection.ts.
       "0208_v6_injection",
+      "0209_v6_library_perf",
     ]);
 
     expect(

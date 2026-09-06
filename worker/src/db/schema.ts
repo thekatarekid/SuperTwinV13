@@ -36,6 +36,7 @@ import { V6_SPACES } from "./migrations/0205_v6_spaces.js";
 import { V6_PEOPLE } from "./migrations/0206_v6_people.js";
 import { V6_BRIEF } from "./migrations/0207_v6_brief.js";
 import { V6_INJECTION } from "./migrations/0208_v6_injection.js";
+import { V6_LIBRARY_PERF } from "./migrations/0209_v6_library_perf.js";
 
 export interface Migration {
   id: string;
@@ -1013,4 +1014,8 @@ export const MIGRATIONS: Migration[] = [
   // table used to be a module-scope CREATE TABLE inside safety/injection.ts.
   // New table only.
   { id: "0208_v6_injection", sql: V6_INJECTION },
+  // V6 P1 S6d L1 (Library latency root-cause): three additive indexes so
+  // the Library's per-source counts, day windows, chain walk and disk sums
+  // stop full-scanning `events`. No table rewrite.
+  { id: "0209_v6_library_perf", sql: V6_LIBRARY_PERF },
 ];

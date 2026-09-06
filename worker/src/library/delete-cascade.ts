@@ -30,6 +30,7 @@
 
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
+import { invalidateStorageSnapshot } from "./storage.js";
 
 export interface CascadeReport {
   events_deleted: number;
@@ -367,6 +368,9 @@ export function hardDeleteEvents(
     });
   });
   run();
+  // V6 P1 S6d L1: the Storage panel's measured half is snapshotted; a delete is
+  // exactly the event that makes the snapshot a lie.
+  invalidateStorageSnapshot();
   return report;
 }
 

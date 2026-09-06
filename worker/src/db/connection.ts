@@ -69,12 +69,76 @@ export function getDb(): Database.Database {
   handle.pragma("page_size = 16384");
   handle.pragma("journal_mode = WAL");
   handle.pragma("foreign_keys = ON");
+  applyRuntimePragmas(handle);
 
   db = handle;
   openedPath = path;
 
   runMigrationsOn(handle);
   return handle;
+}
+
+/**
+ * Runtime pragmas — V6 P1 S6d L1 (Library latency root-cause).
+ *
+ * better-sqlite3 is SYNCHRONOUS and this process keeps ONE handle, so an
+ * importer writing history does not merely contend with a reader: it OWNS the
+ * event loop for as long as its writes take, and every HTTP read queues behind
+ * it. Measured on a 400k-row scratch corpus with the pre-existing settings, one
+ * imported WhatsApp message cost 4.7 ms — a durable fsync per row, because WAL
+ * mode still defaults to `synchronous = FULL`. An 11,466-message history import
+ * is therefore ~54 seconds during which nothing else in the worker can run.
+ * That is exactly the "frozen screen, sometimes a minute" the Library shows.
+ *
+ *   synchronous = NORMAL   the standard WAL setting: a commit no longer fsyncs.
+ *                          Durability across an OS crash or power loss is
+ *                          traded for it; a process crash is still safe, since
+ *                          the WAL survives. Everything here is re-derivable
+ *                          capture, so the trade is the right way round.
+ *   busy_timeout = 5000    the media sidecar and the Go daemon can hold the
+ *                          file briefly; wait rather than throw SQLITE_BUSY.
+ *   cache_size = -65536    64 MB of page cache. The Library's aggregates walk
+ *                          the same index pages repeatedly; at the default
+ *                          2 MB they were re-read from disk every request.
+ *   temp_store = MEMORY    GROUP BY / ORDER BY spills stay off the disk.
+ *   mmap_size = 256 MB     read the hot part of the file without a copy.
+ *   wal_autocheckpoint     2000 pages = 32 MB at this page size. The user's
+ *                          real home had grown an 801 MB WAL beside a 1.05 GB
+ *                          database, which every reader then has to consult.
+ *
+ * Pragma failures are swallowed on purpose: an older SQLite that does not know
+ * one of these should still open the database.
+ */
+export function applyRuntimePragmas(handle: Database.Database): void {
+  for (const p of [
+    "synchronous = NORMAL",
+    "busy_timeout = 5000",
+    "cache_size = -65536",
+    "temp_store = MEMORY",
+    "mmap_size = 268435456",
+    "wal_autocheckpoint = 2000",
+  ]) {
+    try {
+      handle.pragma(p);
+    } catch {
+      // an unknown pragma is not a reason to fail the open
+    }
+  }
+}
+
+/**
+ * Copy the WAL back into the database and truncate it. Called from the worker's
+ * idle sweep: a passive autocheckpoint keeps the WAL bounded but never shrinks
+ * the file, so a home that once imported a large history carries the high-water
+ * mark forever (801 MB on the user's). TRUNCATE only completes when no reader
+ * holds a snapshot, and returns quietly when one does.
+ */
+export function checkpointWal(handle: Database.Database = getDb()): void {
+  try {
+    handle.pragma("wal_checkpoint(TRUNCATE)");
+  } catch {
+    // a busy checkpoint is a no-op, not an error
+  }
 }
 
 /**

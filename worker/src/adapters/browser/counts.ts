@@ -268,8 +268,52 @@ export function disclosureText(profiles: readonly BrowserProfile[], scratchDir: 
   );
 }
 
+/**
+ * How long a discovery result stays good — V6 P1 S6d L1.
+ *
+ * `countProfile` COPIES each browser's history database to scratch and reads
+ * the copy. On the user's machine, with Chrome, Brave, Comet and Safari
+ * installed, `GET /api/sources/browser/discover` measured 9.8 seconds — and the
+ * Browser sub-tab calls it every time it is opened, so the panel sat blank for
+ * ten seconds each time for numbers that had not moved. Browser history does
+ * not change meaningfully inside a minute, so one measurement serves the whole
+ * minute; `now` in the payload says when it was taken.
+ */
+export const DISCOVERY_CACHE_MS = 60_000;
+
+let discoveryCache: { key: string; at: number; value: BrowserDiscovery } | null = null;
+
+/** Identity of a profile set: a different set is a different measurement. */
+function discoveryKey(profiles: readonly BrowserProfile[]): string {
+  return profiles.map((p) => `${p.browser}\u0000${p.profile}\u0000${p.historyPath}`).sort().join("\u0001");
+}
+
+/** Drop the cached discovery — used after a connect changes the profile scope. */
+export function invalidateDiscoveryCache(): void {
+  discoveryCache = null;
+}
+
 /** Discover + count everything. The connect card's single call. */
-export function discoverAndCount(profiles: readonly BrowserProfile[], nowMs: number = Date.now()): BrowserDiscovery {
+export function discoverAndCount(
+  profiles: readonly BrowserProfile[],
+  nowMs: number = Date.now(),
+  opts: { refresh?: boolean } = {},
+): BrowserDiscovery {
+  const key = discoveryKey(profiles);
+  if (
+    !opts.refresh &&
+    discoveryCache !== null &&
+    discoveryCache.key === key &&
+    nowMs - discoveryCache.at < DISCOVERY_CACHE_MS
+  ) {
+    return discoveryCache.value;
+  }
+  const value = countAll(profiles, nowMs);
+  discoveryCache = { key, at: nowMs, value };
+  return value;
+}
+
+function countAll(profiles: readonly BrowserProfile[], nowMs: number): BrowserDiscovery {
   const counted = profiles.map((p) => countProfile(p, nowMs));
   const totals = emptyWindows();
   for (const c of counted) {

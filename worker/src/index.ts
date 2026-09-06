@@ -43,6 +43,7 @@ import { startScreenWatcher, type ScreenAdapter } from "./adapters/screen/index.
 import { setSourceSupervisor, SourceSupervisor } from "./adapters/supervisor.js";
 import { ensureLogsDir, teeConsole } from "./logs.js";
 import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
+import { startLibraryMaintenance } from "./library/maintenance.js";
 import { startTraceRetentionJob } from "./traces/index.js";
 import { startConsolidationJob } from "./consolidation/index.js";
 import { startDispatcher } from "./scheduler/v6/dispatch.js";
@@ -276,6 +277,12 @@ async function main(): Promise<void> {
   // hashed + sampled full-keeps). One sweep shortly after boot, then daily.
   const traceRetention = optionalStep("trace retention", () => startTraceRetentionJob(), { log });
 
+  // ---- Library maintenance (V6 P1 S6d L1): warm the Storage panel's measured
+  // half once, off the request path, and truncate the WAL when the log has been
+  // quiet for a while. Both exist because the Library's sub-tabs were measured
+  // at 2-14 s on a real home with an import in flight.
+  const libraryMaintenance = optionalStep("library maintenance", () => startLibraryMaintenance({ log }), { log });
+
   // ---- Dispatch (V6 P1 S3.3, Product_V6 §11.3 / §23.2): the state gate.
   // Every 5 s the dispatcher reads new event rows, gates the live ones (open
   // task · active episode · bridge/entity in an active space · addressed to
@@ -322,6 +329,7 @@ async function main(): Promise<void> {
       consolidation?.stop();
       spendHeartbeat?.stop();
       traceRetention?.stop();
+      libraryMaintenance?.stop();
       tiering?.stop();
       calendarJob?.stop();
       wakeups?.stop();

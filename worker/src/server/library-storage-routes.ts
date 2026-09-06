@@ -41,7 +41,10 @@ export async function handleLibraryStorageRoute(
   const path = url.pathname;
 
   if (req.method === "GET" && path === "/api/library/storage") {
-    sendJson(res, 200, storageOverview());
+    // V6 P1 S6d L1: the measured half (per-source bars, the two directory
+    // walks) is snapshotted; `?refresh=1` forces a re-measure for the panel's
+    // own refresh control. Free disk and the budgets are always live.
+    sendJson(res, 200, storageOverview(undefined, { refresh: url.searchParams.get("refresh") === "1" }));
     return true;
   }
 

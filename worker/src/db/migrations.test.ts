@@ -1339,6 +1339,9 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
     // 0100_v13_core (P0.4) adds the envelope indexes: content_hash for the
     // single-writer idempotency lookup, (stream_key, ts) for thread history,
     // and the partial undispatched index the P0.5 window query keys on.
+    // 0209_v6_library_perf (V6 S6d L1) adds the three the Library reads on:
+    // (source_type, ts), (source_type, kind, ts), and the partial
+    // (stream_id, ts) WHERE dispatched_at IS NOT NULL.
     expect(indexNames(db, "events")).toEqual([
       "idx_events_actor",
       "idx_events_actor_entity",
@@ -1351,7 +1354,10 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
       "idx_events_link_status",
       "idx_events_reply_to",
       "idx_events_source_external",
+      "idx_events_source_kind_ts",
+      "idx_events_source_type_ts",
       "idx_events_stream",
+      "idx_events_stream_dispatched",
       "idx_events_stream_key",
       "idx_events_stream_ts",
       "idx_events_transcript_status",

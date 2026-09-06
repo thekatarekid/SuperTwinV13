@@ -15,6 +15,7 @@
 // ===========================================================================
 
 import { DescendingCohortBuffer } from "../adapters/backfill-order.js";
+import { getDb } from "../db/connection.js";
 import { readAnchors, type Anchor } from "../db/anchors.js";
 import type { SourceManifest } from "../adapters/registry.js";
 import type { SourceAdapter } from "../adapters/source-adapter.js";
@@ -542,9 +543,38 @@ export class Ingestion {
     this.writeEvent(e);
   }
 
-  /** Write one descending cohort, newest first. */
+  /**
+   * Write one descending cohort, newest first.
+   *
+   * V6 P1 S6d L1 — ONE transaction for the whole cohort, not one per event.
+   * Every write here goes through `ingestEnvelope`, which opens its own
+   * transaction per row; in WAL mode with the default `synchronous = FULL`
+   * that was a durable fsync per imported message, measured at 4.7 ms each on
+   * a scratch corpus. better-sqlite3 nests a transaction as a SAVEPOINT, so
+   * wrapping the cohort collapses those commits into one and the whole cohort
+   * lands or does not.
+   *
+   * A cohort is a page of history, so all-or-nothing is the right grain — but
+   * "or nothing" must not lose a page to one malformed row, and the previous
+   * behaviour was per-event isolation. So a throwing batch is retried event by
+   * event: the good rows land, the bad one raises exactly as it used to.
+   */
   private writeCohort(cohort: readonly SourceEvent[]): void {
-    for (const event of cohort) this.writeEvent(event);
+    if (cohort.length === 0) return;
+    if (cohort.length === 1) {
+      this.writeEvent(cohort[0]);
+      return;
+    }
+    try {
+      getDb().transaction(() => {
+        for (const event of cohort) this.writeEvent(event);
+      })();
+    } catch (err) {
+      console.error(
+        `[ingest] cohort of ${cohort.length} failed as a batch, retrying one at a time: ${String(err)}`,
+      );
+      for (const event of cohort) this.writeEvent(event);
+    }
   }
 
   /**

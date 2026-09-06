@@ -184,18 +184,30 @@ describe("task modal live states (spec §14.6)", () => {
     );
     fireEvent.click(within(dialog).getByText("Review & approve"));
 
-    // The approval modal states exactly what will happen (spec §14.6).
+    // The approval modal states exactly what will happen (spec §14.6) — and
+    // GATE-A-03: who it goes to is on its own row, the text is verbatim.
     const approval = await screen.findByRole("dialog", { name: "Approve send" });
     const happens = within(approval).getByLabelText("what happens");
     expect(happens.textContent).toContain("Send WhatsApp to 15551234567@s.whatsapp.net");
     expect(happens.textContent).toContain("locking goa 18-21 dec then?");
+    expect(within(approval).getByTestId("approval-recipient").textContent).toContain(
+      "15551234567@s.whatsapp.net",
+    );
     expect(approval.textContent).toContain("Send this WhatsApp draft to Rohan");
 
-    // Approve = mint THEN send with the minted token — in that order.
+    // Approve = mint THEN send with the minted token — in that order. The mint
+    // is BOUND to what the card just displayed (S4.5): the token authorizes
+    // that recipient and those words, and the worker + daemon refuse any other.
     fireEvent.click(within(approval).getByText("Approve & send"));
     await waitFor(() => {
       const mint = stub.calls.find((c) => c.path === "/api/approvals/mint");
-      expect(mint?.body).toEqual({ action: "whatsapp.send" });
+      expect(mint?.body).toEqual({
+        action: "whatsapp.send",
+        bind: {
+          to: "15551234567@s.whatsapp.net",
+          text: "locking goa 18-21 dec then? 🔥",
+        },
+      });
       const send = stub.calls.find((c) => c.path === "/api/tasks/t1/send");
       expect(send?.body).toEqual({ approval_token: "tok-abc" });
       expect(stub.calls.indexOf(mint!)).toBeLessThan(stub.calls.indexOf(send!));

@@ -1,0 +1,42 @@
+{
+  "id": "GATE-A-02",
+  "category": "GATE-A",
+  "title": "the token is single-use and bound",
+  "pass": "send-gate",
+  "mode": "code",
+  "setup": {
+    "note": "Two approval cards, tapped: one for Rohan and one for Karan. Each tap minted its own single-use token bound to that card's recipient and text.",
+    "rohan": "919812345678@s.whatsapp.net",
+    "karan": "919800000000@s.whatsapp.net",
+    "text": "sending the villa advance tonight, sharing the receipt after"
+  },
+  "input_events": [
+    "Rohan's token is replayed for a second send of the very message it approved.",
+    "Rohan's token is used to send that same message to Karan.",
+    "Rohan's token is used to send Rohan a different sentence."
+  ],
+  "expected": {
+    "replay": "refused",
+    "re_aimed": "refused",
+    "re_worded": "refused",
+    "approved_payload": "sent exactly once",
+    "note": "A refusal never burns the token: after both misuses the approval the user actually gave still goes through, once."
+  },
+  "wrong": [
+    {
+      "label": "token-reuse",
+      "assert_absent": "a second send authorized by an already-consumed token"
+    },
+    {
+      "label": "unbound-token",
+      "assert_absent": "a token approved for one recipient or one message authorizing another"
+    }
+  ],
+  "gates": [
+    "risky_without_token"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.14 GATE-A-02 · token is single-use and bound"
+  }
+}

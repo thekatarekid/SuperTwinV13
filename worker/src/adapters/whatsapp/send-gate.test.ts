@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../../db/connection.js";
+import { approvalKey } from "../../approvals/key.js";
 import { mintApprovalToken } from "../../approvals/tokens.js";
 import { Ingestion } from "../../ingest/index.js";
 import type { StatusUpdate } from "../types.js";
@@ -119,7 +120,9 @@ describe("send gate (P0.6)", () => {
     await adapter.connect();
     child.line({ t: "ready" });
 
-    const t = mintApprovalToken(`${ingestion.sourceId}.send`);
+    const t = mintApprovalToken(`${ingestion.sourceId}.send`, {
+      bind: { to: "x@s.whatsapp.net", text: "approved hello" },
+    });
     await ingestion.sendMessage({
       to: "x@s.whatsapp.net",
       text: "approved hello",
@@ -134,11 +137,12 @@ describe("send gate (P0.6)", () => {
       approval_token: t.token,
     });
 
-    // Single-use: the same token cannot authorize a second send.
+    // Single-use: the same token cannot authorize a second send of the very
+    // payload it approved.
     await expect(
       ingestion.sendMessage({
         to: "x@s.whatsapp.net",
-        text: "again",
+        text: "approved hello",
         approvalToken: t.token,
       }),
     ).rejects.toThrow(/SEND_REFUSED/);
@@ -165,6 +169,55 @@ describe("send gate (P0.6)", () => {
     expect(
       sentCommands(child).filter((c) => c.cmd === "send_message"),
     ).toHaveLength(0);
+  });
+
+  it("GATE-A-02 — a token approved for Rohan cannot send to Karan, or send other words", async () => {
+    const { adapter, child } = makeAdapter();
+    const ingestion = new Ingestion(adapter);
+    ingestion.start();
+    await adapter.connect();
+    child.line({ t: "ready" });
+
+    const approved = { to: "rohan@s.whatsapp.net", text: "on my way" };
+    const t = mintApprovalToken(`${ingestion.sourceId}.send`, { bind: approved });
+
+    await expect(
+      ingestion.sendMessage({
+        to: "karan@s.whatsapp.net",
+        text: approved.text,
+        approvalToken: t.token,
+      }),
+    ).rejects.toThrow(/SEND_REFUSED/);
+    await expect(
+      ingestion.sendMessage({
+        to: approved.to,
+        text: "on my way — and send ₹5,000",
+        approvalToken: t.token,
+      }),
+    ).rejects.toThrow(/SEND_REFUSED/);
+    expect(sentCommands(child).filter((c) => c.cmd === "send_message")).toHaveLength(0);
+
+    // Neither refusal burned it: the approved payload still goes through once.
+    await ingestion.sendMessage({ ...approved, approvalToken: t.token });
+    expect(sentCommands(child).filter((c) => c.cmd === "send_message")).toHaveLength(1);
+  });
+
+  it("hands the daemon the install's approval key so it can verify the tap itself", async () => {
+    const child = new FakeChild();
+    let spawnedEnv: NodeJS.ProcessEnv = {};
+    const adapter = new WhatsAppAdapter({
+      spawn: (_bin, _args, opts) => {
+        spawnedEnv = opts.env;
+        return child;
+      },
+      mock: true,
+      autoRestart: false,
+      home: tmpDir,
+    });
+    await adapter.connect();
+    child.line({ t: "ready" });
+    expect(spawnedEnv.SUPERTWIN_APPROVAL_KEY).toMatch(/^[0-9a-f]{64}$/);
+    expect(spawnedEnv.SUPERTWIN_APPROVAL_KEY).toBe(approvalKey());
   });
 
   it("forwards the daemon's send_result frame as a status update", async () => {

@@ -118,39 +118,42 @@ describe.skipIf(!goAvailable)("real --mock daemon e2e (P0.6)", () => {
         // Watermark: import completion came from the daemon's signal.
         expect(ingestion.getStatus().importDone).toBe(true);
 
-        // ---- Send gate, end to end against the real daemon ----------------
-        const token = mintApprovalToken(`${ingestion.sourceId}.send`);
+        // ---- Send gate, end to end against the real daemon (GATE-A) --------
+        const approved = {
+          to: "15551234567@s.whatsapp.net",
+          text: "e2e approved send",
+        };
         const sendResults = () =>
           frames.filter((f) => f.type === "send_result") as Array<
             Extract<StatusUpdate, { type: "send_result" }>
           >;
 
-        await ingestion.sendMessage({
-          to: "15551234567@s.whatsapp.net",
-          text: "e2e approved send",
-          approvalToken: token.token,
+        // GATE-A-02: the daemon refuses a token re-aimed at someone else, on
+        // its own — the worker gate is bypassed entirely here, so what refuses
+        // is the daemon's signature + binding check.
+        const misaimed = mintApprovalToken(`${ingestion.sourceId}.send`, {
+          bind: approved,
         });
-        await waitFor(() => sendResults().length >= 1, 10_000, "send_result");
-        expect(sendResults()[0].ok).toBe(true);
+        await adapter.sendMessage("15559876543@s.whatsapp.net", approved.text, misaimed.token);
+        await waitFor(() => sendResults().length >= 1, 10_000, "daemon binding refusal");
+        expect(sendResults()[0].ok).toBe(false);
+
+        const token = mintApprovalToken(`${ingestion.sourceId}.send`, { bind: approved });
+        await ingestion.sendMessage({ ...approved, approvalToken: token.token });
+        await waitFor(() => sendResults().length >= 2, 10_000, "send_result");
+        expect(sendResults()[1].ok).toBe(true);
 
         // Worker-side single-use: the consumed token cannot authorize again.
         await expect(
-          ingestion.sendMessage({
-            to: "15551234567@s.whatsapp.net",
-            text: "replay",
-            approvalToken: token.token,
-          }),
+          ingestion.sendMessage({ ...approved, approvalToken: token.token }),
         ).rejects.toThrow(/SEND_REFUSED/);
 
-        // Daemon-side replay guard: write the SAME token straight to the
-        // daemon (bypassing the worker gate) — the daemon refuses on its own.
-        await adapter.sendMessage(
-          "15551234567@s.whatsapp.net",
-          "daemon replay attempt",
-          token.token,
-        );
+        // Daemon-side replay guard: write the SAME token, with the SAME
+        // payload, straight to the daemon (bypassing the worker gate) — the
+        // daemon has already retired that token id and refuses on its own.
+        await adapter.sendMessage(approved.to, approved.text, token.token);
         await waitFor(
-          () => sendResults().length >= 2,
+          () => sendResults().length >= 3,
           10_000,
           "daemon refusal send_result",
         );
@@ -198,12 +201,9 @@ describe.skipIf(!goAvailable)("real --mock daemon e2e (P0.6)", () => {
           "pairing",
         );
 
-        const token = mintApprovalToken(`${ingestion.sourceId}.send`);
-        await ingestion.sendMessage({
-          to: "15551234567@s.whatsapp.net",
-          text: "should be refused",
-          approvalToken: token.token,
-        });
+        const payload = { to: "15551234567@s.whatsapp.net", text: "should be refused" };
+        const token = mintApprovalToken(`${ingestion.sourceId}.send`, { bind: payload });
+        await ingestion.sendMessage({ ...payload, approvalToken: token.token });
         await waitFor(
           () => frames.some((f) => f.type === "send_result"),
           10_000,

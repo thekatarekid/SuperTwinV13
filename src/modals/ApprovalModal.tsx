@@ -23,6 +23,14 @@ export interface ApprovalSpec {
   why: string | null;
   amount?: string | null;
   approveLabel: string;
+  /**
+   * V6 P1 S4.5 (GATE-A): the exact payload this card displays. The minted
+   * token is BOUND to it, so it authorizes this recipient and these words and
+   * nothing else — a draft that changed under the card is refused, not sent.
+   */
+  bind?: { to: string; text: string };
+  /** The recipient shown on its own row, so "to whom" is never buried. */
+  recipient?: string | null;
 }
 
 export function ApprovalModal(props: {
@@ -41,8 +49,9 @@ export function ApprovalModal(props: {
     setBusy(true);
     setError(null);
     try {
-      // Mint AT tap-time (spec §14.6 note 2), then straight into the gated call.
-      const minted = await mintApproval(spec.action);
+      // Mint AT tap-time (spec §14.6 note 2), bound to exactly what this card
+      // displayed (S4.5), then straight into the gated call.
+      const minted = await mintApproval(spec.action, spec.bind);
       await props.onApprove(minted.token);
     } catch {
       setError("approval failed — nothing was sent");
@@ -65,6 +74,11 @@ export function ApprovalModal(props: {
           {spec.amount && <span className="chip">{spec.amount}</span>}
         </header>
 
+        {spec.recipient && (
+          <p data-testid="approval-recipient">
+            To: <strong>{spec.recipient}</strong>
+          </p>
+        )}
         <p>What happens on approve:</p>
         <ul aria-label="what happens">
           {spec.lines.map((line, i) => (

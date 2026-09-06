@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/thekatarekid/supertwin/sources/whatsapp-go/internal/protocol"
 )
@@ -189,13 +190,17 @@ func TestSendMessageWithoutTokenRefused(t *testing.T) {
 
 // TestSendMessageTokenSingleUse proves the daemon's own replay guard: the same
 // approval token admits exactly one send through this process; the second use
-// is refused before the engine.
+// is refused before the engine. The token is a REAL one (S4.5): signed under
+// the install's approval key and bound to this exact recipient and text.
 func TestSendMessageTokenSingleUse(t *testing.T) {
+	t.Setenv(ApprovalKeyEnv, testKey)
 	fe := &fakeEngine{}
 	w, buf := captureWriter()
+	tok := mintTestToken(t, testKey, "whatsapp.send", strings.Repeat("c", 32),
+		time.Now().Add(5*time.Minute), "15551234567@s.whatsapp.net", "hello", true)
 	cmd := protocol.Command{
 		Cmd: "send_message", To: "15551234567@s.whatsapp.net", Text: "hello",
-		ApprovalToken: "tok-single-use-1",
+		ApprovalToken: tok,
 	}
 
 	handleCommand(fe, w, func(string, ...any) {}, cmd, func() {})
@@ -220,6 +225,11 @@ func TestSendMessageMissingToRefused(t *testing.T) {
 	handleCommand(fe, w, func(string, ...any) {}, protocol.Command{
 		Cmd: "send_message", Text: "hi", ApprovalToken: "tok-missing-to-1",
 	}, func() {})
+	// The refusal names the missing payload, not the token: to/text are checked
+	// before the gate, so the message says what is actually wrong.
+	if !strings.Contains(buf.String(), "to and text are required") {
+		t.Fatalf("expected the to/text refusal, got: %s", buf.String())
+	}
 
 	if calls := fe.sendCalls(); len(calls) != 0 {
 		t.Fatalf("send without `to` must not reach the engine; got %v", calls)

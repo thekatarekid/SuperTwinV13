@@ -1,0 +1,46 @@
+{
+  "id": "GATE-A-03",
+  "category": "GATE-A",
+  "title": "the approval card shows exactly what",
+  "pass": "send-gate",
+  "mode": "code",
+  "setup": {
+    "note": "One approval card for a WhatsApp send, with the recipient's name, the address the daemon will use, and the exact text.",
+    "recipient": "919812345678@s.whatsapp.net",
+    "recipient_label": "Rohan",
+    "text": "sending the villa advance tonight, sharing the receipt after"
+  },
+  "input_events": [
+    "The card is read as a surface would render it.",
+    "It is tapped, minting the token.",
+    "The text is then edited.",
+    "The dispatcher is asked to send."
+  ],
+  "expected": {
+    "card": "recipient (name and address), channel and the verbatim text — nothing summarised",
+    "on_edit": "the minted token is revoked and the card drops back to pending",
+    "after_edit": "the send is refused until a new tap; the old token cannot carry the old text or the new one",
+    "after_retap": "exactly the edited text goes to exactly that recipient"
+  },
+  "wrong": [
+    {
+      "label": "edit-keeps-approval",
+      "assert_absent": "an edited card sending on the token minted before the edit"
+    },
+    {
+      "label": "card-hides-payload",
+      "assert_absent": "an approval card that does not carry the recipient and the exact text it is authorizing"
+    },
+    {
+      "label": "dispatcher-takes-caller-payload",
+      "assert_absent": "the dispatcher sending a recipient or a body supplied by the caller instead of the card's own"
+    }
+  ],
+  "gates": [
+    "risky_without_token"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.14 GATE-A-03 · the approval card shows exactly what"
+  }
+}

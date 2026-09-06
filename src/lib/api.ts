@@ -175,11 +175,19 @@ export const executeTask = (
 export const answerTask = (id: string, answer: string): Promise<TaskRunState> =>
   request(`/api/tasks/${encodeURIComponent(id)}/answer`, post({ answer }));
 
-/** Mint one single-use approval token — called ONLY on the Approve tap. */
+/**
+ * Mint one single-use approval token — called ONLY on the Approve tap.
+ *
+ * V6 P1 S4.5: a SEND token must name what it approves. `bind` is the exact
+ * recipient and the exact text the card displayed; the worker and the daemon
+ * both refuse to send anything else with it, so a draft that changed between
+ * the display and the tap is refused rather than sent unseen.
+ */
 export const mintApproval = (
   action: string,
+  bind?: { to: string; text: string },
 ): Promise<{ token: string; action: string; expires_at: string }> =>
-  request("/api/approvals/mint", post({ action }));
+  request("/api/approvals/mint", post(bind ? { action, bind } : { action }));
 
 /** The approved WhatsApp draft send: draft read server-side from the run. */
 export const sendTaskDraft = (id: string, approvalToken: string): Promise<TaskRunState> =>

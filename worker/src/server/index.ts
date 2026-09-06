@@ -133,6 +133,10 @@ import { handleSurfacesRoute } from "./surfaces-routes.js";
 // V6 P1 S4.3: `surface-router.v1` — the nudge card, the unread counter and
 // where every finished artifact goes. Owns /api/surfaces/.
 import { handleNudgeRoute } from "./nudge-routes.js";
+// V6 P1 S4.5: the send gate — approval cards, the tap that mints a bound
+// single-use token, and the dispatcher that sends only what the card shows.
+// Owns /api/approvals except /api/approvals/mint (whatsapp-routes.ts).
+import { handleApprovalsRoute } from "./approvals-routes.js";
 // World-model reads (P1.1): people / spaces / claims / tone. Same contract —
 // returns false for a path it does not claim.
 import { handleWorldModelRoute } from "./worldmodel-routes.js";
@@ -753,6 +757,15 @@ async function handle(
   // answers for the browser.
   if (path.startsWith("/api/sources/browser/")) {
     const handled = await handleBrowserSourceRoute(req, res);
+    if (handled) return;
+  }
+
+  // The send gate (V6 P1 S4.5): approval cards and the dispatcher that can
+  // only send what a card displays. It declines /api/approvals/mint, which
+  // stays on the source router below, so the order of these two is not a
+  // routing subtlety — each claims a disjoint set of paths.
+  if (path === "/api/approvals" || path.startsWith("/api/approvals/")) {
+    const handled = await handleApprovalsRoute(req, res, ingestion);
     if (handled) return;
   }
 

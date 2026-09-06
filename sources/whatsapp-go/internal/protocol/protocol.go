@@ -392,11 +392,14 @@ type Command struct {
 	// every other command.
 	Anchors []Anchor `json:"anchors,omitempty"`
 
-	// --- send_message payload (P0.6). The daemon HARD-REFUSES a send_message
-	// whose ApprovalToken is absent/empty or already seen by this process:
-	// enforcement is code, not prompt (spec §2.13). The worker mints and
-	// consumes tokens in its single-use token table before ever writing this
-	// command; the daemon's check is the second, independent gate.
+	// --- send_message payload (P0.6, tightened by V6 P1 S4.5). The daemon
+	// HARD-REFUSES a send_message whose ApprovalToken is absent, unsigned,
+	// signed under another key, expired, bound to a different recipient/text,
+	// or already seen by this process: enforcement is code, not prompt
+	// (spec §2.13). The worker mints and consumes tokens in its single-use
+	// token table before ever writing this command; the daemon's check
+	// (internal/daemon/sendgate.go) is a second, INDEPENDENT gate that needs no
+	// access to that table — it verifies the tap's own signature.
 	To            string `json:"to,omitempty"`
 	Text          string `json:"text,omitempty"`
 	ApprovalToken string `json:"approval_token,omitempty"`

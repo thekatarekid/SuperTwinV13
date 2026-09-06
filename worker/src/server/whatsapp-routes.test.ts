@@ -1023,15 +1023,19 @@ describe("whatsapp/inbox/media routes", () => {
 
   // ---- P0.6: approval-token mint + gated send ------------------------------
 
-  it("POST /api/approvals/mint mints a single-use token; blank action 400s", async () => {
+  it("POST /api/approvals/mint mints a single-use signed token; blank action 400s", async () => {
     const res = await fetch(`${base}/api/approvals/mint`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "whatsapp.send" }),
+      body: JSON.stringify({
+        action: "whatsapp.send",
+        bind: { to: "x@s.whatsapp.net", text: "hi" },
+      }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { token: string; action: string; expires_at: string };
-    expect(body.token).toMatch(/^[0-9a-f]{64}$/);
+    // S4.5: signed and bound — "st1~<action>~<id>~<exp>~<digest>~<sig>".
+    expect(body.token).toMatch(/^st1~whatsapp\.send~[0-9a-f]{32}~\d+~[0-9a-f]{64}~[0-9a-f]{64}$/);
     expect(body.action).toBe("whatsapp.send");
 
     const bad = await fetch(`${base}/api/approvals/mint`, {
@@ -1067,12 +1071,27 @@ describe("whatsapp/inbox/media routes", () => {
     expect(missing.status).toBe(400);
   });
 
+  it("POST /api/approvals/mint refuses an UNBOUND send token (S4.5)", async () => {
+    const res = await fetch(`${base}/api/approvals/mint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "whatsapp.send" }),
+    });
+    expect(res.status).toBe(400);
+    expect(String(((await res.json()) as { error: string }).error)).toMatch(/bound/);
+  });
+
   it("POST send with a minted token forwards send_message exactly once", async () => {
     const mint = (await (
       await fetch(`${base}/api/approvals/mint`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "whatsapp.send" }),
+        body: JSON.stringify({
+          action: "whatsapp.send",
+          // S4.5: a send token names what it approves — the route refuses to
+          // mint one that would authorize any recipient and any words.
+          bind: { to: "x@s.whatsapp.net", text: "approved via route" },
+        }),
       })
     ).json()) as { token: string };
 
@@ -1099,7 +1118,7 @@ describe("whatsapp/inbox/media routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         to: "x@s.whatsapp.net",
-        text: "again",
+        text: "approved via route",
         approval_token: mint.token,
       }),
     });

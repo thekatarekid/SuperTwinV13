@@ -8,8 +8,6 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -142,25 +140,29 @@ func handleCommand(engine Engine, w *protocol.Writer, logf func(string, ...any),
 		// installs nothing, drains nothing, emits one `range_counts` frame.
 		engine.CountRange()
 	case "send_message":
-		// The ONLY send path, and it is code-gated (spec §2.13, P0.6): a
-		// send_message without a non-empty, never-before-seen approval token is
-		// REFUSED before the engine is ever touched. Token mint/consume lives in
-		// the worker's single-use token table; this in-process replay guard is
-		// the daemon's own, independent belt: the same token can never drive two
-		// sends through one daemon no matter what the worker does.
-		if reason, ok := admitSendToken(cmd.ApprovalToken); !ok {
-			logf("refusing send_message: %s", reason)
-			if w != nil {
-				_ = w.Error("SEND_REFUSED", "send_message refused: "+reason, false)
-				_ = w.SendResult(false, "", reason)
-			}
-			return
-		}
+		// The ONLY send path, and it is code-gated (spec §2.13; P0.6, tightened
+		// by V6 P1 S4.5). The daemon verifies the tap ITSELF — signature under
+		// the install's approval key, the right action, unexpired, bound to
+		// exactly this recipient and this text, and never used before in this
+		// process (sendgate.go). The worker's single-use table is the first
+		// gate; this is a second, independent one that needs no access to it.
+		//
+		// to/text are checked FIRST: an empty payload could never match a
+		// token's binding anyway, and this way the refusal names the real
+		// problem instead of blaming the token.
 		if cmd.To == "" || cmd.Text == "" {
 			logf("refusing send_message: missing to/text")
 			if w != nil {
 				_ = w.Error("SEND_REFUSED", "send_message refused: to and text are required", false)
 				_ = w.SendResult(false, "", "to and text are required")
+			}
+			return
+		}
+		if reason, ok := admitSend(cmd.ApprovalToken, cmd.To, cmd.Text); !ok {
+			logf("refusing send_message: %s", reason)
+			if w != nil {
+				_ = w.Error("SEND_REFUSED", "send_message refused: "+reason, false)
+				_ = w.SendResult(false, "", reason)
 			}
 			return
 		}
@@ -182,33 +184,6 @@ func handleCommand(engine Engine, w *protocol.Writer, logf func(string, ...any),
 	default:
 		logf("ignoring unknown command %q", cmd.Cmd)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Approval-token gate (P0.6). Tokens are minted + consumed in the worker's
-// single-use table; this map is the daemon's own replay guard so a token that
-// already drove a send through THIS process can never drive a second one.
-// Bounded implicitly: one entry per approved send in the daemon's lifetime.
-// ---------------------------------------------------------------------------
-
-var (
-	sendTokenMu   sync.Mutex
-	seenSendToken = map[string]bool{}
-)
-
-// admitSendToken returns ok=true iff the token is non-empty and unseen, and
-// marks it seen. On refusal it returns the human-readable reason.
-func admitSendToken(token string) (reason string, ok bool) {
-	if strings.TrimSpace(token) == "" {
-		return "approval_token is required (no send path without a minted single-use approval token)", false
-	}
-	sendTokenMu.Lock()
-	defer sendTokenMu.Unlock()
-	if seenSendToken[token] {
-		return "approval_token already used (single-use)", false
-	}
-	seenSendToken[token] = true
-	return "", true
 }
 
 // shutdownWithDeadline runs engine.Shutdown but never blocks longer than d.

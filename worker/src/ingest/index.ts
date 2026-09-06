@@ -844,9 +844,18 @@ export class Ingestion {
       throw new Error("SEND_REFUSED: source has no send path");
     }
     const action = `${this.sourceId}.send`;
-    if (!consumeApprovalToken(params.approvalToken, action)) {
+    // The token is BOUND to the approved payload (V6 P1 S4.5): consuming it
+    // proves this exact recipient and this exact text were what the tap saw.
+    // A token approved for Rohan cannot send to Karan, and an edited draft
+    // cannot ride an old approval — the consume simply fails, and fails
+    // WITHOUT burning the token the user actually granted.
+    if (
+      !consumeApprovalToken(params.approvalToken, action, {
+        bind: { to: params.to, text: params.text },
+      })
+    ) {
       throw new Error(
-        "SEND_REFUSED: approval token invalid, expired, or already used",
+        "SEND_REFUSED: approval token invalid, expired, already used, or approved for a different message",
       );
     }
     await adapter.sendMessage(params.to, params.text, params.approvalToken);

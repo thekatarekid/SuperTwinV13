@@ -40,6 +40,7 @@ import { settingsExecutor } from "./set.js";
 import { liveExecutor } from "./liv.js";
 import { liteExecutor } from "./exe.js";
 import { nudExecutor } from "./nud.js";
+import { sendGateExecutor } from "./gatea.js";
 import { brfExecutor } from "./brf.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
@@ -65,6 +66,7 @@ export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
 export { liteExecutor } from "./exe.js";
 export { nudExecutor } from "./nud.js";
+export { sendGateExecutor } from "./gatea.js";
 export { brfExecutor } from "./brf.js";
 export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
 export { barExecutor, fixExecutor } from "./bar.js";
@@ -200,6 +202,12 @@ export async function registerProductExecutors(): Promise<void> {
   // wrong-goal card the precision check catches) against the real
   // surfaces/router.ts. Zero model calls.
   registerExecutor("router", nudExecutor);
+  // V6 P1 S4.5: GATE-A — the send gate. No token no send (hard), a token that
+  // is single-use AND bound to one recipient and one text, and an approval
+  // card whose edit revokes the approval instead of carrying it forward. Runs
+  // the real approvals/ modules plus a mirror of the daemon's own gate (the
+  // real binary is driven by the mock-e2e vitest). Zero model calls.
+  registerExecutor("send-gate", sendGateExecutor);
   // V6 P1 S4.6: BRF brief cases (an unchanged world model buys no call and no
   // card, then one write wakes the next brief; a moved one buys exactly one
   // brief.v2 call over a ledger code composed — needs you, today, what moved,

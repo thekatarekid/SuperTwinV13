@@ -5,7 +5,15 @@ client that speaks the NDJSON protocol from `docs/PHASE1_CONTRACT.md` over
 stdio: the Node worker sends commands on **stdin** and reads events on
 **stdout**; all diagnostic logging goes to **stderr**.
 
-**Read-only:** there is NO code path that sends a WhatsApp chat message.
+**Ingestion is read-only.** There is exactly ONE send path — `send_message` —
+and it is code-gated (V6 P1 S4.5, spec §2.13): the daemon refuses it unless the
+command carries an approval token that verifies against this install's approval
+key (`SUPERTWIN_APPROVAL_KEY`, handed over in the spawn environment by the
+worker), names the send action, has not expired, is bound to *exactly* this
+recipient and this text, and has not already driven a send through this
+process. No key, no send — an unverifiable gate is an open gate. See
+`internal/daemon/sendgate.go`; the worker mints the tokens in
+`worker/src/approvals/`.
 
 ## Build
 

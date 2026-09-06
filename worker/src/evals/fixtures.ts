@@ -171,6 +171,12 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // next brief), and a moved one buys exactly one brief.v2 call over a ledger
   // code composed — needs you, today, what moved, every line carrying its row.
   { cat: "BRF", name: "The brief (V6 P1)", n: 2, doc: "V2", pass: "brief", authored: true },
+  // GoldenEvals V6 Phase 1 §5.14 — the send gate (S4.5). Code against
+  // approvals/{key,tokens,send-approval}.ts and the dispatcher: no token no
+  // send (hard, `risky_without_token`), a token that is single-use AND bound
+  // to one recipient and one text, and a card that shows exactly what will be
+  // sent — where editing revokes the approval instead of carrying it forward.
+  { cat: "GATE-A", name: "The send gate (V6 P1)", n: 3, doc: "V2", pass: "send-gate", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);
@@ -250,7 +256,11 @@ export class FixtureError extends Error {
  * fixtures the GoldenEvals V6P1 §5.10 names by shape (`CROSS-N2`, `CROSS-N50`,
  * `CROSS-DAY`).
  */
-const ID_RE = /^[A-Z]{3,5}-(\d{2}|N\d{1,3}|DAY)$/;
+// "ROL-01", "CROSS-N50", "CROSS-DAY" — and a lettered SUB-family, "GATE-A-01":
+// GoldenEvals V6 P1 §3.1 lists GATE-A as its own category next to GATE, so the
+// id carries the family and the case number, and the category is everything
+// before the last dash.
+const ID_RE = /^[A-Z]{3,5}(-[A-Z])?-(\d{2}|N\d{1,3}|DAY)$/;
 const PASS_RE = /^[a-z][a-z0-9.+_-]*$/;
 const GATE_RE = /^[a-z][a-z0-9_]*$/;
 const LABEL_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -315,7 +325,7 @@ export function validateFixture(raw: unknown, file: string): Fixture {
   const id = c.str(o.id, "id");
   if (id && !ID_RE.test(id)) c.fail("id", `must look like "ROL-01", got ${JSON.stringify(id)}`);
   const category = c.str(o.category, "category");
-  const prefix = id.split("-")[0] ?? "";
+  const prefix = id.slice(0, id.lastIndexOf("-"));
 
   let selftest: boolean | undefined;
   if (o.selftest !== undefined) {

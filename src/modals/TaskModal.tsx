@@ -39,6 +39,11 @@ export function approvalSpecFor(envelope: EnvelopeView): ApprovalSpec | null {
         lines: [`Send WhatsApp to ${to}`, `“${body}”`],
         why: envelope.approval_request,
         approveLabel: "Approve & send",
+        // S4.5: the tap mints a token bound to THIS recipient and THIS text —
+        // the same two strings the lines above show and the same two the
+        // worker will send. Anything else is refused by code, twice.
+        bind: { to, text: body },
+        recipient: to,
       };
     }
   }

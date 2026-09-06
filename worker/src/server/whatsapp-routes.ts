@@ -388,12 +388,18 @@ export async function handleSourceRoute(
     }
   }
 
-  // ---- POST /api/approvals/mint { action } → { token, action, expires_at }
-  // Mints one single-use approval token (P0.6). The P3 approval modal calls
-  // this at tap-time; until then it is the programmatic mint surface (tests,
-  // scripts, the mock e2e).
+  // ---- POST /api/approvals/mint { action, bind? } → { token, action, expires_at }
+  // Mints one single-use signed approval token (P0.6). The approval modal calls
+  // this at tap-time; it is also the programmatic mint surface (tests, scripts,
+  // the mock e2e).
+  //
+  // V6 P1 S4.5: a SEND action must name what it is approving. An unbound send
+  // token would authorize any recipient and any words, which is exactly the
+  // gate this route exists to hold, so the mint is refused without a binding.
   if (method === "POST" && path === "/api/approvals/mint") {
-    const body = (await readJsonBody(req)) as { action?: unknown } | undefined;
+    const body = (await readJsonBody(req)) as
+      | { action?: unknown; bind?: unknown }
+      | undefined;
     const action =
       body && typeof body.action === "string" && body.action.trim()
         ? body.action.trim()
@@ -402,7 +408,20 @@ export async function handleSourceRoute(
       sendJson(res, 400, { error: "action required" });
       return true;
     }
-    const minted = mintApprovalToken(action);
+    const rawBind = body && typeof body.bind === "object" && body.bind !== null
+      ? (body.bind as { to?: unknown; text?: unknown })
+      : null;
+    const bind =
+      rawBind && typeof rawBind.to === "string" && typeof rawBind.text === "string"
+        ? { to: rawBind.to, text: rawBind.text }
+        : undefined;
+    if (action.endsWith(".send") && !bind) {
+      sendJson(res, 400, {
+        error: "a send token must be bound: pass bind { to, text } — exactly what will be sent",
+      });
+      return true;
+    }
+    const minted = mintApprovalToken(action, bind ? { bind } : {});
     sendJson(res, 200, {
       token: minted.token,
       action: minted.action,

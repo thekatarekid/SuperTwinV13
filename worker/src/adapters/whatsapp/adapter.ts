@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { APPROVAL_KEY_ENV, approvalKey } from "../../approvals/key.js";
 import { normalizeSourceEvent } from "../normalize.js";
 import type { SourceAdapter } from "../source-adapter.js";
 import { isRange, RANGES } from "../types.js";
@@ -446,7 +447,11 @@ export class WhatsAppAdapter implements SourceAdapter {
   private spawnDaemon(): void {
     const { bin, found } = resolveWhatsAppBin(this.binPath);
     const args = this.daemonArgs();
-    const env = { ...process.env };
+    // The daemon verifies a send's approval token ITSELF (V6 P1 S4.5): the
+    // install's signing key travels in its environment, never on the wire, so
+    // the send gate is two independent checks rather than one check consulted
+    // twice. Without it the daemon refuses every send — fail closed.
+    const env = { ...process.env, [APPROVAL_KEY_ENV]: approvalKey() };
 
     this.ready = false;
     this.stdoutBuf = "";

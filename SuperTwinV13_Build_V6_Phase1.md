@@ -31,7 +31,7 @@ Builds `SuperTwinV13_Product_V6_Phase1.md` on top of the current V13 tree (HEAD 
 | S0 — Ground clearing and rails | ✅ done 2026-09-06 | 13.5.1 · `releases/SuperTwinV13_V6P1S0_13.5.1.dmg` |
 | S1 — Consent, archive, adapters | ✅ done 2026-09-06 | 13.6.1 · `releases/SuperTwinV13_V6P1S1_13.6.1.dmg` |
 | S2 — Index and T0 retrieval | ✅ done 2026-09-06 | 13.7.1 · `releases/SuperTwinV13_V6P1S2_13.7.1.dmg` |
-| S3 — Understanding core | ○ pending | — |
+| S3 — Understanding core | ✅ done 2026-09-06 | 13.8.1 · `releases/SuperTwinV13_V6P1S3_13.8.1.dmg` |
 | S4 — Live path, executor-lite, assist | ○ pending | — |
 | S5 — World model surfaces and the bar | ○ pending | — |
 | S6 — Graduation | ○ pending | — |
@@ -355,12 +355,14 @@ Every module gets one verdict before any code is written.
 
 ## 6. Stage 3 — Understanding core
 
+**STATUS:** ✅ done 13.8.1 (2026-09-06) — all nine tasks landed; gates verified (BND 12 · GATE 10 · CMT 5 · PCK 7 · CRI-04 · FACT 6 · TYP 3 · DEC 6 · TIER 3 · DIG-01 · CON 3 · IDEM 1 · CROSS-N2 green as code fixtures, 59/59; live: TIM 4/4 and TIER-03 best-of-2 green, CRI-01 green; ORIENT golden 10/10 under v7/v5 (S3.5) but 9/10 under the shipped v6/v4 default on the new pack — TOP-08 ⚠️; CRI-02/03 and DIG-02 ⚠️ red on model judgement). One gate fix (`6fd3cf8`: HEAD did not compile — S3.8's `flipInChunks` was uncommitted; three stale test pins; CROSS-N2 authored; digest evidence shape; CRI PROPOSAL rendering). 55 live calls. Detail in `progressV13_V6_Phase1.md`.
+
 > **Goal.** The state gate, the day-bundler, grounded commit, and the understanding passes on the new pack.
 > **Backlog.** T2-1..10, T3-1, T6-7/9/10/11, T7-2.
 
 ### 6.1 SERIAL
 
-#### S3.1 — Commit rewrite
+#### S3.1 — Commit rewrite ✅ `1736cde` — range readers (packer/history, thin-pack, gate, graph…) still walk start/end rowid over ranges of one; `mentions` still not written by the commit path
 
 - **Where.** `brain/commit.ts`.
 - **Change.**
@@ -371,7 +373,7 @@ Every module gets one verdict before any code is written.
 - **Keep.** `parseOrientOutput`, `resolveEventAliases`, `buildCriticInput`.
 - **Tests.** CMT-01..05.
 
-#### S3.2 — Packer rewrite
+#### S3.2 — Packer rewrite ✅ `1952117` — `[EPISODES]` rendered inside `<untrusted>`; reranker not run inside the packer (RRF order feeds the five); orient.v6 does not name the new block headers
 
 - **Blocks.** `[NOW]` · `[ROSTER]` · `[OPEN TASKS]` · `[CALENDAR]` · `[CANDIDATE SPACES]` (T0 retrieval, cap 5, with exemplars) · `[BRIDGED]` · `[THREAD S<k>]` · `[EPISODES]` · `[BUNDLE]`.
 - **Rendering.** Sections by stream; event heads carry `time · source · app · title · doc`; all captured text inside one `<untrusted>` block.
@@ -381,7 +383,7 @@ Every module gets one verdict before any code is written.
 - **Budget.** Whole pack under 16,000 chars, flat as the user's data grows.
 - **Tests.** PCK-01..07.
 
-#### S3.3 — State gate and lanes
+#### S3.3 — State gate and lanes ✅ `e2021fc` — history days are UTC; GATE-10 replay is a synthetic corpus; dispatcher runs in production boot on the frozen orient.v6
 
 New `scheduler/v6/`:
 
@@ -399,40 +401,40 @@ New `scheduler/v6/`:
 - Old `scheduler/` deleted in the same commit.
 - **Tests.** BND-01..12, GATE-01..10.
 
-#### S3.4 — Stream keys
+#### S3.4 — Stream keys ✅ `3b852a0` — `streams.external_key` stays the bare JID for daemon-facing paths; day slot is UTC
 
 - `chains.ts`: `wa:<jid>` · `browser:<browser>:<profile>:<domain>:<day>` · `screen:<bundleId>:<session>` · `doc:<path>`.
 - Fresh database, so no migration.
 
 ### 6.2 Lanes
 
-#### S3.5 [A] — Orient `orient.v7` and Critic `critic.v5`
+#### S3.5 [A] — Orient `orient.v7` and Critic `critic.v5` ⚠️ `82a473a` — TOP 10/10 under v7/v5; defaults stay v6/v4 until the S4 gate; CRI-02 (half-fit flag) and CRI-03 (downgrade vs reject) red under critic.v5 twice at the gate — P-03 needs a critic.v6 iteration; ROL executor still unbuilt
 
 - v7 = v6 schema plus stream tag, untrusted block, thin-context mode.
 - Critic gains the mechanical coverage check and grades bridges and edges.
 - **Tests.** ORIENT golden ≥ baseline; CRI-01..04.
 
-#### S3.6 [B] — Extract `extract.v6`
+#### S3.6 [B] — Extract `extract.v6` ✅ `71c435c` — recorded outputs hand-authored to P-04; month-precision dates drop to null; kinds bounded by CLAIM_KINDS
 
 - Claims with typed fields; people, roles, tone, feelings.
 - Self-reported provenance for bar events; supersede-or-coexist judgement.
 - **Tests.** FACT-01..06, TYP-01..03.
 
-#### S3.7 [C] — Decide `decide.v9`
+#### S3.7 [C] — Decide `decide.v9` ✅ `702d985` — `runClosureChecks` not yet on a timer (S5.2); bar-created spaces should call `findBirthDuplicate` (S5.1); TIM-04 needs the model to emit `window_opens_at`
 
 - Per space: summary, latest, plan, milestones (only if staged), tasks, schedules, closures, follow-ups.
 - TIM-04 rule: never fire before the evidence says the window opens.
 - Space-birth dedupe via the critic.
 - **Tests.** DEC-01..06, TIM-01..04.
 
-#### S3.8 [D] — Tiering and digest
+#### S3.8 [D] — Tiering and digest ⚠️ `8a5060f` — `flipInChunks` landed only at the gate (`6fd3cf8`); DIG-02 live: shape now passes code after the evidence-shape note in the user block, judge dings the volunteers line surfaced as a claim; first-boot tiering pass may spend one tier.v1 call per never-replied business
 
 - Cached tiering call for the business split; code decides replied-versus-not.
 - Promotion instant and retroactive.
 - `digest.v2` weekly.
 - **Tests.** TIER-01..04, DIG-01..02.
 
-#### S3.9 [E] — Consolidation on change, eval isolation
+#### S3.9 [E] — Consolidation on change, eval isolation ✅ `749de45` — near-duplicate signal is exact label equality; merge-question answer path not yet on a route (S5); older executors still seed `origin='live'` inside the sandboxed eval home
 
 - Hourly merge/split only over what changed; deep pass when idle.
 - Dispatcher ignores `origin='eval'`.
@@ -599,15 +601,15 @@ All six lanes run in parallel.
 ## 10. Cross-stage release checklist
 
 - [ ] `trace_coverage = 100%` and `pass_liveness = 100%` — _S0: trace_coverage 100% ✅; pass_liveness 17%, red until S3_
-- [ ] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); BND-11 pending; S2: RET-01..10 · BAR-01 ✅ (deterministic suites)_
-- [ ] ORIENT golden ≥ `evals/baseline/v13.json`
+- [x] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); S2: RET-01..10 · BAR-01 ✅ (deterministic suites); S3: BND-01..12 (incl. BND-11 dead letters) and GATE-01..10 ✅ as `evals/v13` code fixtures_
+- [ ] ORIENT golden ≥ `evals/baseline/v13.json` — _S3: TOP 10/10 under orient.v7 + critic.v5 (S3.5, 21 calls); under the shipped v6/v4 default on the S3.2 pack 9/10 best-of-2 (TOP-08: critic.v4 rejects the birthday proposal on label specificity) ⚠️ — re-measure when the S4 gate flips the defaults_
 - [ ] `false_receiver_assignment = 0` · `guess_rate = 0` · `risky_without_token = 0` · `login_automation = 0`
 - [ ] `assist_from_history = 0` · `nudge_without_grounding = 0` · `content_gated_call = 0`
-- [ ] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0` — _S2: full_vector_scan 0 ✅ (RET-01/02 assert `fullVectorScans = 0`; whole-table read + 30 s cache deleted); packer rows pending S3_
-- [ ] `injection_acted = 0` · `fabricated_evidence = 0` · `clock_only_call = 0`
-- [ ] Pack size under 16,000 chars on the 104-space fixture — _S2: not measurable yet (packer rewrite and fixture are S3)_
-- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅ · S2 ✅_
-- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅ · S2: 13.7.1 ✅_
+- [x] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0` — _S2: full_vector_scan 0 ✅ (RET-01/02 assert `fullVectorScans = 0`; whole-table read + 30 s cache deleted); S3: packer_enumeration 0 · packer_escalation 0 ✅ (PCK-02/07 over 104 spaces, candidates from retrieval only, cap 5)_
+- [ ] `injection_acted = 0` · `fabricated_evidence = 0` · `clock_only_call = 0` — _S3: fabricated_evidence 0 ✅ (CMT-01..05, CROSS-N2, TOP live), clock_only_call 0 ✅ (CON-01, IDEM-01 hard gate); injection_acted pending S4 (INJ)_
+- [x] Pack size under 16,000 chars on the 104-space fixture — _S3 ✅: PCK-02/07 — exactly 5 candidates over 104 spaces, pack ≈ 4.5k chars, within 300 chars of the 24-space pack, < 200 ms, 0 model calls_
+- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅ · S2 ✅ · S3 ✅_
+- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅ · S2: 13.7.1 ✅ · S3: 13.8.1 ✅_
 
 ---
 

@@ -1,0 +1,52 @@
+{
+  "id": "BAR-10",
+  "category": "BAR",
+  "title": "ambiguity",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "Two live spaces the instruction could belong to: \"Goa Dec\" and \"Hampi trek\".",
+    "spaces": [
+      "Goa Dec",
+      "Hampi trek"
+    ]
+  },
+  "input_events": [
+    "book it",
+    "goa"
+  ],
+  "expected": {
+    "instruction": {
+      "status": "needs_input",
+      "questions": 1,
+      "options": 2,
+      "tasks_written": 0
+    },
+    "answer": {
+      "status": "done",
+      "model_calls": 0,
+      "space": "Goa Dec"
+    },
+    "bare_question": {
+      "intent": "search",
+      "model_calls": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "coin-flip",
+      "assert_absent": "one of two candidates picked without asking"
+    },
+    {
+      "label": "question-asked-twice",
+      "assert_absent": "more than one question for one ambiguity"
+    }
+  ],
+  "gates": [
+    "guess_rate"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-10 · ambiguity"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "BAR-06",
+  "category": "BAR",
+  "title": "partial says partial",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "15 typed rows match an enumeration whose row limit is 12.",
+    "rows": 15,
+    "limit": 12
+  },
+  "input_events": [
+    "list all the uber rides last month"
+  ],
+  "expected": {
+    "partial": true,
+    "gap_contains": "12 so far, list may be incomplete",
+    "missing_named": 3
+  },
+  "wrong": [
+    {
+      "label": "silent-truncation",
+      "assert_absent": "an enumeration cut by the cap and presented as complete"
+    }
+  ],
+  "gates": [
+    "coverage_caveat"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-06 · partial says partial"
+  }
+}

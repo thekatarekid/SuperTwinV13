@@ -1,0 +1,40 @@
+{
+  "id": "BAR-05",
+  "category": "BAR",
+  "title": "absence with a coverage caveat",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "The whole wa:goa-gang thread in range, none of it about a payment; WhatsApp coverage starts Jul 2026.",
+    "messages": 9,
+    "coverage_floor": "2026-07-04"
+  },
+  "input_events": [
+    "did karan pay the advance"
+  ],
+  "expected": {
+    "class": "absence",
+    "method": "time_window",
+    "scan_complete": true,
+    "scanned": 9,
+    "caveat": "I only have WhatsApp back to Jul 2026",
+    "names_the_thread": true
+  },
+  "wrong": [
+    {
+      "label": "confident-no-from-top-30",
+      "assert_absent": "a \"no\" declared over a ranked sample instead of the thread"
+    },
+    {
+      "label": "no-without-caveat",
+      "assert_absent": "an absence answer with no coverage caveat when the range reaches past the floor"
+    }
+  ],
+  "gates": [
+    "absence_scan_complete"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-05 · absence with a coverage caveat"
+  }
+}

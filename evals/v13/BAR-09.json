@@ -1,0 +1,36 @@
+{
+  "id": "BAR-09",
+  "category": "BAR",
+  "title": "a follow-up stays on the object",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "The bar just created \"Hampi trek Oct\"; the thread is locked to it."
+  },
+  "input_events": [
+    "actually make it november"
+  ],
+  "expected": {
+    "spaces_after": 1,
+    "same_space": true,
+    "corrections": 1,
+    "lock_unchanged": true
+  },
+  "wrong": [
+    {
+      "label": "second-space",
+      "assert_absent": "a second space created by the follow-up"
+    },
+    {
+      "label": "lost-lock",
+      "assert_absent": "the thread losing its lock after a follow-up"
+    }
+  ],
+  "gates": [
+    "over_creation"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-09 · a follow-up stays on the object"
+  }
+}

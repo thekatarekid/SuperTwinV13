@@ -1,0 +1,37 @@
+{
+  "id": "BAR-04",
+  "category": "BAR",
+  "title": "an aggregate is never answered from the top-k",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "RET-07's world through the bar: three Uber receipts in August with typed amounts, plus noise the sum must not touch (a Swiggy order, a September Uber, a July Uber).",
+    "expected_sum": 1020
+  },
+  "input_events": [
+    "how much did I spend on cabs last month"
+  ],
+  "expected": {
+    "class": "aggregate",
+    "method": "structured",
+    "value": 1020,
+    "judge_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "topk-sum",
+      "assert_absent": "a total summed over a ranked candidate list"
+    },
+    {
+      "label": "judge-decides-an-aggregate",
+      "assert_absent": "a judge call on an aggregate class"
+    }
+  ],
+  "gates": [
+    "aggregate_exactness"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-04 · an aggregate is never answered from the top-k"
+  }
+}

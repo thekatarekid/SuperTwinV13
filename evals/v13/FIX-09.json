@@ -1,0 +1,42 @@
+{
+  "id": "FIX-09",
+  "category": "FIX",
+  "title": "every correction drafts a golden case",
+  "pass": "feedback",
+  "mode": "code",
+  "setup": {
+    "note": "Two corrections on the same task: one that applies cleanly and one the parser cannot read."
+  },
+  "input_events": [
+    "\"this is karan's, not mine\" (parses)",
+    "\"do the thing with the stuff\" (does not parse)"
+  ],
+  "expected": {
+    "drafts": 2,
+    "pending_recorded": true,
+    "draft_carries": [
+      "instruction",
+      "before",
+      "after",
+      "structured"
+    ],
+    "draft_dir": "evals/drafts"
+  },
+  "wrong": [
+    {
+      "label": "parse-to-nothing",
+      "assert_absent": "an unparseable correction dropped with no row and no draft"
+    },
+    {
+      "label": "applied-only-drafts",
+      "assert_absent": "drafts written only for corrections that applied"
+    }
+  ],
+  "gates": [
+    "promotion_loop_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 FIX-09 · every correction drafts a golden case"
+  }
+}

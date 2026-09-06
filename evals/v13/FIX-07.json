@@ -1,0 +1,44 @@
+{
+  "id": "FIX-07",
+  "category": "FIX",
+  "title": "quick chip \"Not mine\"",
+  "pass": "feedback",
+  "mode": "code",
+  "setup": {
+    "note": "An open task \"book badminton court\" owned by self, in a space. Karan is the named person.",
+    "task": "book badminton court",
+    "owner": "self"
+  },
+  "input_events": [
+    "The \"Not mine\" quick chip tapped on the task, naming Karan."
+  ],
+  "expected": {
+    "owner": "karan",
+    "follow_up_created": true,
+    "follow_up_category": "monitoring",
+    "undo": {
+      "owner": "self",
+      "follow_ups_dismissed": 1
+    },
+    "correction_rows": 1,
+    "eval_draft": true
+  },
+  "wrong": [
+    {
+      "label": "silent-handoff",
+      "assert_absent": "the task reassigned with nothing left on our side"
+    },
+    {
+      "label": "undo-leaves-the-follow-up",
+      "assert_absent": "an undo that restores the owner but leaves the follow-up open"
+    }
+  ],
+  "gates": [
+    "correction_parse_accuracy",
+    "promotion_loop_integrity"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 FIX-07 · quick chip \"Not mine\""
+  }
+}

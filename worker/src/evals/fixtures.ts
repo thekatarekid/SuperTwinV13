@@ -43,6 +43,12 @@ export interface CategoryInfo {
    * docs, so `--materialize` neither produces nor overwrites them.
    */
   authored?: boolean;
+  /**
+   * Cases hand-authored ON TOP of what the doc writes, for a category that is
+   * otherwise materialized (FIX: the V2 doc has FIX-01..06, V6 P1 S5.5 adds
+   * FIX-07..09). The materializer expects `n - authoredExtra` from the doc.
+   */
+  authoredExtra?: number;
 }
 
 /**
@@ -71,7 +77,10 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "SCH", name: "Scheduled / routine tasks", n: 8, doc: "V2", pass: "schedule" },
   { cat: "FUP", name: "Follow-up tasks", n: 5, doc: "V2", pass: "decide" },
   { cat: "USR", name: "User-created objects & grounded bar", n: 6, doc: "V2", pass: "user-objects" },
-  { cat: "FIX", name: "“Tell the twin” correction parsing", n: 6, doc: "V2", pass: "feedback" },
+  // V6 P1 S5.5 grew FIX by three: FIX-01..06 are the V2 prose cases (live),
+  // FIX-07..09 are the authored V6 cases (code) — the "Not mine" chip and its
+  // undo, the behavioral rule, and every correction's golden-case draft.
+  { cat: "FIX", name: "“Tell the twin” correction parsing", n: 9, doc: "V2", pass: "feedback", authoredExtra: 3 },
   { cat: "BRW", name: "SuperTwin Browser agent + capture", n: 8, doc: "V2", pass: "browser" },
   { cat: "TIM", name: "Time resolution", n: 4, doc: "V2", pass: "time" },
   { cat: "TRC", name: "Traces & liveness", n: 3, doc: "V2", pass: "traces" },
@@ -121,11 +130,21 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // graduation.ts: the three birth modes, the sweep preview, the weekly review on
   // change only, enrichment on change only, and graduation with its reset.
   { cat: "SPC", name: "Spaces (V6 P1)", n: 8, doc: "V2", pass: "space", authored: true },
+  // GoldenEvals V6 Phase 1 §5.20 — the grounded bar (S5.5). Code against the real
+  // bar turn with every model seam injected: type-ahead local and inside budget,
+  // the route classes, hard citation, an aggregate from the structured method,
+  // an absence over a whole scan with its coverage caveat, a partial that says
+  // partial, a labelled general answer, create-now on the hot stream, a
+  // follow-up that stays on its object, and ask-once ambiguity.
+  { cat: "BAR", name: "The grounded bar (V6 P1)", n: 10, doc: "V2", pass: "bar", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);
 /** Cases the V1/V2 docs materialize — everything not hand-authored. */
-export const MATERIALIZED_CASES = CATEGORIES.filter((c) => !c.authored).reduce((sum, c) => sum + c.n, 0);
+export const MATERIALIZED_CASES = CATEGORIES.filter((c) => !c.authored).reduce(
+  (sum, c) => sum + c.n - (c.authoredExtra ?? 0),
+  0,
+);
 
 const BY_CAT = new Map(CATEGORIES.map((c) => [c.cat, c]));
 

@@ -1,0 +1,47 @@
+{
+  "id": "BAR-03",
+  "category": "BAR",
+  "title": "a lookup answer cites hard",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "Two messages in wa:goa-gang carry the budget — the user's own cap and Rohan's total.",
+    "events": [
+      {
+        "actor": "self",
+        "text": "max 6k a night yaar, we can't do more"
+      },
+      {
+        "actor": "rohan",
+        "text": "keep it under 20k pp all in"
+      }
+    ]
+  },
+  "input_events": [
+    "how much per night?"
+  ],
+  "expected": {
+    "class": "lookup",
+    "grounded": true,
+    "min_citations": 1,
+    "quotes_verbatim": true,
+    "citations_resolve": true
+  },
+  "wrong": [
+    {
+      "label": "uncited-claim",
+      "assert_absent": "an answer whose citations do not resolve to real events"
+    },
+    {
+      "label": "paraphrased-quote",
+      "assert_absent": "a \"quote\" that is not verbatim in its passage"
+    }
+  ],
+  "gates": [
+    "uncited_claim"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-03 · a lookup answer cites hard"
+  }
+}

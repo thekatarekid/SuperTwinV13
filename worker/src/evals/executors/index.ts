@@ -39,6 +39,7 @@ import { liveExecutor } from "./liv.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
 import { spacesExecutor } from "./spc.js";
+import { barExecutor, fixExecutor } from "./bar.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -55,6 +56,7 @@ export { conExecutor } from "./con.js";
 export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
+export { barExecutor, fixExecutor } from "./bar.js";
 export {
   backfillExecutor,
   consolidateExecutor,
@@ -78,12 +80,7 @@ export {
   userObjectsExecutor,
 } from "./p4.js";
 
-import {
-  circlesExecutor,
-  feedbackExecutor,
-  tracesExecutor,
-  userObjectsExecutor,
-} from "./p4.js";
+import { circlesExecutor, tracesExecutor, userObjectsExecutor } from "./p4.js";
 
 export async function registerProductExecutors(): Promise<void> {
   // CONTAINMENT CHOKEPOINT. Almost every executor below seeds rows through
@@ -140,7 +137,10 @@ export async function registerProductExecutors(): Promise<void> {
   // why?→trace chain (TRC-02).
   registerExecutor("user-objects", userObjectsExecutor);
   registerExecutor("circles", circlesExecutor);
-  registerExecutor("feedback", feedbackExecutor);
+  // V6 P1 S5.5: the feedback pass now dispatches by id — FIX-01..06 keep
+  // running live through p4.ts's executor, FIX-07..09 are code (the "Not mine"
+  // chip and its undo, the behavioral rule, the golden-case drafts).
+  registerExecutor("feedback", fixExecutor);
   registerExecutor("traces", tracesExecutor);
   // V6 P1 S1.4: SRC source-quality code cases (URL text form, raw payload,
   // render-time collapse). Zero model calls.
@@ -184,4 +184,12 @@ export async function registerProductExecutors(): Promise<void> {
   // weekly unsorted review on change only, enrichment on change only) — against
   // brain/commit.ts, spaces/* and consolidation/graduation.ts. Zero model calls.
   registerExecutor("space", spacesExecutor);
+  // V6 P1 S5.5: BAR grounded-bar cases (type-ahead local and under budget, the
+  // route classes, a lookup that cites hard, an aggregate that never comes
+  // from the top-k, an absence over a WHOLE scan with its coverage caveat, a
+  // partial that says partial, a labelled general answer, create-now with the
+  // utterance on the hot stream, a follow-up that stays on the object, and
+  // ask-once ambiguity) against the real bar, retrieval, sufficiency and route
+  // code with every model seam injected. Zero model calls.
+  registerExecutor("bar", barExecutor);
 }

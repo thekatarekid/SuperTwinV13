@@ -1,0 +1,41 @@
+{
+  "id": "BAR-01",
+  "category": "BAR",
+  "title": "type-ahead is local",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "A seeded world: ~600 chat events across eight streams (a handful about a Goa villa), 20 spaces including Goa dec trip with a Stay chapter, episodes, tasks and people.",
+    "query": "goa vill"
+  },
+  "input_events": [
+    "\"goa vill\" typed into the bar (state ② — nothing submitted)."
+  ],
+  "expected": {
+    "surfaces": [
+      "events",
+      "episodes",
+      "spaces"
+    ],
+    "space_label_contains": "Goa",
+    "budget_ms": 150,
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "model-call-while-typing",
+      "assert_absent": "a model call made before Enter"
+    },
+    {
+      "label": "over-budget",
+      "assert_absent": "type-ahead slower than 150 ms"
+    }
+  ],
+  "gates": [
+    "typeahead_budget_ms"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-01 · type-ahead is local"
+  }
+}

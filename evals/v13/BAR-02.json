@@ -1,0 +1,51 @@
+{
+  "id": "BAR-02",
+  "category": "BAR",
+  "title": "route classes",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "No world needed: the router reads the question's shape. The deterministic planner is what runs when route.v1 is unavailable, and it is what this case measures."
+  },
+  "input_events": [
+    "how much per night?",
+    "how much on cabs last month",
+    "what happened tuesday afternoon",
+    "who recommended the place rohan mentioned",
+    "did karan ever pay",
+    "gst on hotel rooms"
+  ],
+  "expected": {
+    "classes": {
+      "how much per night?": "lookup",
+      "how much on cabs last month": "aggregate",
+      "what happened tuesday afternoon": "temporal",
+      "who recommended the place rohan mentioned": "multihop",
+      "did karan ever pay": "absence",
+      "gst on hotel rooms": "general"
+    },
+    "min_accuracy": 0.9,
+    "methods": {
+      "how much on cabs last month": "structured",
+      "did karan ever pay": "time_window",
+      "who recommended the place rohan mentioned": "graph"
+    }
+  },
+  "wrong": [
+    {
+      "label": "aggregate-as-lookup",
+      "assert_absent": "a how-much question planned as a top-k lookup"
+    },
+    {
+      "label": "general-as-personal",
+      "assert_absent": "a general-knowledge question planned over the user's data"
+    }
+  ],
+  "gates": [
+    "route_class_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-02 · route classes"
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "id": "FIX-08",
+  "category": "FIX",
+  "title": "\"Don't do this again\"",
+  "pass": "feedback",
+  "mode": "code",
+  "setup": {
+    "note": "A nudge-shaped task the user does not want repeated while YouTube is frontmost.",
+    "context": "app:YouTube",
+    "kind": "something_moved"
+  },
+  "input_events": [
+    "The \"Don't do this again\" chip, with the correction's behavioral rule."
+  ],
+  "expected": {
+    "rule": "no cards while YouTube is frontmost",
+    "scope": "router",
+    "listed_in_settings": true,
+    "applies_to": {
+      "app": "YouTube",
+      "kind": "something_moved"
+    },
+    "does_not_apply_to": {
+      "app": "Mail",
+      "kind": "something_moved"
+    },
+    "versioned": true
+  },
+  "wrong": [
+    {
+      "label": "rule-not-written",
+      "assert_absent": "a correction applied to the one thing with no durable rule behind it"
+    },
+    {
+      "label": "rule-suppresses-everything",
+      "assert_absent": "a scoped rule suppressing decisions outside its context"
+    }
+  ],
+  "gates": [
+    "behavioral_memory"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 FIX-08 · \"Don't do this again\""
+  }
+}

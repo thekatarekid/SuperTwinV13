@@ -146,10 +146,10 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 242 cases (78 from V1 minus SEG/CRI/CON, 164 from V2 incl. the V6P1 authored categories)", () => {
-    expect(TOTAL_CASES).toBe(242);
+  it("the category table totals 255 cases (78 from V1 minus SEG/CRI/CON, 177 from V2 incl. the V6P1 authored categories)", () => {
+    expect(TOTAL_CASES).toBe(255);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(78);
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(164);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(177);
     // V6 P1 S5.3 — the derived calendar, five code cases on the `calendar` pass.
     expect(CATEGORIES.find((c) => c.cat === "CAL")).toMatchObject({ n: 5, pass: "calendar", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "TIER")?.n).toBe(4);
@@ -161,6 +161,9 @@ describe("coverage", () => {
     expect(CATEGORIES.find((c) => c.cat === "CROSS")?.pass).toBe("commit");
     expect(CATEGORIES.find((c) => c.cat === "SPC")).toMatchObject({ n: 8, pass: "space", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "LIV")).toMatchObject({ n: 6, pass: "live", authored: true });
+    // V6 P1 S5.5 — the grounded bar (ten code cases) and the three new FIX cases.
+    expect(CATEGORIES.find((c) => c.cat === "BAR")).toMatchObject({ n: 10, pass: "bar", authored: true });
+    expect(CATEGORIES.find((c) => c.cat === "FIX")).toMatchObject({ n: 9, pass: "feedback", authoredExtra: 3 });
   });
 
   it("coverageGaps ignores selftest fixtures and reports shortfalls", () => {

@@ -233,9 +233,12 @@ export function materializeDocs(v1Markdown: string, v2Markdown: string): Fixture
   for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
   for (const c of CATEGORIES) {
     if (c.authored) continue; // V6 P1 hand-authored categories (SRC…) live outside the two docs
+    // A category may carry hand-authored cases on top of the doc's own
+    // (FIX: the V2 doc writes 01..06, V6 P1 S5.5 authored 07..09).
+    const want = c.n - (c.authoredExtra ?? 0);
     const have = perCat.get(c.cat) ?? 0;
-    if (have !== c.n) {
-      throw new Error(`materialize: ${c.cat} produced ${have} cases, the ${c.doc} doc's table says ${c.n}`);
+    if (have !== want) {
+      throw new Error(`materialize: ${c.cat} produced ${have} cases, the ${c.doc} doc's table says ${want}`);
     }
   }
   return fixtures;

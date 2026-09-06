@@ -1,0 +1,37 @@
+{
+  "id": "BAR-07",
+  "category": "BAR",
+  "title": "a general answer is labelled",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "The user's data holds villa messages the answer must not touch."
+  },
+  "input_events": [
+    "gst on hotel rooms"
+  ],
+  "expected": {
+    "class": "general",
+    "not_from_your_data": true,
+    "prefix": "Not from your data",
+    "citations": 0,
+    "methods_ran": 0
+  },
+  "wrong": [
+    {
+      "label": "general-answered-from-data",
+      "assert_absent": "a general answer citing the user's events"
+    },
+    {
+      "label": "unlabelled-general",
+      "assert_absent": "a general answer served without the label"
+    }
+  ],
+  "gates": [
+    "general_labelled"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-07 · a general answer is labelled"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "BAR-08",
+  "category": "BAR",
+  "title": "create now, learn later",
+  "pass": "bar",
+  "mode": "code",
+  "setup": {
+    "note": "Cold bar thread. The action parse is a fixture (create_space) — the case is about what CODE does with it, not about the parse."
+  },
+  "input_events": [
+    "plan hampi trek in october, tanvi's coming, budget 15k, she's vegetarian"
+  ],
+  "expected": {
+    "space_status": "active",
+    "created_by": "user",
+    "locked_to_space": true,
+    "utterance_on_hot_stream": true,
+    "origin": "live",
+    "claims_written_by_bar": 0
+  },
+  "wrong": [
+    {
+      "label": "private-write-path",
+      "assert_absent": "claims written directly by the bar"
+    },
+    {
+      "label": "nothing-else-learned",
+      "assert_absent": "the utterance missing from the event log, so the live path never sees the rest"
+    }
+  ],
+  "gates": [
+    "user_object_latency"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.20 BAR-08 · create now, learn later"
+  }
+}

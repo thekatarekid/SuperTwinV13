@@ -74,7 +74,11 @@ describe("materializeDocs", () => {
     expect(MATERIALIZED_CASES).toBe(153);
     const perCat = new Map<string, number>();
     for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
-    for (const c of CATEGORIES.filter((c) => !c.authored)) expect(perCat.get(c.cat)).toBe(c.n);
+    // `authoredExtra` cases (FIX-07..09) are hand-written, so the doc owes
+    // this category fewer than its table's `n`.
+    for (const c of CATEGORIES.filter((c) => !c.authored)) {
+      expect(perCat.get(c.cat)).toBe(c.n - (c.authoredExtra ?? 0));
+    }
     expect(fixtures.some((f) => f.category === "SRC")).toBe(false);
   });
 

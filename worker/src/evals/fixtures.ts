@@ -54,7 +54,6 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "TOP", name: "Episode formation & topic split", n: 10, doc: "V1", pass: "orient" },
   { cat: "ASN", name: "Space match / attach", n: 14, doc: "V1", pass: "orient" },
   { cat: "CRE", name: "Space proposal", n: 10, doc: "V1", pass: "orient" },
-  { cat: "CRI", name: "Critic gate", n: 8, doc: "V1", pass: "critic" },
   { cat: "CLM", name: "Extract — claims", n: 13, doc: "V1", pass: "extract" },
   { cat: "TSK", name: "Decide — task extraction", n: 13, doc: "V1", pass: "decide" },
   { cat: "CLS", name: "Decide — closure detection", n: 8, doc: "V1", pass: "decide" },
@@ -86,6 +85,9 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "PCK", name: "The pack (V6 P1)", n: 7, doc: "V2", pass: "pack", authored: true },
   // GoldenEvals V6 Phase 1 §5.6 — the state gate (S3.3). Code-asserted against scheduler/v6.
   { cat: "GATE", name: "The state gate (V6 P1)", n: 10, doc: "V2", pass: "gate", authored: true },
+  // GoldenEvals V6 Phase 1 §5.9 — the critic (S3.5). Re-authored against critic.v5 +
+  // the mechanical layer; the V1 CRI-01..08 prose cases were replaced.
+  { cat: "CRI", name: "Critic (V6 P1)", n: 4, doc: "V2", pass: "critic", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

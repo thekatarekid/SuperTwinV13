@@ -1,25 +1,92 @@
 {
   "id": "CRI-02",
   "category": "CRI",
-  "title": "Catches contamination attach",
+  "title": "correct write with a secondary half-fit flags",
   "pass": "critic",
   "mode": "live",
-  "setup": "seeded Orient output attaches lunch-plans episode to `sp_falcon`.",
+  "setup": {
+    "note": "An episode correctly attached to sp_goa_dec also plausibly touches sp_family (Ma's blessing for the trip dates). The write commits AND flags sp_family for a Tier-2 review — never a reject.",
+    "now": "2026-09-05T10:00:00+05:30",
+    "lane": "live",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18–21 Dec 2026, under ₹20k pp",
+        "exemplars": [
+          "dates locked 18–21 Dec",
+          "villa shortlist + group vote"
+        ]
+      },
+      {
+        "id": "sp_family",
+        "label": "Family",
+        "exemplars": [
+          "Ma asks about train tickets for Pune",
+          "Papa's cardiologist appointment"
+        ]
+      }
+    ],
+    "writes": [
+      {
+        "kind": "episode",
+        "action": "new",
+        "stream": "S1",
+        "events": [
+          "e1",
+          "e2"
+        ],
+        "summary": "Aditya confirms the 18–21 Dec Goa dates to Rohan after clearing them with Ma.",
+        "space": "sp_goa_dec",
+        "quote": "ma ne haan bol diya, 18-21 dec final",
+        "confidence": 0.88
+      }
+    ]
+  },
   "input_events": [
-    "decisions + episode content."
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:30:00+05:30",
+      "source": "wa",
+      "stream": "wa:rohan",
+      "actor": "contact:rohan",
+      "text": "ghar pe baat hui? dates final?"
+    },
+    {
+      "id": "e2",
+      "ts": "2026-09-05T09:34:00+05:30",
+      "source": "wa",
+      "stream": "wa:rohan",
+      "actor": "self",
+      "text": "ma ne haan bol diya, 18-21 dec final"
+    }
   ],
-  "expected": "`downgrade_to_unsorted` citing evidence mismatch.",
+  "expected": {
+    "verdicts": [
+      {
+        "item": 1,
+        "verdict": "flag_overlap",
+        "space_id": "sp_family"
+      }
+    ],
+    "uncovered": []
+  },
   "wrong": [
     {
-      "label": "rubber-stamp",
-      "assert_absent": "the 'rubber-stamp' failure mode"
+      "label": "reject-on-doubt",
+      "assert_absent": "rejecting or downgrading a correct write because it half-fits another space"
+    },
+    {
+      "label": "silent-commit",
+      "assert_absent": "a plain commit that ignores the visible sp_family overlap"
     }
   ],
   "gates": [
-    "contamination"
+    "critic_verdict_accuracy",
+    "critic_coverage"
   ],
   "source": {
-    "doc": "V1",
-    "section": "CRI-02 · Catches contamination attach"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.9 CRI-02 · correct write with a secondary half-fit flags"
   }
 }

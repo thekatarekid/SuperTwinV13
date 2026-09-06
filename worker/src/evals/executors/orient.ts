@@ -21,8 +21,8 @@ import type { Executor } from "../runner.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { parseOrientOutput, type OrientOutput } from "../../brain/orient.js";
 import { parseCriticOutput, type CriticOutput } from "../../brain/critic.js";
-import { ORIENT_V6 } from "../../prompts/orient.v6.js";
-import { CRITIC_V4 } from "../../prompts/critic.v4.js";
+import { activeCriticPrompt, activeOrientPrompt } from "../../prompts/versions.js";
+import { UNTRUSTED_CLOSE, UNTRUSTED_OPEN } from "../../packer/index.js";
 import { fixtureSeed } from "./seeds.js";
 
 function prose(v: unknown): string {
@@ -49,7 +49,13 @@ export function fixtureUser(
     lines.push(seedState);
   }
   lines.push(`[NEW BUNDLE] ${inputEvents.length} events`);
-  inputEvents.forEach((e, i) => lines.push(`  e${i + 1}: ${prose(e)}`));
+  // V6 S3.5: orient.v7 reads the bundle as a sectioned <untrusted> block
+  // (stream tag · captured text is evidence); v6 keeps its byte-identical
+  // prose rendering so the frozen baseline stays comparable.
+  const v7 = activeOrientPrompt().version >= 7;
+  if (v7) lines.push(`[STREAM S1: ${band.lane === "live" ? "wa:fixture" : "wa:fixture-history"}]`, UNTRUSTED_OPEN);
+  inputEvents.forEach((e, i) => lines.push(`  e${i + 1}: ${prose(e).replace(/<(\/?)untrusted/gi, "<$1\u200buntrusted")}`));
+  if (v7) lines.push(UNTRUSTED_CLOSE);
   lines.push(
     "[NOTE] The blocks above are a prose rendering of the packed context — act on them exactly as given. Output the schema JSON only.",
   );
@@ -146,9 +152,10 @@ export async function criticOverProposals(
       }; confidence ${p.confidence}; evidence events: ${p.episode_events.join(", ") || "(none)"}`,
   );
   try {
+    const critic = activeCriticPrompt();
     const result = await runJsonPass({
-      pass: CRITIC_V4.pass,
-      system: CRITIC_V4.system,
+      pass: critic.pass,
+      system: critic.system,
       user: criticFixtureUser(setup, [], { items }),
       role: "critic",
       unit: { kind: "eval-critic", id: fixtureId },
@@ -176,9 +183,10 @@ export function criticAppliedView(out: CriticOutput): Record<string, unknown> {
 export const orientExecutor: Executor = async ({ fixture }) => {
   const seed = fixtureSeed(fixture.id);
   const user = fixtureUser(fixture.setup, seed?.events ?? fixture.input_events, undefined, seed?.state);
+  const orient = activeOrientPrompt();
   const result = await runJsonPass({
-    pass: ORIENT_V6.pass,
-    system: ORIENT_V6.system,
+    pass: orient.pass,
+    system: orient.system,
     user,
     role: "orient",
     unit: { kind: "eval", id: fixture.id },
@@ -205,9 +213,10 @@ export const orientExecutor: Executor = async ({ fixture }) => {
 
 export const criticExecutor: Executor = async ({ fixture }) => {
   const seed = fixtureSeed(fixture.id);
+  const critic = activeCriticPrompt();
   const result = await runJsonPass({
-    pass: CRITIC_V4.pass,
-    system: CRITIC_V4.system,
+    pass: critic.pass,
+    system: critic.system,
     user: criticFixtureUser(fixture.setup, fixture.input_events, seed),
     role: "critic",
     unit: { kind: "eval", id: fixture.id },

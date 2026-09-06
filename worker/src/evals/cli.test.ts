@@ -33,6 +33,8 @@ describe("parseArgs", () => {
 
   it("parses the baseline flags", () => {
     expect(parseArgs(["--baseline"]).baseline).toBe(true);
+    expect(parseArgs([]).compareBaseline).toBe(false);
+    expect(parseArgs(["--cat", "TOP", "--compare-baseline"]).compareBaseline).toBe(true);
     const o = parseArgs(["--record-baseline", "--model-calls", "12", "--note", "live TIM"]);
     expect(o.recordBaseline).toBe(true);
     expect(o.modelCalls).toBe(12);

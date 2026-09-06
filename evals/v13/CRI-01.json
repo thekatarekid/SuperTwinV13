@@ -1,26 +1,83 @@
 {
   "id": "CRI-01",
   "category": "CRI",
-  "title": "Catches duplicate-space proposal",
+  "title": "near-duplicate proposal is a reject naming the space",
   "pass": "critic",
   "mode": "live",
-  "setup": "`sp_goa_dec` exists; Orient (seeded faulty output) proposed \"December Goa vacation planning\".",
+  "setup": {
+    "note": "sp_goa_dec is in view as a candidate. Orient proposed a new space \"Goa December trip\" for the same undertaking. The critic must REJECT and name sp_goa_dec — not flag, not commit.",
+    "now": "2026-09-05T10:00:00+05:30",
+    "lane": "live",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18–21 Dec 2026, under ₹20k pp",
+        "exemplars": [
+          "dates locked 18–21 Dec",
+          "villa shortlist + group vote"
+        ]
+      },
+      {
+        "id": "sp_family",
+        "label": "Family",
+        "exemplars": [
+          "Ma asks about train tickets for Pune",
+          "Papa's cardiologist appointment"
+        ]
+      }
+    ],
+    "writes": [
+      {
+        "kind": "proposal",
+        "label": "Goa December trip",
+        "stream": "S1",
+        "events": [
+          "e1"
+        ],
+        "summary": "Rohan pushes to lock the Goa dates for December.",
+        "quote": "goa december mein chalte hai na, dates lock karo",
+        "confidence": 0.8
+      }
+    ]
+  },
   "input_events": [
-    "Orient decisions + retrieval showing the near-duplicate."
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:41:00+05:30",
+      "source": "wa",
+      "stream": "wa:goa-gang@g.us",
+      "actor": "contact:rohan",
+      "text": "goa december mein chalte hai na, dates lock karo"
+    }
   ],
-  "expected": "`reject` or `downgrade` with reason naming sp_goa_dec.",
+  "expected": {
+    "verdicts": [
+      {
+        "item": 1,
+        "verdict": "reject",
+        "space_id": "sp_goa_dec"
+      }
+    ],
+    "uncovered": []
+  },
   "wrong": [
     {
+      "label": "flag-not-reject",
+      "assert_absent": "flag_overlap (or commit) for a proposal that duplicates a space already in view"
+    },
+    {
       "label": "rubber-stamp",
-      "assert_absent": "commit"
+      "assert_absent": "commit of the duplicate proposal"
     }
   ],
   "gates": [
-    "critic_catch_rate",
-    "over_creation"
+    "critic_verdict_accuracy",
+    "over_creation",
+    "critic_coverage"
   ],
   "source": {
-    "doc": "V1",
-    "section": "CRI-01 · Catches duplicate-space proposal"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.9 CRI-01 · near-duplicate proposal is a reject naming the space"
   }
 }

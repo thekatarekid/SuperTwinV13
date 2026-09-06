@@ -7,10 +7,12 @@ import {
   BASELINE_SCHEMA,
   baselinePath,
   BASELINE_ENV,
+  compareBaseline,
   DEFAULT_METHOD,
   readBaseline,
   recordBaseline,
   renderBaseline,
+  renderCompare,
   writeBaseline,
   type BaselineFile,
 } from "./baseline.js";
@@ -170,5 +172,68 @@ describe("read/write/render", () => {
     expect(text).toContain("runs (1):");
     expect(text).toContain("[--cat TIM]");
     expect(text).toContain(DEFAULT_METHOD[0]!);
+  });
+});
+
+describe("compareBaseline (S3.5 — ORIENT >= baseline)", () => {
+  const frozen = recordBaseline(
+    null,
+    suite([
+      result({ id: "TOP-01", category: "TOP", status: "pass" }),
+      result({ id: "TOP-02", category: "TOP", status: "pass" }),
+      result({ id: "TOP-03", category: "TOP", status: "fail" }),
+      result({ id: "TIM-04", category: "TIM", status: "fail" }),
+      result({ id: "TIM-01", category: "TIM", status: "pass" }),
+      result({ id: "ROL-01", category: "ROL", status: "pending" }),
+    ]),
+    { at: AT1, git: "abc1234", modelCalls: 5 },
+  );
+
+  it("ok at or above the frozen rate, regressed below it, naming the cases that flipped", () => {
+    const same = compareBaseline(
+      frozen,
+      suite([
+        result({ id: "TOP-01", category: "TOP", status: "pass" }),
+        result({ id: "TOP-02", category: "TOP", status: "fail" }),
+        result({ id: "TOP-03", category: "TOP", status: "pass" }),
+      ]),
+    );
+    expect(same.ok).toBe(true);
+    expect(same.rows[0]).toMatchObject({ category: "TOP", baselineRate: 2 / 3, rate: 2 / 3, status: "ok", regressedCases: ["TOP-02"], recoveredCases: ["TOP-03"] });
+
+    const worse = compareBaseline(frozen, suite([result({ id: "TOP-01", category: "TOP", status: "fail" }), result({ id: "TOP-02", category: "TOP", status: "pass" })]));
+    expect(worse.ok).toBe(false);
+    expect(worse.rows[0]).toMatchObject({ status: "regressed", rate: 0.5, regressedCases: ["TOP-01"] });
+    expect(renderCompare(worse, "/x/v13.json")).toContain("COMPARE: red — below baseline: TOP");
+    expect(renderCompare(worse, "/x/v13.json")).toContain("regressed: TOP-01");
+  });
+
+  it("a category the file never measured, or a pending one, cannot regress — it reads no_baseline, informational", () => {
+    const r = compareBaseline(
+      frozen,
+      suite([
+        result({ id: "ROL-01", category: "ROL", status: "fail" }),
+        result({ id: "CRE-01", category: "CRE", status: "fail" }),
+        result({ id: "TIM-01", category: "TIM", status: "pending" }),
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.rows.map((x) => [x.category, x.status, x.baselineMeasured])).toEqual([
+      ["CRE", "no_baseline", "not-run"],
+      ["ROL", "no_baseline", "pending"],
+      ["TIM", "not_measured", "live"],
+    ]);
+    const text = renderCompare(r, "/x/v13.json");
+    expect(text).toContain("no_baseline (not-run)");
+    expect(text).toContain("COMPARE: green");
+    expect(text).toContain("informational");
+    // No file at all: every row is no_baseline (absent), never green-by-accident silently.
+    expect(compareBaseline(null, suite([result({ id: "TOP-01", category: "TOP" })])).rows[0]).toMatchObject({ status: "no_baseline", baselineMeasured: "absent" });
+  });
+
+  it("compares only the categories this run selected", () => {
+    const r = compareBaseline(frozen, suite([result({ id: "TIM-01", category: "TIM", status: "pass" }), result({ id: "TIM-04", category: "TIM", status: "pass" })]));
+    expect(r.rows.map((x) => x.category)).toEqual(["TIM"]);
+    expect(r.rows[0]).toMatchObject({ status: "ok", rate: 1, baselineRate: 0.5, recoveredCases: ["TIM-04"] });
   });
 });

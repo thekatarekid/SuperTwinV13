@@ -51,9 +51,10 @@ describe("isCodeCase", () => {
 });
 
 describe("parseDoc against the real docs", () => {
-  it("V1 yields 94 cases and skips SEG", () => {
+  it("V1 yields 86 cases and skips SEG (and CRI, hand-authored since V6 P1 S3.5)", () => {
     const cases = parseDoc(v1, "V1");
-    expect(cases).toHaveLength(94);
+    expect(cases).toHaveLength(86);
+    expect(cases.some((c) => c.id.startsWith("CRI"))).toBe(false);
     expect(cases.some((c) => c.id.startsWith("SEG"))).toBe(false);
     expect(cases.filter((c) => c.id.startsWith("TOP"))).toHaveLength(10);
   });
@@ -68,9 +69,9 @@ describe("parseDoc against the real docs", () => {
 describe("materializeDocs", () => {
   const fixtures = materializeDocs(v1, v2);
 
-  it("produces the docs' full coverage — 169 validated fixtures (hand-authored V6 categories excluded)", () => {
+  it("produces the docs' full coverage — 161 validated fixtures (hand-authored V6 categories excluded)", () => {
     expect(fixtures).toHaveLength(MATERIALIZED_CASES);
-    expect(MATERIALIZED_CASES).toBe(169);
+    expect(MATERIALIZED_CASES).toBe(161);
     const perCat = new Map<string, number>();
     for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
     for (const c of CATEGORIES.filter((c) => !c.authored)) expect(perCat.get(c.cat)).toBe(c.n);

@@ -1,25 +1,74 @@
 {
   "id": "CRI-03",
   "category": "CRI",
-  "title": "Catches confidence inflation",
+  "title": "evidence mismatch downgrades",
   "pass": "critic",
   "mode": "live",
-  "setup": "seeded attach at confidence 0.92 whose only evidence is \"hmm ok\".",
+  "setup": {
+    "note": "The summary claims a booking; the verbatim quote only says Aditya is thinking about the villa. Summary stronger than the quote → downgrade_to_unsorted, citing the mismatch. The quote IS verbatim, so this is not a fabrication reject.",
+    "now": "2026-09-05T10:00:00+05:30",
+    "lane": "live",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18–21 Dec 2026, under ₹20k pp",
+        "exemplars": [
+          "dates locked 18–21 Dec",
+          "villa shortlist + group vote"
+        ]
+      }
+    ],
+    "writes": [
+      {
+        "kind": "episode",
+        "action": "new",
+        "stream": "S1",
+        "events": [
+          "e1"
+        ],
+        "summary": "Aditya booked Villa Sol in Anjuna for 18–21 Dec.",
+        "space": "sp_goa_dec",
+        "quote": "villa sol ke baare mein soch raha hoon",
+        "confidence": 0.9
+      }
+    ]
+  },
   "input_events": [
-    "decisions + evidence."
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:50:00+05:30",
+      "source": "wa",
+      "stream": "wa:goa-gang@g.us",
+      "actor": "self",
+      "text": "villa sol ke baare mein soch raha hoon, 18-21 ke liye dekhta hoon"
+    }
   ],
-  "expected": "verdict challenges the confidence; downgrade or reject.",
+  "expected": {
+    "verdicts": [
+      {
+        "item": 1,
+        "verdict": "downgrade_to_unsorted"
+      }
+    ],
+    "uncovered": []
+  },
   "wrong": [
     {
-      "label": "calibration-blindness",
-      "assert_absent": "the 'calibration-blindness' failure mode"
+      "label": "rubber-stamp",
+      "assert_absent": "committing a summary the quote does not support"
+    },
+    {
+      "label": "reject-not-downgrade",
+      "assert_absent": "a fabrication reject for a verbatim quote — the fault is over-claiming, the remedy is unsorted"
     }
   ],
   "gates": [
-    "confidence_calibration"
+    "critic_verdict_accuracy",
+    "critic_coverage"
   ],
   "source": {
-    "doc": "V1",
-    "section": "CRI-03 · Catches confidence inflation"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.9 CRI-03 · evidence mismatch downgrades"
   }
 }

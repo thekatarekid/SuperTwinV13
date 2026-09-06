@@ -9,6 +9,8 @@
 //   npm run eval -- --materialize         re-emit evals/v13 from the docs
 //   npm run eval -- --mode code           only deterministic cases (zero model calls)
 //   npm run eval -- --baseline            print the frozen evals/baseline/v13.json
+//   npm run eval -- ... --compare-baseline fail when a category scores below its
+//                       frozen rate (GoldenEvals V6P1 §3.1 "ORIENT >= baseline")
 //   npm run eval -- ... --record-baseline merge this run's tallies into that file
 //                       [--calls-log FILE | --model-calls N] [--note "..."]
 //                       (--calls-log: a file a CLAUDE_BIN counting shim appends one
@@ -35,10 +37,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   baselinePath,
+  compareBaseline,
   gitShortSha,
   readBaseline,
   recordBaseline,
   renderBaseline,
+  renderCompare,
   writeBaseline,
 } from "./baseline.js";
 import { registerProductExecutors } from "./executors/index.js";
@@ -69,6 +73,8 @@ export interface CliOptions {
   baseline: boolean;
   /** After the run, merge this run's per-category tallies into the baseline file. */
   recordBaseline: boolean;
+  /** After the run, fail when a selected category scored below its frozen rate. */
+  compareBaseline: boolean;
   /** Operator-counted `claude` invocations for --record-baseline; null = not counted. */
   modelCalls: number | null;
   /** File that grows one line per `claude` invocation; the run records its line delta. */
@@ -97,6 +103,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     mode: null,
     baseline: false,
     recordBaseline: false,
+    compareBaseline: false,
     modelCalls: null,
     callsLog: null,
     note: null,
@@ -166,6 +173,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         break;
       case "--record-baseline":
         options.recordBaseline = true;
+        break;
+      case "--compare-baseline":
+        options.compareBaseline = true;
         break;
       case "--model-calls": {
         const n = Number(next());
@@ -323,6 +333,18 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     const suite = await runSuite(selectFixtures(loaded.fixtures, options), { judge });
     out(renderReport(suite, options.dir, { hideNoDataGates: options.hideNoDataGates }));
 
+    // The compare reads the file AS IT WAS before this run's --record-baseline
+    // merge (a run recorded on top of itself would always read "ok").
+    let compareError: string | null = null;
+    let frozen = null;
+    if (options.compareBaseline) {
+      try {
+        frozen = readBaseline(baselinePath(repoRoot()));
+      } catch (err) {
+        compareError = (err as Error).message;
+      }
+    }
+
     if (options.recordBaseline) {
       const path = baselinePath(repoRoot());
       const previous = readBaseline(path);
@@ -341,6 +363,16 @@ export async function main(argv: readonly string[], out: (line: string) => void 
     }
 
     let ok = verdict(suite).ok;
+    if (options.compareBaseline) {
+      if (compareError) {
+        out(`eval: ${compareError}`);
+        ok = false;
+      }
+      const compare = compareBaseline(frozen, suite);
+      out("");
+      out(renderCompare(compare, baselinePath(repoRoot())));
+      if (!compare.ok) ok = false;
+    }
     if (options.strict) {
       const unmeasured = suite.gates.filter((g) => g.hard && g.status === "no_data").length;
       if (suite.totals.pending > 0 || unmeasured > 0) {

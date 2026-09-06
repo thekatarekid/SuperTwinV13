@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "recorded_at": "2026-09-05T18:54:58.199Z",
-  "git": "67b54bb",
+  "recorded_at": "2026-09-06T00:41:17.891Z",
+  "git": "3b852a0",
   "method": [
     "Frozen V13 golden-set baseline (SuperTwinV13_Build_V6_Phase1 S0.1). Per-category tallies of `npm run eval` on the tree at `git`.",
     "The file is merged run-by-run: each recorded run replaces only the categories it ran; `runs[]` lists every contributing run with its argv and counted model calls.",
     "Regression rule (GoldenEvals_V6_Phase1 §1.1/§3.1): a V2 category (ROL, CIR, CHP, SCH, FUP, USR, FIX, TIM, TRC) scoring below its `rate` here is a hard fail."
   ],
-  "model_calls": 68,
+  "model_calls": 89,
   "runs": [
     {
       "at": "2026-09-05T18:44:57.317Z",
@@ -95,6 +95,26 @@
       "cases": 20,
       "model_calls": 35,
       "note": "Live pass (real passes + haiku judge) for baseline-gated V2 categories SCH, USR, FIX; CLAUDE_BIN shim counted the calls. SCH-08 (code) re-ran here and replaces the code-only SCH row."
+    },
+    {
+      "at": "2026-09-06T00:41:17.891Z",
+      "git": "3b852a0",
+      "argv": [
+        "--cat",
+        "TOP",
+        "--compare-baseline",
+        "--record-baseline",
+        "--calls-log",
+        "/private/tmp/claude-501/-Users-adityakatare-Documents-SuperTwinV13/658a00e8-fc4b-47a6-8b6f-c956004f1c23/scratchpad/calls-s35.log",
+        "--note",
+        "S3.5 ORIENT golden (TOP) under orient.v7 + critic.v5 via SUPERTWIN_PROMPT_* env override; haiku judge; CLAUDE_BIN shim counted the calls."
+      ],
+      "categories": [
+        "TOP"
+      ],
+      "cases": 10,
+      "model_calls": 21,
+      "note": "S3.5 ORIENT golden (TOP) under orient.v7 + critic.v5 via SUPERTWIN_PROMPT_* env override; haiku judge; CLAUDE_BIN shim counted the calls."
     }
   ],
   "categories": {
@@ -224,6 +244,16 @@
       "cases": {},
       "recorded_at": "2026-09-05T18:44:57.317Z"
     },
+    "CMT": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
+    },
     "CON": {
       "total": 0,
       "pass": 0,
@@ -254,6 +284,16 @@
       "cases": {},
       "recorded_at": "2026-09-05T18:44:57.317Z"
     },
+    "DEC": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
+    },
     "EXE": {
       "total": 0,
       "pass": 0,
@@ -263,6 +303,16 @@
       "measured": "not-run",
       "cases": {},
       "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "FACT": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
     },
     "FIX": {
       "total": 6,
@@ -296,6 +346,26 @@
         "FUP-05": "pass"
       },
       "recorded_at": "2026-09-05T18:50:01.422Z"
+    },
+    "GATE": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
+    },
+    "PCK": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
     },
     "ROL": {
       "total": 10,
@@ -337,6 +407,16 @@
       },
       "recorded_at": "2026-09-05T18:54:58.199Z"
     },
+    "SRC": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
+    },
     "TIM": {
       "total": 4,
       "pass": 3,
@@ -353,14 +433,25 @@
       "recorded_at": "2026-09-05T18:46:41.286Z"
     },
     "TOP": {
-      "total": 0,
-      "pass": 0,
+      "total": 10,
+      "pass": 10,
       "fail": 0,
       "pending": 0,
-      "rate": null,
-      "measured": "not-run",
-      "cases": {},
-      "recorded_at": "2026-09-05T18:44:57.317Z"
+      "rate": 1,
+      "measured": "live",
+      "cases": {
+        "TOP-01": "pass",
+        "TOP-02": "pass",
+        "TOP-03": "pass",
+        "TOP-04": "pass",
+        "TOP-05": "pass",
+        "TOP-06": "pass",
+        "TOP-07": "pass",
+        "TOP-08": "pass",
+        "TOP-09": "pass",
+        "TOP-10": "pass"
+      },
+      "recorded_at": "2026-09-06T00:41:17.891Z"
     },
     "TRC": {
       "total": 3,
@@ -385,6 +476,16 @@
       "measured": "not-run",
       "cases": {},
       "recorded_at": "2026-09-05T18:44:57.317Z"
+    },
+    "TYP": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "pending": 0,
+      "rate": null,
+      "measured": "not-run",
+      "cases": {},
+      "recorded_at": "2026-09-06T00:41:17.891Z"
     },
     "USR": {
       "total": 6,

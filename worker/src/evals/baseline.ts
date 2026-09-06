@@ -11,6 +11,9 @@
 //   npm run eval -- [selection] --record-baseline
 //                                               run, then merge the per-category
 //                                               tallies of THIS run into the file
+//   npm run eval -- [selection] --compare-baseline
+//                                               run, then assert every category
+//                                               scored >= its frozen rate (S3.5)
 //
 // The file is a merge, not a snapshot: a run only replaces the categories it
 // actually ran, so a zero-cost `--mode code` run and a paid live run of the
@@ -231,5 +234,97 @@ export function renderBaseline(file: BaselineFile, path: string): string {
   lines.push("");
   lines.push("method:");
   for (const m of file.method) lines.push(`  ${m}`);
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// The >= baseline compare (V6 P1 S3.5; GoldenEvals V6P1 §3.1 "ORIENT >= baseline")
+// ---------------------------------------------------------------------------
+
+export type CompareStatus =
+  /** rate >= the frozen rate */
+  | "ok"
+  /** rate < the frozen rate — a hard fail */
+  | "regressed"
+  /** the file has no measured row for the category (not-run / pending) — informational */
+  | "no_baseline"
+  /** this run counted nothing for the category (every case pending) */
+  | "not_measured";
+
+export interface CompareRow {
+  category: string;
+  baselineRate: number | null;
+  baselineMeasured: BaselineMeasured | "absent";
+  rate: number | null;
+  status: CompareStatus;
+  /** Cases the baseline passed that this run failed — the ones to look at first. */
+  regressedCases: string[];
+  /** Cases this run passed that the baseline failed (a recovery, printed for the record). */
+  recoveredCases: string[];
+}
+
+export interface CompareResult {
+  rows: CompareRow[];
+  /** False when any category regressed. */
+  ok: boolean;
+}
+
+/** Float-safe "scored at least the frozen rate". */
+const RATE_EPSILON = 1e-9;
+
+/**
+ * Compare one suite run against the frozen file, category by category. Only
+ * the categories THIS run selected are compared; a category the file never
+ * measured cannot regress (it reads `no_baseline`) — the print says so
+ * rather than passing it silently as green.
+ */
+export function compareBaseline(file: BaselineFile | null, suite: SuiteResult): CompareResult {
+  const rows: CompareRow[] = [];
+  for (const tally of suite.categories) {
+    const base = file?.categories[tally.category];
+    const measured: BaselineMeasured | "absent" = base ? base.measured : "absent";
+    const baselineRate = base && (base.measured === "live" || base.measured === "code") ? base.rate : null;
+    const results = suite.results.filter((r) => r.category === tally.category);
+    const regressedCases = results
+      .filter((r) => r.status === "fail" && base?.cases[r.id] === "pass")
+      .map((r) => r.id)
+      .sort();
+    const recoveredCases = results
+      .filter((r) => r.status === "pass" && base?.cases[r.id] === "fail")
+      .map((r) => r.id)
+      .sort();
+    let status: CompareStatus;
+    if (baselineRate === null) status = "no_baseline";
+    else if (tally.passRate === null) status = "not_measured";
+    else status = tally.passRate + RATE_EPSILON >= baselineRate ? "ok" : "regressed";
+    rows.push({
+      category: tally.category,
+      baselineRate,
+      baselineMeasured: measured,
+      rate: tally.passRate,
+      status,
+      regressedCases,
+      recoveredCases,
+    });
+  }
+  return { rows, ok: rows.every((r) => r.status !== "regressed") };
+}
+
+export function renderCompare(result: CompareResult, path: string): string {
+  const lines: string[] = [];
+  lines.push(`baseline compare — ${path}`);
+  lines.push("category  baseline   run    status");
+  for (const r of result.rows) {
+    lines.push(`${r.category.padEnd(9)} ${pct(r.baselineRate)}  ${pct(r.rate)}  ${r.status}${r.status === "no_baseline" ? ` (${r.baselineMeasured})` : ""}`);
+    if (r.regressedCases.length > 0) lines.push(`      regressed: ${r.regressedCases.join(", ")}`);
+    if (r.recoveredCases.length > 0) lines.push(`      recovered: ${r.recoveredCases.join(", ")}`);
+  }
+  const regressed = result.rows.filter((r) => r.status === "regressed").map((r) => r.category);
+  lines.push(
+    result.ok
+      ? `COMPARE: green — no category below its frozen rate` +
+          (result.rows.some((r) => r.status === "no_baseline") ? " (no_baseline rows are informational)" : "")
+      : `COMPARE: red — below baseline: ${regressed.join(", ")}`,
+  );
   return lines.join("\n");
 }

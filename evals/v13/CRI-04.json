@@ -1,25 +1,114 @@
 {
   "id": "CRI-04",
   "category": "CRI",
-  "title": "Does not over-block good writes",
+  "title": "bridge edge with wrong confidence (code)",
   "pass": "critic",
-  "mode": "live",
-  "setup": "6 clean, well-evidenced Orient decisions (from TOP-01).",
+  "mode": "code",
+  "setup": {
+    "note": "Two sound episodes on two streams share a listing URL; the commit proposes a bridge:url edge at 0.6. Bridges are exact literal matches — 1.0 or nothing — so item 3 is rejected by the mechanical layer with no model call.",
+    "now": "2026-09-05T10:00:00+05:30",
+    "lane": "live",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18–21 Dec 2026, under ₹20k pp",
+        "exemplars": [
+          "dates locked 18–21 Dec",
+          "villa shortlist + group vote"
+        ]
+      }
+    ],
+    "writes": [
+      {
+        "kind": "episode",
+        "action": "new",
+        "stream": "S1",
+        "events": [
+          "e1"
+        ],
+        "summary": "Rohan shares the Villa Sol Airbnb listing.",
+        "space": "sp_goa_dec",
+        "quote": "villa sol dekho airbnb.co.in/rooms/5521",
+        "confidence": 0.9
+      },
+      {
+        "kind": "episode",
+        "action": "new",
+        "stream": "S2",
+        "events": [
+          "e2"
+        ],
+        "summary": "Aditya opens the Villa Sol listing.",
+        "space": "sp_goa_dec",
+        "quote": "Villa Sol – Anjuna · ₹5,400/night · pool · 6 beds",
+        "confidence": 0.9
+      },
+      {
+        "kind": "edge",
+        "edge_kind": "bridge:url",
+        "src": "e1",
+        "dst": "e2",
+        "events": [
+          "e1",
+          "e2"
+        ],
+        "confidence": 0.6
+      }
+    ]
+  },
   "input_events": [
-    "decisions."
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:55:00+05:30",
+      "source": "wa",
+      "stream": "wa:goa-gang@g.us",
+      "actor": "contact:rohan",
+      "text": "villa sol dekho airbnb.co.in/rooms/5521"
+    },
+    {
+      "id": "e2",
+      "ts": "2026-09-05T09:57:00+05:30",
+      "source": "browser",
+      "stream": "browser:chrome:default:airbnb.co.in:2026-09-05",
+      "actor": "self",
+      "head": "Chrome · Villa Sol · Anjuna · airbnb.co.in/rooms/5521",
+      "text": "Villa Sol – Anjuna · ₹5,400/night · pool · 6 beds"
+    }
   ],
-  "expected": "all 6 `commit`; zero rejections.",
+  "expected": {
+    "verdicts": [
+      {
+        "item": 1,
+        "verdict": "commit"
+      },
+      {
+        "item": 2,
+        "verdict": "commit"
+      },
+      {
+        "item": 3,
+        "verdict": "reject"
+      }
+    ],
+    "uncovered": []
+  },
   "wrong": [
     {
-      "label": "paranoid-gate",
-      "assert_absent": "rejecting sound writes — a critic that blocks everything is as useless as none"
+      "label": "edge-accepted",
+      "assert_absent": "a bridge edge below 1.0 committing"
+    },
+    {
+      "label": "coverage-miss",
+      "assert_absent": "the mechanical coverage list disagreeing with the placed events"
     }
   ],
   "gates": [
-    "critic_false_block_rate"
+    "critic_verdict_accuracy",
+    "critic_coverage"
   ],
   "source": {
-    "doc": "V1",
-    "section": "CRI-04 · Does not over-block good writes"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.9 CRI-04 · bridge edge with wrong confidence (code)"
   }
 }

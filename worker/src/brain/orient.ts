@@ -10,7 +10,7 @@
 
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { packOrientContext, type PackedContext, type PackOptions } from "../packer/index.js";
-import { ORIENT_V6 } from "../prompts/orient.v6.js";
+import { activeOrientPrompt, modelForVersionedPass } from "../prompts/versions.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +58,8 @@ export interface OrientProposal {
 }
 
 export interface OrientUnsorted {
+  /** Section tag ("S1") when the model states it (orient.v7). */
+  stream?: string;
   events: string[];
   summary: string;
   reason?: string;
@@ -158,6 +160,7 @@ export function parseOrientOutput(parsed: unknown): OrientOutput {
     if (typeof raw !== "object" || raw === null) continue;
     const u = raw as Record<string, unknown>;
     unsorted.push({
+      ...(str(u.stream) ? { stream: str(u.stream) } : {}),
       events: strArray(u.events),
       summary: str(u.summary) ?? "",
       ...(str(u.reason) ? { reason: str(u.reason) } : {}),
@@ -219,6 +222,9 @@ export async function runOrient(
   packOpts: PackOptions = {},
 ): Promise<OrientRun> {
   const packed = await packOrientContext(bundle, packOpts);
+  // V6 S3.5: orient.v6 is the frozen baseline; v7 (stream tag · untrusted ·
+  // thin-context mode · history) runs when selected (prompts/versions.ts).
+  const prompt = activeOrientPrompt();
   if (packed.held) {
     // Thin context, first sight (V6 S3.2, PCK-06): the bundle is HELD one
     // flush — no model call, no output, nothing marked. The next tick
@@ -228,7 +234,7 @@ export async function runOrient(
       bundle,
       packed,
       result: {
-        pass: ORIENT_V6.pass,
+        pass: prompt.pass,
         status: "failed",
         responses: [],
         runIds: [],
@@ -239,8 +245,9 @@ export async function runOrient(
   }
   const result = await runJsonPass(
     {
-      pass: ORIENT_V6.pass,
-      system: ORIENT_V6.system,
+      pass: prompt.pass,
+      system: prompt.system,
+      model: modelForVersionedPass(prompt),
       user: packed.user,
       role: "orient",
       unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },

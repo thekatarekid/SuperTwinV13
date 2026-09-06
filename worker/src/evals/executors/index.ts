@@ -19,7 +19,8 @@ import { assertEvalDbIsolated } from "../home.js";
 import { registerExecutor } from "../runner.js";
 import { bundleExecutor } from "./bnd.js";
 import { gateExecutor } from "./gate.js";
-import { criticExecutor, orientExecutor } from "./orient.js";
+import { orientExecutor } from "./orient.js";
+import { criExecutor } from "./cri.js";
 import {
   backfillExecutor,
   consolidateExecutor,
@@ -42,6 +43,7 @@ import {
 export { bundleExecutor } from "./bnd.js";
 export { gateExecutor } from "./gate.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
+export { criExecutor } from "./cri.js";
 export {
   backfillExecutor,
   consolidateExecutor,
@@ -92,7 +94,10 @@ export async function registerProductExecutors(): Promise<void> {
   registerExecutor("gate", gateExecutor);
   // P1.3: the Orient map pass + the Critic gate (TOP/ASN/CRE/CRI/ROL/AGE…).
   registerExecutor("orient", orientExecutor);
-  registerExecutor("critic", criticExecutor);
+  // V6 P1 S3.5: CRI — structured §5.9 fixtures run the mechanical layer +
+  // critic.v5 (CRI-04 is code: zero model calls); prose V1 fixtures fall
+  // through to the legacy critic executor.
+  registerExecutor("critic", criExecutor);
   // P1.4/P1.5/P1.6 (Phase 1 integration): the downstream passes.
   registerExecutor("extract", extractExecutor);
   // P3 integration: FUP cases run the real next-step pass (followup.v1);

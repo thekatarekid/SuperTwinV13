@@ -36,6 +36,12 @@ npm run eval -- --baseline                      # print evals/baseline/v13.json
 npm run eval -- --cat TIM --record-baseline --calls-log calls.log
                                                 # run, then merge this run's per-category
                                                 # tallies into the baseline file
+npm run eval -- --cat TOP --compare-baseline    # run, then fail when a category scores
+                                                # below its frozen rate (rows the file never
+                                                # measured read no_baseline — informational)
+SUPERTWIN_PROMPT_ORIENT=v7 SUPERTWIN_PROMPT_CRITIC=v5 npm run eval -- --cat TOP
+                                                # select a prompt version for the run
+                                                # (prompts/versions.ts; default v6 / v4)
 ```
 
 ## The baseline (`evals/baseline/v13.json`)
@@ -49,8 +55,10 @@ invocations): one `--mode code` pass (every deterministic fixture, 2 calls —
 AST-02's deliberate evaluator probe), then live passes over exactly the
 regression-gated V2 categories (`--cat CIR,TRC,ROL,TIM`, `--cat CHP,FUP`,
 `--cat SCH,USR,FIX`; 66 calls). Categories that are not regression-gated
-(TOP, ASN, CRE, CRI, CLM, TSK, CLS, CON, EXE, AGE) carry a `not-run` row
-until someone pays for them.
+(ASN, CRE, CLM, TSK, CLS, CON, EXE, AGE) carry a `not-run` row until someone
+pays for them. CRI was re-authored against GoldenEvals V6 P1 §5.9 in S3.5
+(CRI-01..04: structured fixtures, critic.v5 + the mechanical layer; CRI-04 is
+code) — the V1 CRI-01..08 prose cases are gone.
 
 Model calls are counted OUTSIDE the harness: point `CLAUDE_BIN` at a shim
 that appends one line per invocation to a file and passes through to the real

@@ -30,11 +30,11 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 import { writeDecision } from "../db/decisions.js";
 import { appStateGet, appStateSet } from "../db/ingest.js";
+import { moduleDir } from "../module-path.js";
 import { encodeStepOverrides, STEP_OVERRIDES_ENV, type StepOverrides } from "./overrides.js";
 import { evalCategoriesForStep } from "./steps.js";
 
@@ -311,9 +311,22 @@ export async function startGoldenRun(
 
 // ---- The production runner: the eval CLI in a child process ----------------
 
-/** worker/src/settings → worker/src → worker → repo root (same shape in dist/). */
+/**
+ * worker/src/settings → worker/src → worker → repo root (same shape in dist/).
+ *
+ * In the packaged app there is no repo above the module at all: the answer is
+ * three levels above Contents/Resources/worker, which does not hold a harness,
+ * so `harnessPresent()` says no and the gate records "skipped" — the packaged
+ * behaviour this module's header describes.
+ *
+ * It resolves through module-path.ts BECAUSE of what this line used to be:
+ * `fileURLToPath(import.meta.url)` threw inside the CJS bundle (esbuild
+ * empties `import.meta`), and since this runs on the boot path it took the
+ * worker down before the HTTP server listened — 13.11.1 and 13.11.2 shipped
+ * an app whose every screen said "worker unreachable" (V6 P1 W1).
+ */
 export function harnessRoot(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+  return resolve(moduleDir(import.meta.url), "..", "..", "..");
 }
 
 /** The harness is present when the CLI source and the fixture directory are both on disk. */

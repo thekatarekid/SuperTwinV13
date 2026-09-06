@@ -19,9 +19,10 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { getDb } from "../../db/connection.js";
+import { moduleDir as moduleDirOf } from "../../module-path.js";
 import { appStateGet, appStateSet } from "../../db/ingest.js";
 import type { ChildLike, SpawnFn } from "../whatsapp/adapter.js";
 import { ScreenTextStore, screenStreamKeyFor, toScreenEnvelope, type BlobPut, type StoredScreenText } from "./envelope.js";
@@ -115,11 +116,10 @@ export function resolveScreenwatchBin(explicit?: string): {
 }
 
 function moduleDir(): string {
-  try {
-    return dirname(new URL(import.meta.url).pathname);
-  } catch {
-    return process.cwd();
-  }
+  // ESM: this file's directory. The CJS bundle: worker.cjs's own directory,
+  // where bin/screenwatch is staged — never process.cwd(), which inside the
+  // .app is whatever the shell chose. W1.
+  return moduleDirOf(import.meta.url);
 }
 
 // ---- Persisted pause state (V6 S1.6 / T4-8) --------------------------------

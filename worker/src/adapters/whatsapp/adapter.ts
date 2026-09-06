@@ -18,9 +18,10 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { APPROVAL_KEY_ENV, approvalKey } from "../../approvals/key.js";
+import { moduleDir as moduleDirOf } from "../../module-path.js";
 import { normalizeSourceEvent } from "../normalize.js";
 import type { SourceAdapter } from "../source-adapter.js";
 import { isRange, RANGES } from "../types.js";
@@ -140,12 +141,11 @@ export function resolveWhatsAppBin(explicit?: string): {
 }
 
 function moduleDir(): string {
-  // ESM: derive from import.meta.url without top-level await.
-  try {
-    return dirname(new URL(import.meta.url).pathname);
-  } catch {
-    return process.cwd();
-  }
+  // ESM: this file's directory. The CJS bundle (esbuild empties `import.meta`):
+  // worker.cjs's own directory, which is where bin/whatsapp-go is staged — the
+  // packaged answer used to come from process.cwd() and was right only because
+  // the shell happens to chdir there (src-tauri/src/lib.rs). W1.
+  return moduleDirOf(import.meta.url);
 }
 
 function resolveHome(explicit?: string): string {

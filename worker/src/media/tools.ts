@@ -25,13 +25,13 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 import {
   DEFAULT_WHISPER_MODEL,
   getMediaWhisperModel,
 } from "../db/settings.js";
+import { moduleDirOrNull } from "../module-path.js";
 
 /** One selectable whisper model. `bytes` is what the download costs. */
 export interface WhisperModel {
@@ -69,16 +69,13 @@ export const WHISPER_MODELS: readonly WhisperModel[] = [
  * esbuild rewrites `import.meta` to an empty object in the CJS worker bundle,
  * so `import.meta.url` is undefined there and `fileURLToPath` throws — which
  * silently cost us the packaged path and left 600 MB of bundled tooling
- * unreachable inside the .app. CJS defines `__dirname`, so prefer it and keep
- * the module URL for a real ESM run.
+ * unreachable inside the .app. module-path.ts is now the one place that knows
+ * this (W1): the bundle answers with worker.cjs's own `__dirname`, ESM with
+ * the module URL, and null means neither — which keeps the cwd candidate below
+ * from being duplicated by a bogus module-anchored one.
  */
 function moduleDir(): string | null {
-  if (typeof __dirname === "string" && __dirname.length > 0) return __dirname;
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch {
-    return null;
-  }
+  return moduleDirOrNull(import.meta.url);
 }
 
 /** The bundled resource root for a given subdirectory, both layouts, in order. */

@@ -25,10 +25,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import * as db from "../db/index.js";
 import { DEFAULT_WORKER_PORT } from "../home.js";
+import { moduleDir } from "../module-path.js";
+import { bootDegradations } from "../boot-guard.js";
 import { BUILT_THROUGH_PHASE } from "../version.js";
 import { rescanMedia, type RescanType } from "../db/ingest.js";
 import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/index.js";
@@ -205,15 +206,11 @@ type ChatStreamEvent = ProviderStreamEvent | CitationsFrame;
  *   3. Fallback literal if nothing is found (never throws).
  */
 function moduleBaseDir(): string {
-  // ESM source: import.meta.url. CJS bundle (esbuild): __dirname is defined on
-  // the module scope; reach it via globalThis so TS doesn't require the ambient.
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch {
-    const cjsDir = (globalThis as { __dirname?: string }).__dirname;
-    if (typeof cjsDir === "string") return cjsDir;
-    return process.cwd();
-  }
+  // ESM source: import.meta.url. CJS bundle (esbuild): worker.cjs's own
+  // __dirname — which `globalThis.__dirname` never found, because CJS
+  // `__dirname` is module scope and not a global, so the packaged app walked up
+  // from process.cwd() instead (W1).
+  return moduleDir(import.meta.url);
 }
 
 function resolveVersion(): string {
@@ -498,6 +495,11 @@ async function handle(
       const st = ingestion.getStatus();
       body.whatsapp = { state: st.state, paired: st.paired };
     }
+    // W1: an optional subsystem that failed to start degrades one feature
+    // instead of taking the worker down — but silently degrading is how you
+    // ship a half-dead app twice. Present only when something actually failed.
+    const degraded = bootDegradations();
+    if (degraded.length > 0) body.degraded = degraded.map((d) => ({ name: d.name, error: d.error }));
     sendJson(res, 200, body);
     return;
   }

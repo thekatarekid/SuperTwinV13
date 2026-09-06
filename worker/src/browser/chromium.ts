@@ -14,10 +14,10 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 import { homeRoot } from "../home.js";
+import { moduleDir } from "../module-path.js";
 import type { RawCdpTransport } from "./cdp.js";
 
 /**
@@ -49,13 +49,11 @@ const CFT_EXECUTABLE = join(
 );
 
 function moduleBaseDir(): string {
-  try {
-    return dirname(fileURLToPath(import.meta.url));
-  } catch {
-    const cjsDir = (globalThis as { __dirname?: string }).__dirname;
-    if (typeof cjsDir === "string") return cjsDir;
-    return process.cwd();
-  }
+  // ESM: this file's directory. The CJS bundle: worker.cjs's own directory —
+  // `globalThis.__dirname` used to be asked for it and is always undefined
+  // (CJS `__dirname` is module scope, not a global), so the packaged app fell
+  // through to process.cwd(). W1.
+  return moduleDir(import.meta.url);
 }
 
 /**

@@ -477,7 +477,12 @@ export function kindOfArtifact(a: ArtifactRow): { kind: string; intentConfidence
       }
     }
   }
-  return { kind: a.kind === "question" ? "needs_you" : "done_for_you", intentConfidence: 1 };
+  // S4.7: an injection card ("a page tried to instruct me") needs the user's
+  // eyes, never the twin's action — it ranks with the questions.
+  return {
+    kind: a.kind === "question" || a.kind === "injection" ? "needs_you" : "done_for_you",
+    intentConfidence: 1,
+  };
 }
 
 /** First non-empty line of the artifact body — the peek (§14.4.1). */

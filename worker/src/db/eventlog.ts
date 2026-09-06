@@ -21,6 +21,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { bridgeIngestedEvents } from "../bridges/ingest.js";
+import { scanEventsForInjection } from "../safety/injection.js";
 import { noteSelfAuthoredEvents } from "../categories/promotion.js";
 import { isCapturePaused } from "../library/pause.js";
 import { filterCapture } from "./capture-filter.js";
@@ -394,6 +395,18 @@ export function appendEvents(
       bridgeIngestedEvents(understoodIds);
     } catch (err) {
       console.error("[eventlog] bridge extraction failed (continuing):", err);
+    }
+  }
+  // Injection surfacing at ingest (V6 S4.7): directive text inside captured
+  // content becomes a flag and a card with its source, never an action. The
+  // bar's own lines come through this same funnel and are skipped by channel
+  // (INJ-04: the bar is the only instruction channel). Best-effort — a scan
+  // failure never unwinds an append that committed.
+  if (understoodIds.length > 0) {
+    try {
+      scanEventsForInjection(understoodIds);
+    } catch (err) {
+      console.error("[eventlog] injection scan failed (continuing):", err);
     }
   }
   if (insertedIds.length > 0) {

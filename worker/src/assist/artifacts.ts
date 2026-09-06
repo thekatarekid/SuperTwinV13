@@ -133,7 +133,8 @@ export interface CreateArtifactInput {
   taskId?: string | null;
   topicKey?: string | null;
   contentKey?: string | null;
-  producer?: "assist" | "executor";
+  /** Who made it: the assist lane, executor-lite, or S4.7's injection detector. */
+  producer?: "assist" | "executor" | "safety";
   runId?: string | null;
   expiresAt?: string | null;
   nowMs?: number;

@@ -177,6 +177,14 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // to one recipient and one text, and a card that shows exactly what will be
   // sent — where editing revokes the approval instead of carrying it forward.
   { cat: "GATE-A", name: "The send gate (V6 P1)", n: 3, doc: "V2", pass: "send-gate", authored: true },
+  // GoldenEvals V6 Phase 1 §5.15 — injection surfacing (S4.7). Code against
+  // safety/{injection,tool-args}.ts through the real ingest funnel: directive
+  // text inside captured content is flagged and carded WITH ITS SOURCE and
+  // never acted on (`injection_acted = 0`, hard), a forwarded fake approval
+  // mints no token and moves no task, a tool argument that came out of a
+  // message is checked against the world model before the tool runs, and the
+  // bar stays the one channel that instructs.
+  { cat: "INJ", name: "Injection surfacing (V6 P1)", n: 4, doc: "V2", pass: "injection", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

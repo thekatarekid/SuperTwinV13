@@ -26,7 +26,7 @@ describe("V13 gate registry", () => {
     ]) {
       expect(isHardGate(id), id).toBe(true);
     }
-    expect(HARD_GATES).toHaveLength(20);
+    expect(HARD_GATES).toHaveLength(21);
     expect(isHardGate("bundle_purity")).toBe(false);
   });
 

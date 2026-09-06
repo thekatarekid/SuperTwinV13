@@ -66,6 +66,7 @@ import {
 } from "../prompts/lite.v1.js";
 import { modelForVersionedPass } from "../prompts/versions.js";
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/registry.js";
+import { untrustedArgumentQuestion, worldModelToolArgCheck } from "../safety/tool-args.js";
 import type { Provider, ProviderStreamEvent, Usage } from "../providers/types.js";
 import { annotateTrace, withTraceContext } from "../traces/context.js";
 import type { TraceRecord } from "../traces/store.js";
@@ -128,6 +129,8 @@ export interface LiteRefusal {
   tool: string;
   reason: "cycle_ceiling" | "money_ceiling" | "login_wall" | "untrusted_argument" | "unknown_tool";
   detail: string;
+  /** The argument the model asked for — what an untrusted-argument question names. */
+  input: string;
 }
 
 export interface LiteRunResult {
@@ -731,6 +734,10 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
   const runId = (deps.newId ?? randomUUID)();
   const workspaceDir = liteWorkspaceDir(prepared.id);
   const registry = deps.registry ?? liteToolRegistry();
+  // S4.7 (Build §7.2): tool arguments originating in captured text are
+  // validated against the world model before use. Default ON — the check is
+  // the product's, not the fixture's.
+  const validateToolArg = deps.validateToolArg ?? worldModelToolArgCheck();
 
   const base = {
     preparedId: prepared.id,
@@ -818,7 +825,7 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
 
     const log = (inv: ToolInvocation): void => void invocations.push(inv);
     const refuse = (tool: string, input: string, reason: LiteRefusal["reason"], detail: string): void => {
-      refusals.push({ tool, reason, detail });
+      refusals.push({ tool, reason, detail, input });
       log({ tool, input, status: "refused", detail, at: new Date(deps.nowMs ?? Date.now()).toISOString() });
     };
 
@@ -852,8 +859,11 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
             refuse(name, input, "money_ceiling", `money ceiling $${budget.costUsd} reached ($${spentUsd.toFixed(4)} spent)`);
             break;
           }
-          const verdict = deps.validateToolArg?.(name, input);
-          if (verdict && !verdict.ok) {
+          // S4.7: a tool argument that ORIGINATED IN CAPTURED TEXT is checked
+          // against the world model before the tool runs (INJ-03). The default
+          // is the real check; a caller may still install its own.
+          const verdict = validateToolArg(name, input);
+          if (!verdict.ok) {
             refuse(name, input, "untrusted_argument", verdict.reason ?? "the argument originates in captured text");
             break;
           }
@@ -959,6 +969,16 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
       });
       gapNotes.push(`login wall at ${run.loginWall.url}`);
       status = artifact && artifact.citations.length > 0 ? "partial" : "blocked";
+    }
+    // S4.7 / INJ-03: an argument the world model could not corroborate is a
+    // QUESTION, never a quiet skip — the run says which address it will not
+    // open on a message's say-so, and asks.
+    for (const r of refusals.filter((x) => x.reason === "untrusted_argument")) {
+      const q = untrustedArgumentQuestion(r.detail, r.input);
+      if (questions.some((existing) => existing.field === q.field)) continue;
+      questions.push({ field: q.field, prefill: null, confirm: true, why: q.why });
+      gapNotes.push(`${r.tool}: ${r.detail}`);
+      if (status === "done") status = "partial";
     }
     if (status === "question" && questions.length === 0) status = "partial";
     if (questions.length > 0 && status === "done") status = "partial";

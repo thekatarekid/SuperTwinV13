@@ -53,6 +53,7 @@ import {
   noteIngestedEvent,
 } from "../db/watermarks.js";
 import { bridgeIngestedEvents } from "../bridges/ingest.js";
+import { scanEventsForInjection } from "../safety/injection.js";
 import { noteUserReply } from "../categories/promotion.js";
 import { ensureEntityForActor } from "../entities/from-ingest.js";
 import { enqueueLiveMedia } from "../media/queue.js";
@@ -731,6 +732,16 @@ export class Ingestion {
         bridgeIngestedEvents([res.id]);
       } catch (err) {
         console.error(`[ingest] bridge extraction failed (continuing): ${String(err)}`);
+      }
+      // Injection surfacing at ingest (V6 S4.7, Product_V6_Phase1 §24.9):
+      // directive text inside captured content is flagged and shown as a card
+      // with its source. It is NEVER acted on, never gates a model call and
+      // never drops the event — the episode files it as content. Best-effort;
+      // never blocks ingest.
+      try {
+        scanEventsForInjection([res.id]);
+      } catch (err) {
+        console.error(`[ingest] injection scan failed (continuing): ${String(err)}`);
       }
       // Engagement + Cat-2 -> Cat-1 promotion (P1.6, spec §5.1, eval CAT-03):
       // a self-authored message is user engagement — it bumps the stream's

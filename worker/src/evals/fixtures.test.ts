@@ -201,6 +201,8 @@ describe("coverage", () => {
       pass: "send-gate",
       authored: true,
     });
+    // V6 P1 S4.7 — injection surfacing, four code cases on `injection`.
+    expect(CATEGORIES.find((c) => c.cat === "INJ")).toMatchObject({ n: 4, pass: "injection", authored: true });
   });
 
   it("coverageGaps ignores selftest fixtures and reports shortfalls", () => {

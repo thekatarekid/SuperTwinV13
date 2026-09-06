@@ -42,6 +42,7 @@ import type { PackOptions } from "../packer/index.js";
 import { runCritic } from "./critic.js";
 import { commitTick, type CommitReport } from "./commit.js";
 import { enqueueCommitted } from "./reduce.js";
+import { surfaceReportedInjections } from "../safety/injection.js";
 
 export interface TickReport {
   bundle: DeltaBundle;
@@ -226,6 +227,22 @@ export async function runBrainTick(
     streamAliases: orientRun.packed.streamAliases,
     runId: orientRun.result.runIds[0] ?? null,
   });
+
+  // V6 S4.7: the pass's OWN injection report — orient.v7 rule 2 / live.v1
+  // rule 1 tell it to file the events as usual and add a question starting
+  // "injection:" that names the event. That report raises the same card the
+  // code detector raises at ingest, deduped by (event, family), so the twin
+  // has two independent ways of noticing and still shows one card. Nothing is
+  // acted on either way. Best-effort; never blocks the tick.
+  try {
+    surfaceReportedInjections(
+      commit.questions,
+      bundle.events.map((e) => e.id),
+      orientRun.packed.eventAliases,
+    );
+  } catch (err) {
+    console.error("[brain] injection surfacing failed (continuing):", err);
+  }
 
   // Per-run fidelity accounting (spec §4.5.4).
   const runId = orientRun.result.runIds[0];

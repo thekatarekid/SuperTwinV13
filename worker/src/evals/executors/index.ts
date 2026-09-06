@@ -40,6 +40,7 @@ import { settingsExecutor } from "./set.js";
 import { liveExecutor } from "./liv.js";
 import { liteExecutor } from "./exe.js";
 import { nudExecutor } from "./nud.js";
+import { injectionExecutor } from "./inj.js";
 import { sendGateExecutor } from "./gatea.js";
 import { brfExecutor } from "./brf.js";
 import { calendarExecutor } from "./cal.js";
@@ -66,6 +67,7 @@ export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
 export { liteExecutor } from "./exe.js";
 export { nudExecutor } from "./nud.js";
+export { injectionExecutor } from "./inj.js";
 export { sendGateExecutor } from "./gatea.js";
 export { brfExecutor } from "./brf.js";
 export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
@@ -214,6 +216,12 @@ export async function registerProductExecutors(): Promise<void> {
   // every line carrying its row) against brief/{delta,ledger,run}.ts with a
   // canned provider. Zero model calls.
   registerExecutor("brief", brfExecutor);
+  // V6 P1 S4.7: INJ injection cases (a page that speaks as the system, a
+  // forward carrying a fake approval, a tool argument that came out of a
+  // message, and the bar as the only instruction channel) against
+  // safety/{injection,tool-args}.ts through the real ingest funnel, the real
+  // commit and the real executor-lite. Zero model calls.
+  registerExecutor("injection", injectionExecutor);
   // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.

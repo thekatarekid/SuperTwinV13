@@ -11,6 +11,9 @@
 //   npm run eval -- --baseline            print the frozen evals/baseline/v13.json
 //   npm run eval -- ... --compare-baseline fail when a category scores below its
 //                       frozen rate (GoldenEvals V6P1 §3.1 "ORIENT >= baseline")
+//   npm run eval -- ... --ast-parity      after the run, check that every assertion
+//                       the retiring assist/ lane proved has a green home among the
+//                       V6 cases (Build V6 P1 §7.3 ship-gate item 2)
 //   npm run eval -- ... --record-baseline merge this run's tallies into that file
 //                       [--calls-log FILE | --model-calls N] [--note "..."]
 //                       (--calls-log: a file a CLAUDE_BIN counting shim appends one
@@ -50,6 +53,7 @@ import { coverageGaps, FIXTURE_MODES, loadDirectory, type Fixture, type FixtureM
 import { ALLOW_PRODUCTION_FLAG, establishEvalHome, EvalHomeLeakError } from "./home.js";
 import { haikuJudge, stubJudge, type Judge } from "./judge.js";
 import { assessLiveness, collectRunCounts, renderLiveness } from "./liveness.js";
+import { assessAstParity, renderAstParity } from "./parity.js";
 import { materialize } from "./materialize.js";
 import { renderReport, verdict } from "./report.js";
 import { runSuite } from "./runner.js";
@@ -75,6 +79,8 @@ export interface CliOptions {
   recordBaseline: boolean;
   /** After the run, fail when a selected category scored below its frozen rate. */
   compareBaseline: boolean;
+  /** After the run, print + assert the AST→V6 parity ledger (§7.3 item 2). */
+  astParity: boolean;
   /** Operator-counted `claude` invocations for --record-baseline; null = not counted. */
   modelCalls: number | null;
   /** File that grows one line per `claude` invocation; the run records its line delta. */
@@ -104,6 +110,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     baseline: false,
     recordBaseline: false,
     compareBaseline: false,
+    astParity: false,
     modelCalls: null,
     callsLog: null,
     note: null,
@@ -176,6 +183,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         break;
       case "--compare-baseline":
         options.compareBaseline = true;
+        break;
+      case "--ast-parity":
+        options.astParity = true;
         break;
       case "--model-calls": {
         const n = Number(next());
@@ -372,6 +382,15 @@ export async function main(argv: readonly string[], out: (line: string) => void 
       out("");
       out(renderCompare(compare, baselinePath(repoRoot())));
       if (!compare.ok) ok = false;
+    }
+    if (options.astParity) {
+      // §7.3 item 2. Static gaps are read off the WHOLE corpus (a home that
+      // does not exist is a gap however the run was selected); the pass/fail
+      // half is read off the cases this run actually measured.
+      const parity = assessAstParity(suite.results, loaded.fixtures.map((f) => f.id));
+      out("");
+      out(renderAstParity(parity));
+      if (!parity.ok) ok = false;
     }
     if (options.strict) {
       const unmeasured = suite.gates.filter((g) => g.hard && g.status === "no_data").length;

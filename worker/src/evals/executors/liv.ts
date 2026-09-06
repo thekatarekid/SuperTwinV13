@@ -103,7 +103,26 @@ interface EventRow {
 export function seedLiv(id: string, setup: Record<string, unknown>, nowMs: number): LivSeeded {
   const db = getDb();
   const lane: DeltaBundle["lane"] = str(setup.lane) === "history" ? "history" : "live";
-  const keyOf = (tag: string): string => `liv-${id.toLowerCase()}-${tag.toLowerCase()}@g.us`;
+  // Per-stream shape. A fixture that says nothing keeps the WhatsApp default
+  // every LIV case was written against; `setup.streams` lets a cross-source
+  // case (CROSS-N50) put a tag on a browser or screen chain key instead, so
+  // the packer's S1..Sn sections and the commit path's one-stream-per-episode
+  // rule see the real S3.4 key shapes.
+  const streamSpec = new Map<string, { key: string; source: string; kind: string }>();
+  for (const st of list(setup.streams)) {
+    const tag = (str(st.tag) ?? "S1").toUpperCase();
+    streamSpec.set(tag, {
+      key: str(st.key) ?? `liv-${id.toLowerCase()}-${tag.toLowerCase()}@g.us`,
+      source: str(st.source) ?? "wa",
+      kind: str(st.kind) ?? "wa.message",
+    });
+  }
+  const specOf = (tag: string): { key: string; source: string; kind: string } =>
+    streamSpec.get(tag.toUpperCase()) ?? {
+      key: `liv-${id.toLowerCase()}-${tag.toLowerCase()}@g.us`,
+      source: "wa",
+      kind: "wa.message",
+    };
 
   const spaceIds: string[] = [];
   for (const sp of list(setup.spaces)) {
@@ -136,16 +155,19 @@ export function seedLiv(id: string, setup: Record<string, unknown>, nowMs: numbe
   }
 
   // History rows first (already dispatched), then the bundle's new events.
-  const toEnvelope = (e: Record<string, unknown>, i: number, origin: EventEnvelope["origin"]): EventEnvelope => ({
-    ts: new Date(nowMs - Math.round(num(e.minutes_ago, 60 - i) * 60_000)).toISOString(),
-    source: "wa",
-    kind: "wa.message",
-    origin,
-    streamKey: keyOf(str(e.stream) ?? "S1"),
-    actor: str(e.actor) ?? "self",
-    roles: { sender: str(e.actor) ?? "self", audience: ["self"], receiver: ["self"], mentions: [] },
-    payload: { text: str(e.text) ?? `event ${i + 1}`, external_id: `${id}:${str(e.alias) ?? i}` },
-  });
+  const toEnvelope = (e: Record<string, unknown>, i: number, origin: EventEnvelope["origin"]): EventEnvelope => {
+    const spec = specOf(str(e.stream) ?? "S1");
+    return {
+      ts: new Date(nowMs - Math.round(num(e.minutes_ago, 60 - i) * 60_000)).toISOString(),
+      source: str(e.source) ?? spec.source,
+      kind: str(e.kind) ?? spec.kind,
+      origin,
+      streamKey: spec.key,
+      actor: str(e.actor) ?? "self",
+      roles: { sender: str(e.actor) ?? "self", audience: ["self"], receiver: ["self"], mentions: [] },
+      payload: { text: str(e.text) ?? `event ${i + 1}`, external_id: `${id}:${str(e.alias) ?? i}` },
+    };
+  };
   const alias = new Map<string, string>();
   const eventIds: string[] = [];
   const history = list(setup.history);

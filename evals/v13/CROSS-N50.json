@@ -1,0 +1,630 @@
+{
+  "id": "CROSS-N50",
+  "category": "CROSS",
+  "title": "fifty events, six threads, three sources — one space, two episodes, one nudge",
+  "pass": "cross",
+  "mode": "code",
+  "setup": {
+    "note": "GoldenEvals V6P1 §5.10 CROSS-N50, the S4 ship gate (Build §7.3 item 3). One LIVE cross-source batch: 50 events over six threads and three sources — the villa cluster (WhatsApp goa gang + Goibibo tabs + the screen capture of the same page), an unrelated Falcon work thread, Netflix, and Family. The recorded live.v1 output below is replayed through the real tick; the assertions are all on what the DATABASE holds afterwards.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "live",
+    "streams": [
+      {
+        "tag": "T1",
+        "key": "crossn50-goa-gang@g.us",
+        "source": "wa",
+        "kind": "wa.message"
+      },
+      {
+        "tag": "T2",
+        "key": "browser:chrome:default:goibibo.com:2026-09-05",
+        "source": "browser",
+        "kind": "browser.visit"
+      },
+      {
+        "tag": "T3",
+        "key": "screen:com.google.Chrome:crossn50",
+        "source": "screen",
+        "kind": "screen.snapshot"
+      },
+      {
+        "tag": "T4",
+        "key": "crossn50-vikram@s.whatsapp.net",
+        "source": "wa",
+        "kind": "wa.message"
+      },
+      {
+        "tag": "T5",
+        "key": "browser:chrome:default:netflix.com:2026-09-05",
+        "source": "browser",
+        "kind": "browser.visit"
+      },
+      {
+        "tag": "T6",
+        "key": "crossn50-family@g.us",
+        "source": "wa",
+        "kind": "wa.message"
+      }
+    ],
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "villa sol wale ne rate bheja hai, 15k advance",
+        "minutes_ago": 180.0
+      },
+      {
+        "alias": "e2",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/ — Villa Sol Anjuna, 3BHK, 18-21 Dec",
+        "minutes_ago": 177.0
+      },
+      {
+        "alias": "e3",
+        "stream": "T3",
+        "actor": "self",
+        "text": "Goibibo — Villa Sol Anjuna 3BHK · 18-21 Dec · rate on this page https://www.goibibo.com/hotels/villa-sol-anjuna/",
+        "minutes_ago": 174.0
+      },
+      {
+        "alias": "e4",
+        "stream": "T4",
+        "actor": "contact:vikram",
+        "text": "falcon retainer invoice pending from your side",
+        "minutes_ago": 171.0
+      },
+      {
+        "alias": "e5",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — continue watching: Kota Factory S3",
+        "minutes_ago": 168.0
+      },
+      {
+        "alias": "e6",
+        "stream": "T6",
+        "actor": "contact:ma",
+        "text": "beta doctor ne monday bulaya hai",
+        "minutes_ago": 165.0
+      },
+      {
+        "alias": "e7",
+        "stream": "T1",
+        "actor": "contact:karan",
+        "text": "3BHK hai na? 4 log hain",
+        "minutes_ago": 162.0
+      },
+      {
+        "alias": "e8",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/casa-anjuna-beach/ — Casa Anjuna, 3BHK, 18-21 Dec",
+        "minutes_ago": 159.0
+      },
+      {
+        "alias": "e9",
+        "stream": "T4",
+        "actor": "contact:vikram",
+        "text": "GST number bhi chahiye hoga",
+        "minutes_ago": 156.0
+      },
+      {
+        "alias": "e10",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "haan 3BHK, pool ke saath",
+        "minutes_ago": 153.0
+      },
+      {
+        "alias": "e11",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — browsing New & Popular",
+        "minutes_ago": 150.0
+      },
+      {
+        "alias": "e12",
+        "stream": "T6",
+        "actor": "self",
+        "text": "kaunse doctor ke paas?",
+        "minutes_ago": 147.0
+      },
+      {
+        "alias": "e13",
+        "stream": "T2",
+        "actor": "self",
+        "text": "compared Villa Sol vs Casa Anjuna on Goibibo",
+        "minutes_ago": 144.0
+      },
+      {
+        "alias": "e14",
+        "stream": "T1",
+        "actor": "contact:tanvi",
+        "text": "pool wala hi lete hain",
+        "minutes_ago": 141.0
+      },
+      {
+        "alias": "e15",
+        "stream": "T3",
+        "actor": "self",
+        "text": "Goibibo — comparison drawer open, Villa Sol 5900/night vs Casa Anjuna 6400/night https://www.goibibo.com/hotels/villa-sol-anjuna/",
+        "minutes_ago": 138.0
+      },
+      {
+        "alias": "e16",
+        "stream": "T4",
+        "actor": "self",
+        "text": "invoice bhej deta hoon kal",
+        "minutes_ago": 135.0
+      },
+      {
+        "alias": "e17",
+        "stream": "T1",
+        "actor": "contact:karan",
+        "text": "per night kitna pad raha",
+        "minutes_ago": 132.0
+      },
+      {
+        "alias": "e18",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/reviews/",
+        "minutes_ago": 129.0
+      },
+      {
+        "alias": "e19",
+        "stream": "T6",
+        "actor": "contact:ma",
+        "text": "sharma clinic, wahi purana",
+        "minutes_ago": 126.0
+      },
+      {
+        "alias": "e20",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "5900 per night, 4 raat ka 23600",
+        "minutes_ago": 123.0
+      },
+      {
+        "alias": "e21",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — opened Kota Factory S3 E4",
+        "minutes_ago": 120.0
+      },
+      {
+        "alias": "e22",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/cancellation/",
+        "minutes_ago": 117.0
+      },
+      {
+        "alias": "e23",
+        "stream": "T1",
+        "actor": "self",
+        "text": "thoda zyada hai, dusra dekhte hain",
+        "minutes_ago": 114.0
+      },
+      {
+        "alias": "e24",
+        "stream": "T4",
+        "actor": "contact:vikram",
+        "text": "aur SOW ka scope revise karna hai",
+        "minutes_ago": 111.0
+      },
+      {
+        "alias": "e25",
+        "stream": "T3",
+        "actor": "self",
+        "text": "Goibibo — cancellation policy panel, free till 15 Dec https://www.goibibo.com/hotels/villa-sol-anjuna/",
+        "minutes_ago": 108.0
+      },
+      {
+        "alias": "e26",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "casa anjuna 6400 hai, sol hi sasta hai",
+        "minutes_ago": 105.0
+      },
+      {
+        "alias": "e27",
+        "stream": "T6",
+        "actor": "self",
+        "text": "theek hai monday nikal jaunga",
+        "minutes_ago": 102.0
+      },
+      {
+        "alias": "e28",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/casa-anjuna-beach/reviews/",
+        "minutes_ago": 99.0
+      },
+      {
+        "alias": "e29",
+        "stream": "T1",
+        "actor": "contact:karan",
+        "text": "reviews dekh lo dono ke",
+        "minutes_ago": 96.0
+      },
+      {
+        "alias": "e30",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — paused Kota Factory S3 E4",
+        "minutes_ago": 93.0
+      },
+      {
+        "alias": "e31",
+        "stream": "T4",
+        "actor": "self",
+        "text": "SOW kal subah dekhta hoon",
+        "minutes_ago": 90.0
+      },
+      {
+        "alias": "e32",
+        "stream": "T1",
+        "actor": "contact:tanvi",
+        "text": "sol ke reviews acche hain, pool clean hai",
+        "minutes_ago": 87.0
+      },
+      {
+        "alias": "e33",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/photos/",
+        "minutes_ago": 84.0
+      },
+      {
+        "alias": "e34",
+        "stream": "T6",
+        "actor": "contact:ma",
+        "text": "reports bhi le jana purane wale",
+        "minutes_ago": 81.0
+      },
+      {
+        "alias": "e35",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "toh sol final? advance bhej doon?",
+        "minutes_ago": 78.0
+      },
+      {
+        "alias": "e36",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — browsing My List",
+        "minutes_ago": 75.0
+      },
+      {
+        "alias": "e37",
+        "stream": "T4",
+        "actor": "contact:vikram",
+        "text": "kal 11 baje call kar lete hain",
+        "minutes_ago": 72.0
+      },
+      {
+        "alias": "e38",
+        "stream": "T1",
+        "actor": "self",
+        "text": "haan sol hi karo",
+        "minutes_ago": 69.0
+      },
+      {
+        "alias": "e39",
+        "stream": "T3",
+        "actor": "self",
+        "text": "Goibibo — book now button focused, total 23600 for 4 nights https://www.goibibo.com/hotels/villa-sol-anjuna/",
+        "minutes_ago": 66.0
+      },
+      {
+        "alias": "e40",
+        "stream": "T2",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/book/",
+        "minutes_ago": 63.0
+      },
+      {
+        "alias": "e41",
+        "stream": "T6",
+        "actor": "self",
+        "text": "haan sab le jaunga",
+        "minutes_ago": 60.0
+      },
+      {
+        "alias": "e42",
+        "stream": "T1",
+        "actor": "contact:karan",
+        "text": "advance kitna hai",
+        "minutes_ago": 57.0
+      },
+      {
+        "alias": "e43",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — opened trailer for Mumbai Diaries",
+        "minutes_ago": 54.0
+      },
+      {
+        "alias": "e44",
+        "stream": "T4",
+        "actor": "self",
+        "text": "11 theek hai",
+        "minutes_ago": 51.0
+      },
+      {
+        "alias": "e45",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "15k advance, baaki check-in pe",
+        "minutes_ago": 48.0
+      },
+      {
+        "alias": "e46",
+        "stream": "T6",
+        "actor": "contact:ma",
+        "text": "aur haan tera cousin bhi aa raha hai",
+        "minutes_ago": 45.0
+      },
+      {
+        "alias": "e47",
+        "stream": "T1",
+        "actor": "contact:tanvi",
+        "text": "main apna share aaj bhej deti hoon",
+        "minutes_ago": 42.0
+      },
+      {
+        "alias": "e48",
+        "stream": "T4",
+        "actor": "contact:vikram",
+        "text": "invoice ka reminder laga diya hai",
+        "minutes_ago": 39.0
+      },
+      {
+        "alias": "e49",
+        "stream": "T5",
+        "actor": "self",
+        "text": "Netflix — signed out of the profile switcher",
+        "minutes_ago": 36.0
+      },
+      {
+        "alias": "e50",
+        "stream": "T6",
+        "actor": "self",
+        "text": "achha theek hai",
+        "minutes_ago": 33.0
+      }
+    ],
+    "live": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1",
+            "e7",
+            "e10",
+            "e14",
+            "e17",
+            "e20",
+            "e23",
+            "e26",
+            "e29",
+            "e32",
+            "e35",
+            "e38",
+            "e42",
+            "e45",
+            "e47"
+          ],
+          "summary": "Goa gang settles on Villa Sol Anjuna at 5,900/night; Rohan asks whether to send the 15k advance.",
+          "space": "sp_goa_dec",
+          "evidence": [
+            {
+              "event_ids": [
+                "e45"
+              ],
+              "quote": "15k advance, baaki check-in pe"
+            }
+          ],
+          "confidence": 0.94
+        },
+        {
+          "action": "new",
+          "stream": "S2",
+          "events": [
+            "e2",
+            "e8",
+            "e13",
+            "e18",
+            "e22",
+            "e28",
+            "e33",
+            "e40"
+          ],
+          "summary": "Goibibo tabs comparing Villa Sol against Casa Anjuna for the same 18-21 Dec nights.",
+          "space": "sp_goa_dec",
+          "evidence": [
+            {
+              "event_ids": [
+                "e13"
+              ],
+              "quote": "compared Villa Sol vs Casa Anjuna on Goibibo"
+            }
+          ],
+          "confidence": 0.88
+        },
+        {
+          "action": "new",
+          "stream": "S4",
+          "events": [
+            "e4",
+            "e9",
+            "e16",
+            "e24",
+            "e31",
+            "e37",
+            "e44",
+            "e48"
+          ],
+          "summary": "Falcon retainer: invoice and GST number pending, SOW scope call at 11.",
+          "evidence": [
+            {
+              "event_ids": [
+                "e4"
+              ],
+              "quote": "falcon retainer invoice pending from your side"
+            }
+          ],
+          "confidence": 0.86
+        },
+        {
+          "action": "new",
+          "stream": "S6",
+          "events": [
+            "e6",
+            "e12",
+            "e19",
+            "e27",
+            "e34",
+            "e41",
+            "e46",
+            "e50"
+          ],
+          "summary": "Ma's Monday appointment at Sharma clinic; old reports to carry.",
+          "evidence": [
+            {
+              "event_ids": [
+                "e6"
+              ],
+              "quote": "beta doctor ne monday bulaya hai"
+            }
+          ],
+          "confidence": 0.83
+        }
+      ],
+      "proposals": [],
+      "unsorted": [
+        {
+          "stream": "S3",
+          "events": [
+            "e3",
+            "e15",
+            "e25",
+            "e39"
+          ],
+          "summary": "Screen captures of the same Goibibo villa page the browser tabs are on.",
+          "reason": "same page as the browser section — joined to the villa space by the URL bridge, not by a second episode",
+          "confidence": 0.62
+        },
+        {
+          "stream": "S5",
+          "events": [
+            "e5",
+            "e11",
+            "e21",
+            "e30",
+            "e36",
+            "e43",
+            "e49"
+          ],
+          "summary": "Netflix browsing.",
+          "reason": "no goal, no space",
+          "confidence": 0.5
+        }
+      ],
+      "questions": [],
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "help_now",
+            "intent": "Compare Villa Sol against Casa Anjuna for 18-21 Dec before the 15k advance goes out",
+            "intent_confidence": 0.89,
+            "action": "compare",
+            "space": "sp_goa_dec",
+            "urgency": "today",
+            "deadline_at": null,
+            "inputs": {
+              "villas": [
+                "Villa Sol Anjuna",
+                "Casa Anjuna"
+              ],
+              "nights": 4,
+              "advance": "15000"
+            },
+            "grounded_in": [
+              "e45",
+              "e13"
+            ],
+            "reasoning": "The chat has settled on Villa Sol and asked about the advance; the browser section is mid-comparison on the same two villas."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "50 events across 6 threads and 3 sources (WhatsApp, browser, screen) in one live bundle"
+  ],
+  "expected": {
+    "space": "sp_goa_dec",
+    "episodes_in_space": 2,
+    "episode_streams_in_space": [
+      "S1",
+      "S2"
+    ],
+    "prepared": 1,
+    "grounded_sources": [
+      "wa",
+      "browser"
+    ],
+    "bridge": {
+      "kind": "url",
+      "between": [
+        "S2",
+        "S3"
+      ]
+    },
+    "unrelated_streams": [
+      "S4",
+      "S5",
+      "S6"
+    ]
+  },
+  "wrong": [
+    {
+      "label": "invented-cross-thread",
+      "assert_absent": "an episode whose members come from two streams, or a villa episode citing the Falcon / Netflix / Family threads"
+    },
+    {
+      "label": "two-nudges",
+      "assert_absent": "more than one prepared action out of the batch"
+    },
+    {
+      "label": "falcon-cited",
+      "assert_absent": "the prepared action grounded in an unrelated thread's events"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit",
+    "nudge_without_grounding",
+    "assist_from_history"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.10 CROSS-N50 · the fixture that gates large-N (hard)"
+  }
+}

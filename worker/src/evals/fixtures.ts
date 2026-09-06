@@ -123,10 +123,12 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // commit path; the V1 CON-01..08 prose cases were replaced.
   { cat: "CON", name: "Consolidation on change (V6 P1)", n: 3, doc: "V2", pass: "consolidate", authored: true },
   { cat: "IDEM", name: "Idempotence (V6 P1)", n: 1, doc: "V2", pass: "consolidate", authored: true },
-  // GoldenEvals V6 Phase 1 §5.10 — cross-source batching (S3 gate). CROSS-N2 is code
-  // against brain/commit.ts (two unrelated chats in one bundle → two episodes, never
-  // merged); CROSS-N50 / CROSS-DAY are the S4 ship gate.
-  { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 1, doc: "V2", pass: "commit", authored: true },
+  // GoldenEvals V6 Phase 1 §5.10 — cross-source batching. CROSS-N2 is code against
+  // brain/commit.ts (two unrelated chats in one bundle → two episodes, never merged),
+  // the S3 gate; CROSS-N50 is the S4 ship gate (§7.3 item 3) and runs the whole live
+  // tick on the `cross` pass — fifty events, six threads, three sources → one space,
+  // two episodes, exactly one nudge citing both sources. CROSS-DAY lands with S6.
+  { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 2, doc: "V2", pass: "commit", authored: true },
   // GoldenEvals V6 Phase 1 §5.11 — the live call (S4.1, live.v1). LIV-01..06 are code
   // against brain/live.ts + the consumer with recorded live.v1 outputs; LIV-07..10 land
   // with S4.2–S4.4 (executor-lite, nudge, assist retirement).

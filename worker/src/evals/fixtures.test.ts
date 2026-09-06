@@ -146,10 +146,10 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 271 cases (72 from V1 minus SEG/CRI/CON/EXE, 199 from V2 incl. the V6P1 authored categories)", () => {
-    expect(TOTAL_CASES).toBe(271);
+  it("the category table totals 272 cases (72 from V1 minus SEG/CRI/CON/EXE, 200 from V2 incl. the V6P1 authored categories)", () => {
+    expect(TOTAL_CASES).toBe(272);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(72);
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(199);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(200);
     // V6 P1 S5.3 — the derived calendar, five code cases on the `calendar` pass.
     expect(CATEGORIES.find((c) => c.cat === "CAL")).toMatchObject({ n: 5, pass: "calendar", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "TIER")?.n).toBe(4);
@@ -158,7 +158,9 @@ describe("coverage", () => {
     expect(CATEGORIES.some((c) => c.cat === "BND")).toBe(true);
     expect(CATEGORIES.find((c) => c.cat === "CON")?.authored).toBe(true);
     expect(CATEGORIES.find((c) => c.cat === "IDEM")?.n).toBe(1);
-    expect(CATEGORIES.find((c) => c.cat === "CROSS")?.pass).toBe("commit");
+    // V6 P1 §7.3 — CROSS-N2 (S3 gate, commit) plus CROSS-N50 (the S4 ship gate,
+    // on its own `cross` pass); the category row keeps CROSS-N2's pass.
+    expect(CATEGORIES.find((c) => c.cat === "CROSS")).toMatchObject({ n: 2, pass: "commit", authored: true });
     // V6 P1 S5.6 — Settings, three code cases on the `settings` pass.
     expect(CATEGORIES.find((c) => c.cat === "SET")).toMatchObject({ n: 3, pass: "settings", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "SPC")).toMatchObject({ n: 8, pass: "space", authored: true });

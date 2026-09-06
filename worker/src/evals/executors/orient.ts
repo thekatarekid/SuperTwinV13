@@ -69,7 +69,7 @@ export function fixtureUser(
 export function criticFixtureUser(
   setup: unknown,
   inputEvents: unknown[],
-  seed?: { state?: string; items?: string[] },
+  seed?: { state?: string; items?: string[]; cited?: string[] },
 ): string {
   const lines: string[] = ["[BAND] A live   [MODE] propose-only"];
   if (setup !== undefined && setup !== null && setup !== "") {
@@ -87,6 +87,18 @@ export function criticFixtureUser(
         : [prose(setup)];
   lines.push(`[WRITES TO GRADE] ${items.length} item(s) — one verdict per numbered item`);
   items.forEach((e, i) => lines.push(`  ${i + 1}: ${e}`));
+  // V6 P1 §7.3 (S4 gate). critic.v5 added the MECHANICAL COVERAGE CHECK: a
+  // write whose cited events it cannot see is rejected. Production always
+  // shows them — brain/critic.ts buildCriticInput closes with
+  // "[CITED EVENTS — verbatim]" — so a harness that renders the aliases and
+  // withholds the texts feeds the critic a strictly weaker input than the
+  // product does, and the critic rejects a perfectly good write for a gap the
+  // harness made. (That is exactly how TOP-08 read red at the S4 gate: the
+  // birthday proposal cited e2 and the critic answered "e2 was not in the
+  // [BUNDLE]".) Same block, same label, same shape as production.
+  if (seed?.cited && seed.cited.length > 0) {
+    lines.push("[CITED EVENTS — verbatim]", ...seed.cited.map((c, i) => `  e${i + 1}: ${c}`));
+  }
   lines.push(
     "[NOTE] The context and items above are a prose rendering of the seeded pass output and its retrieval — grade them exactly as given. Output the schema JSON only.",
   );
@@ -143,6 +155,7 @@ export async function criticOverProposals(
   fixtureId: string,
   setup: unknown,
   out: OrientOutput,
+  cited?: readonly string[],
 ): Promise<CriticOutput | null> {
   if (out.proposals.length === 0) return null;
   const items = out.proposals.map(
@@ -156,7 +169,7 @@ export async function criticOverProposals(
     const result = await runJsonPass({
       pass: critic.pass,
       system: critic.system,
-      user: criticFixtureUser(setup, [], { items }),
+      user: criticFixtureUser(setup, [], { items, ...(cited && cited.length > 0 ? { cited: [...cited] } : {}) }),
       role: "critic",
       unit: { kind: "eval-critic", id: fixtureId },
       validate: parseCriticOutput,
@@ -193,7 +206,9 @@ export const orientExecutor: Executor = async ({ fixture }) => {
     validate: parseOrientOutput,
   });
   const out = result.output;
-  const verdicts = out ? await criticOverProposals(fixture.id, fixture.setup, out) : null;
+  const verdicts = out
+    ? await criticOverProposals(fixture.id, fixture.setup, out, seed?.events ?? fixture.input_events.map((e) => prose(e)))
+    : null;
   return {
     ok: result.status === "ok" || result.status === "repaired",
     output: out

@@ -31,6 +31,7 @@ import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
 import { commitExecutor } from "./cmt.js";
+import { crossExecutor } from "./cross.js";
 import { packExecutor } from "./pck.js";
 import { conExecutor } from "./con.js";
 import { decideSpaceExecutor } from "./dec.js";
@@ -56,6 +57,7 @@ export { gateExecutor } from "./gate.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
 export { criExecutor } from "./cri.js";
 export { conExecutor } from "./con.js";
+export { crossExecutor } from "./cross.js";
 export { settingsExecutor } from "./set.js";
 export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
@@ -156,6 +158,11 @@ export async function registerProductExecutors(): Promise<void> {
   // episode, per-item salvage, evidence, coverage) against the real
   // brain/commit.ts with canned Orient output. Zero model calls.
   registerExecutor("commit", commitExecutor);
+  // V6 P1 §7.3 (S4 ship gate): CROSS-N50 — fifty events over six threads and
+  // three sources in ONE live bundle. Recorded live.v1 output through the real
+  // tick; the gate is read off the database: one space, two episodes, exactly
+  // one prepared action, grounded across WhatsApp AND browser. Zero model calls.
+  registerExecutor("cross", crossExecutor);
   // V6 P1 S3.2: PCK pack cases (blocks, cap 5 / 104-space size, episode-bounded
   // history, quoted always, budgeted truncation, thin context, T0 only) against
   // the real packer/pack.ts. Zero model calls.

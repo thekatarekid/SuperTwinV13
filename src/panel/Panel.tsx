@@ -22,9 +22,11 @@
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadFailure } from "../components/LoadState";
 import {
   artifactReopen,
   artifactSeen,
+  describeWorkerError,
   endPrivateMoment,
   fetchCaptureState,
   fetchHealth,
@@ -98,8 +100,10 @@ export function Panel(): JSX.Element {
   const [forgetPreview, setForgetPreview] = useState<(CascadePreview & { minutes: number }) | null>(null);
   const [forgetBusy, setForgetBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const next = await fetchPanel();
       // The capture read is best-effort: an older worker without it leaves
@@ -110,8 +114,10 @@ export function Panel(): JSX.Element {
       setError(null);
       const tray = trayStateFor(next, cap);
       void setTrayState(tray.state, tray.needsYou);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -235,7 +241,7 @@ export function Panel(): JSX.Element {
         <div className="panel-head">
           <span className="panel-title">SuperTwin</span>
         </div>
-        <p className="empty">{error}</p>
+        <LoadFailure what="the panel" error={error} onRetry={() => void refresh()} retrying={loading} />
       </div>
     );
   }

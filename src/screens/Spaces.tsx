@@ -27,6 +27,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  describeWorkerError,
   fetchSpaceView,
   fetchSpacesList,
   refileEpisode,
@@ -38,6 +39,7 @@ import {
   type SpaceView,
   type SpacesList,
 } from "../lib/api";
+import { LoadFailure } from "../components/LoadState";
 import { WhyPanel } from "../components/WhyPanel";
 import type { TargetKind } from "../lib/api";
 
@@ -95,13 +97,17 @@ export function Spaces(props: {
   const [dragEpisode, setDragEpisode] = useState<string | null>(null);
   const [overSpace, setOverSpace] = useState<string | null>(null);
   const [why, setWhy] = useState<WhyTarget | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       setList(await fetchSpacesList());
       setError(null);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -119,8 +125,8 @@ export function Spaces(props: {
       .then((v) => {
         if (!cancelled) setView(v);
       })
-      .catch(() => {
-        if (!cancelled) setError("couldn't open that space");
+      .catch((err: unknown) => {
+        if (!cancelled) setError(`couldn't open that space — ${describeWorkerError(err)}`);
       });
     return () => {
       cancelled = true;
@@ -136,8 +142,8 @@ export function Spaces(props: {
       const r = await refileSpace(space.id, area);
       setNote(r.moved ? `${space.label} → ${area}` : (r.reason ?? "nothing moved"));
       await refresh();
-    } catch {
-      setError("re-file failed");
+    } catch (err) {
+      setError(`re-file failed — ${describeWorkerError(err)}`);
     }
   }
 
@@ -152,8 +158,8 @@ export function Spaces(props: {
       setNote(r.moved ? `episode → ${toSpaceId ?? "unsorted"}` : (r.reason ?? "nothing moved"));
       setView(await fetchSpaceView(from));
       await refresh();
-    } catch {
-      setError("re-file failed");
+    } catch (err) {
+      setError(`re-file failed — ${describeWorkerError(err)}`);
     }
   }
 
@@ -162,8 +168,8 @@ export function Spaces(props: {
       const r = await wakeSpace(space.id, "user");
       setNote(r.woke ? `${space.label} is awake` : (r.reason ?? "already awake"));
       await refresh();
-    } catch {
-      setError("couldn't wake that space");
+    } catch (err) {
+      setError(`couldn't wake that space — ${describeWorkerError(err)}`);
     }
   }
 
@@ -172,7 +178,7 @@ export function Spaces(props: {
       <div className="spaces-screen">
         <section className="card" aria-label="Spaces">
           <h2>Spaces</h2>
-          <p>{error}</p>
+          <LoadFailure what="Spaces" error={error} onRetry={() => void refresh()} retrying={loading} />
         </section>
       </div>
     );
@@ -415,7 +421,14 @@ export function Spaces(props: {
           </button>
         </div>
       )}
-      {error && list !== null && <p className="meta">{error}</p>}
+      {error && list !== null && (
+        <p className="error" role="alert">
+          {error}{" "}
+          <button type="button" className="linklike" onClick={() => setError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
     </div>
   );
 }

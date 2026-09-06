@@ -19,9 +19,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
   cancelWhisperModelDownload,
   deleteWhisperModel,
+  describeWorkerError,
   downloadWhisperModel,
   fetchMediaTools,
   fetchSettingsMedia,
@@ -30,29 +32,35 @@ import {
   type MediaToolsReport,
 } from "../../lib/api";
 import { ModelList, type ModelRowView } from "./ModelList";
-import { rowStyle, Toggle } from "./shared";
+import { rowStyle, SaveError, Toggle } from "./shared";
 
 /** How often the list re-reads itself while a model is being fetched. */
 const PROGRESS_POLL_MS = 1000;
 
 export function EnrichmentPanel(): JSX.Element {
-  const [s, setS] = useState<MediaSettings | null>(null);
   const [tools, setTools] = useState<MediaToolsReport | null>(null);
   const [toolsError, setToolsError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const gate = useLoad<MediaSettings>(fetchSettingsMedia);
+  const s = gate.data;
+  const setS = gate.setData;
+  const attempt = gate.attempt;
 
   const refreshTools = useCallback(async () => {
     try {
       setTools(await fetchMediaTools());
-    } catch {
+      setToolsError(null);
+    } catch (err) {
       setTools(null);
+      setToolsError(describeWorkerError(err));
     }
   }, []);
 
   useEffect(() => {
-    void fetchSettingsMedia().then(setS).catch(() => {});
     void refreshTools();
-  }, [refreshTools]);
+  }, [refreshTools, attempt]);
 
   // A whisper model is up to 3 GB; progress is polled off the GET rather than
   // held open on the POST, so without this the bar would never move.
@@ -72,15 +80,20 @@ export function EnrichmentPanel(): JSX.Element {
         if (next.models) setTools({ ...(tools ?? next), ...next });
         else await refreshTools();
       } catch (err) {
-        setToolsError(err instanceof Error ? err.message : String(err));
+        setToolsError(describeWorkerError(err));
       }
     },
     [refreshTools, tools],
   );
 
-  if (!s) return <p className="empty">loading…</p>;
+  if (!s) return <LoadFallback state={gate} what="Enrichment settings" />;
   const save = async (patch: Partial<MediaSettings>): Promise<void> => {
-    setS(await saveSettingsMedia(patch));
+    setSaveError(null);
+    try {
+      setS(await saveSettingsMedia(patch));
+    } catch (err) {
+      setSaveError(`that change was not saved — ${describeWorkerError(err)}`);
+    }
   };
   const num = (
     label: string,
@@ -99,6 +112,7 @@ export function EnrichmentPanel(): JSX.Element {
   return (
     <div>
       <h2>Enrichment — media &amp; links</h2>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       <h3>Voice &amp; audio (local whisper — zero tokens)</h3>
       {tools ? (
         <ModelList
@@ -135,7 +149,12 @@ export function EnrichmentPanel(): JSX.Element {
       ) : (
         <div style={rowStyle}>
           <span>Whisper model</span>
-          <span className="meta">model list unavailable — {s.whisper_model} selected</span>
+          <span className="meta">
+            model list unavailable{toolsError ? ` — ${toolsError}` : ""} · {s.whisper_model} selected{" "}
+            <button type="button" className="linklike" onClick={() => void refreshTools()}>
+              retry
+            </button>
+          </span>
         </div>
       )}
       <Toggle label="Voice notes / audio attachments" checked={s.voice_notes_enabled} onChange={(v) => void save({ voice_notes_enabled: v })} />

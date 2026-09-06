@@ -18,7 +18,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadFailure } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchLibraryStorage,
   saveDiskBudgets,
   type DiskBudgets,
@@ -163,15 +165,19 @@ export function StoragePanel(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [changing, setChanging] = useState<string | null>(null);
   const [retention, setRetention] = useState<string>("");
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const d = await fetchLibraryStorage();
       setData(d);
       setRetention(String(d.budgets.media_retention_days));
       setError(null);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -192,7 +198,11 @@ export function StoragePanel(): JSX.Element {
   if (!data) {
     return (
       <section className="card storage" aria-label="Storage">
-        <p className="empty">{error ?? "reading the disk…"}</p>
+        {error === null ? (
+          <p className="empty">reading the disk…</p>
+        ) : (
+          <LoadFailure what="the storage overview" error={error} onRetry={() => void load()} retrying={loading} />
+        )}
       </section>
     );
   }
@@ -272,7 +282,14 @@ export function StoragePanel(): JSX.Element {
         </div>
       </div>
 
-      {error && <p className="empty">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}{" "}
+          <button type="button" className="linklike" onClick={() => setError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
     </section>
   );
 }

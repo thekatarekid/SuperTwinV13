@@ -13,8 +13,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadFailure } from "../../components/LoadState";
 import {
   deleteScreenSpan,
+  describeWorkerError,
   fetchLibraryScreen,
   fetchScreenStatus,
   pauseScreen,
@@ -60,19 +62,24 @@ export function ScreenLibrary(): JSX.Element {
   const [open, setOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ScreenSessionCard | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  // Action failures keep their own line: the library on screen is still valid.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       setData(await fetchLibraryScreen());
       setError(null);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
     }
     try {
       setStatus(await fetchScreenStatus());
     } catch {
       setStatus(null); // the sidecar may simply not be installed
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -92,8 +99,8 @@ export function ScreenLibrary(): JSX.Element {
           `${report.claims_deleted} claims · ${report.tasks_deleted} tasks — gone for good`,
       );
       await refresh();
-    } catch {
-      setError("delete failed");
+    } catch (err) {
+      setActionError(`delete failed — ${describeWorkerError(err)}`);
     }
   }
 
@@ -103,7 +110,8 @@ export function ScreenLibrary(): JSX.Element {
         glyph="⬡"
         title="Screen"
         body="The worker isn't answering, so SuperTwin can't tell what it has read off your screen."
-        note="worker unreachable"
+        actions={[{ label: loading ? "retrying…" : "Retry", onClick: () => void refresh(), disabled: loading }]}
+        note={error}
       />
     );
   }
@@ -170,7 +178,7 @@ export function ScreenLibrary(): JSX.Element {
           onClick={() =>
             void pauseScreen(!data?.paused)
               .then(refresh)
-              .catch(() => setError("pause failed"))
+              .catch((err: unknown) => setActionError(`pause failed — ${describeWorkerError(err)}`))
           }
         >
           {data?.paused ? "▶ Resume" : "⏸ Pause"}
@@ -259,7 +267,17 @@ export function ScreenLibrary(): JSX.Element {
           {deleteSummary}
         </p>
       )}
-      {error && <p className="empty">{error}</p>}
+      {error && (
+        <LoadFailure what="the screen library" error={error} onRetry={() => void refresh()} retrying={loading} />
+      )}
+      {actionError && (
+        <p className="error" role="alert">
+          {actionError}{" "}
+          <button type="button" className="linklike" onClick={() => setActionError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
 
       {confirmDelete && (
         <div className="modal-scrim" role="presentation" onClick={() => setConfirmDelete(null)}>

@@ -4,17 +4,25 @@
 // Library › Screen).
 // ===========================================================================
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { fetchSettingsData, saveTracesRetention, type DataSettings } from "../../lib/api";
-import { mb, rowStyle } from "./shared";
+import { LoadFallback, useLoad } from "../../components/LoadState";
+import {
+  describeWorkerError,
+  fetchSettingsData,
+  saveTracesRetention,
+  type DataSettings,
+} from "../../lib/api";
+import { mb, rowStyle, SaveError } from "./shared";
 
 export function DataPanel(): JSX.Element {
-  const [s, setS] = useState<DataSettings | null>(null);
-  useEffect(() => {
-    void fetchSettingsData().then(setS).catch(() => {});
-  }, []);
-  if (!s) return <p className="empty">loading…</p>;
+  const gate = useLoad<DataSettings>(fetchSettingsData);
+  const s = gate.data;
+  const setS = gate.setData;
+  // A save that silently did nothing is the same lie as a spinner that never
+  // resolves: the field springs back and the user is told nothing (W3).
+  const [saveError, setSaveError] = useState<string | null>(null);
+  if (!s) return <LoadFallback state={gate} what="Data settings" />;
   return (
     <div>
       <h2>Data</h2>
@@ -50,13 +58,15 @@ export function DataPanel(): JSX.Element {
           type="number"
           style={{ width: 80 }}
           defaultValue={s.retention.traces_days}
-          onBlur={(e) =>
+          onBlur={(e) => {
+            setSaveError(null);
             void saveTracesRetention(Number(e.target.value))
               .then(() => fetchSettingsData().then(setS))
-              .catch(() => {})
-          }
+              .catch((err: unknown) => setSaveError(`retention not saved — ${describeWorkerError(err)}`));
+          }}
         />
       </div>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       <h3>Honest delete</h3>
       <p className="meta">
         Deleting a span (Library › Screen) hard-deletes the events AND everything derived from

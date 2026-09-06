@@ -37,10 +37,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
   activateEmbeddingModel,
   cancelEmbeddingModelDownload,
   deleteEmbeddingModel,
+  describeWorkerError,
   downloadEmbeddingModel,
   fetchEmbeddingModels,
   fetchSettingsIntelligence,
@@ -106,29 +108,38 @@ function modelRows(s: IntelligenceSettings): ModelOptionRow[] {
 }
 
 export function IntelligencePanel(): JSX.Element {
-  const [s, setS] = useState<IntelligenceSettings | null>(null);
   const [embed, setEmbed] = useState<EmbeddingRegistry | null>(null);
   const [embedError, setEmbedError] = useState<string | null>(null);
   const [goldenNote, setGoldenNote] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const goldenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The step table gates the pane; the encoder registry is a section inside it
+  // and carries its own failure line, so one being down never hides the other
+  // (W3 — no read may end in a spinner that outlives it).
+  const load = useLoad<IntelligenceSettings>(fetchSettingsIntelligence);
+  const s = load.data;
+  const setS = load.setData;
+  const attempt = load.attempt;
+
   const refreshEmbed = useCallback(async () => {
     try {
       setEmbed(await fetchEmbeddingModels());
-    } catch {
+      setEmbedError(null);
+    } catch (err) {
       setEmbed(null);
+      setEmbedError(describeWorkerError(err));
     }
   }, []);
 
   const refresh = useCallback(async () => {
     setS(await fetchSettingsIntelligence());
     await refreshEmbed();
-  }, [refreshEmbed]);
+  }, [refreshEmbed, setS]);
 
   useEffect(() => {
-    void refresh().catch(() => {});
-  }, [refresh]);
+    void refreshEmbed();
+  }, [refreshEmbed, attempt]);
 
   // A download is minutes of work reported by polling the registry, not by a
   // held-open request; without this the progress line would never move.
@@ -163,13 +174,13 @@ export function IntelligencePanel(): JSX.Element {
         if (next.models) setEmbed(next);
         else await refreshEmbed();
       } catch (err) {
-        setEmbedError(err instanceof Error ? err.message : String(err));
+        setEmbedError(describeWorkerError(err));
       }
     },
     [refreshEmbed],
   );
 
-  if (!s) return <p className="empty">loading…</p>;
+  if (!s) return <LoadFallback state={load} what="Intelligence settings" />;
   const golden = s.golden;
   const gate = golden?.state;
   const running = gate?.status === "running";
@@ -346,7 +357,12 @@ export function IntelligencePanel(): JSX.Element {
           onActivate={(id) => void act(activateEmbeddingModel, id)}
         />
       ) : (
-        <p className="meta">registry unavailable</p>
+        <p className="meta" role="alert">
+          encoder registry unavailable{embedError ? ` — ${embedError}` : ""}{" "}
+          <button type="button" className="linklike" onClick={() => void refreshEmbed()}>
+            retry
+          </button>
+        </p>
       )}
       {embed?.swap && embed.swap.phase === "embedding" ? (
         <p className="meta" role="status">

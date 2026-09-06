@@ -14,9 +14,11 @@
 // way, and a hand-set choice is sticky (worker consolidation/graduation.ts).
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchHealth,
   fetchSettingsGeneral,
   fetchSettingsGraduation,
@@ -31,40 +33,49 @@ import {
   type SpendStatus,
   type T3Status,
 } from "../../lib/api";
-import { rowStyle, Toggle } from "./shared";
+import { rowStyle, SaveError, Toggle } from "./shared";
 
 export function GeneralPanel(): JSX.Element {
-  const [s, setS] = useState<GeneralSettings | null>(null);
   const [grad, setGrad] = useState<GraduationSettings | null>(null);
   const [t3, setT3] = useState<T3Status | null>(null);
   const [footer, setFooter] = useState<string | null>(null);
   const [spend, setSpend] = useState<SpendStatus | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setS(await fetchSettingsGeneral());
-    setGrad(await fetchSettingsGraduation());
-    setT3(await fetchSettingsT3());
-    // Spend is its own read so a worker without the ops routes still renders
-    // the rest of the panel.
-    await fetchSpend()
-      .then(setSpend)
-      .catch(() => setSpend(null));
-  }, []);
+  // The general settings row is what the pane IS: it gates the render, so its
+  // failure is the one the user must see and be able to retry (W3). The other
+  // four reads are decorations — graduation, deep-pass, spend, version — and
+  // each degrades to "not shown" on its own without hiding the pane.
+  const gate = useLoad<GeneralSettings>(fetchSettingsGeneral);
+  const s = gate.data;
+  const setS = gate.setData;
+  const attempt = gate.attempt;
+
   useEffect(() => {
-    void refresh().catch(() => {});
+    void fetchSettingsGraduation().then(setGrad).catch(() => setGrad(null));
+    void fetchSettingsT3().then(setT3).catch(() => setT3(null));
+    void fetchSpend().then(setSpend).catch(() => setSpend(null));
     void fetchHealth()
       .then((h) => setFooter(`v${h.version} · built through ${h.builtThroughPhase}`))
-      .catch(() => {});
-  }, [refresh]);
+      .catch(() => setFooter(null));
+  }, [attempt]);
 
-  if (!s) return <p className="empty">loading…</p>;
+  if (!s) return <LoadFallback state={gate} what="General settings" />;
   const save = async (patch: Partial<GeneralSettings>): Promise<void> => {
-    setS(await saveSettingsGeneral(patch));
+    setSaveError(null);
+    try {
+      setS(await saveSettingsGeneral(patch));
+    } catch (err) {
+      setSaveError(`that change was not saved — ${describeWorkerError(err)}`);
+    }
   };
+  /** One reporter for the switches that are their own POST, not a settings patch. */
+  const said = (what: string) => (err: unknown) => setSaveError(`${what} — ${describeWorkerError(err)}`);
   const auto = grad?.mode === "auto";
   return (
     <div>
       <h2>General</h2>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       <div style={rowStyle}>
         <span>Summon hotkey</span>
         <span className="chip">{s.hotkey_summon}</span>
@@ -110,7 +121,14 @@ export function GeneralPanel(): JSX.Element {
       <Toggle
         label="Stop all model activity"
         checked={spend?.modelActivityPausedAt != null}
-        onChange={(v) => void setModelActivityPaused(v).then(setSpend).catch(() => {})}
+        onChange={(v) =>
+          void setModelActivityPaused(v)
+            .then((next) => {
+              setSpend(next);
+              setSaveError(null);
+            })
+            .catch(said("the model-activity switch did not move"))
+        }
       />
       <p className="meta">
         {spend?.modelActivityPausedAt
@@ -129,7 +147,10 @@ export function GeneralPanel(): JSX.Element {
             Spend ceiling reached {spend.trippedAt.slice(0, 16).replace("T", " ")}
             {spend.trippedReason ? ` — ${spend.trippedReason}` : ""}. Background work is paused; the bar still answers.
           </span>
-          <button className="btn" onClick={() => void resetBudgetLatch().then(setSpend).catch(() => {})}>
+          <button
+            className="btn"
+            onClick={() => void resetBudgetLatch().then(setSpend).catch(said("could not resume background work"))}
+          >
             Resume background work
           </button>
         </div>
@@ -146,7 +167,11 @@ export function GeneralPanel(): JSX.Element {
             </span>
             <button
               className="btn"
-              onClick={() => void saveGraduationMode(auto ? "propose" : "auto").then(setGrad)}
+              onClick={() =>
+                void saveGraduationMode(auto ? "propose" : "auto")
+                  .then(setGrad)
+                  .catch(said("the space-creation mode did not change"))
+              }
             >
               {auto ? "Switch to propose-only" : "Switch to auto-create"}
             </button>

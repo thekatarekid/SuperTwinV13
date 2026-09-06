@@ -15,15 +15,17 @@
 // absence reads as a phase rather than as a missing feature.
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchSettingsCalendar,
   saveSettingsCalendar,
   type CalendarSettings,
   type CirclePolicy,
 } from "../../lib/api";
-import { rowStyle } from "./shared";
+import { rowStyle, SaveError } from "./shared";
 
 /** partner → "partner", close_friends → "close friends". */
 function circleLabel(id: string): string {
@@ -31,24 +33,18 @@ function circleLabel(id: string): string {
 }
 
 export function CalendarPanel(): JSX.Element {
-  const [s, setS] = useState<CalendarSettings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(async () => {
-    try {
-      setS(await fetchSettingsCalendar());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const gate = useLoad<CalendarSettings>(fetchSettingsCalendar);
+  const s = gate.data;
+  const setS = gate.setData;
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  if (error) return <p className="meta">calendar settings unavailable — {error}</p>;
-  if (!s) return <p className="empty">loading…</p>;
+  if (!s) return <LoadFallback state={gate} what="Calendar settings" />;
 
   const save = (circle: string, patch: Partial<CirclePolicy>): void => {
-    void saveSettingsCalendar({ [circle]: patch }).then(setS).catch(() => {});
+    setSaveError(null);
+    void saveSettingsCalendar({ [circle]: patch })
+      .then(setS)
+      .catch((err: unknown) => setSaveError(`that lead time was not saved — ${describeWorkerError(err)}`));
   };
   const rows = Object.entries(s.circles ?? {});
 
@@ -62,6 +58,7 @@ export function CalendarPanel(): JSX.Element {
       </p>
 
       <h3>Lead time by circle</h3>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       {rows.length === 0 ? (
         <p className="empty">no circles</p>
       ) : (

@@ -88,10 +88,75 @@ export interface CorrectionResult {
   decision_id: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Failure shape (V6 P1 W3). Every read used to reject with a bare
+// `Error("/api/x -> 500")`, so a caller could tell that SOMETHING went wrong
+// and nothing else. The three failures a local worker actually has are not
+// interchangeable — a worker that never came up is a different sentence to the
+// user than a route that answered 404 — so the wrapper names which one it was
+// and the UI renders the difference (components/LoadState.tsx).
+// ---------------------------------------------------------------------------
+
+/** Which of the three ways a worker read can fail. */
+export type WorkerFailureKind =
+  /** `fetch` itself rejected: nothing is listening, or the connection died. */
+  | "unreachable"
+  /** The worker answered, with a non-2xx status. */
+  | "http"
+  /** The worker answered 2xx with a body that is not JSON. */
+  | "malformed";
+
+export class WorkerError extends Error {
+  readonly kind: WorkerFailureKind;
+  readonly path: string;
+  readonly status: number | null;
+  constructor(kind: WorkerFailureKind, path: string, status: number | null, message: string) {
+    super(message);
+    this.name = "WorkerError";
+    this.kind = kind;
+    this.path = path;
+    this.status = status;
+  }
+}
+
+/** The exact words the UI uses when nothing is listening on the worker port. */
+export const WORKER_UNREACHABLE = "worker unreachable";
+
+/**
+ * One honest sentence for a failed worker call. "worker unreachable" is
+ * reserved for the case where it genuinely is — anything else names what
+ * failed instead of blaming a process that answered.
+ */
+export function describeWorkerError(err: unknown): string {
+  if (err instanceof WorkerError) {
+    if (err.kind === "unreachable") return WORKER_UNREACHABLE;
+    if (err.kind === "http") return `the worker answered ${err.status} for ${err.path}`;
+    return `the worker's answer for ${err.path} wasn't readable`;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return String(err);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(workerUrl(path), init);
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-  return (await res.json()) as T;
+  let res: Response;
+  try {
+    res = await fetch(workerUrl(path), init);
+  } catch (err) {
+    throw new WorkerError(
+      "unreachable",
+      path,
+      null,
+      `${path} -> ${WORKER_UNREACHABLE}${err instanceof Error && err.message ? ` (${err.message})` : ""}`,
+    );
+  }
+  // Message text is kept as `<path> -> <status>` so anything already reading
+  // `.message` keeps reading the same thing.
+  if (!res.ok) throw new WorkerError("http", path, res.status, `${path} -> ${res.status}`);
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new WorkerError("malformed", path, res.status, `${path} -> malformed response`);
+  }
 }
 
 const post = (body?: unknown): RequestInit => ({
@@ -1338,9 +1403,19 @@ export interface EmbeddingRegistry {
  * that did not change and no reason why.
  */
 async function registryPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(workerUrl(path), post(body));
+  let res: Response;
+  try {
+    res = await fetch(workerUrl(path), post(body));
+  } catch (err) {
+    throw new WorkerError(
+      "unreachable",
+      path,
+      null,
+      `${path} -> ${WORKER_UNREACHABLE}${err instanceof Error && err.message ? ` (${err.message})` : ""}`,
+    );
+  }
   const parsed = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok && !parsed.error) throw new Error(`${path} -> ${res.status}`);
+  if (!res.ok && !parsed.error) throw new WorkerError("http", path, res.status, `${path} -> ${res.status}`);
   return parsed;
 }
 

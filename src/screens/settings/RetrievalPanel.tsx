@@ -17,33 +17,38 @@
 // pretending to offer it.
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchSettingsRetrieval,
   saveSettingsRetrieval,
   type RetrievalPatch,
   type RetrievalSettings,
 } from "../../lib/api";
-import { rowStyle, Toggle } from "./shared";
+import { rowStyle, SaveError, Toggle } from "./shared";
 
 export function RetrievalPanel(): JSX.Element {
-  const [s, setS] = useState<RetrievalSettings | null>(null);
+  const gate = useLoad<RetrievalSettings>(fetchSettingsRetrieval);
+  const s = gate.data;
+  const setS = gate.setData;
   const [hub, setHub] = useState("");
-  const refresh = useCallback(async () => {
-    setS(await fetchSettingsRetrieval());
-  }, []);
-  useEffect(() => {
-    void refresh().catch(() => {});
-  }, [refresh]);
-  if (!s) return <p className="empty">loading…</p>;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  if (!s) return <LoadFallback state={gate} what="Retrieval settings" />;
   const save = async (patch: RetrievalPatch): Promise<void> => {
-    setS(await saveSettingsRetrieval(patch));
+    setSaveError(null);
+    try {
+      setS(await saveSettingsRetrieval(patch));
+    } catch (err) {
+      setSaveError(`that change was not saved — ${describeWorkerError(err)}`);
+    }
   };
 
   return (
     <div>
       <h2>Retrieval</h2>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       <Toggle
         label="Agentic retrieval in the bar (route → plan → execute → rerank)"
         checked={s.agentic}

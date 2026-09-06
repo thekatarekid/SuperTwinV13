@@ -8,6 +8,8 @@
 // ===========================================================================
 
 import { useState, type DragEvent } from "react";
+
+import { LoadFailure } from "../components/LoadState";
 import type { ArtifactRow, ClaimRow, HomeData, SpaceRow, TaskRow } from "../lib/api";
 
 const DRAG_MIME = "application/x-supertwin-object";
@@ -15,6 +17,10 @@ const DRAG_MIME = "application/x-supertwin-object";
 export interface HomeProps {
   data: HomeData | null;
   error: string | null;
+  /** True while the read (or a retry of it) is in flight. */
+  loading?: boolean;
+  /** Re-run the /api/home read. Wired to the error state's Retry button (W3). */
+  onRetry?: () => void;
   /** "Prepared for you" shelf (spec §14.7.8): unexpired assist artifacts. */
   prepared: ArtifactRow[];
   onOpenArtifact: (artifact: ArtifactRow) => void;
@@ -47,7 +53,12 @@ export function Home(props: HomeProps): JSX.Element {
     return (
       <div className="stub">
         <h1>Home</h1>
-        <p>{props.error}</p>
+        <LoadFailure
+          what="Home"
+          error={props.error}
+          onRetry={props.onRetry ?? (() => {})}
+          retrying={props.loading === true}
+        />
       </div>
     );
   }

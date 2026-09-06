@@ -19,6 +19,7 @@ import {
   artifactGraduate,
   artifactSeen,
   artifactSignal,
+  describeWorkerError,
   fetchArtifacts,
   fetchHome,
   fetchTaskRun,
@@ -83,13 +84,19 @@ export function App(): JSX.Element {
   const [lock, setLock] = useState<BarLock | null>(null);
   const [undo, setUndo] = useState<UndoChip | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       setData(await fetchHome());
       setError(null);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      // W3: name the failure the worker actually had. "worker unreachable" is
+      // only true when nothing is listening on the port.
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
     // The "Prepared for you" shelf (spec §14.7.8) rides the same refresh;
     // a failure leaves the shelf as-is rather than erroring the shell.
@@ -256,6 +263,8 @@ export function App(): JSX.Element {
           <Home
             data={data}
             error={error}
+            loading={loading}
+            onRetry={() => void refresh()}
             prepared={artifacts}
             onOpenArtifact={(a) => void openArtifact(a)}
             onOpenTask={(task) => setModal({ type: "task", task })}

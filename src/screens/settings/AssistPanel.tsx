@@ -28,28 +28,35 @@
 // value stays. The pane prints that line instead of silently reverting a field.
 // ===========================================================================
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchSettingsAssist,
   saveSettingsAssist,
   type AssistPatch,
   type AssistSettings,
 } from "../../lib/api";
-import { rowStyle, Toggle } from "./shared";
+import { rowStyle, SaveError, Toggle } from "./shared";
 
 /** Spec §10.1 — mirrored by the worker's DEFAULT_NUDGE_INTENT_FLOOR. */
 const DEFAULT_INTENT_FLOOR = 0.7;
 
 export function AssistPanel(): JSX.Element {
-  const [s, setS] = useState<AssistSettings | null>(null);
+  const gate = useLoad<AssistSettings>(fetchSettingsAssist);
+  const s = gate.data;
+  const setS = gate.setData;
   const [rule, setRule] = useState("");
-  useEffect(() => {
-    void fetchSettingsAssist().then(setS).catch(() => {});
-  }, []);
-  if (!s) return <p className="empty">loading…</p>;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  if (!s) return <LoadFallback state={gate} what="Assist settings" />;
   const save = async (patch: AssistPatch): Promise<void> => {
-    setS(await saveSettingsAssist(patch));
+    setSaveError(null);
+    try {
+      setS(await saveSettingsAssist(patch));
+    } catch (err) {
+      setSaveError(`that change was not saved — ${describeWorkerError(err)}`);
+    }
   };
   const num = (label: string, value: number | undefined, dflt: number, onSave: (n: number) => AssistPatch): JSX.Element => (
     <div style={rowStyle}>
@@ -70,6 +77,7 @@ export function AssistPanel(): JSX.Element {
   return (
     <div>
       <h2>Assist — what a finished thing earns on screen</h2>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       <p className="meta">
         The twin does not ask permission to understand: the state gate decides that a flush matters and
         the work happens. These rules decide what the finished work earns — a card now, the Prepared

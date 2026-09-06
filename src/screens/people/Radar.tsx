@@ -22,7 +22,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { fetchRadar, setRadarLead, type RadarEntryView } from "../../lib/api";
+import { LoadFailure } from "../../components/LoadState";
+import { describeWorkerError, fetchRadar, setRadarLead, type RadarEntryView } from "../../lib/api";
 import { circleLabel } from "../../modals/PersonModal";
 
 const DIRECTIONS = [
@@ -82,8 +83,11 @@ export function Radar(props: {
 }): JSX.Element {
   const [radar, setRadar] = useState<RadarEntryView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const r = await fetchRadar({
         ...(props.person ? { person: props.person } : {}),
@@ -91,8 +95,10 @@ export function Radar(props: {
       });
       setRadar(r.radar);
       setError(null);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, [props.person, props.now]);
 
@@ -103,10 +109,13 @@ export function Radar(props: {
   const onLead = useCallback(
     async (personId: string, days: number) => {
       try {
+        setSaveError(null);
         await setRadarLead(personId, days);
         await refresh();
-      } catch {
-        setError("could not save that lead time");
+      } catch (err) {
+        // A failed save is not a failed READ: the radar on screen is still
+        // valid, so it keeps its own line (W3).
+        setSaveError(`could not save that lead time — ${describeWorkerError(err)}`);
       }
     },
     [refresh],
@@ -126,7 +135,17 @@ export function Radar(props: {
         remembered per person.
       </p>
 
-      {error && <p className="empty">{error}</p>}
+      {error && (
+        <LoadFailure what="the follow-up radar" error={error} onRetry={() => void refresh()} retrying={loading} />
+      )}
+      {saveError && (
+        <p className="error" role="alert">
+          {saveError}{" "}
+          <button type="button" className="linklike" onClick={() => setSaveError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
       {!error && radar === null && <p className="empty">loading…</p>}
       {!error && radar !== null && radar.length === 0 && <p className="empty">nothing owed either way</p>}
 

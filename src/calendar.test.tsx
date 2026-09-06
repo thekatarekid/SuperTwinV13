@@ -227,9 +227,23 @@ describe("Calendar — view time (TIM-02)", () => {
     await waitFor(() => expect(stub.calls.filter((c) => c.path === "/api/calendar").length).toBeGreaterThan(before));
   });
 
-  it("an unreachable worker says so", async () => {
+  it("a route the worker does not serve says what answered, not that it is down", async () => {
     stub.routes.delete("/api/calendar");
     render(<Calendar />);
+    expect(await screen.findByText("couldn't load the calendar")).toBeTruthy();
+    expect(screen.getByText(/the worker answered 404/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("an unreachable worker says so, and Retry re-asks (W3)", async () => {
+    const fail = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("fetch", fail);
+    render(<Calendar />);
     expect(await screen.findByText("worker unreachable")).toBeTruthy();
+    const before = fail.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(fail.mock.calls.length).toBeGreaterThan(before));
   });
 });

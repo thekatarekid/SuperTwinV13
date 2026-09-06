@@ -20,10 +20,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
+import { LoadFailure } from "../../components/LoadState";
 import {
   IMPORT_RANGES,
   RANGE_LABELS,
   confirmSource,
+  describeWorkerError,
   extendSource,
   fetchChatMessages,
   fetchLibraryChats,
@@ -129,7 +131,7 @@ export function WhatsAppLibrary(props: {
   pollMs?: number;
 } = {}): JSX.Element {
   const [status, setStatus] = useState<SourceStatus | null>(null);
-  const [statusError, setStatusError] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [streams, setStreams] = useState<ChatStreamRow[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<InboxMessageRow[] | null>(null);
@@ -139,6 +141,8 @@ export function WhatsAppLibrary(props: {
   const [counts, setCounts] = useState<SourceCounts | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const pollMs = props.pollMs ?? POLL_MS;
   const alive = useRef(true);
 
@@ -154,9 +158,9 @@ export function WhatsAppLibrary(props: {
       const s = await fetchSourceStatus(SOURCE);
       if (!alive.current) return;
       setStatus(s);
-      setStatusError(false);
-    } catch {
-      if (alive.current) setStatusError(true);
+      setStatusError(null);
+    } catch (err) {
+      if (alive.current) setStatusError(describeWorkerError(err));
     }
   }, []);
 
@@ -166,10 +170,18 @@ export function WhatsAppLibrary(props: {
       if (!alive.current) return;
       setStreams(rows);
       setError(null);
-    } catch {
-      if (alive.current) setError("worker unreachable");
+    } catch (err) {
+      if (alive.current) setError(describeWorkerError(err));
     }
   }, []);
+
+  /** The Retry both failed reads share — the pane has one worker, not two. */
+  const retry = useCallback(() => {
+    setRetrying(true);
+    void Promise.all([loadStatus(), loadStreams()]).finally(() => {
+      if (alive.current) setRetrying(false);
+    });
+  }, [loadStatus, loadStreams]);
 
   useEffect(() => {
     void loadStatus();
@@ -224,11 +236,17 @@ export function WhatsAppLibrary(props: {
   const openChat = useCallback(async (id: string) => {
     setSelected(id);
     setMessages(null);
+    setMessagesError(null);
     try {
       const rows = await fetchChatMessages(id);
       if (alive.current) setMessages(rows);
-    } catch {
-      if (alive.current) setMessages([]);
+    } catch (err) {
+      // An empty array here read as "no messages in this chat", which is a
+      // different claim from "we could not ask" (W3).
+      if (alive.current) {
+        setMessages([]);
+        setMessagesError(describeWorkerError(err));
+      }
     }
   }, []);
 
@@ -252,13 +270,14 @@ export function WhatsAppLibrary(props: {
 
   // ---- Not connected: the real pairing flow --------------------------------
 
-  if (statusError && !status) {
+  if (statusError !== null && !status) {
     return (
       <ConnectCard
         glyph="◙"
         title="WhatsApp"
         body="The worker isn't answering, so SuperTwin can't tell whether WhatsApp is linked. Start the worker and this page connects on its own."
-        note="worker unreachable"
+        actions={[{ label: retrying ? "retrying…" : "Retry", onClick: retry, disabled: retrying }]}
+        note={statusError}
       />
     );
   }
@@ -420,12 +439,16 @@ export function WhatsAppLibrary(props: {
           {status?.progress?.messages ?? 0} messages — runs in the background
         </p>
       )}
-      {error && <p className="empty">{error}</p>}
+      {error && <LoadFailure what="your chats" error={error} onRetry={retry} retrying={retrying} />}
 
       <div className="inbox-panes">
         <div className="inbox-list" role="list" aria-label="conversations">
           {streams === null ? (
-            <p className="empty">loading chats…</p>
+            // A failed read paints the LoadFailure above; the pending line
+            // must not sit under it pretending the request is still running.
+            error === null ? (
+              <p className="empty">loading chats…</p>
+            ) : null
           ) : streams.length === 0 ? (
             <p className="empty">linked, but no chats have arrived yet</p>
           ) : (
@@ -492,7 +515,14 @@ export function WhatsAppLibrary(props: {
                 {selectedRow.tier && <span className="chip">{selectedRow.tier}</span>}
                 <span className="meta">{selectedRow.event_count} messages</span>
               </header>
-              {messages === null ? (
+              {messagesError !== null ? (
+                <LoadFailure
+                  what="this conversation"
+                  error={messagesError}
+                  onRetry={() => void openChat(selectedRow.id)}
+                  retrying={messages === null}
+                />
+              ) : messages === null ? (
                 <p className="empty">loading messages…</p>
               ) : messages.length === 0 ? (
                 <p className="empty">no messages in this chat</p>

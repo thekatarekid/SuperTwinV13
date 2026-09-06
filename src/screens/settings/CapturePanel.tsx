@@ -9,9 +9,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
   deleteCaptureSource,
   deleteOutsideWindow,
+  describeWorkerError,
   disconnectCaptureSource,
   fetchCaptureState,
   fetchOutsideWindow,
@@ -26,6 +28,7 @@ import {
   type OutsideWindowReview,
   type SourceDeletePreview,
 } from "../../lib/api";
+import { SaveError } from "./shared";
 
 const SOURCE_LABEL: Record<string, string> = {
   whatsapp: "WhatsApp",
@@ -205,23 +208,39 @@ function SourceRow(props: {
 }
 
 export function CapturePanel(): JSX.Element {
-  const [s, setS] = useState<CaptureSettings | null>(null);
   const [state, setState] = useState<CaptureState | null>(null);
+  const [stateError, setStateError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const gate = useLoad<CaptureSettings>(fetchSettingsCapture);
+  const s = gate.data;
+  const setS = gate.setData;
+  const attempt = gate.attempt;
 
   const refreshState = useCallback(() => {
     void fetchCaptureState()
-      .then(setState)
-      .catch(() => setState(null));
+      .then((v) => {
+        setState(v);
+        setStateError(null);
+      })
+      .catch((err: unknown) => {
+        setState(null);
+        setStateError(describeWorkerError(err));
+      });
   }, []);
 
   useEffect(() => {
-    void fetchSettingsCapture().then(setS).catch(() => {});
     refreshState();
-  }, [refreshState]);
+  }, [refreshState, attempt]);
 
-  if (!s) return <p className="empty">loading…</p>;
+  if (!s) return <LoadFallback state={gate} what="Capture & Privacy settings" />;
   const save = async (patch: Partial<CaptureSettings>): Promise<void> => {
-    setS(await saveSettingsCapture(patch));
+    setSaveError(null);
+    try {
+      setS(await saveSettingsCapture(patch));
+    } catch (err) {
+      setSaveError(`that list was not saved — ${describeWorkerError(err)}`);
+    }
   };
   const listEditor = (
     label: string,
@@ -243,6 +262,7 @@ export function CapturePanel(): JSX.Element {
   return (
     <div>
       <h2>Capture &amp; Privacy</h2>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
 
       <h3>Sources</h3>
       {state ? (
@@ -261,7 +281,12 @@ export function CapturePanel(): JSX.Element {
           ))}
         </>
       ) : (
-        <p className="empty">source state unavailable</p>
+        <p className="empty" role="alert">
+          source state unavailable{stateError ? ` — ${stateError}` : ""}{" "}
+          <button type="button" className="linklike" onClick={refreshState}>
+            retry
+          </button>
+        </p>
       )}
 
       <h3>Never captured (your lists)</h3>

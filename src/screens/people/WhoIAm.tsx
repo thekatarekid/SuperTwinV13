@@ -18,9 +18,10 @@
 // the worker's own note and offers nothing to fill in.
 // ===========================================================================
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { fetchWhoIAm, type WhoIAmCardView, type WhoIAmLine } from "../../lib/api";
+import { LoadFailure } from "../../components/LoadState";
+import { describeWorkerError, fetchWhoIAm, type WhoIAmCardView, type WhoIAmLine } from "../../lib/api";
 
 /** The five sections, in the order the card reads. */
 const SECTIONS = [
@@ -105,20 +106,33 @@ export function WhoIAm(props: {
   const [card, setCard] = useState<WhoIAmCardView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const alive = useRef(true);
 
-  useEffect(() => {
-    let alive = true;
+  const load = useCallback(() => {
+    setLoading(true);
     fetchWhoIAm()
       .then((c) => {
-        if (alive) setCard(c);
+        if (alive.current) {
+          setCard(c);
+          setError(null);
+        }
       })
-      .catch(() => {
-        if (alive) setError("worker unreachable");
+      .catch((err: unknown) => {
+        if (alive.current) setError(describeWorkerError(err));
+      })
+      .finally(() => {
+        if (alive.current) setLoading(false);
       });
-    return () => {
-      alive = false;
-    };
   }, []);
+
+  useEffect(() => {
+    alive.current = true;
+    load();
+    return () => {
+      alive.current = false;
+    };
+  }, [load]);
 
   return (
     <section className="card whoiam" aria-label="Who I am">
@@ -139,7 +153,7 @@ export function WhoIAm(props: {
         correction.
       </p>
 
-      {error && <p className="empty">{error}</p>}
+      {error && <LoadFailure what="the identity card" error={error} onRetry={load} retrying={loading} />}
       {!error && card === null && <p className="empty">loading…</p>}
 
       {open && card !== null && card.empty && (

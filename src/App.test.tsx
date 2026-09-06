@@ -55,10 +55,11 @@ describe("shell", () => {
     render(<App />);
     fireEvent.click(screen.getByText("▤ Library"));
     // The stub serves no /api/library/* routes, so the real Library screen
-    // (P2.4) lands on its unreachable-worker state.
-    await waitFor(() => expect(screen.getByText("worker unreachable")).toBeTruthy());
+    // (P2.4) lands on its failed-read state. The worker ANSWERED here — with a
+    // 404 — so W3 says the words are about the route, not about the process.
+    await waitFor(() => expect(screen.getByText(/the worker answered 404/)).toBeTruthy());
     // The Calendar tab (V6 P1 S5.3) and the Timeline, by their own shortcut.
-    // Neither route is stubbed, so both land on their unreachable-worker state.
+    // Neither route is stubbed, so both land on their failed-read state.
     fireEvent.keyDown(window, { key: shortcutFor("Calendar"), metaKey: true });
     expect(screen.getByLabelText("Calendar")).toBeTruthy();
     fireEvent.keyDown(window, { key: shortcutFor("Timeline"), metaKey: true });

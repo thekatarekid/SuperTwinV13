@@ -35,8 +35,10 @@
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadFailure } from "../components/LoadState";
 import {
   CIRCLES,
+  describeWorkerError,
   fetchPeople,
   fetchPersonAliases,
   mergePeople,
@@ -77,6 +79,11 @@ export function People(props: {
   const [people, setPeople] = useState<PersonRow[] | null>(null);
   const [questions, setQuestions] = useState<MergeQuestion[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  // An action that failed is not a failed LOAD: the list on screen is still
+  // valid, so it keeps its own line instead of replacing People with a
+  // retry-the-read state (W3).
+  const [actionError, setActionError] = useState<string | null>(null);
   const [aliases, setAliases] = useState<Record<string, AliasChip[]>>({});
   const [dragging, setDragging] = useState<Drag | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -84,6 +91,7 @@ export function People(props: {
   const [undo, setUndo] = useState<Undo | null>(null);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const r = await fetchPeople();
       setPeople(r.people);
@@ -96,8 +104,10 @@ export function People(props: {
       } catch {
         setAliases({});
       }
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -118,7 +128,7 @@ export function People(props: {
         }
         await refresh();
       } catch {
-        setError("correction failed");
+        setActionError("correction failed");
       }
     },
     [refresh],
@@ -140,14 +150,14 @@ export function People(props: {
       try {
         const result = await splitPerson(drag.alias.id);
         if (!result.ok) {
-          setError(result.summary);
+          setActionError(result.summary);
           return;
         }
         if (result.undoId) setUndo({ summary: result.summary, run: () => undoPeopleDrag(result.undoId!) });
         await refresh();
         if (circle !== "unassigned") await correct(drag.alias.id, { type: "set_circle", circle });
       } catch {
-        setError("split failed");
+        setActionError("split failed");
       }
       return;
     }
@@ -165,13 +175,13 @@ export function People(props: {
     try {
       const result = await mergePeople(drag.person.id, target.id);
       if (!result.ok) {
-        setError(result.summary);
+        setActionError(result.summary);
         return;
       }
       if (result.undoId) setUndo({ summary: result.summary, run: () => undoPeopleDrag(result.undoId!) });
       await refresh();
     } catch {
-      setError("merge failed");
+      setActionError("merge failed");
     }
   }
 
@@ -181,7 +191,7 @@ export function People(props: {
       setUndo(null);
       await refresh();
     } catch {
-      setError("undo failed");
+      setActionError("undo failed");
     }
   }
 
@@ -203,7 +213,7 @@ export function People(props: {
         {heads}
         <section className="card" aria-label="People">
           <h2>People</h2>
-          <p>{error}</p>
+          <LoadFailure what="People" error={error} onRetry={() => void refresh()} retrying={loading} />
         </section>
       </div>
     );
@@ -218,6 +228,15 @@ export function People(props: {
       {heads}
       <section className="card people" aria-label="People">
         <h2>People</h2>
+
+      {actionError && (
+        <p className="error" role="alert">
+          {actionError}{" "}
+          <button type="button" className="linklike" onClick={() => setActionError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
 
       {questions.length > 0 && (
         <div aria-label="merge questions">

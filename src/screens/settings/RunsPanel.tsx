@@ -38,7 +38,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadFailure } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchQuarantine,
   fetchRunDiff,
   fetchRunUndoPreview,
@@ -88,15 +90,30 @@ export function RunsPanel(): JSX.Element {
   const [runs, setRuns] = useState<RunIndex | null>(null);
   const [pickedRuns, setPickedRuns] = useState<string[]>([]);
   const [runDiffView, setRunDiffView] = useState<RunDiff | null>(null);
+  // The trace index is what this pane IS. Its failure used to be swallowed by
+  // `.catch(() => {})`, which left an empty list that looked exactly like "no
+  // traces yet" — the same lie the Settings spinner told (W3).
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const r = await fetchTraces({
-      pass: pass || undefined,
-      day: day || undefined,
-      limit: 50,
-    });
-    setRows(r.traces);
-    setCosts(r.costs);
+    setLoading(true);
+    try {
+      const r = await fetchTraces({
+        pass: pass || undefined,
+        day: day || undefined,
+        limit: 50,
+      });
+      setRows(r.traces);
+      setCosts(r.costs);
+      setError(null);
+    } catch (err) {
+      setError(describeWorkerError(err));
+      setRows([]);
+      setCosts([]);
+      setLoading(false);
+      return;
+    }
     try {
       setRuns(await fetchRuns({ pass: pass || undefined, day: day || undefined, limit: 50 }));
     } catch {
@@ -107,9 +124,10 @@ export function RunsPanel(): JSX.Element {
     } catch {
       setQuarantine([]);
     }
+    setLoading(false);
   }, [pass, day]);
   useEffect(() => {
-    void refresh().catch(() => {});
+    void refresh();
   }, [refresh]);
 
   const pick = (id: string): void => {
@@ -171,6 +189,15 @@ export function RunsPanel(): JSX.Element {
       setUndoing(false);
     }
   };
+
+  if (error !== null) {
+    return (
+      <div>
+        <h2>Runs &amp; Traces</h2>
+        <LoadFailure what="Runs & Traces" error={error} onRetry={() => void refresh()} retrying={loading} />
+      </div>
+    );
+  }
 
   return (
     <div>

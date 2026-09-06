@@ -3,19 +3,14 @@
 // state, whether the backfill finished, and when the last event landed.
 // ===========================================================================
 
-import { useEffect, useState } from "react";
-
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import { fetchSettingsSources, type SourceStatusRow } from "../../lib/api";
 import { rowStyle } from "./shared";
 
 export function SourcesPanel(): JSX.Element {
-  const [rows, setRows] = useState<SourceStatusRow[] | null>(null);
-  useEffect(() => {
-    void fetchSettingsSources()
-      .then((r) => setRows(r.sources))
-      .catch(() => {});
-  }, []);
-  if (!rows) return <p className="empty">loading…</p>;
+  const gate = useLoad<SourceStatusRow[]>(async () => (await fetchSettingsSources()).sources);
+  const rows = gate.data;
+  if (!rows) return <LoadFallback state={gate} what="the source list" />;
   if (rows.length === 0) return <p className="empty">No sources connected yet.</p>;
   return (
     <div>

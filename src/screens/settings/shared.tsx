@@ -7,6 +7,23 @@
 // the MB formatter.
 // ===========================================================================
 
+/**
+ * The line a panel shows when a save did not land (W3). A switch that springs
+ * back with nothing said is the same lie as a spinner that never resolves, so
+ * every panel's `save` funnels its failure here instead of `.catch(() => {})`.
+ */
+export function SaveError(props: { error: string | null; onDismiss: () => void }): JSX.Element | null {
+  if (props.error === null) return null;
+  return (
+    <p className="error" role="alert">
+      {props.error}{" "}
+      <button type="button" className="linklike" onClick={props.onDismiss}>
+        dismiss
+      </button>
+    </p>
+  );
+}
+
 export const rowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",

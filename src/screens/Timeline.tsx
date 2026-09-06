@@ -9,7 +9,9 @@
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadFailure } from "../components/LoadState";
 import {
+  describeWorkerError,
   fetchTimeline,
   fetchTimelineDays,
   type SpaceRow,
@@ -60,9 +62,11 @@ export function Timeline(props: {
   const [jumpDay, setJumpDay] = useState<string | null>(null);
   const [selected, setSelected] = useState<TimelineRowView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(
     async (append: boolean, before?: string) => {
+      setLoading(true);
       try {
         const page = await fetchTimeline({
           before,
@@ -73,8 +77,10 @@ export function Timeline(props: {
         setRows((prev) => (append ? [...prev, ...page.rows] : page.rows));
         setNextBefore(page.next_before);
         setError(null);
-      } catch {
-        setError("worker unreachable");
+      } catch (err) {
+        setError(describeWorkerError(err));
+      } finally {
+        setLoading(false);
       }
     },
     [source, person, space],
@@ -144,7 +150,14 @@ export function Timeline(props: {
         ))}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <LoadFailure
+          what="the timeline"
+          error={error}
+          onRetry={() => void load(false, jumpDay ? `${jumpDay}T23:59:59.999Z` : undefined)}
+          retrying={loading}
+        />
+      )}
       {!error && rows.length === 0 && <p className="empty">nothing captured yet</p>}
 
       {grouped.map((group) => (

@@ -16,14 +16,16 @@
 // lists it under the connector. Both switches are the same latch.
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
+import { LoadFallback, useLoad } from "../../components/LoadState";
 import {
+  describeWorkerError,
   fetchSettingsConnector,
   saveSettingsConnector,
   type ConnectorSettings,
 } from "../../lib/api";
-import { rowStyle } from "./shared";
+import { rowStyle, SaveError } from "./shared";
 
 function phaseNote(status: string): string {
   if (status === "live") return "in use";
@@ -32,14 +34,11 @@ function phaseNote(status: string): string {
 }
 
 export function ConnectorPanel(): JSX.Element {
-  const [s, setS] = useState<ConnectorSettings | null>(null);
-  const refresh = useCallback(async () => {
-    setS(await fetchSettingsConnector());
-  }, []);
-  useEffect(() => {
-    void refresh().catch(() => {});
-  }, [refresh]);
-  if (!s) return <p className="empty">loading…</p>;
+  const gate = useLoad<ConnectorSettings>(fetchSettingsConnector);
+  const s = gate.data;
+  const setS = gate.setData;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  if (!s) return <LoadFallback state={gate} what="AI Connector settings" />;
 
   const move = (door: string, by: number): void => {
     const order = [...s.fallback_order];
@@ -47,12 +46,16 @@ export function ConnectorPanel(): JSX.Element {
     const j = i + by;
     if (i < 0 || j < 0 || j >= order.length) return;
     [order[i]!, order[j]!] = [order[j]!, order[i]!];
-    void saveSettingsConnector({ fallback_order: order }).then(setS);
+    setSaveError(null);
+    void saveSettingsConnector({ fallback_order: order })
+      .then(setS)
+      .catch((err: unknown) => setSaveError(`the fallback order was not saved — ${describeWorkerError(err)}`));
   };
 
   return (
     <div>
       <h2>AI Connector</h2>
+      <SaveError error={saveError} onDismiss={() => setSaveError(null)} />
       <p className="meta">
         One door in P1: your own Claude Code CLI. Prompts go out on stdin, JSON comes back, every
         call is metered and traced. No key of ours, no copy of your data anywhere but this Mac.

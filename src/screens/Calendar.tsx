@@ -22,10 +22,12 @@
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadFailure } from "../components/LoadState";
 import {
   CALENDAR_LAYERS,
   cancelCalendarEvent,
   confirmCalendarEvent,
+  describeWorkerError,
   fetchCalendar,
   snoozeCalendarPlan,
   stopCalendarPlan,
@@ -93,18 +95,23 @@ export function Calendar(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const from = localToday();
     const days = RANGES.find((r) => r.id === range)?.days ?? 30;
+    setLoading(true);
     try {
       // Ask for every layer: the counts chip must show what a layer HOLDS,
       // not what is currently toggled on. Filtering is local and instant.
       const r = await fetchCalendar({ from, to: addDays(from, days) });
       setView(r);
       setError(null);
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, [range]);
 
@@ -115,12 +122,16 @@ export function Calendar(props: {
   const act = useCallback(
     async (key: string, fn: () => Promise<unknown>, said: string) => {
       setBusy(key);
+      setActionError(null);
       try {
         await fn();
         setNote(said);
         await load();
-      } catch {
-        setError("that did not go through");
+      } catch (err) {
+        // An action that failed is not a failed LOAD — the calendar on screen
+        // is still valid, so it gets its own line and does not replace the
+        // view with a retry-the-read state (W3).
+        setActionError(`that did not go through — ${describeWorkerError(err)}`);
       } finally {
         setBusy(null);
       }
@@ -169,7 +180,17 @@ export function Calendar(props: {
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <LoadFailure what="the calendar" error={error} onRetry={() => void load()} retrying={loading} />
+      )}
+      {actionError && (
+        <p className="error" role="alert">
+          {actionError}{" "}
+          <button type="button" className="linklike" onClick={() => setActionError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
       {note && (
         <p className="calendar-note" role="status">
           {note}

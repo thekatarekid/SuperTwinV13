@@ -19,8 +19,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { LoadFailure } from "../../components/LoadState";
 import {
   connectBrowserSource,
+  describeWorkerError,
   fetchBrowserDiscovery,
   fetchBrowserSourceStatus,
   fetchLibraryBrowser,
@@ -138,18 +140,22 @@ export function BrowserLibrary(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   /** Chains whose hop list the user asked to see in full. */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     let st: BrowserSourceStatus | null = null;
     try {
       st = await fetchBrowserSourceStatus();
       setStatus(st);
       setError(null);
-    } catch {
+    } catch (err) {
       setStatus(null);
-      setError("worker unreachable");
+      setError(describeWorkerError(err));
+      setLoading(false);
+      return;
     }
     if (st && !st.connected) {
       try {
@@ -157,12 +163,15 @@ export function BrowserLibrary(): JSX.Element {
       } catch {
         setDiscovery(null);
       }
+      setLoading(false);
       return;
     }
     try {
       setData(await fetchLibraryBrowser());
-    } catch {
-      setError("worker unreachable");
+    } catch (err) {
+      setError(describeWorkerError(err));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -190,7 +199,8 @@ export function BrowserLibrary(): JSX.Element {
         glyph="◇"
         title="Browser"
         body="The worker isn't answering, so SuperTwin can't tell what it has captured from your browsing."
-        note="worker unreachable"
+        actions={[{ label: loading ? "retrying…" : "Retry", onClick: () => void refresh(), disabled: loading }]}
+        note={error}
       />
     );
   }
@@ -384,7 +394,9 @@ export function BrowserLibrary(): JSX.Element {
         every visit is kept · tracking params are stripped from the searchable text only, the raw URL stays on the event
         · per-site lists in Settings › Capture
       </p>
-      {error && <p className="empty">{error}</p>}
+      {error && (
+        <LoadFailure what="the browser library" error={error} onRetry={() => void refresh()} retrying={loading} />
+      )}
     </section>
   );
 }

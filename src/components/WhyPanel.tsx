@@ -7,45 +7,45 @@
 // (packed context, raw output, parsed result) inline.
 // ===========================================================================
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+
 import {
+  describeWorkerError,
   fetchTrace,
   fetchWhy,
   type DecisionView,
   type TargetKind,
   type TraceRow,
 } from "../lib/api";
+import { LoadFallback, useLoad } from "./LoadState";
 
 export function WhyPanel(props: { kind: TargetKind; id: string }): JSX.Element {
-  const [decisions, setDecisions] = useState<DecisionView[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [traceError, setTraceError] = useState<string | null>(null);
   const [openTrace, setOpenTrace] = useState<TraceRow | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchWhy(props.kind, props.id)
-      .then((body) => {
-        if (!cancelled) setDecisions(body.decisions);
-      })
-      .catch(() => {
-        if (!cancelled) setError("couldn't load decisions");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.kind, props.id]);
+  const gate = useLoad<DecisionView[]>(
+    async () => (await fetchWhy(props.kind, props.id)).decisions,
+    [props.kind, props.id],
+  );
+  const decisions = gate.data;
 
   async function showTrace(traceId: string): Promise<void> {
+    setTraceError(null);
     try {
       const body = await fetchTrace(traceId);
       setOpenTrace(body.trace);
-    } catch {
-      setError("couldn't load trace");
+    } catch (err) {
+      setTraceError(`couldn't load that trace — ${describeWorkerError(err)}`);
     }
   }
 
-  if (error) return <div className="why-panel">{error}</div>;
-  if (!decisions) return <div className="why-panel">loading decisions…</div>;
+  if (!decisions) {
+    return (
+      <div className="why-panel">
+        <LoadFallback state={gate} what="the decisions behind this" />
+      </div>
+    );
+  }
   if (decisions.length === 0) return <div className="why-panel">no decisions recorded yet</div>;
 
   return (
@@ -71,6 +71,14 @@ export function WhyPanel(props: { kind: TargetKind; id: string }): JSX.Element {
           </div>
         </div>
       ))}
+      {traceError && (
+        <p className="error" role="alert">
+          {traceError}{" "}
+          <button type="button" className="linklike" onClick={() => setTraceError(null)}>
+            dismiss
+          </button>
+        </p>
+      )}
       {openTrace && (
         <div className="trace-box" aria-label="trace">
           {`trace ${openTrace.id} · ${openTrace.pass ?? "?"} · ${openTrace.model ?? "?"} · ${openTrace.prompt_version ?? "?"}`}

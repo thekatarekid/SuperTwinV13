@@ -33,7 +33,7 @@ Builds `SuperTwinV13_Product_V6_Phase1.md` on top of the current V13 tree (HEAD 
 | S2 — Index and T0 retrieval | ✅ done 2026-09-06 | 13.7.1 · `releases/SuperTwinV13_V6P1S2_13.7.1.dmg` |
 | S3 — Understanding core | ✅ done 2026-09-06 | 13.8.1 · `releases/SuperTwinV13_V6P1S3_13.8.1.dmg` |
 | S4 — Live path, executor-lite, assist | ✅ done 2026-09-06 | 13.9.1 · `releases/SuperTwinV13_V6P1S4_13.9.1.dmg` |
-| S5 — World model surfaces and the bar | ○ pending | — |
+| S5 — World model surfaces and the bar | ✅ done 2026-09-06 | 13.10.1 · `releases/SuperTwinV13_V6P1S5_13.10.1.dmg` |
 | S6 — Graduation | ○ pending | — |
 
 ---
@@ -524,12 +524,14 @@ All four must hold before `assist/` is deleted:
 
 ## 8. Stage 5 — World model surfaces and the bar
 
+**STATUS:** ✅ done 13.10.1 (2026-09-06) — all six lanes landed; §8.1 gates 12 of 13 PASS (SPC · CAL · ROL · CIR · CRM · BAR · SET · SCH · FUP · TIM · USR · FIX green; TSK green as code, its 11 carried live fixtures unmeasured — no frozen baseline binds them and the live budget went to the categories that have one). FIX regressed to 63% against its frozen 100% and was fixed at the gate (`c98fdf0`), then re-measured 100% with `--compare-baseline` green. `false_receiver_assignment` = 0 and `guess_rate` = 0 both PASS. Detail in `progressV13_V6_Phase1.md`.
+
 > **Goal.** Spaces, tasks, calendar, people and the bar behave as the product spec says.
 > **Backlog.** T5-6/7, T7-5/6.
 
 All six lanes run in parallel.
 
-#### S5.1 [A] — Spaces
+#### S5.1 [A] — Spaces ✅ `54a6d1c` — three birth modes, the sweep preview, graduation that flips back on a false auto-merge
 
 - **Birth.** Inferred → propose-only queue, graduating to auto after two clean weeks. Asked-for → created instantly, never proposed. Woken → reactivated with old evidence.
 - **Sweep.** Runs at every birth over unsorted and the log, with a preview on proposals.
@@ -538,7 +540,7 @@ All six lanes run in parallel.
 - **UI.** List by life area; view with a why-panel on every element; drag to re-file.
 - **Tests.** SPC-01..08.
 
-#### S5.2 [B] — Tasks and scheduler
+#### S5.2 [B] — Tasks and scheduler ✅ `9586650` — suggested is uncapped, wake-ups read before they call; SCH 5/8 → 8/8
 
 - Explicit, implicit and suggested tasks; suggested is marked and uncapped.
 - Scheduled steps and wait-until; follow-ups on close; owner resolved from roles.
@@ -547,7 +549,7 @@ All six lanes run in parallel.
 - Wake-ups are lookups before they are calls.
 - **Tests.** TSK-01..02, SCH-01..03, FUP-01, plus the V2 SCH and FUP cases carried.
 
-#### S5.3 [C] — Calendar (derived) and time
+#### S5.3 [C] — Calendar (derived) and time ✅ `f251286` — four layers, tentative until confirmed, three clocks; TIM 75% → 100%
 
 - Layers: my events · my tasks · twin's tasks · people.
 - Chat-derived events tentative until confirmed.
@@ -555,7 +557,7 @@ All six lanes run in parallel.
 - Three clocks: message time, processing time, view time. Recurrence rules.
 - **Tests.** CAL-01..05, TIM-01..04.
 
-#### S5.4 [D] — People and CRM
+#### S5.4 [D] — People and CRM ✅ `a133633` — the ladder (unknown beats wrong), circles from content, merge/split by drag with undo; ROL had no executor at the baseline
 
 - Resolution ladder; provisional people; merge and split by drag with undo.
 - Circles inferred from content, tone, claims, metadata.
@@ -563,7 +565,7 @@ All six lanes run in parallel.
 - Follow-up radar; dates with plan-or-wish; the "Who I am" card built by processing.
 - **Tests.** ROL-01..10, CIR-01..04, CRM-01..05.
 
-#### S5.5 [E] — Grounded bar
+#### S5.5 [E] — Grounded bar ⚠️ `628221e` — route plans, code executes, the judge only quotes; correction-parse.v3 lost three pipeline verbs, fixed at the gate (`c98fdf0`)
 
 - `route.v1` returns class plus plan → code executes the five methods → RRF → reranker → `judge.v1`.
 - Sufficiency checked in code per class; partial answers carry the coverage caveat; general answers labelled.
@@ -572,7 +574,7 @@ All six lanes run in parallel.
 - `correction-parse.v3`, quick chips, behavioral memory, golden-case drafting.
 - **Tests.** BAR-01..10, USR-01..06, FIX-01..09.
 
-#### S5.6 [F] — Settings and Runs
+#### S5.6 [F] — Settings and Runs ✅ `2dc8b58` — every §25 group, a model change gated by the golden set, the run level of the trace viewer
 
 - All P1 setting groups per product spec §25.
 - Per-step model, reasoning and on/off, with the golden set run on any change.
@@ -603,15 +605,15 @@ All six lanes run in parallel.
 ## 10. Cross-stage release checklist
 
 - [ ] `trace_coverage = 100%` and `pass_liveness = 100%` — _S0: trace_coverage 100% ✅; pass_liveness 17%, red until S3. S4: pass_liveness 100% over the 2 cases that feed it ✅, but trace_coverage reads `no data` on a deterministic run (TRC-01 is code-asserted by `src/traces/trc-01.test.ts` and TRC-03 is the `--liveness` job), so the row stays open until a live run measures it_
-- [x] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); S2: RET-01..10 · BAR-01 ✅ (deterministic suites); S3: BND-01..12 (incl. BND-11 dead letters) and GATE-01..10 ✅ as `evals/v13` code fixtures; S4: LIV-01..07 · EXE-01..05 · NUD-01..09 · GATE-A-01..03 · BRF-01..02 · INJ-01..04 · CROSS-N2/N50 ✅ (152/152 deterministic, 0 model calls)_
+- [x] SPD-01..08 · BND-08..12 · CNS-01..09 — _S0: SPD-01..08 (04 partial) and BND-08..10/12 ✅; S1: CNS-01..09 ✅ (deterministic suites); S2: RET-01..10 · BAR-01 ✅ (deterministic suites); S3: BND-01..12 (incl. BND-11 dead letters) and GATE-01..10 ✅ as `evals/v13` code fixtures; S4: LIV-01..07 · EXE-01..05 · NUD-01..09 · GATE-A-01..03 · BRF-01..02 · INJ-01..04 · CROSS-N2/N50 ✅ (152/152 deterministic, 0 model calls); S5: SPC-01..08 · CAL-01..05 · ROL-01..10 · CIR-01..04 · CRM-01..05 · BAR-01..10 · SET-01..03 · TSK-01/02 · SCH-01..03/08 · FUP-01 · FIX-07..09 ✅ (55/55 deterministic, 0 model calls) plus live SCH 88% · FUP 100% · TIM 100% · USR 100% · FIX 100%, all ≥ their frozen rates_
 - [x] ORIENT golden ≥ `evals/baseline/v13.json` — _S3: TOP 10/10 under orient.v7 + critic.v5 (S3.5, 21 calls); 9/10 best-of-2 under the shipped v6/v4 default on the S3.2 pack. **S4 gate ✅: TOP 10/10 = 100% vs the frozen 100%, `--compare-baseline` green, at the release HEAD under v7/v5 (21 counted calls) — §7.3 item 1 holds.** Judge variance at the bar is real (the two in-stage samples were 9/10 and 8/10 on the same pair), so re-measure best-of-2 before the defaults are flipped_
-- [x] `false_receiver_assignment = 0` · `guess_rate = 0` · `risky_without_token = 0` · `login_automation = 0` — _S4 ✅ on the full deterministic run: false_receiver_assignment 0 (1 case), guess_rate 0 (3), risky_without_token 0 (8, GATE-A + EXE + INJ), login_automation 0 (2, EXE-05 + INJ-03)_
+- [x] `false_receiver_assignment = 0` · `guess_rate = 0` · `risky_without_token = 0` · `login_automation = 0` — _S4 ✅ on the full deterministic run: false_receiver_assignment 0 (1 case), guess_rate 0 (3), risky_without_token 0 (8, GATE-A + EXE + INJ), login_automation 0 (2, EXE-05 + INJ-03). **S5 ✅**: `false_receiver_assignment` 0 (1 case) and `guess_rate` 0 (2 cases) on the deterministic ROL/CRM run — the two rows the S5 gate was asked to verify by name; `risky_without_token` 0 (2 cases) on the live run, `login_automation` no data this stage_
 - [x] `assist_from_history = 0` · `nudge_without_grounding = 0` · `content_gated_call = 0` — _S4 ✅: assist_from_history 0 over 11 cases and nudge_without_grounding 0 over 12 (both hard, LIV/NUD/CROSS); content_gated_call 100% over 11 GATE cases — tracked, not bold-hard in GoldenEvals §3.1, and 100% there means zero violations_
 - [x] `packer_enumeration = 0` · `packer_escalation = 0` · `full_vector_scan = 0` — _S2: full_vector_scan 0 ✅ (RET-01/02 assert `fullVectorScans = 0`; whole-table read + 30 s cache deleted); S3: packer_enumeration 0 · packer_escalation 0 ✅ (PCK-02/07 over 104 spaces, candidates from retrieval only, cap 5)_
 - [x] `injection_acted = 0` · `fabricated_evidence = 0` · `clock_only_call = 0` — _S3: fabricated_evidence 0 ✅ (CMT-01..05, CROSS-N2, TOP live), clock_only_call 0 ✅ (CON-01, IDEM-01 hard gate). S4 ✅: injection_acted 0 over 8 cases (INJ-01..04 + EXE), hard; clock_only_call 0 over 12 cases after the gate fixed an AST seeder that stamped events in the FUTURE before 2pm and woke CON-01's quiet roll_
 - [x] Pack size under 16,000 chars on the 104-space fixture — _S3 ✅: PCK-02/07 — exactly 5 candidates over 104 spaces, pack ≈ 4.5k chars, within 300 chars of the 24-space pack, < 200 ms, 0 model calls_
-- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅ · S2 ✅ · S3 ✅ · S4 ✅ (8113 too; no worker booted by the gate — CNS-01's own sandboxed boot took OS-assigned port 61359 and reaped it in-run)_
-- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅ · S2: 13.7.1 ✅ · S3: 13.8.1 ✅ · S4: 13.9.1 ✅_
+- [x] `lsof -i:8013` empty after the full test run — _S0 ✅ · S1 ✅ · S2 ✅ · S3 ✅ · S4 ✅ (8113 too; no worker booted by the gate — CNS-01's own sandboxed boot took OS-assigned port 61359 and reaped it in-run) · S5 ✅ (8113 too; no worker booted by the gate)_
+- [x] DMG recorded in `RELEASES.md` — _S0: 13.5.1 ✅ · S1: 13.6.1 ✅ · S2: 13.7.1 ✅ · S3: 13.8.1 ✅ · S4: 13.9.1 ✅ · S5: 13.10.1 ✅_
 
 ---
 

@@ -895,9 +895,14 @@ async function handle(
     path.startsWith("/api/settings/graduation") ||
     path.startsWith("/api/settings/intelligence") ||
     path.startsWith("/api/settings/assist") ||
+    path.startsWith("/api/settings/retrieval") ||
+    path.startsWith("/api/settings/connector") ||
+    path.startsWith("/api/settings/golden") ||
     path.startsWith("/api/settings/t3") ||
     path.startsWith("/api/settings/data") ||
     path === "/api/traces" ||
+    path === "/api/runs" ||
+    /^\/api\/runs\/[^/]+(\/quarantine)?$/.test(path) ||
     /^\/api\/trace\/[^/]+\/full$/.test(path)
   ) {
     const handled = await handleSettingsRoute(req, res);

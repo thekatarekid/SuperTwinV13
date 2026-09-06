@@ -77,7 +77,7 @@ describe("Settings round-trips (spec §14.9)", () => {
     expect(before.body.hotkey_summon).toBe("double-right-cmd");
     expect(before.body.notifications_enabled).toBe(true);
     expect(before.body.brief_times).toEqual(["08:30", "18:30"]);
-    expect(before.body.graduation_mode).toBe("auto"); // fresh install auto-creates
+    expect(before.body.graduation_mode).toBe("propose"); // fresh install proposes (S5.1)
 
     const saved = await post("/api/settings/general", {
       launch_at_login: true,
@@ -119,22 +119,22 @@ describe("Settings round-trips (spec §14.9)", () => {
     expect(after.body.pagetext_rules).toEqual(["docs.google.com: capture"]);
   });
 
-  it("space creation: auto-create out of the box, propose-only opt-in and sticky", async () => {
+  it("space creation: propose-only out of the box, graduates after two clean weeks, user switch sticky", async () => {
     const before = await get("/api/settings/graduation");
     expect(before.status).toBe(200);
-    // The fresh-install default — nothing has to be earned first.
-    expect(before.body.mode).toBe("auto");
-    expect(before.body.default_mode).toBe("auto");
+    // The fresh-install default (V6 P1 S5.1): inferred spaces queue for review.
+    expect(before.body.mode).toBe("propose");
+    expect(before.body.default_mode).toBe("propose");
     expect(before.body.reverted).toBe(false);
-    // The over-creation window is still reported, as information.
+    // The graduation window is reported: the streak this install has to earn.
     expect(before.body.required_days).toBe(14);
     expect(Array.isArray(before.body.window)).toBe(true);
 
+    const on = await post("/api/settings/graduation", { mode: "auto" });
+    expect(on.body.mode).toBe("auto");
     const off = await post("/api/settings/graduation", { mode: "propose" });
     expect(off.body.mode).toBe("propose");
     expect(off.body.reverted).toBe(true); // deliberate choice — code never undoes it
-    const on = await post("/api/settings/graduation", { mode: "auto" });
-    expect(on.body.mode).toBe("auto");
 
     const bad = await post("/api/settings/graduation", { mode: "yolo" });
     expect(bad.status).toBe(400);
@@ -145,7 +145,9 @@ describe("Settings round-trips (spec §14.9)", () => {
     expect(before.status).toBe(200);
     expect(before.body.default_model).toBe("haiku");
     expect(before.body.eval_gated).toBe(true);
-    const orient = before.body.steps.find((s: any) => s.key === "orient.v6");
+    // Keyed on the pass STEM the runner spends under, not a prompt version:
+    // `orient.v6` was a picker nothing read (V6 P1 S5.6).
+    const orient = before.body.steps.find((s: any) => s.key === "orient");
     expect(orient.selected).toBe("haiku"); // default Haiku everywhere
     expect(orient.recommended).toBe("sonnet"); // recommendation shown, not applied
     expect(orient.enabled).toBe(true);

@@ -10,8 +10,18 @@
 //   GET      /api/settings/sources      status per source: streams, last event
 //   GET/POST /api/settings/graduation   mode + streak + the 14-day metric window
 //   GET      /api/settings/t3           last deep-pass report + eval-due marker
+//   GET/POST /api/settings/retrieval    agentic on/off · scan limit · graph hops/fan-out · hubs (T2 hidden)
+//   GET/POST /api/settings/connector    doors · fallback order · ceilings · stop-all
+//   GET      /api/settings/golden       golden-gate state (SET-02)
+//   POST     /api/settings/golden/run   the manual golden run (spends; 409 without a runner)
 //   GET      /api/settings/data         storage per store · retention windows
 //   POST     /api/settings/data/retention {traces_days}
+//   GET      /api/runs?pass=&day=&status=&origin=&quarantined=&limit=&offset=
+//                                       the RUN index + per-pass cost rollup
+//   GET      /api/runs/diff?a=&b=       two runs side by side: header fields +
+//                                       the decision diff (V6 P1 §25 "diff runs")
+//   GET      /api/runs/:id              one run: traces, decisions, undo preview
+//   POST     /api/runs/:id/quarantine   {quarantined, reason} — mark / release
 //   GET      /api/traces?pass=&day=&run_id=&limit=&offset=   filtered index +
 //                                       per-pass cost rollup (Runs subtab)
 //   GET      /api/trace/:id/full        the EXACT record — system prompt,
@@ -67,6 +77,24 @@ import {
   isThinkingLevel,
   thinkingKeyFor,
 } from "../brain/reasoning.js";
+import {
+  awaitGoldenRun,
+  goldenRunnerInstalled,
+  goldenRunnerNote,
+  goldenState,
+  proposeStepChange,
+  startGoldenRun,
+} from "../settings/golden-gate.js";
+import {
+  applyAssistP1Patch,
+  applyConnectorPatch,
+  applyRetrievalPatch,
+  assistP1Settings,
+  connectorSettings,
+  retrievalSettings,
+} from "../settings/p1-settings.js";
+import { evalCategoriesForStep, PROCESS_ENABLED_PREFIX } from "../settings/steps.js";
+import { diffRuns, listRuns, runDetail, setRunQuarantine } from "../settings/runs.js";
 
 // ---- keys ------------------------------------------------------------------
 
@@ -97,9 +125,14 @@ export const CAPTURE_SOURCES = ["whatsapp", "browser", "screen"] as const;
 // Every step DEFAULTS to Haiku (modelForPass in brain/llm.ts reads app_state
 // `selected_model_<key>`, "haiku" when unset); the recommendation is shown
 // beside the picker and applied only by user choice. The keys are the LIVE
-// pass ids the traced runners use — a picker that named anything else would
-// be a setting nothing reads. "chat" doubles as the grounded bar's role key
-// (grounded/handlers.ts reads getSelectedModel("chat"), same app_state key).
+// pass STEMS the traced runners spend under (`orient`, `critic`, `extract`,
+// `decide`, `digest`, `consolidate`, `assist`, `executor`, `chat`, `tier`) —
+// modelForPass / storedThinkingForPass fall back from a versioned id
+// (`orient.v7`) to its stem, so one key follows a step across prompt
+// versions. The 13.9 build keyed Orient as `orient.v6` and Critic as
+// `critic.v4`, which nothing read (V6 P1 S5.6). "chat" doubles as the
+// grounded bar's role key (grounded/handlers.ts reads getSelectedModel("chat"),
+// same app_state key).
 
 export interface IntelligenceStep {
   key: string;
@@ -109,16 +142,16 @@ export interface IntelligenceStep {
 }
 
 export const INTELLIGENCE_STEPS: readonly IntelligenceStep[] = [
-  { key: "orient.v6", label: "Orient", group: "Understanding", recommended: "sonnet" },
-  { key: "critic.v4", label: "Critic", group: "Understanding", recommended: "haiku" },
+  { key: "orient", label: "Orient", group: "Understanding", recommended: "sonnet" },
+  { key: "critic", label: "Critic", group: "Understanding", recommended: "haiku" },
   { key: "extract", label: "Extract", group: "Understanding", recommended: "sonnet" },
   { key: "decide", label: "Decide", group: "Understanding", recommended: "sonnet" },
   { key: "digest", label: "Digest", group: "Understanding", recommended: "haiku" },
   { key: "consolidate", label: "Consolidation judge", group: "Understanding", recommended: "haiku" },
-  { key: "assist.v1", label: "Assist watcher", group: "Fast lane", recommended: "haiku" },
-  { key: "executor.v1", label: "Executor", group: "Agents", recommended: "sonnet" },
+  { key: "assist", label: "Assist watcher", group: "Fast lane", recommended: "haiku" },
+  { key: "executor", label: "Executor", group: "Agents", recommended: "sonnet" },
   { key: "chat", label: "Grounded bar", group: "Agents", recommended: "sonnet" },
-  { key: "digest-line.v1", label: "Digest lines / tiering", group: "Utility", recommended: "haiku" },
+  { key: "tier", label: "Tiering (business character)", group: "Utility", recommended: "haiku" },
 ] as const;
 
 /**
@@ -285,6 +318,9 @@ function assistSettings(): Record<string, unknown> {
     cooldown_min: assistCooldownMinutes(),
     quiet_hours: assistQuietHours(),
     suppressed_contexts: suppressed,
+    // V6 P1 §25 Assist: freshness = the cold window, burst K/W, card duration,
+    // merge window, intent floor, blocked kinds, behavioral rules.
+    ...assistP1Settings(),
   };
 }
 
@@ -460,6 +496,13 @@ export async function handleSettingsRoute(
         context_window: m.contextWindow,
       })),
       eval_gated: true,
+      // SET-02: whether a change RUNS the golden set here (runner installed) or
+      // applies recorded as skipped; plus the last / current run.
+      golden: {
+        runner_installed: goldenRunnerInstalled(),
+        runner_note: goldenRunnerNote(),
+        state: goldenState(),
+      },
       steps: INTELLIGENCE_STEPS.map((s) => {
         const stem = s.key.split(".")[0]!;
         const c = costFor.get(since, s.key, `${stem}.%`) as { cost: number; calls: number };
@@ -474,9 +517,15 @@ export async function handleSettingsRoute(
           thinking:
             isThinkingLevel(stored) && levels.includes(stored) ? stored : DEFAULT_STEP_THINKING,
           thinking_levels: levels,
-          enabled: appStateGet(`process_enabled_${s.key}`) !== "0",
+          enabled: appStateGet(`${PROCESS_ENABLED_PREFIX}${s.key}`) !== "0",
           cost_7d_usd: c.cost,
           calls_7d: c.calls,
+          eval_categories: evalCategoriesForStep(s.key),
+          // A candidate waiting on the golden set for THIS step, if any.
+          pending: (() => {
+            const g = goldenState();
+            return g.status === "running" && g.step === s.key ? g.candidate : null;
+          })(),
         };
       }),
     });
@@ -491,11 +540,13 @@ export async function handleSettingsRoute(
       return true;
     }
     if (typeof body?.enabled === "boolean") {
-      // A step turned off queues, never drops (spec §14.9.4) — the toggle is
-      // read by the runners; here we only persist and record it.
-      appStateSet(`process_enabled_${step.key}`, body.enabled ? "1" : "0");
+      // A step turned off queues, never drops (SET-01): the dispatcher reads
+      // this key before every hand-off (scheduler/v6/dispatch.ts submit) and
+      // holds the lane; here we only persist and record it.
+      appStateSet(`${PROCESS_ENABLED_PREFIX}${step.key}`, body.enabled ? "1" : "0");
     }
     const catalog = modelCatalog();
+    let gate: { status: string; state: unknown } | null = null;
     if (body?.model !== undefined) {
       const model = String(body.model);
       // Validated against the list the picker was SERVED, not against three
@@ -507,28 +558,35 @@ export async function handleSettingsRoute(
       }
       const before = appStateGet(`selected_model_${step.key}`) ?? DEFAULT_STEP_MODEL;
       if (before !== model) {
-        appStateSet(`selected_model_${step.key}`, model);
-        // A model change can invalidate the reasoning level: the new model may
-        // not offer the one that was set. Clearing it here is what keeps the
-        // stored pair (model, level) one the runner can actually send.
-        const kept = findModel(catalog, model)?.thinkingLevels ?? [];
-        const heldLevel = appStateGet(thinkingKeyFor(step.key));
-        if (isThinkingLevel(heldLevel) && !kept.includes(heldLevel)) {
-          appStateSet(thinkingKeyFor(step.key), DEFAULT_STEP_THINKING);
-        }
-        // Eval-gated (spec §18): every model change is a decision row AND
-        // marks the golden set due — the harness runs it before the change
-        // is considered shipped, and reverts on regression.
-        writeDecision({
-          pass: "user",
-          targetKind: "setting",
-          targetId: `selected_model_${step.key}`,
-          action: "update",
-          old: { model: before },
-          new: { model },
-          reason: `user picked ${model} for ${step.label} (rec: ${step.recommended})`,
-        });
-        appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
+        // SET-02: the golden set runs FIRST. `apply` is called only when the
+        // gate lets the change through — at once when no runner is installed
+        // (recorded as skipped), after a green compare when one is. A red
+        // compare leaves `before` in place and writes a "blocked" decision.
+        const apply = (): void => {
+          appStateSet(`selected_model_${step.key}`, model);
+          // A model change can invalidate the reasoning level: the new model may
+          // not offer the one that was set. Clearing it here is what keeps the
+          // stored pair (model, level) one the runner can actually send.
+          const kept = findModel(catalog, model)?.thinkingLevels ?? [];
+          const heldLevel = appStateGet(thinkingKeyFor(step.key));
+          if (isThinkingLevel(heldLevel) && !kept.includes(heldLevel)) {
+            appStateSet(thinkingKeyFor(step.key), DEFAULT_STEP_THINKING);
+          }
+          // Every model change is a decision row AND marks the golden set due
+          // for the next full pass (spec §18).
+          writeDecision({
+            pass: "user",
+            targetKind: "setting",
+            targetId: `selected_model_${step.key}`,
+            action: "update",
+            old: { model: before },
+            new: { model },
+            reason: `user picked ${model} for ${step.label} (rec: ${step.recommended})`,
+          });
+          appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
+        };
+        const r = await proposeStepChange({ step: step.key, label: step.label, model }, apply);
+        gate = { status: r.status, state: r.state };
       }
     }
     if (body?.thinking !== undefined) {
@@ -546,22 +604,56 @@ export async function handleSettingsRoute(
       }
       const before = appStateGet(thinkingKeyFor(step.key)) ?? DEFAULT_STEP_THINKING;
       if (before !== thinking) {
-        appStateSet(thinkingKeyFor(step.key), thinking);
         // Same gate as the model: how hard a step thinks changes what it
-        // answers, so it is a decision row and it marks the golden set due.
-        writeDecision({
-          pass: "user",
-          targetKind: "setting",
-          targetId: thinkingKeyFor(step.key),
-          action: "update",
-          old: { thinking: before },
-          new: { thinking },
-          reason: `user set ${step.label} reasoning to ${thinking} on ${model}`,
-        });
-        appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
+        // answers, so it runs the golden set first, is a decision row, and
+        // marks the set due.
+        const apply = (): void => {
+          appStateSet(thinkingKeyFor(step.key), thinking);
+          writeDecision({
+            pass: "user",
+            targetKind: "setting",
+            targetId: thinkingKeyFor(step.key),
+            action: "update",
+            old: { thinking: before },
+            new: { thinking },
+            reason: `user set ${step.label} reasoning to ${thinking} on ${model}`,
+          });
+          appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
+        };
+        const r = await proposeStepChange({ step: step.key, label: step.label, thinking }, apply);
+        gate = { status: r.status, state: r.state };
       }
     }
-    sendJson(res, 200, { step: step.key, ok: true });
+    sendJson(res, 200, { step: step.key, ok: true, gate });
+    return true;
+  }
+
+  // ======================= Golden set (SET-02; the ops button) =============
+
+  if (method === "GET" && path === "/api/settings/golden") {
+    sendJson(res, 200, {
+      runner_installed: goldenRunnerInstalled(),
+      runner_note: goldenRunnerNote(),
+      state: goldenState(),
+    });
+    return true;
+  }
+
+  // POST /api/settings/golden/run { categories?: string[], wait?: boolean }
+  // The manual run. SPENDS MODEL CALLS when a runner is installed; refuses
+  // (409) when none is, so a test worker can never spend through it.
+  if (method === "POST" && path === "/api/settings/golden/run") {
+    const body = (await readJsonBody(req)) ?? {};
+    const cats = Array.isArray(body.categories)
+      ? body.categories.map((c) => String(c).trim().toUpperCase()).filter(Boolean)
+      : null;
+    const r = await startGoldenRun(cats && cats.length > 0 ? cats : null, "manual run from Settings");
+    if (!r.started) {
+      sendJson(res, 409, { error: r.error, state: r.state });
+      return true;
+    }
+    const state = body.wait === true ? await awaitGoldenRun() : r.state;
+    sendJson(res, 200, { started: true, state });
     return true;
   }
 
@@ -609,7 +701,63 @@ export async function handleSettingsRoute(
     if (body.clear_suppressed === true) {
       getDb().prepare(`UPDATE assist_topics SET suppressed_until = NULL`).run();
     }
-    sendJson(res, 200, assistSettings());
+    // V6 P1 §25: freshness preset (SET-03 — the dispatcher re-reads it on its
+    // next tick), burst K/W, card duration, merge window, intent floor,
+    // blocked kinds, behavioral rules. Anything that fails its rail is refused
+    // by name and the rest still applies.
+    const refused = applyAssistP1Patch(body as Parameters<typeof applyAssistP1Patch>[0]);
+    sendJson(res, 200, { ...assistSettings(), ...(refused.length > 0 ? { refused } : {}) });
+    return true;
+  }
+
+  // ======================= Retrieval (V6 P1 §25; T2 rows hidden) ==========
+
+  if (method === "GET" && path === "/api/settings/retrieval") {
+    sendJson(res, 200, retrievalSettings());
+    return true;
+  }
+
+  if (method === "POST" && path === "/api/settings/retrieval") {
+    const body = await readJsonBody(req);
+    if (!body) {
+      sendJson(res, 400, { error: "invalid JSON body" });
+      return true;
+    }
+    const refused = applyRetrievalPatch(body as Parameters<typeof applyRetrievalPatch>[0]);
+    sendJson(res, 200, { ...retrievalSettings(), ...(refused.length > 0 ? { refused } : {}) });
+    return true;
+  }
+
+  // ======================= AI Connector (V6 P1 §25, Product_V6 §9) =========
+
+  if (method === "GET" && path === "/api/settings/connector") {
+    const catalog = modelCatalog();
+    sendJson(
+      res,
+      200,
+      connectorSettings({
+        connected: catalog.mode !== "fallback",
+        detail: catalog.mode === "fallback" ? (catalog.error ?? "claude CLI not found") : catalog.source,
+      }),
+    );
+    return true;
+  }
+
+  if (method === "POST" && path === "/api/settings/connector") {
+    const body = await readJsonBody(req);
+    if (!body) {
+      sendJson(res, 400, { error: "invalid JSON body" });
+      return true;
+    }
+    const refused = applyConnectorPatch(body as { fallback_order?: unknown });
+    const catalog = modelCatalog();
+    sendJson(res, 200, {
+      ...connectorSettings({
+        connected: catalog.mode !== "fallback",
+        detail: catalog.mode === "fallback" ? (catalog.error ?? "claude CLI not found") : catalog.source,
+      }),
+      ...(refused.length > 0 ? { refused } : {}),
+    });
     return true;
   }
 
@@ -659,6 +807,78 @@ export async function handleSettingsRoute(
   }
 
   // ======================= Runs & Traces viewer ===========================
+
+  // ---- The RUN index (Product_V6 §25 Runs) --------------------------------
+  //
+  // A trace is one model call; a RUN is the unit the product doc names, the
+  // unit `undo` reverses and the unit a diff is worth reading. Quarantined
+  // runs are listed and flagged by default: hiding them would hide real spend
+  // from the cost rollup, which is the one number this pane must not soften.
+
+  if (method === "GET" && path === "/api/runs") {
+    const q = url.searchParams.get("quarantined");
+    sendJson(
+      res,
+      200,
+      listRuns({
+        pass: url.searchParams.get("pass"),
+        day: url.searchParams.get("day"),
+        status: url.searchParams.get("status"),
+        origin: url.searchParams.get("origin"),
+        quarantined: q === null || q === "" ? null : q === "1" || q === "true",
+        limit: Number(url.searchParams.get("limit") ?? 100),
+        offset: Number(url.searchParams.get("offset") ?? 0),
+      }),
+    );
+    return true;
+  }
+
+  // Two runs side by side. Ordered BEFORE /api/runs/:id so "diff" is never
+  // read as a run id.
+  if (method === "GET" && path === "/api/runs/diff") {
+    const a = url.searchParams.get("a");
+    const b = url.searchParams.get("b");
+    if (!a || !b) {
+      sendJson(res, 400, { error: "diff needs both a and b run ids" });
+      return true;
+    }
+    const diff = diffRuns(a, b);
+    if (!diff) {
+      sendJson(res, 404, { error: `no run ${a} or ${b}` });
+      return true;
+    }
+    sendJson(res, 200, diff);
+    return true;
+  }
+
+  const runQuarantinePath = path.match(/^\/api\/runs\/([^/]+)\/quarantine$/);
+  if (runQuarantinePath && method === "POST") {
+    const id = decodeURIComponent(runQuarantinePath[1]!);
+    const body = (await readJsonBody(req)) ?? {};
+    // Default is TO quarantine: the button that reads "quarantine" must not
+    // release when the body is empty.
+    const quarantined = body.quarantined === undefined ? true : body.quarantined === true;
+    const reason = typeof body.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : null;
+    const state = setRunQuarantine(id, quarantined, reason);
+    if (!state) {
+      sendJson(res, 404, { error: `no run ${id}` });
+      return true;
+    }
+    sendJson(res, 200, { run_id: id, quarantine: state });
+    return true;
+  }
+
+  const runPath = path.match(/^\/api\/runs\/([^/]+)$/);
+  if (runPath && method === "GET") {
+    const id = decodeURIComponent(runPath[1]!);
+    const detail = runDetail(id);
+    if (!detail) {
+      sendJson(res, 404, { error: `no run ${id}` });
+      return true;
+    }
+    sendJson(res, 200, detail);
+    return true;
+  }
 
   if (method === "GET" && path === "/api/traces") {
     const db = getDb();

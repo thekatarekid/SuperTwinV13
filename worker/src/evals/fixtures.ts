@@ -137,6 +137,9 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // partial, a labelled general answer, create-now on the hot stream, a
   // follow-up that stays on its object, and ask-once ambiguity.
   { cat: "BAR", name: "The grounded bar (V6 P1)", n: 10, doc: "V2", pass: "bar", authored: true },
+  // GoldenEvals V6 Phase 1 §5.21 — Settings (S5.6). Code against scheduler/v6/dispatch.ts
+  // (step off → held), settings/golden-gate.ts (stub runner) and the live preset read.
+  { cat: "SET", name: "Settings (V6 P1)", n: 3, doc: "V2", pass: "settings", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

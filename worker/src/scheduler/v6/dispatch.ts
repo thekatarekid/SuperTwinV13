@@ -60,6 +60,7 @@ import { ColdWindow, effectiveParams, type ColdParams, type FlushTrigger, type F
 import { planHistory } from "./history.js";
 import { planDigest } from "./digest.js";
 import { attemptEligibility, recordFailedAttempt, recordSuccess, RETRY_DELAY_MS } from "./attempts.js";
+import { laneStepEnabled, STEP_OFF_HOLD_MS } from "../../settings/steps.js";
 
 // ---- Hooks and options -------------------------------------------------------
 
@@ -98,6 +99,13 @@ export interface DispatcherOptions {
   preset?: () => FreshnessPreset | string | null;
   /** Origins never dispatched; default DEFAULT_IGNORED_ORIGINS (["eval"]). */
   ignoreOrigins?: readonly string[];
+  /**
+   * Whether the step that opens a lane is switched on (Settings › Intelligence,
+   * SET-01). Default reads app_state `process_enabled_<step>`. A lane whose
+   * step is off HOLDS its bundles — nothing stamped, nothing called — until
+   * the step is on again.
+   */
+  stepEnabled?: (lane: "live" | "history" | "digest") => boolean;
   /** Serve history bundles (default true). */
   history?: boolean;
   /** Serve digest bundles (default true). */
@@ -135,6 +143,8 @@ export interface DispatcherStats {
   duplicates: number;
   deadLetters: number;
   indexOnly: number;
+  /** Bundles offered while their lane's step was switched off (held, never dropped). */
+  heldForStep: number;
 }
 
 // ---- Defaults ----------------------------------------------------------------
@@ -195,6 +205,7 @@ export class Dispatcher {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly preset: () => FreshnessPreset | string | null;
+  private readonly stepEnabled: (lane: "live" | "history" | "digest") => boolean;
   private readonly ignoreOrigins: ReadonlySet<string>;
   private readonly serveHistory: boolean;
   private readonly serveDigest: boolean;
@@ -220,6 +231,7 @@ export class Dispatcher {
     duplicates: 0,
     deadLetters: 0,
     indexOnly: 0,
+    heldForStep: 0,
   };
 
   constructor(opts: DispatcherOptions = {}) {
@@ -229,6 +241,7 @@ export class Dispatcher {
     this.now = opts.now ?? Date.now;
     this.log = opts.log ?? (() => {});
     this.preset = opts.preset ?? readPreset;
+    this.stepEnabled = opts.stepEnabled ?? laneStepEnabled;
     this.ignoreOrigins = new Set(opts.ignoreOrigins ?? DEFAULT_IGNORED_ORIGINS);
     this.serveHistory = opts.history ?? true;
     this.serveDigest = opts.digest ?? true;
@@ -484,6 +497,14 @@ export class Dispatcher {
     if (isBundleStale(bundle)) {
       this.afterSettle(bundle, { status: "stale" }, nowMs, lane);
       return "stale";
+    }
+    // SET-01: a step turned off QUEUES, never drops. No sink, no stamp, no
+    // attempt row — the live events go back to the accumulator and the lane
+    // holds; history and digest bundles are simply offered again next tick.
+    if (!this.stepEnabled(lane)) {
+      this.statsState.heldForStep += 1;
+      if (lane === "live") this.requeueLive(bundle, nowMs + STEP_OFF_HOLD_MS);
+      return "held";
     }
     const ref = bundleRef(bundle);
     const elig = attemptEligibility(ref, nowMs);

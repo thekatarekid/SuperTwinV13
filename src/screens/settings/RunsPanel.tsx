@@ -1,7 +1,22 @@
 // ===========================================================================
-// Settings › Runs & Traces (spec §17) — filter by pass/day, open a run to the
-// EXACT system prompt / packed context / raw output, diff two runs, cost
-// rollup, quarantine browser, and UNDO RUN.
+// Settings › Runs & Traces (spec §17, Product_V6 §25) — filter by pass/day,
+// open a run to the EXACT system prompt / packed context / raw output, diff
+// two runs, cost rollup, quarantine, and UNDO RUN.
+//
+// V6 P1 S5.6 adds the level §25 actually names. A trace is one model call; a
+// RUN is the unit undo reverses, so it is the unit worth listing, diffing and
+// quarantining. The run index sits above the trace list with the counts that
+// make a run legible without opening it — traces spent, decisions written, how
+// many are already reversed — and picking two gives the diff that matters:
+// not two blobs of text, but the header fields that could explain a behaviour
+// change (model, prompt version, status, cost) and the TARGETS the two runs
+// decided differently. That last list is what "the new model files things
+// elsewhere" looks like in the ledger.
+//
+// Quarantine is not undo, and the pane says so. Quarantine marks a run's
+// output as not-to-be-trusted — instant, reversible, recorded as a decision
+// row — and leaves the data where it is. Undo reverses. A quarantined run
+// stays in the list and in the cost rollup: hiding it would hide real spend.
 //
 // Undo run, honestly:
 //   The 13.4.1 build rendered a bare "undo run" link next to every trace with
@@ -25,12 +40,17 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   fetchQuarantine,
+  fetchRunDiff,
   fetchRunUndoPreview,
+  fetchRuns,
   fetchTraceFull,
   fetchTraces,
+  quarantineRun,
   undoRun,
   type FullTraceRecord,
   type QuarantineRow,
+  type RunDiff,
+  type RunIndex,
   type RunUndoPreview,
   type TraceIndexRow,
   type TracePassCost,
@@ -64,6 +84,10 @@ export function RunsPanel(): JSX.Element {
   const [note, setNote] = useState<string | null>(null);
   const [confirmUndo, setConfirmUndo] = useState<RunUndoPreview | null>(null);
   const [undoing, setUndoing] = useState(false);
+  // ---- the RUN level (V6 P1 S5.6) ----
+  const [runs, setRuns] = useState<RunIndex | null>(null);
+  const [pickedRuns, setPickedRuns] = useState<string[]>([]);
+  const [runDiffView, setRunDiffView] = useState<RunDiff | null>(null);
 
   const refresh = useCallback(async () => {
     const r = await fetchTraces({
@@ -73,6 +97,11 @@ export function RunsPanel(): JSX.Element {
     });
     setRows(r.traces);
     setCosts(r.costs);
+    try {
+      setRuns(await fetchRuns({ pass: pass || undefined, day: day || undefined, limit: 50 }));
+    } catch {
+      setRuns(null);
+    }
     try {
       setQuarantine((await fetchQuarantine()).items);
     } catch {
@@ -90,6 +119,29 @@ export function RunsPanel(): JSX.Element {
     if (picked.length !== 2) return;
     const [a, b] = await Promise.all(picked.map((id) => fetchTraceFull(id)));
     setDiff([a!.trace, b!.trace]);
+  };
+
+  const pickRun = (id: string): void => {
+    setPickedRuns((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.slice(-1), id]));
+  };
+  const openRunDiff = async (): Promise<void> => {
+    if (pickedRuns.length !== 2) return;
+    setNote(null);
+    try {
+      setRunDiffView(await fetchRunDiff(pickedRuns[0]!, pickedRuns[1]!));
+    } catch {
+      setNote("couldn't read that diff — nothing was changed");
+    }
+  };
+  /** Reversible, instant, recorded. NOT an undo: the data stays where it is. */
+  const toggleQuarantine = async (runId: string, on: boolean): Promise<void> => {
+    setNote(null);
+    try {
+      await quarantineRun(runId, on);
+      await refresh();
+    } catch {
+      setNote(`couldn't ${on ? "quarantine" : "release"} run ${runId}`);
+    }
   };
 
   /** Step 1 of undo: READ. Nothing is changed until the confirm is accepted. */
@@ -137,6 +189,118 @@ export function RunsPanel(): JSX.Element {
           {costs.map((c) => `${c.pass} $${c.cost_usd.toFixed(2)} (${c.calls})`).join(" · ")}
         </p>
       )}
+
+      <h3>Runs</h3>
+      <p className="meta">
+        A run is the unit undo reverses. Pick two to diff them. Quarantine marks a run&apos;s
+        output as not to be trusted — reversible, and not the same as undoing it.
+      </p>
+      <div style={rowStyle}>
+        <span className="meta">{runs ? `${runs.total} run(s)` : "run index unavailable"}</span>
+        <button className="btn" disabled={pickedRuns.length !== 2} onClick={() => void openRunDiff()}>
+          diff runs
+        </button>
+      </div>
+      {runs && runs.runs.length === 0 && <p className="empty">no runs match</p>}
+      {runs?.runs.map((r) => (
+        <div key={r.id} style={rowStyle}>
+          <span>
+            <input
+              type="checkbox"
+              aria-label={`select run ${r.id}`}
+              checked={pickedRuns.includes(r.id)}
+              onChange={() => pickRun(r.id)}
+            />{" "}
+            {r.pass ?? "?"} · {r.model ?? "default"} · {r.started_at?.slice(0, 16) ?? "—"}
+            {r.quarantine?.quarantined && <span className="meta"> · quarantined</span>}
+          </span>
+          <span className="meta">
+            {r.traces} call(s) · {r.decisions} decision(s)
+            {r.reversed > 0 ? `, ${r.reversed} reverted` : ""} · ${r.cost_usd.toFixed(4)}{" "}
+            <button
+              className="linklike"
+              aria-label={`${r.quarantine?.quarantined ? "release" : "quarantine"} run ${r.id}`}
+              onClick={() => void toggleQuarantine(r.id, !r.quarantine?.quarantined)}
+            >
+              {r.quarantine?.quarantined ? "release" : "quarantine"}
+            </button>{" "}
+            <button
+              className="linklike"
+              aria-label={`undo run ${r.id}`}
+              title="Reverse every change this run made to your spaces, episodes and tasks. You'll see the full list before anything happens."
+              onClick={() => void askUndo(r.id)}
+            >
+              undo run…
+            </button>
+          </span>
+        </div>
+      ))}
+
+      {runDiffView && (
+        <div className="trace-box">
+          <div style={rowStyle}>
+            <strong>
+              run diff: {runDiffView.a.id} vs {runDiffView.b.id}
+            </strong>
+            <button className="btn" onClick={() => setRunDiffView(null)}>
+              close
+            </button>
+          </div>
+          {runDiffView.fields
+            .filter((f) => !f.same)
+            .map((f) => (
+              <div key={f.field} style={rowStyle}>
+                <span>{f.field}</span>
+                <span className="meta">
+                  {String(f.a ?? "—")} → {String(f.b ?? "—")}
+                </span>
+              </div>
+            ))}
+          {runDiffView.fields.every((f) => f.same) && (
+            <p className="meta">every header field is identical</p>
+          )}
+          <h4>what they decided differently</h4>
+          {runDiffView.decisions.changed.length === 0 &&
+          runDiffView.decisions.only_a.length === 0 &&
+          runDiffView.decisions.only_b.length === 0 ? (
+            <p className="meta">
+              same {runDiffView.decisions.same} target(s), same action on each — nothing decided
+              differently
+            </p>
+          ) : (
+            <>
+              {runDiffView.decisions.changed.map((t) => (
+                <div key={`c-${t.target_kind}-${t.target_id}`} style={rowStyle}>
+                  <span>
+                    {t.target_kind} {t.target_id}
+                  </span>
+                  <span className="meta">
+                    {t.a_action} → {t.b_action}
+                  </span>
+                </div>
+              ))}
+              {runDiffView.decisions.only_a.map((t) => (
+                <div key={`a-${t.target_kind}-${t.target_id}`} style={rowStyle}>
+                  <span>
+                    {t.target_kind} {t.target_id}
+                  </span>
+                  <span className="meta">only A · {t.a_action}</span>
+                </div>
+              ))}
+              {runDiffView.decisions.only_b.map((t) => (
+                <div key={`b-${t.target_kind}-${t.target_id}`} style={rowStyle}>
+                  <span>
+                    {t.target_kind} {t.target_id}
+                  </span>
+                  <span className="meta">only B · {t.b_action}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      <h3>Traces</h3>
 
       {rows.length === 0 ? (
         <p className="empty">no runs match</p>

@@ -20,6 +20,7 @@
 import { runMigrations } from "./db/index.js";
 import { startServer, type ServerHandle } from "./server/index.js";
 import { register } from "./providers/index.js";
+import { installCliGoldenRunnerIfAvailable, resetStaleGoldenRun } from "./settings/golden-gate.js";
 import { claudeLocalProvider } from "./providers/claude-local/index.js";
 import { registerSource } from "./adapters/registry.js";
 import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
@@ -73,6 +74,14 @@ async function main(): Promise<void> {
 
   runMigrations();
   register(claudeLocalProvider);
+
+  // ---- Golden gate (V6 P1 S5.6, SET-02): a model or reasoning change runs
+  // its golden categories first, when the eval harness is on disk beside the
+  // worker. A packaged app has no harness — the line says so and changes
+  // apply recorded as "skipped". Only boot installs the runner: tests never
+  // see it, so no unit test can reach the `claude` CLI through this seam.
+  resetStaleGoldenRun();
+  console.error(`[worker] ${installCliGoldenRunnerIfAvailable({ log: (line) => console.error(line) })}`);
 
   // ---- Spend heartbeat (S0.8, T0-13; SPD-06): `[spend] 60s: …` once a
   // minute in this log, counted at the single spawn site's completion.

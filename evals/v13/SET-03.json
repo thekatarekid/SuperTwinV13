@@ -1,0 +1,36 @@
+{
+  "id": "SET-03",
+  "category": "SET",
+  "title": "freshness preset changes the cold window live",
+  "pass": "settings",
+  "mode": "code",
+  "setup": {
+    "note": "A mature world (20 spaces, consent 30 days old — not bootstrapping) on the Balanced default. The dispatcher is already running; Settings › Assist changes the preset without a restart.",
+    "presets": ["balanced", "live", "relaxed"]
+  },
+  "input_events": [
+    "tick on Balanced",
+    "Settings › Assist sets freshness = live; tick",
+    "Settings › Assist sets freshness = relaxed; tick",
+    "an unknown preset is refused; tick"
+  ],
+  "expected": {
+    "windows": [
+      { "preset": "balanced", "idle_s": 300, "max_s": 540 },
+      { "preset": "live", "idle_s": 120, "max_s": 180 },
+      { "preset": "relaxed", "idle_s": 420, "max_s": 600 }
+    ],
+    "after_refused": { "preset": "relaxed", "idle_s": 420, "max_s": 600 },
+    "restart_needed": false
+  },
+  "wrong": [
+    { "label": "restart-needed", "assert_absent": "the running dispatcher kept the old window after the preset changed" },
+    { "label": "max-over-600", "assert_absent": "a max window above 600 s" },
+    { "label": "garbage-accepted", "assert_absent": "an unknown preset persisted" }
+  ],
+  "gates": ["content_gated_call"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 SET-03 · freshness preset changes the cold window live"
+  }
+}

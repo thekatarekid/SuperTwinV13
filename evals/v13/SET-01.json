@@ -1,0 +1,33 @@
+{
+  "id": "SET-01",
+  "category": "SET",
+  "title": "a step turned off queues, never drops",
+  "pass": "settings",
+  "mode": "code",
+  "setup": {
+    "note": "A mature world (20 spaces, consent 30 days old) so the live lane runs on the preset window. Settings › Intelligence switches the Orient step OFF (app_state process_enabled_orient = \"0\"). Three live messages arrive on one WhatsApp stream and the cold window comes due.",
+    "step": "orient",
+    "events": 3
+  },
+  "input_events": [
+    "Rohan: villa advance by 5pm (live, WhatsApp)",
+    "Rohan: sending the upi id now (live, WhatsApp)",
+    "Rohan: done (live, WhatsApp)",
+    "the cold window comes due while Orient is off; ticks continue for two hold periods",
+    "Orient is switched back ON and the dispatcher ticks once more"
+  ],
+  "expected": {
+    "while_off": { "sink_calls": 0, "undispatched": 3, "dead_letters": 0, "attempt_rows": 0, "held_for_step": ">= 1" },
+    "after_on": { "sink_calls": 1, "events_in_bundle": 3, "undispatched": 0 }
+  },
+  "wrong": [
+    { "label": "dropped", "assert_absent": "an event stamped dispatched, dead-lettered, or given an attempt row while its step was off" },
+    { "label": "called-while-off", "assert_absent": "a sink (model) call made while the step was off" },
+    { "label": "lost-on-resume", "assert_absent": "fewer events reaching the sink after the step is switched back on than were queued" }
+  ],
+  "gates": ["pass_liveness"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 SET-01 · a step turned off queues, never drops"
+  }
+}

@@ -39,6 +39,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
+import { stepOverride } from "../settings/overrides.js";
 import { reasoningForPass } from "./reasoning.js";
 import {
   addUsage as meterQuotaUsage,
@@ -81,12 +82,19 @@ export const DEFAULT_PASS_MODEL = "haiku";
  * Settings; upgrading is eval-gated — never silently applied here.)
  */
 export function modelForPass(pass: string): string {
+  // A candidate under the golden gate (settings/overrides.ts, SET-02) wins
+  // over app_state; unset in every production boot and every unit test.
+  const override = stepOverride(pass)?.model;
+  if (override) return override;
   try {
-    const row = getDb()
-      .prepare(`SELECT value FROM app_state WHERE key = ?`)
-      .get(`selected_model_${pass}`) as { value: string } | undefined;
-    if (row && typeof row.value === "string" && row.value.trim() !== "") {
-      return row.value.trim();
+    const stmt = getDb().prepare(`SELECT value FROM app_state WHERE key = ?`);
+    // Settings keys its steps on the pass STEM (`orient`); a runner spending
+    // under a versioned id (`orient.v7`) still honours that choice.
+    for (const key of [pass, pass.split(".")[0]!]) {
+      const row = stmt.get(`selected_model_${key}`) as { value: string } | undefined;
+      if (row && typeof row.value === "string" && row.value.trim() !== "") {
+        return row.value.trim();
+      }
     }
   } catch {
     // No DB in a pure unit test — the default answers.

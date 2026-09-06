@@ -970,6 +970,10 @@ export interface IntelligenceStepRow {
   thinking?: string;
   /** What the SELECTED model offers. Empty = it has no reasoning dial. */
   thinking_levels?: string[];
+  /** Golden categories a change to this step re-runs; null = the whole set (S5.6). */
+  eval_categories?: string[] | null;
+  /** A candidate for THIS step waiting on the golden set right now. */
+  pending?: { model?: string; thinking?: string } | null;
 }
 
 /** One model the local `claude` can actually reach (worker discovery). */
@@ -1002,7 +1006,28 @@ export interface IntelligenceSettings {
   };
   models?: ModelOptionRow[];
   eval_gated: boolean;
+  /** SET-02 — whether a change RUNS the golden set here, and the last / current run. */
+  golden?: { runner_installed: boolean; runner_note: string | null; state: GoldenState };
   steps: IntelligenceStepRow[];
+}
+
+/**
+ * The golden gate (worker settings/golden-gate.ts). A model or reasoning
+ * change is PROPOSED; the set runs; only a green compare applies it.
+ * "skipped" is the honest answer in a packaged build with no eval harness.
+ */
+export interface GoldenState {
+  status: "idle" | "running" | "passed" | "blocked" | "error" | "skipped";
+  started_at: string | null;
+  finished_at: string | null;
+  categories: string[] | null;
+  step: string | null;
+  candidate: { model?: string; thinking?: string } | null;
+  applied: boolean;
+  regressed: string[];
+  summary: string | null;
+  error: string | null;
+  reason: string | null;
 }
 
 export const fetchSettingsIntelligence = (): Promise<IntelligenceSettings> =>
@@ -1012,8 +1037,25 @@ export const saveIntelligenceStep = (patch: {
   model?: string;
   thinking?: string;
   enabled?: boolean;
-}): Promise<{ step: string; ok: boolean }> =>
+}): Promise<{ step: string; ok: boolean; gate: { status: string; state: GoldenState } | null }> =>
   request("/api/settings/intelligence", post(patch));
+
+export const fetchGoldenState = (): Promise<{
+  runner_installed: boolean;
+  runner_note: string | null;
+  state: GoldenState;
+}> => request("/api/settings/golden");
+
+/**
+ * The manual golden run. It SPENDS — the worker refuses with 409 when no eval
+ * harness is installed beside it, which is what keeps a packaged app (and any
+ * test build) from ever reaching the model through this button.
+ */
+export const runGoldenSet = (body: {
+  categories?: string[];
+  wait?: boolean;
+}): Promise<{ started: boolean; state: GoldenState }> =>
+  request("/api/settings/golden/run", post(body));
 
 // ---- Model files on disk: embeddings + whisper -----------------------------
 //
@@ -1131,19 +1173,136 @@ export const saveSettingsMedia = (
   patch: Partial<MediaSettings>,
 ): Promise<MediaSettings> => request("/api/settings/media", post(patch));
 
+export interface BehavioralRule {
+  id: string;
+  text: string;
+  source: string;
+  created_at: string;
+}
+
+export interface FreshnessWindow {
+  idle_s: number;
+  max_s: number;
+}
+
 export interface AssistSettings {
   enabled: boolean;
   thresholds: Record<string, number>;
   cooldown_min: number;
   quiet_hours: { start: string; end: string };
   suppressed_contexts: { topic_key: string; suppressed_until: string }[];
+  // ---- the P1 §25 Assist fields (S5.6) ----
+  /** Freshness = the cold window. The dispatcher re-reads it on its next tick. */
+  freshness?: string;
+  freshness_window?: FreshnessWindow;
+  freshness_presets?: Record<string, FreshnessWindow>;
+  burst?: { k: number; window_s: number };
+  card_duration_s?: number;
+  merge_window_s?: number;
+  intent_floor?: number;
+  /** Kinds "don't do this again" switched off — reversible. */
+  blocked_kinds?: string[];
+  behavioral_rules?: BehavioralRule[];
+  /** Fields the worker would not accept, named one by one. */
+  refused?: string[];
+}
+
+/** What a POST may carry. Everything is optional; the rest keeps its value. */
+export interface AssistPatch {
+  enabled?: boolean;
+  thresholds?: Record<string, number>;
+  cooldown_min?: number;
+  quiet_hours?: { start: string; end: string };
+  clear_suppressed?: boolean;
+  freshness?: string;
+  burst?: { k?: number; window_s?: number };
+  card_duration_s?: number;
+  merge_window_s?: number;
+  intent_floor?: number;
+  blocked_kinds?: string[];
+  add_rule?: string;
+  remove_rule?: string;
 }
 
 export const fetchSettingsAssist = (): Promise<AssistSettings> =>
   request("/api/settings/assist");
-export const saveSettingsAssist = (
-  patch: Partial<AssistSettings> & { clear_suppressed?: boolean },
-): Promise<AssistSettings> => request("/api/settings/assist", post(patch));
+export const saveSettingsAssist = (patch: AssistPatch): Promise<AssistSettings> =>
+  request("/api/settings/assist", post(patch));
+
+// ---- Retrieval (P1 §25; the T2 rows are stored and served, hidden here) ----
+
+export interface RetrievalSettings {
+  agentic: boolean;
+  t2: { hidden: boolean; hop_budget: number; time_budget_s: number };
+  scan_row_limit: number;
+  graph: { hops: number; fanout: number; default_hops: number; default_fanout: number };
+  hubs: { entity_id: string; reason: string; degree: number | null; added_by: string | null }[];
+  refused?: string[];
+}
+
+export interface RetrievalPatch {
+  agentic?: boolean;
+  scan_row_limit?: number;
+  graph?: { hops?: number; fanout?: number };
+  add_hub?: string;
+  remove_hub?: string;
+}
+
+export const fetchSettingsRetrieval = (): Promise<RetrievalSettings> =>
+  request("/api/settings/retrieval");
+export const saveSettingsRetrieval = (patch: RetrievalPatch): Promise<RetrievalSettings> =>
+  request("/api/settings/retrieval", post(patch));
+
+// ---- AI Connector (P1 §25) -------------------------------------------------
+
+export interface ConnectorDoor {
+  door: string;
+  label: string;
+  status: "live" | "p3" | "local-only";
+  detail: string | null;
+  connected: boolean;
+}
+
+export interface ConnectorSettings {
+  doors: ConnectorDoor[];
+  fallback_order: string[];
+  ceilings: {
+    usd_per_call: number;
+    usd_per_hour: number;
+    usd_per_day: number;
+    calls_per_hour: number;
+    calls_per_day: number;
+  };
+  stop_all: boolean;
+  refused?: string[];
+}
+
+export const fetchSettingsConnector = (): Promise<ConnectorSettings> =>
+  request("/api/settings/connector");
+export const saveSettingsConnector = (patch: {
+  fallback_order?: string[];
+}): Promise<ConnectorSettings> => request("/api/settings/connector", post(patch));
+
+// ---- Calendar (P1 §25) -----------------------------------------------------
+//
+// Served by the worker's calendar lane (calendar/lead-time.ts), keyed by
+// circle: plan means a space opens at T minus the lead time; wish means the
+// date just shows on the people layer.
+
+export interface CirclePolicy {
+  mode: "plan" | "wish";
+  leadDays: number;
+}
+
+export interface CalendarSettings {
+  circles: Record<string, CirclePolicy>;
+}
+
+export const fetchSettingsCalendar = (): Promise<CalendarSettings> =>
+  request("/api/settings/calendar");
+export const saveSettingsCalendar = (
+  circles: Record<string, Partial<CirclePolicy>>,
+): Promise<CalendarSettings> => request("/api/settings/calendar", post({ circles }));
 
 export interface GraduationSettings {
   mode: "propose" | "auto";
@@ -1275,6 +1434,121 @@ export const fetchRunUndoPreview = (runId: string): Promise<RunUndoPreview> =>
 /** DESTRUCTIVE: reverse-replays the run. Always show the preview first. */
 export const undoRun = (runId: string): Promise<RunUndoResult> =>
   request(`/api/ops/runs/${encodeURIComponent(runId)}/undo`, post());
+
+// ---- Runs: the run-level index, diff and quarantine (V6 P1 S5.6) -----------
+//
+// A trace is one model call; a RUN is the unit undo reverses and the unit
+// §25 asks the pane to diff. Quarantined runs stay in the list and in the
+// cost rollup — hiding one would hide real spend — and carry a flag.
+
+export interface RunQuarantine {
+  quarantined: boolean;
+  at: string;
+  reason: string | null;
+}
+
+export interface RunRow {
+  id: string;
+  kind: string | null;
+  role: string | null;
+  pass: string | null;
+  origin: string | null;
+  model: string | null;
+  status: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  cost_usd: number;
+  input_tokens: number;
+  cache_read: number;
+  output_tokens: number;
+  error_code: string | null;
+  traces: number;
+  decisions: number;
+  reversed: number;
+  quarantine: RunQuarantine | null;
+}
+
+export interface RunIndex {
+  runs: RunRow[];
+  costs: { pass: string; runs: number; cost_usd: number }[];
+  total: number;
+}
+
+export interface RunDetail {
+  run: RunRow;
+  traces: {
+    id: string;
+    pass: string | null;
+    caller: string | null;
+    model: string | null;
+    prompt_version: string | null;
+    cost_usd: number | null;
+    latency_ms: number | null;
+    status: string | null;
+    day: string | null;
+    created_at: string | null;
+  }[];
+  decisions: {
+    id: string;
+    pass: string | null;
+    target_kind: string;
+    target_id: string;
+    action: string;
+    reason: string | null;
+    created_at: string;
+    reversed_at: string | null;
+  }[];
+  undo: RunUndoPreview;
+}
+
+export interface RunDiffTarget {
+  target_kind: string;
+  target_id: string;
+  a_action: string | null;
+  b_action: string | null;
+}
+
+export interface RunDiff {
+  a: RunRow;
+  b: RunRow;
+  fields: { field: string; a: string | number | null; b: string | number | null; same: boolean }[];
+  prompt_versions: { a: string[]; b: string[] };
+  decisions: {
+    only_a: RunDiffTarget[];
+    only_b: RunDiffTarget[];
+    changed: RunDiffTarget[];
+    same: number;
+  };
+}
+
+export const fetchRuns = (q: {
+  pass?: string;
+  day?: string;
+  quarantined?: boolean;
+  limit?: number;
+} = {}): Promise<RunIndex> => {
+  const p = new URLSearchParams();
+  if (q.pass) p.set("pass", q.pass);
+  if (q.day) p.set("day", q.day);
+  if (q.quarantined !== undefined) p.set("quarantined", q.quarantined ? "1" : "0");
+  if (q.limit) p.set("limit", String(q.limit));
+  const qs = p.toString();
+  return request(`/api/runs${qs ? `?${qs}` : ""}`);
+};
+
+export const fetchRun = (runId: string): Promise<RunDetail> =>
+  request(`/api/runs/${encodeURIComponent(runId)}`);
+
+export const fetchRunDiff = (a: string, b: string): Promise<RunDiff> =>
+  request(`/api/runs/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+
+/** Mark a run's output not-to-be-trusted, or release it. Reversible; not an undo. */
+export const quarantineRun = (
+  runId: string,
+  quarantined: boolean,
+  reason?: string,
+): Promise<{ run_id: string; quarantine: RunQuarantine }> =>
+  request(`/api/runs/${encodeURIComponent(runId)}/quarantine`, post({ quarantined, reason }));
 
 // ---- Ops: lanes, spend, the kill switch (build item 4.4; V6 P1 S0.8) --------
 

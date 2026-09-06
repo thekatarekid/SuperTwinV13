@@ -26,6 +26,7 @@ import {
   type ClaudeModelInfo,
 } from "../providers/claude-local/discovery.js";
 import type { ThinkingBudget } from "../providers/types.js";
+import { stepOverride } from "../settings/overrides.js";
 
 /** app_state key holding one step's reasoning level. */
 export function thinkingKeyFor(pass: string): string {
@@ -43,12 +44,18 @@ export function isThinkingLevel(v: unknown): v is ThinkingBudget {
 
 /** The stored level for a step, or "off". Never throws — no DB is "off". */
 export function storedThinkingForPass(pass: string): ThinkingBudget {
+  // A candidate under the golden gate (settings/overrides.ts, SET-02) wins.
+  const override = stepOverride(pass)?.thinking;
+  if (isThinkingLevel(override)) return override;
   try {
-    const row = getDb()
-      .prepare(`SELECT value FROM app_state WHERE key = ?`)
-      .get(thinkingKeyFor(pass)) as { value: string } | undefined;
-    const v = row?.value?.trim();
-    return isThinkingLevel(v) ? v : DEFAULT_STEP_THINKING;
+    const stmt = getDb().prepare(`SELECT value FROM app_state WHERE key = ?`);
+    // Exact pass id first, then its stem — Settings keys steps on the stem.
+    for (const key of [pass, pass.split(".")[0]!]) {
+      const row = stmt.get(thinkingKeyFor(key)) as { value: string } | undefined;
+      const v = row?.value?.trim();
+      if (isThinkingLevel(v)) return v;
+    }
+    return DEFAULT_STEP_THINKING;
   } catch {
     return DEFAULT_STEP_THINKING;
   }

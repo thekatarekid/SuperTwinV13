@@ -2,7 +2,7 @@
 // Settings screen (spec §14.9) — the shell and the panels.
 //
 // Covers the three defects fixed after real use of the 13.4.1 build:
-//   layout        the eight subtabs are ONE centred row above the panel, not a
+//   layout        the subtabs are ONE centred row above the panel, not a
 //                 vertical list inside it; the row does not live in the
 //                 scrolling panel and only the selected panel renders.
 //   graduation    a fresh install PROPOSES (V6 P1 S5.1) and graduates to
@@ -25,13 +25,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The §25 groups P1 ships, in the doc's own order (V6 P1 S5.6 added AI
+// Connector, Retrieval and Calendar). Sharing, Public and Economy stay hidden.
 const SUBTAB_LABELS = [
   "General",
   "Capture & Privacy",
   "Sources",
+  "AI Connector",
   "Intelligence",
+  "Retrieval",
   "Enrichment",
   "Assist",
+  "Calendar",
   "Runs & Traces",
   "Data",
 ];
@@ -207,7 +212,7 @@ function stubSettings(): WorkerStub {
 // ---------------------------------------------------------------------------
 
 describe("Settings subtab row", () => {
-  it("renders the eight full labels as one centred row above the panel", async () => {
+  it("renders every P1 group's full label as one centred row above the panel", async () => {
     stubSettings();
     const { container } = render(<Settings />);
     await screen.findByRole("heading", { name: "General" });

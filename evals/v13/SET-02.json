@@ -1,0 +1,36 @@
+{
+  "id": "SET-02",
+  "category": "SET",
+  "title": "a model change runs the golden set first",
+  "pass": "settings",
+  "mode": "code",
+  "setup": {
+    "note": "Decide runs on haiku. A golden runner is installed (a stub standing in for the eval CLI so the case is deterministic and spends nothing). The user picks sonnet for Decide twice: the first time the runner reports DEC below its frozen rate; the second time the compare is green.",
+    "step": "decide",
+    "from": "haiku",
+    "to": "sonnet",
+    "runs": [
+      { "compare": "red", "regressed": ["DEC"] },
+      { "compare": "green", "regressed": [] }
+    ]
+  },
+  "input_events": [
+    "POST /api/settings/intelligence { step: decide, model: sonnet } — the runner answers COMPARE red (DEC regressed)",
+    "POST /api/settings/intelligence { step: decide, model: sonnet } — the runner answers COMPARE green"
+  ],
+  "expected": {
+    "first": { "runner_called_with": { "categories_include": "DEC", "override_model": "sonnet" }, "applied": false, "selected_after": "haiku", "gate": "blocked", "decision": "blocked" },
+    "second": { "applied": true, "selected_after": "sonnet", "gate": "passed", "decision": "update" },
+    "runner_calls": 2
+  },
+  "wrong": [
+    { "label": "switch-before-eval", "assert_absent": "the selected model changed before the runner returned" },
+    { "label": "regression-shipped", "assert_absent": "a candidate applied after a red compare" },
+    { "label": "silent-block", "assert_absent": "a blocked change with no decision row naming the regressed categories" }
+  ],
+  "gates": ["pass_liveness"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 SET-02 · a model change runs the golden set first — a regression blocks the switch"
+  }
+}

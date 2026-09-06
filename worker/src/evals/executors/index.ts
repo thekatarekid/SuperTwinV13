@@ -35,6 +35,7 @@ import { packExecutor } from "./pck.js";
 import { conExecutor } from "./con.js";
 import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
+import { settingsExecutor } from "./set.js";
 import { liveExecutor } from "./liv.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
@@ -53,6 +54,7 @@ export { gateExecutor } from "./gate.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
 export { criExecutor } from "./cri.js";
 export { conExecutor } from "./con.js";
+export { settingsExecutor } from "./set.js";
 export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
@@ -162,6 +164,10 @@ export async function registerProductExecutors(): Promise<void> {
   // the real brain/extract-pass.ts with recorded extract.v6 outputs. Zero
   // model calls.
   registerExecutor("claims", claimsExecutor);
+  // V6 P1 S5.6: SET settings cases (step off → held, never dropped; a model
+  // change runs the golden set first through a stub runner; the freshness
+  // preset moves the cold window between ticks). Zero model calls.
+  registerExecutor("settings", settingsExecutor);
   // V6 P1 S4.1: LIV live-call cases (the villa sentence, history never nudges,
   // grounding is this flush, section-independent parsing, the intent floor) —
   // recorded live.v1 output through the real tick (pack → live.v1 → critic →

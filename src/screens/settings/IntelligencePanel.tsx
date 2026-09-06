@@ -20,6 +20,19 @@
 //
 // What was already right is kept: the per-step recommendation, the on/off
 // toggle, the observed 7-day cost, and the eval gate on every change.
+//
+// V6 P1 S5.6 makes that last line REAL. "A model change runs the golden set
+// first" used to be a sentence at the bottom of the pane; the change applied
+// the moment you picked it. Now the change is a PROPOSAL: the worker runs the
+// step's golden categories with the candidate in force and applies it only on
+// a green compare. A red one leaves the old model where it was and names the
+// categories that regressed. This pane shows which of the three things is
+// happening — running, applied, blocked — and never claims a run it did not
+// make: a build with no eval harness beside it says "skipped", plainly.
+//
+// The run button spends money, so it exists only where the harness does: the
+// worker answers 409 when nothing is installed, and the button says why
+// instead of failing on click.
 // ===========================================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,8 +44,10 @@ import {
   downloadEmbeddingModel,
   fetchEmbeddingModels,
   fetchSettingsIntelligence,
+  runGoldenSet,
   saveIntelligenceStep,
   type EmbeddingRegistry,
+  type GoldenState,
   type IntelligenceSettings,
   type ModelOptionRow,
 } from "../../lib/api";
@@ -41,6 +56,26 @@ import { rowStyle } from "./shared";
 
 /** How often the encoder list re-reads itself while a fetch is in flight. */
 const PROGRESS_POLL_MS = 1000;
+
+/** One line for each verdict the golden gate can be sitting on. */
+function goldenLine(g: GoldenState): string {
+  const what = g.step ? `${g.step}${g.candidate?.model ? ` → ${g.candidate.model}` : ""}${g.candidate?.thinking ? ` (thinking: ${g.candidate.thinking})` : ""}` : "the shipped configuration";
+  const cats = g.categories ? g.categories.join(", ") : "the whole set";
+  switch (g.status) {
+    case "running":
+      return `running ${cats} on ${what} — the change is NOT in force yet`;
+    case "passed":
+      return g.step ? `${cats} green — ${what} applied` : `${cats} green`;
+    case "blocked":
+      return `blocked: ${g.regressed.join(", ") || "a category"} below baseline — ${what} was NOT applied`;
+    case "error":
+      return `could not run: ${g.error ?? "unknown"} — nothing was applied`;
+    case "skipped":
+      return `not run — ${g.summary ?? "no golden runner in this build"}`;
+    default:
+      return "no golden run yet";
+  }
+}
 
 /** "$1.00 in / $5.00 out per Mtok" — the number that decides a picker choice. */
 function priceOf(m: ModelOptionRow): string {
@@ -74,7 +109,9 @@ export function IntelligencePanel(): JSX.Element {
   const [s, setS] = useState<IntelligenceSettings | null>(null);
   const [embed, setEmbed] = useState<EmbeddingRegistry | null>(null);
   const [embedError, setEmbedError] = useState<string | null>(null);
+  const [goldenNote, setGoldenNote] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const goldenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshEmbed = useCallback(async () => {
     try {
@@ -106,6 +143,17 @@ export function IntelligencePanel(): JSX.Element {
     };
   }, [embed, refreshEmbed]);
 
+  // A golden run is minutes of model work. While one is in flight the pane
+  // re-reads itself, so "running" becomes "applied" or "blocked" on its own
+  // instead of leaving a stale banner the user has to guess about.
+  useEffect(() => {
+    if (s?.golden?.state.status !== "running") return;
+    goldenTimer.current = setTimeout(() => void refresh().catch(() => {}), PROGRESS_POLL_MS);
+    return () => {
+      if (goldenTimer.current) clearTimeout(goldenTimer.current);
+    };
+  }, [s, refresh]);
+
   /** Run one registry action and adopt whatever it answers with, error included. */
   const act = useCallback(
     async (fn: (id: string) => Promise<EmbeddingRegistry>, id: string) => {
@@ -122,6 +170,9 @@ export function IntelligencePanel(): JSX.Element {
   );
 
   if (!s) return <p className="empty">loading…</p>;
+  const golden = s.golden;
+  const gate = golden?.state;
+  const running = gate?.status === "running";
   const groups = [...new Set(s.steps.map((x) => x.group))];
   const models = modelRows(s);
   const byId = new Map(models.map((m) => [m.id, m]));
@@ -140,6 +191,48 @@ export function IntelligencePanel(): JSX.Element {
               ? `curated fallback list — could not read the CLI's catalogue (${discovery.error ?? "unknown"})`
               : "model list served by the worker"}
       </p>
+      <div className="golden-gate" style={{ margin: "8px 0" }}>
+        <div style={rowStyle}>
+          <strong>Golden set</strong>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="meta">
+              {golden?.runner_installed
+                ? (golden.runner_note ?? "installed")
+                : "not installed in this build — changes apply and are recorded as skipped"}
+            </span>
+            <button
+              className="btn"
+              disabled={!golden?.runner_installed || running}
+              title={
+                golden?.runner_installed
+                  ? "Runs the whole golden set against the shipped configuration. This spends model calls."
+                  : "No eval harness beside this worker, so there is nothing to run."
+              }
+              onClick={() => {
+                setGoldenNote(null);
+                void runGoldenSet({})
+                  .then(() => refresh())
+                  .catch((err: unknown) =>
+                    setGoldenNote(err instanceof Error ? err.message : String(err)),
+                  );
+              }}
+            >
+              {running ? "running…" : "Run golden set"}
+            </button>
+          </span>
+        </div>
+        {gate && (
+          <p className="meta" role="status">
+            {goldenLine(gate)}
+          </p>
+        )}
+        {goldenNote && (
+          <p className="meta" role="alert">
+            {goldenNote}
+          </p>
+        )}
+      </div>
+
       {groups.map((g) => (
         <div key={g}>
           <h3>{g}</h3>
@@ -194,6 +287,14 @@ export function IntelligencePanel(): JSX.Element {
                       )}
                     </select>
                     <span className="meta">rec: {x.recommended}</span>
+                    <span className="meta" title="the golden categories a change to this step re-runs">
+                      gates: {(x.eval_categories ?? []).join(", ") || "the whole set"}
+                    </span>
+                    {x.pending && (
+                      <span className="meta" role="status">
+                        waiting on the golden set…
+                      </span>
+                    )}
                     <span className="meta">
                       {x.calls_7d > 0 ? `$${x.cost_7d_usd.toFixed(2)} / 7d` : "—"}
                     </span>
@@ -254,7 +355,11 @@ export function IntelligencePanel(): JSX.Element {
         </p>
       ) : null}
       <p className="meta">swapping re-embeds in the background (§15 T3); the old index serves until the new one is complete</p>
-      <p className="meta">⚠ a model change runs the golden set first; ships only if it doesn't regress (§18)</p>
+      <p className="meta">
+        ⚠ a model or reasoning change is a PROPOSAL: it runs the golden set first — the step&apos;s
+        categories, with the candidate in force — and ships only on a green compare. A regression
+        leaves the old choice exactly where it was and names what regressed (§18).
+      </p>
     </div>
   );
 }

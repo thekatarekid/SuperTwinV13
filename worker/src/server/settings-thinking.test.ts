@@ -180,17 +180,20 @@ describe("the reasoning level round-trips", () => {
   });
 
   it("clears a level the NEW model cannot honour when the model changes", async () => {
-    await post({ step: "critic.v4", model: "sonnet" });
-    await post({ step: "critic.v4", thinking: "xhigh" });
-    expect(storedThinkingForPass("critic.v4")).toBe("xhigh");
+    // Keyed on the pass STEM (V6 P1 S5.6) — and the runner asking under the
+    // versioned id `critic.v5` reads the same stored pair.
+    await post({ step: "critic", model: "sonnet" });
+    await post({ step: "critic", thinking: "xhigh" });
+    expect(storedThinkingForPass("critic")).toBe("xhigh");
+    expect(storedThinkingForPass("critic.v5")).toBe("xhigh");
 
     const s = await intelligence();
     const noDial = s.models.find((m) => m.thinking_levels.length === 0);
     if (!noDial) return; // a catalogue where every model reasons: nothing to clear
-    expect((await post({ step: "critic.v4", model: noDial.id })).status).toBe(200);
+    expect((await post({ step: "critic", model: noDial.id })).status).toBe(200);
     // The stored pair must always be one the runner can send.
-    expect(storedThinkingForPass("critic.v4")).toBe("off");
-    expect(step(await intelligence(), "critic.v4").thinking).toBe("off");
+    expect(storedThinkingForPass("critic")).toBe("off");
+    expect(step(await intelligence(), "critic").thinking).toBe("off");
   });
 });
 

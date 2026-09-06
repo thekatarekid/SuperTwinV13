@@ -146,10 +146,10 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 255 cases (78 from V1 minus SEG/CRI/CON, 177 from V2 incl. the V6P1 authored categories)", () => {
-    expect(TOTAL_CASES).toBe(255);
+  it("the category table totals 258 cases (78 from V1 minus SEG/CRI/CON, 180 from V2 incl. the V6P1 authored categories)", () => {
+    expect(TOTAL_CASES).toBe(258);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(78);
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(177);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(180);
     // V6 P1 S5.3 — the derived calendar, five code cases on the `calendar` pass.
     expect(CATEGORIES.find((c) => c.cat === "CAL")).toMatchObject({ n: 5, pass: "calendar", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "TIER")?.n).toBe(4);
@@ -159,6 +159,8 @@ describe("coverage", () => {
     expect(CATEGORIES.find((c) => c.cat === "CON")?.authored).toBe(true);
     expect(CATEGORIES.find((c) => c.cat === "IDEM")?.n).toBe(1);
     expect(CATEGORIES.find((c) => c.cat === "CROSS")?.pass).toBe("commit");
+    // V6 P1 S5.6 — Settings, three code cases on the `settings` pass.
+    expect(CATEGORIES.find((c) => c.cat === "SET")).toMatchObject({ n: 3, pass: "settings", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "SPC")).toMatchObject({ n: 8, pass: "space", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "LIV")).toMatchObject({ n: 6, pass: "live", authored: true });
     // V6 P1 S5.5 — the grounded bar (ten code cases) and the three new FIX cases.

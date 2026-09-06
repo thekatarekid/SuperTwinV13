@@ -76,15 +76,25 @@ afterEach(() => {
 });
 
 describe("accessibility onboarding banner", () => {
-  it("routes the click to the app opener command with the Accessibility deep link", async () => {
+  it("ASKS macOS, then routes the click to the app opener with the deep link", async () => {
     stubScreenStatus(needPermission());
-    invoke.mockResolvedValue(undefined);
+    const commands: string[] = [];
+    invoke.mockImplementation(async (cmd: string) => {
+      commands.push(cmd);
+      if (cmd === "request_accessibility") return { trusted: false, prompted: true };
+      return undefined;
+    });
     render(<AccessibilityOnboarding />);
 
     const button = await screen.findByText("Open System Settings");
     fireEvent.click(button);
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(commands).toContain("open_external"));
+    // S6d/L4: the ask comes FIRST. Nothing in 13.11.5 ever called
+    // AXIsProcessTrustedWithOptions, so macOS never listed SuperTwin in the
+    // Accessibility pane and this button opened a pane with no row to switch
+    // on — the whole reason screen capture could not be granted.
+    expect(commands).toEqual(["request_accessibility", "open_external"]);
     expect(invoke).toHaveBeenCalledWith("open_external", { url: SETTINGS_URL });
     // The plugin path is only a fallback — a successful command must not use it.
     expect(shellOpen).not.toHaveBeenCalled();

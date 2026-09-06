@@ -8,14 +8,19 @@
 // worker / sidecar is unreachable — onboarding must never nag about a source
 // that is not even installed).
 //
+// S6d/L4: the button ASKS macOS before it opens the pane. Opening it first was
+// the old behaviour, and with nothing having ever called
+// AXIsProcessTrustedWithOptions there was no SuperTwin row in that pane to
+// switch on — a button that led to a dead end every time.
+//
 // "Open System Settings" must never fail silently: openExternal() rejects when
 // the OS could not be reached, and we render the deep link plus the manual
 // click-path inline so the user can still finish the grant by hand.
 // ===========================================================================
 
 import { useEffect, useState } from "react";
-import { fetchScreenStatus, type ScreenStatus } from "../lib/api";
-import { openExternal } from "../lib/tauri";
+import { fetchScreenStatus, requestScreenPermission, type ScreenStatus } from "../lib/api";
+import { openExternal, requestAccessibility } from "../lib/tauri";
 
 const POLL_MS = 5_000;
 
@@ -70,6 +75,18 @@ export function AccessibilityOnboarding(): JSX.Element | null {
   async function handleOpen(): Promise<void> {
     setOpenError(null);
     setCopyState("idle");
+    // ASK FIRST (S6d/L4). Until this call macOS had never been asked, so there
+    // was no SuperTwin row in the Accessibility pane and this button — which
+    // opened that pane — could not lead anywhere. The host app asks when we are
+    // inside it; the worker route is the fallback and lands on the same row.
+    // A failed ask must not stop the deep link: the user may already have the
+    // row and just need to reach it.
+    try {
+      const host = await requestAccessibility();
+      if (!host) await requestScreenPermission();
+    } catch {
+      /* reported by the open failure below if that fails too */
+    }
     try {
       await openExternal(settingsUrl);
     } catch (err) {

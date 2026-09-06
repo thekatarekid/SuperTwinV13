@@ -3006,6 +3006,7 @@ name = "supertwinv13"
 version = "13.11.5"
 dependencies = [
  "core-foundation",
+ "core-foundation-sys",
  "core-graphics 0.24.0",
  "serde",
  "serde_json",

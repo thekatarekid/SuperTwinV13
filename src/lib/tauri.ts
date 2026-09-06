@@ -72,6 +72,53 @@ export async function openExternal(url: string): Promise<void> {
   }
 }
 
+// ---- The Accessibility ASK (V6 P1 S6d / L4) --------------------------------
+
+/** src-tauri/src/accessibility.rs — the ask and the prompt-free read. */
+const REQUEST_ACCESSIBILITY_COMMAND = "request_accessibility";
+const ACCESSIBILITY_STATUS_COMMAND = "accessibility_status";
+
+export interface AccessibilityState {
+  trusted: boolean;
+  /** True when this call put the system dialog up (and created the row). */
+  prompted: boolean;
+}
+
+/**
+ * ASK macOS for the Accessibility permission — the call that makes SuperTwin
+ * appear in System Settings › Privacy & Security › Accessibility.
+ *
+ * This runs in the HOST APP, not the sidecar, so the row carries the app's own
+ * identity, name and icon, and so the same grant covers the app's own event tap
+ * (the double-tap-right-⌘ summon). Returns null outside Tauri, and null when
+ * the running shell predates the command — the caller then falls back to the
+ * worker's POST /api/screen/request-permission, which asks through the
+ * screenwatch sidecar and lands on the very same TCC row.
+ *
+ * `trusted: false` right after asking is normal: macOS creates the row and
+ * shows its dialog asynchronously. Poll afterwards.
+ */
+export async function requestAccessibility(): Promise<AccessibilityState | null> {
+  if (!isTauri()) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<AccessibilityState>(REQUEST_ACCESSIBILITY_COMMAND);
+  } catch {
+    return null;
+  }
+}
+
+/** The prompt-free read of the same right. Null outside Tauri. */
+export async function accessibilityStatus(): Promise<AccessibilityState | null> {
+  if (!isTauri()) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<AccessibilityState>(ACCESSIBILITY_STATUS_COMMAND);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Esc-dismiss (spec §14.1.2): hide the main window. The Rust side owns the
  * summon half (double-tap right-⌘ / ⌘⇧S). No-op outside Tauri.

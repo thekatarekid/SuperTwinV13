@@ -294,5 +294,32 @@ do {
     }
 }
 
+// ---- Permission modes (V6 P1 S6d / L4) -------------------------------------
+// The bug this guards: a normal run must NEVER ask (a prompt on every capture
+// tick would be a nightmare), and `--request-permission` must be recognised —
+// it is the only call that puts the app in the Accessibility list.
+
+do {
+    expectEq(permissionMode(from: []), .capture, "no flags = capture")
+    expectEq(permissionMode(from: ["--mock", "--fixture", "x.json"]), .capture, "mock run never asks")
+    expectEq(permissionMode(from: ["--check-permission"]), .check, "check flag")
+    expectEq(permissionMode(from: ["--request-permission"]), .request, "request flag")
+    // Asking answers the check too, so the stronger intent wins.
+    expectEq(
+        permissionMode(from: ["--check-permission", "--request-permission"]), .request,
+        "request beats check")
+    // Flags are exact: a typo must not silently turn into a prompt.
+    expectEq(permissionMode(from: ["--request-permissions"]), .capture, "unknown flag = capture")
+
+    expectEq(
+        Wire.statusLine(permissionFrame(granted: false, prompted: true)),
+        "{\"granted\":\"false\",\"prompted\":\"true\",\"t\":\"permission\"}",
+        "asked-and-not-yet-granted frame")
+    expectEq(
+        Wire.statusLine(permissionFrame(granted: true, prompted: false)),
+        "{\"granted\":\"true\",\"prompted\":\"false\",\"t\":\"permission\"}",
+        "plain check frame")
+}
+
 print(failures == 0 ? "OK: \(checks) checks passed" : "FAILED: \(failures)/\(checks) checks failed")
 exit(failures == 0 ? 0 : 1)

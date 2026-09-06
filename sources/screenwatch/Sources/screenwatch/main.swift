@@ -9,11 +9,19 @@
 //     pipeline (privacy + dedup) with zero permissions, for CI and the Node
 //     adapter's tests.
 //   - --check-permission: print one frame
-//     {"t":"permission","granted":"true"|"false"} (AXIsProcessTrusted) and
-//     exit 0. Captures nothing, observes nothing. The worker's screen connect
-//     flow (V6 P1 S1.3 / T4-3, T4-8) probes Accessibility with this BEFORE the
-//     user's explicit "Record from now on", so the capturing sidecar is never
-//     spawned just to find out whether it may capture.
+//     {"t":"permission","granted":"true"|"false","prompted":"false"}
+//     (AXIsProcessTrusted) and exit 0. Captures nothing, observes nothing.
+//     The worker's screen connect flow (V6 P1 S1.3 / T4-3, T4-8) probes
+//     Accessibility with this BEFORE the user's explicit "Record from now on",
+//     so the capturing sidecar is never spawned just to find out whether it
+//     may capture.
+//   - --request-permission: the same frame with "prompted":"true", but the
+//     probe goes through AXIsProcessTrustedWithOptions(kAXTrustedCheckOptionPrompt)
+//     — the ONE call that makes macOS list the app in System Settings ›
+//     Privacy & Security › Accessibility. Without it there is no row to tick
+//     and the permission can never be granted (V6 P1 S6d / L4). Attribution is
+//     the responsible process, which is SuperTwinV13.app — see
+//     ScreenwatchCore/Permission.swift for the measurement. Captures nothing.
 //
 // stdin commands: {"cmd":"pause"} {"cmd":"resume"}
 //                 {"cmd":"pause_app","bundle_id":…} {"cmd":"resume_app",…}
@@ -45,7 +53,8 @@ func emitOutput(_ out: PipelineOutput) {
 // ---- Args ------------------------------------------------------------------
 
 var mockMode = ProcessInfo.processInfo.environment["SUPERTWIN_SCREENWATCH_MOCK"] == "1"
-var checkPermissionOnly = false
+/// `.check` reports, `.request` asks (and so registers the app in the list).
+let permission = permissionMode(from: Array(CommandLine.arguments.dropFirst()))
 var fixturePath: String? = nil
 var heartbeatS: Double = 60
 var idleS: Double = 120
@@ -56,7 +65,8 @@ while !args.isEmpty {
     let a = args.removeFirst()
     switch a {
     case "--mock": mockMode = true
-    case "--check-permission": checkPermissionOnly = true
+    // Both permission flags are consumed by `permissionMode(from:)` above.
+    case checkPermissionFlag, requestPermissionFlag: break
     case "--fixture": fixturePath = args.isEmpty ? nil : args.removeFirst()
     case "--heartbeat-s": heartbeatS = Double(args.isEmpty ? "" : args.removeFirst()) ?? 60
     case "--idle-s": idleS = Double(args.isEmpty ? "" : args.removeFirst()) ?? 120
@@ -68,11 +78,24 @@ while !args.isEmpty {
 
 // ---- Permission probe (no capture, no run loop) ----------------------------
 
-if checkPermissionOnly {
-    // AXIsProcessTrusted() without the prompt option: report, never ask. The
-    // deep link to System Settings is the UI's job (screen-routes.ts).
-    let granted = AXIsProcessTrusted()
-    emit(Wire.statusLine(["t": "permission", "granted": granted ? "true" : "false"]))
+if permission != .capture {
+    let asking = permission == .request
+    let granted: Bool
+    if asking {
+        // THE call that registers the app in System Settings › Privacy &
+        // Security › Accessibility. It returns immediately with the CURRENT
+        // trust state (false on a first ask); macOS puts up its own dialog and
+        // creates the row asynchronously. The caller polls --check-permission
+        // afterwards, so "false" here is "asked, not granted yet", never
+        // "cannot be granted".
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        granted = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    } else {
+        // Report, never ask. The deep link to System Settings is the UI's job
+        // (screen-routes.ts).
+        granted = AXIsProcessTrusted()
+    }
+    emit(Wire.statusLine(permissionFrame(granted: granted, prompted: asking)))
     exit(0)
 }
 

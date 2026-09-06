@@ -30,6 +30,10 @@ use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_shell::process::{Command, CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+// S6d/L4 — the Accessibility ASK. AXIsProcessTrustedWithOptions(prompt) is the
+// only call that makes macOS list this app in Privacy & Security ›
+// Accessibility; without it there was no row to tick. See accessibility.rs.
+mod accessibility;
 // P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
 mod hotkey;
 // P2.1 — hand a URL to the OS (the Accessibility System Settings deep link).
@@ -251,6 +255,8 @@ pub fn run() {
         .manage(WorkerProcess::default())
         .invoke_handler(tauri::generate_handler![
             opener::open_external,
+            accessibility::accessibility_status,
+            accessibility::request_accessibility,
             tray::set_tray_state,
             tray::show_nudge,
             tray::hide_nudge,

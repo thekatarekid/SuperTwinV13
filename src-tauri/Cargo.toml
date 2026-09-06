@@ -33,3 +33,6 @@ window-vibrancy = "0.6"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.24"
+# S6d/L4: AXIsProcessTrustedWithOptions + kAXTrustedCheckOptionPrompt are raw
+# ApplicationServices symbols — the CF *types* they take come from here.
+core-foundation-sys = "0.8"

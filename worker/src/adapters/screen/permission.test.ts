@@ -11,7 +11,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ChildLike, SpawnFn } from "./adapter.js";
-import { CHECK_PERMISSION_FLAG, probeAccessibility } from "./permission.js";
+import {
+  CHECK_PERMISSION_FLAG,
+  REQUEST_PERMISSION_FLAG,
+  invalidateAccessibilityProbeCache,
+  probeAccessibility,
+  probeAccessibilityCached,
+  requestAccessibility,
+} from "./permission.js";
 
 class FakeChild extends EventEmitter implements ChildLike {
   stdout = new EventEmitter();
@@ -52,7 +59,7 @@ describe("probeAccessibility", () => {
       const { spawn, child, calls } = harness();
       const p = probeAccessibility({ spawn, binPath: bin });
       child.line({ t: "permission", granted: "true" });
-      expect(await p).toEqual({ granted: true, reason: "granted" });
+      expect(await p).toEqual({ granted: true, reason: "granted", prompted: false });
       expect(calls).toEqual([{ bin, args: [CHECK_PERMISSION_FLAG] }]);
       expect(child.killed).toBe("SIGTERM");
     } finally {
@@ -66,7 +73,7 @@ describe("probeAccessibility", () => {
       const { spawn, child } = harness();
       const p = probeAccessibility({ spawn, binPath: bin });
       child.line({ t: "permission", granted: "false" });
-      expect(await p).toEqual({ granted: false, reason: "denied" });
+      expect(await p).toEqual({ granted: false, reason: "denied", prompted: false });
     } finally {
       cleanup();
     }
@@ -133,6 +140,136 @@ describe("probeAccessibility", () => {
     } finally {
       if (prev === undefined) delete process.env.SUPERTWIN_SCREENWATCH_BIN;
       else process.env.SUPERTWIN_SCREENWATCH_BIN = prev;
+    }
+  });
+});
+
+// ===========================================================================
+// THE ASK (V6 P1 S6d / L4). `--check-permission` reports and registers
+// nothing, which is why SuperTwin never appeared in System Settings › Privacy
+// & Security › Accessibility and the permission could not be granted at all.
+// `requestAccessibility()` runs the flag that calls
+// AXIsProcessTrustedWithOptions(prompt) — these tests pin the contract of that
+// call: the right flag, an honest `prompted`, and no memo standing in for it.
+// ===========================================================================
+
+describe("requestAccessibility — the ask", () => {
+  it("runs --request-permission, not --check-permission", async () => {
+    const { bin, cleanup } = existingBin();
+    try {
+      const { spawn, child, calls } = harness();
+      const p = requestAccessibility({ spawn, binPath: bin });
+      child.line({ t: "permission", granted: "false", prompted: "true" });
+      const r = await p;
+      expect(calls).toEqual([{ bin, args: [REQUEST_PERMISSION_FLAG] }]);
+      // The normal first answer: the row now exists, the user has not
+      // switched it on yet. Not a failure, and not "granted".
+      expect(r).toEqual({ granted: false, reason: "denied", prompted: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("an ask a binary is too old to have made is never reported as prompted", async () => {
+    const { bin, cleanup } = existingBin();
+    try {
+      const { spawn, child } = harness();
+      const p = requestAccessibility({ spawn, binPath: bin });
+      // An old binary that happens to answer the check frame shape without the
+      // prompted field: we cannot claim macOS was asked.
+      child.line({ t: "permission", granted: "false" });
+      expect((await p).prompted).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("an old binary that ignores the flag and starts capturing is killed, not trusted", async () => {
+    const { bin, cleanup } = existingBin();
+    try {
+      const { spawn, child } = harness();
+      const p = requestAccessibility({ spawn, binPath: bin });
+      child.line({ t: "ready", mock: "false" });
+      const r = await p;
+      expect(r.granted).toBe(false);
+      expect(r.reason).toBe("probe-unsupported");
+      expect(String(r.detail)).toContain(REQUEST_PERMISSION_FLAG);
+      expect(child.killed).toBe("SIGTERM");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("probeAccessibilityCached", () => {
+  it("one spawn serves concurrent callers, and the answer is reused inside the ttl", async () => {
+    const { bin, cleanup } = existingBin();
+    invalidateAccessibilityProbeCache();
+    try {
+      const { spawn, child, calls } = harness();
+      const a = probeAccessibilityCached({ spawn, binPath: bin });
+      const b = probeAccessibilityCached({ spawn, binPath: bin });
+      child.line({ t: "permission", granted: "true" });
+      expect((await a).granted).toBe(true);
+      expect((await b).granted).toBe(true);
+      // The panel polls this while the permission card is up; a spawn per poll
+      // is exactly what the memo exists to prevent.
+      const c = await probeAccessibilityCached({ spawn, binPath: bin });
+      expect(c.granted).toBe(true);
+      expect(calls).toHaveLength(1);
+    } finally {
+      invalidateAccessibilityProbeCache();
+      cleanup();
+    }
+  });
+
+  it("ttlMs 0 is a gate: it re-probes rather than trusting the memo", async () => {
+    const { bin, cleanup } = existingBin();
+    invalidateAccessibilityProbeCache();
+    try {
+      const first = harness();
+      const seed = probeAccessibilityCached({ spawn: first.spawn, binPath: bin });
+      first.child.line({ t: "permission", granted: "false" });
+      expect((await seed).granted).toBe(false);
+
+      const second = harness();
+      const fresh = probeAccessibilityCached({ spawn: second.spawn, binPath: bin, ttlMs: 0 });
+      second.child.line({ t: "permission", granted: "true" });
+      expect((await fresh).granted).toBe(true);
+      expect(second.calls).toHaveLength(1);
+
+      // …and the fresh answer replaces the memo, so the next poll agrees.
+      const after = await probeAccessibilityCached({ spawn: second.spawn, binPath: bin });
+      expect(after.granted).toBe(true);
+      expect(second.calls).toHaveLength(1);
+    } finally {
+      invalidateAccessibilityProbeCache();
+      cleanup();
+    }
+  });
+
+  it("the ask drops the memo, so a stale 'denied' cannot survive the grant", async () => {
+    const { bin, cleanup } = existingBin();
+    invalidateAccessibilityProbeCache();
+    try {
+      const seedH = harness();
+      const seed = probeAccessibilityCached({ spawn: seedH.spawn, binPath: bin });
+      seedH.child.line({ t: "permission", granted: "false" });
+      await seed;
+
+      const askH = harness();
+      const ask = requestAccessibility({ spawn: askH.spawn, binPath: bin });
+      askH.child.line({ t: "permission", granted: "true", prompted: "true" });
+      expect((await ask).granted).toBe(true);
+
+      const nextH = harness();
+      const next = probeAccessibilityCached({ spawn: nextH.spawn, binPath: bin });
+      nextH.child.line({ t: "permission", granted: "true" });
+      expect((await next).granted).toBe(true);
+      expect(nextH.calls).toHaveLength(1);
+    } finally {
+      invalidateAccessibilityProbeCache();
+      cleanup();
     }
   });
 });

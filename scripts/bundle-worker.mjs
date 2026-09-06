@@ -492,6 +492,36 @@ function verifyScreenwatch() {
     );
   }
   log("screenwatch mock spin: shutdown -> exit 0 (OK)");
+
+  // S6d/L4: the bundled sidecar must be new enough to ASK for Accessibility.
+  // `--check-permission` never asks, so this is a side-effect-free probe of
+  // the BUILD: only the version that also understands --request-permission
+  // (the AXIsProcessTrustedWithOptions prompt — the call that puts SuperTwin in
+  // the System Settings list) reports the `prompted` field. A stale binary
+  // here is the `probe-unsupported` trap: it ignores the unknown flag and
+  // starts live capture instead of answering.
+  const probe = run(SCREENWATCH_BIN_OUT, ["--check-permission"]);
+  if (probe.status !== 0) {
+    fail(`screenwatch --check-permission did not exit cleanly (status=${probe.status}):\n${probe.out}`);
+  }
+  const frame = probe.out.trim().split("\n").filter(Boolean).pop() ?? "";
+  let parsed;
+  try {
+    parsed = JSON.parse(frame);
+  } catch {
+    fail(`screenwatch --check-permission did not answer with one JSON frame:\n${probe.out}`);
+  }
+  if (parsed.t !== "permission") {
+    fail(`screenwatch ignored --check-permission and answered t=${parsed.t} — stale binary:\n${probe.out}`);
+  }
+  if (parsed.prompted === undefined) {
+    fail(
+      "screenwatch predates --request-permission (no `prompted` field): the bundled sidecar " +
+        "could not ask macOS for Accessibility, so the app would never appear in the " +
+        "Accessibility list. Rebuild sources/screenwatch.",
+    );
+  }
+  log(`screenwatch --check-permission: ${frame} (OK)`);
 }
 
 async function main() {

@@ -505,9 +505,18 @@ describe("Library › Screen", () => {
     });
     render(<Library />);
     await openSubtab("Screen");
-    const card = await screen.findByLabelText("connect Grant screen understanding");
+    // S6d/L4: the card is the three-gate ladder, not a lone deep link. The old
+    // one offered "Open System Settings" and nothing else — and since nothing
+    // had ever asked macOS, that pane had no SuperTwin row to switch on, so the
+    // button was a dead end and capture could never be turned on at all.
+    const card = await screen.findByLabelText("connect Screen");
     expect(card.textContent).toContain("Accessibility");
-    expect(within(card).getByText("Open System Settings")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Grant Accessibility" })).toBeTruthy();
+    // The ladder names all three gates, including the two that had no UI.
+    const rungs = within(card).getByLabelText("steps").textContent ?? "";
+    expect(rungs).toContain("Allow screen capture");
+    expect(rungs).toContain("Grant Accessibility");
+    expect(rungs).toContain("Record from now on");
     expect(screen.queryByLabelText("day strip")).toBeNull();
   });
 

@@ -4,9 +4,20 @@
 //   GET  /api/screen/status      adapter + sidecar state (incl. permission,
 //                                consent, recordFrom)
 //   GET  /api/screen/permission  Accessibility probe — no sidecar spawned
+//   POST /api/screen/request-permission  the ASK (V6 S6d) — see below
 //   POST /api/screen/record      the explicit "Record from now on" (V6 S1.3)
 //   POST /api/screen/pause       {paused}                 kill-switch
 //   POST /api/screen/pause-app   {bundle_id, paused}      per-app privacy pause
+//
+// V6 P1 S6d (L4) — THE ASK. Until now every path here only ever CHECKED, and
+// macOS lists an app in Privacy & Security › Accessibility only once something
+// calls AXIsProcessTrustedWithOptions with the prompt option. So SuperTwin was
+// not in that list at all: the deep link landed the user on a pane with no row
+// to tick, and screen capture could never be granted. POST /request-permission
+// makes that call (via `screenwatch --request-permission`, attributed by TCC to
+// the responsible process — SuperTwinV13.app). /status now always carries
+// `permission`, including when the sidecar is not running, so the panel can
+// poll the real trust state and flip to capturing without a restart.
 //
 // The onboarding surface polls /status for `need_permission` and deep-links
 // the user to System Settings › Privacy & Security › Accessibility; the
@@ -23,7 +34,11 @@
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { getScreenAdapter } from "../adapters/screen/index.js";
-import { probeAccessibility } from "../adapters/screen/permission.js";
+import {
+  probeAccessibility,
+  probeAccessibilityCached,
+  requestAccessibility,
+} from "../adapters/screen/permission.js";
 import {
   armScreenRecording,
   getSourceSupervisor,
@@ -52,6 +67,14 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
  */
 export const ACCESSIBILITY_SETTINGS_URL =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+
+/**
+ * How long /status may reuse a probe answer. Longer than the probe module's
+ * default because /status is polled app-wide on a 5 s timer and a spawn per
+ * poll would be pure waste; the permission card's own 2 s poll hits
+ * /api/screen/permission, which uses the short default.
+ */
+export const STATUS_PROBE_CACHE_MS = 10_000;
 
 /** consents lookup, tolerant of a test DB without the 0200 tables. */
 function safeCaptureAllowed(): boolean {
@@ -86,9 +109,22 @@ export async function handleScreenRoute(
     const consent = safeCaptureAllowed();
     const recordFrom = safeRecordFrom();
     if (!adapter || !running) {
+      // S6d: the not-running branch used to answer with NO `permission` field
+      // at all, so the panel could not tell "permission missing" from "nothing
+      // captured yet" and showed the wrong card — the empty state — for a
+      // source that was in fact blocked. It is the sidecar that is not running;
+      // the probe answers without spawning it, and it is memoised so polling
+      // this route does not fork a process per hit. A longer memo than the
+      // default here on purpose: this route is polled app-wide every 5 s by the
+      // onboarding banner, while the gate's own 2 s poll on /permission is what
+      // makes a tick in System Settings land quickly.
+      const probe = await probeAccessibilityCached({ ttlMs: STATUS_PROBE_CACHE_MS });
       sendJson(res, 200, {
         running: false,
         state: "not_started",
+        permission: probe.granted,
+        permissionReason: probe.reason,
+        ...(probe.detail ? { permissionDetail: probe.detail } : {}),
         consent,
         recordFrom,
         settingsUrl: ACCESSIBILITY_SETTINGS_URL,
@@ -106,9 +142,28 @@ export async function handleScreenRoute(
   }
 
   // ---- The Accessibility probe: answers without spawning the capturing sidecar.
+  // Memoised (PROBE_CACHE_MS) because the panel polls it while the permission
+  // card is up; `?fresh=1` forces a spawn.
   if (path === "/api/screen/permission" && req.method === "GET") {
-    const probe = await probeAccessibility();
+    const fresh = url.searchParams.get("fresh") === "1";
+    const probe = fresh ? await probeAccessibility() : await probeAccessibilityCached();
     sendJson(res, 200, { ...probe, settingsUrl: ACCESSIBILITY_SETTINGS_URL });
+    return true;
+  }
+
+  // ---- THE ASK (S6d/L4). The one call that makes macOS list this app in
+  // System Settings › Privacy & Security › Accessibility. It puts up the
+  // system dialog; `granted:false` with `prompted:true` means "asked, the row
+  // now exists, the user has not ticked it yet" — the caller polls /permission.
+  // POST, not GET: it has a side effect on the user's machine, and it must
+  // never fire from a stray poll or a prefetch.
+  if (path === "/api/screen/request-permission" && req.method === "POST") {
+    const probe = await requestAccessibility();
+    sendJson(res, 200, {
+      ...probe,
+      consent: safeCaptureAllowed(),
+      settingsUrl: ACCESSIBILITY_SETTINGS_URL,
+    });
     return true;
   }
 
@@ -118,7 +173,9 @@ export async function handleScreenRoute(
       sendJson(res, 409, { error: "no-consent", message: "connect the screen source first (no connected consent row)" });
       return true;
     }
-    const probe = await probeAccessibility();
+    // ttlMs 0 — a gate reads the truth, never a memo; the answer refreshes the
+    // memo on its way past, so /status agrees with it on the very next poll.
+    const probe = await probeAccessibilityCached({ ttlMs: 0 });
     if (!probe.granted) {
       sendJson(res, 409, {
         error: "need_permission",

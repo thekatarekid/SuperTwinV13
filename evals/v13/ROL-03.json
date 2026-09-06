@@ -3,20 +3,89 @@
   "category": "ROL",
   "title": "Mentioned receiver vs mentioned third party (set test)",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "Goa gang (audience: self, rohan, tanvi, k1). CRM knows \"Dev\" (not in group).",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya",
+        "aliases": [
+          "aditya"
+        ]
+      },
+      {
+        "id": "rohan",
+        "name": "Rohan Mehta",
+        "aliases": [
+          "rohan"
+        ]
+      },
+      {
+        "id": "tanvi",
+        "name": "Tanvi S",
+        "aliases": [
+          "tanvi"
+        ]
+      },
+      {
+        "id": "k1",
+        "name": "Karan",
+        "aliases": [
+          "karan"
+        ]
+      },
+      {
+        "id": "dev",
+        "name": "Dev"
+      }
+    ],
+    "stream": {
+      "key": "goa-gang@g.us",
+      "label": "Goa gang",
+      "audience": [
+        "self",
+        "rohan",
+        "tanvi",
+        "k1"
+      ],
+      "is_group": true
+    },
+    "note": "Dev is on the CRM roster but NOT in this group's audience."
+  },
   "input_events": [
-    "Rohan: \"tanvi ask dev if his anjuna villa contact is still active\"."
+    {
+      "id": "e1",
+      "ts": "2026-08-26T11:00+05:30",
+      "sender": "rohan",
+      "text": "tanvi ask dev if his anjuna villa contact is still active"
+    }
   ],
-  "expected": "tanvi = receiver (in audience); dev = mentioned third party (code: not in audience); a task for Tanvi (monitoring only for us); Dev's villa contact noted on his CRM record.",
+  "expected": {
+    "roles": {
+      "e1": {
+        "receiver": [
+          "tanvi"
+        ],
+        "rung": "named",
+        "mentioned_receivers": [
+          "tanvi"
+        ],
+        "third_parties": [
+          "dev"
+        ]
+      }
+    },
+    "decided_by": "code set-membership against the structural audience",
+    "model_rungs_used": 0
+  },
   "wrong": [
     {
       "label": "membership-guess",
-      "assert_absent": "model, not code, decides in/out of audience"
+      "assert_absent": "the model, not code, deciding in/out of audience"
     },
     {
       "label": "third-party-task",
-      "assert_absent": "task assigned to Dev in our system as if actionable"
+      "assert_absent": "a task assigned to Dev in our system as if actionable"
     }
   ],
   "gates": [
@@ -25,6 +94,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-03 · Mentioned receiver vs mentioned third party (set test)"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-03 · Mentioned receiver vs mentioned third party (set test)"
   }
 }

@@ -3,12 +3,76 @@
   "category": "ROL",
   "title": "Pronoun chain across speakers",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "Family group; Isha = sister.",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "ma",
+        "name": "Ma",
+        "pronoun": "she"
+      },
+      {
+        "id": "papa",
+        "name": "Papa",
+        "pronoun": "he"
+      },
+      {
+        "id": "isha",
+        "name": "Isha",
+        "pronoun": "she"
+      }
+    ],
+    "stream": {
+      "key": "family@g.us",
+      "label": "Family",
+      "audience": [
+        "self",
+        "ma",
+        "papa",
+        "isha"
+      ],
+      "is_group": true
+    },
+    "note": "Isha = sister."
+  },
   "input_events": [
-    "Ma: \"Isha ka convocation 14th ko hai\" · Papa: \"she also needs the car that morning\" · self: \"I'll drop her\"."
+    {
+      "id": "e1",
+      "ts": "2026-09-01T18:00+05:30",
+      "sender": "ma",
+      "text": "Isha ka convocation 14th ko hai"
+    },
+    {
+      "id": "e2",
+      "ts": "2026-09-01T18:02+05:30",
+      "sender": "papa",
+      "text": "she also needs the car that morning"
+    },
+    {
+      "id": "e3",
+      "ts": "2026-09-01T18:05+05:30",
+      "sender": "self",
+      "text": "I'll drop her"
+    }
   ],
-  "expected": "\"she\"/\"her\" → Isha (conf ≥0.8); task \"drop Isha at convocation, 14th\" owner self; claim on Isha (convocation on the 14th).",
+  "expected": {
+    "pronouns": {
+      "e2": {
+        "subject": "isha",
+        "status": "resolved",
+        "min_confidence": 0.8
+      },
+      "e3": {
+        "subject": "isha",
+        "status": "resolved"
+      }
+    },
+    "claim_subject": "isha"
+  },
   "wrong": [
     {
       "label": "pronoun-drift",
@@ -16,7 +80,7 @@
     },
     {
       "label": "unknown-overuse",
-      "assert_absent": "resolvable pronoun left unknown"
+      "assert_absent": "a resolvable pronoun left unknown"
     }
   ],
   "gates": [
@@ -25,6 +89,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-04 · Pronoun chain across speakers"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-04 · Pronoun chain across speakers"
   }
 }

@@ -151,6 +151,8 @@ describe("0020_v2_core applies", () => {
       // V6 P1 S5.1: how a space was born + the enrichment ledger — ADD COLUMNs
       // on spaces and one new table.
       "0205_v6_spaces",
+      // V6 P1 S5.4: role_resolutions + person_prefs — new tables only.
+      "0206_v6_people",
     ]);
 
     expect(

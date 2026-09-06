@@ -705,6 +705,37 @@ export interface MergeQuestion {
 export const fetchPeople = (): Promise<{ people: PersonRow[]; open_questions: MergeQuestion[] }> =>
   request("/api/people");
 
+// ---- Identity gestures: merge / split by drag, undo always (V6 P1 S5.4) ----
+
+/** One tombstone merged into a person — the chip a split drags back out. */
+export interface AliasChip {
+  id: string;
+  name: string | null;
+}
+
+export interface DragResult {
+  ok: boolean;
+  action: "merge" | "split";
+  summary: string;
+  /** Hand this back to `undoPeopleDrag` — the inverse gesture. */
+  undoId: string | null;
+  winner: string | null;
+  loser: string | null;
+  refused?: string;
+}
+
+export const fetchPersonAliases = (): Promise<{ aliases: Record<string, AliasChip[]> }> =>
+  request("/api/people/aliases");
+
+export const mergePeople = (loser: string, winner: string): Promise<DragResult> =>
+  request("/api/people/merge", post({ loser, winner }));
+
+export const splitPerson = (entityId: string): Promise<DragResult> =>
+  request("/api/people/split", post({ entity_id: entityId }));
+
+export const undoPeopleDrag = (mutationId: string): Promise<{ ok: boolean; summary: string }> =>
+  request("/api/people/undo", post({ mutation_id: mutationId }));
+
 /** One claim version as the worker's claims store serializes it. */
 export interface ClaimVersionView {
   id: string;

@@ -68,6 +68,7 @@ beforeEach(() => {
     claims: [],
     edges: [],
   });
+  stub.routes.set("/api/people/aliases", { aliases: {} });
   stub.routes.set("/api/tone", {
     profile: { register: "short", languageMix: "Hinglish", emojiHabits: "🔥-heavy", notes: null },
   });
@@ -143,6 +144,95 @@ describe("People view (spec §7.3 / §14.4.1)", () => {
         circle: "close_friends",
       });
     });
+  });
+
+  it("dropping a person onto a person merges them, with an undo that reverses the gesture", async () => {
+    stub.routes.set("/api/people/merge", {
+      ok: true,
+      action: "merge",
+      summary: "merged Priya's landlord → Priya",
+      undoId: "mut_1",
+      winner: "ent_priya",
+      loser: "ent_landlord",
+    });
+    stub.routes.set("/api/people/undo", { ok: true, action: "split", summary: "undone — split", undoId: "mut_2" });
+    render(<People />);
+    await waitFor(() => screen.getByLabelText("person Priya"));
+
+    fireEvent.dragStart(screen.getByLabelText("person Priya's landlord"));
+    const target = screen.getByLabelText("person Priya");
+    fireEvent.dragOver(target);
+    expect(target.className).toContain("drop-target");
+    fireEvent.drop(target);
+
+    await waitFor(() => {
+      const post = stub.calls.find((c) => c.path === "/api/people/merge");
+      expect(post).toBeTruthy();
+      expect(post!.body).toEqual({ loser: "ent_landlord", winner: "ent_priya" });
+    });
+    await waitFor(() => screen.getByRole("status"));
+    expect(within(screen.getByRole("status")).getByText(/merged Priya's landlord/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("status")).getByText("undo"));
+    await waitFor(() => {
+      const undo = stub.calls.find((c) => c.path === "/api/people/undo");
+      expect(undo!.body).toEqual({ mutation_id: "mut_1" });
+    });
+  });
+
+  it("a person dropped on itself does nothing", async () => {
+    render(<People />);
+    await waitFor(() => screen.getByLabelText("person Priya"));
+    fireEvent.dragStart(screen.getByLabelText("person Priya"));
+    fireEvent.drop(screen.getByLabelText("person Priya"));
+    expect(stub.calls.filter((c) => c.path === "/api/people/merge")).toHaveLength(0);
+  });
+
+  it("dragging an alias chip into a circle splits the person back apart and files them there", async () => {
+    stub.routes.set("/api/people/aliases", { aliases: { ent_priya: [{ id: "ent_priya_alt", name: "Priya M" }] } });
+    stub.routes.set("/api/people/split", {
+      ok: true,
+      action: "split",
+      summary: "split Priya M out of Priya",
+      undoId: "mut_3",
+      winner: "ent_priya",
+      loser: "ent_priya_alt",
+    });
+    render(<People />);
+    const chip = await screen.findByLabelText("alias Priya M of Priya");
+
+    fireEvent.dragStart(chip);
+    fireEvent.drop(screen.getByLabelText("circle coworkers"));
+
+    await waitFor(() => {
+      const post = stub.calls.find((c) => c.path === "/api/people/split");
+      expect(post!.body).toEqual({ entity_id: "ent_priya_alt" });
+    });
+    // Splitting into a real circle files the freed person there, same pipeline.
+    await waitFor(() => {
+      const correction = stub.calls.find((c) => c.path === "/api/corrections" && c.method === "POST");
+      expect(correction!.body).toEqual({
+        target: { kind: "person", id: "ent_priya_alt" },
+        structured: { type: "set_circle", circle: "coworkers" },
+      });
+    });
+  });
+
+  it("a refused merge surfaces the rule that refused it and changes nothing", async () => {
+    stub.routes.set("/api/people/merge", {
+      ok: false,
+      action: "merge",
+      summary: "Priya's landlord → Priya are recorded as different people — say they are the same first",
+      undoId: null,
+      winner: "ent_priya",
+      loser: "ent_landlord",
+      refused: "negative_pair",
+    });
+    render(<People />);
+    await waitFor(() => screen.getByLabelText("person Priya"));
+    fireEvent.dragStart(screen.getByLabelText("person Priya's landlord"));
+    fireEvent.drop(screen.getByLabelText("person Priya"));
+    await waitFor(() => expect(screen.getByText(/recorded as different people/)).toBeTruthy());
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("provisional person shows the link-a-contact hint", async () => {

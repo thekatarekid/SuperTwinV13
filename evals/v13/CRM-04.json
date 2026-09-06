@@ -1,0 +1,89 @@
+{
+  "id": "CRM-04",
+  "category": "CRM",
+  "title": "Address terms",
+  "pass": "crm",
+  "mode": "code",
+  "setup": {
+    "streams": [
+      {
+        "key": "goa-gang@g.us",
+        "label": "Goa gang"
+      },
+      {
+        "key": "falcon@g.us",
+        "label": "Falcon"
+      },
+      {
+        "key": "home@g.us",
+        "label": "Home"
+      }
+    ],
+    "observations": [
+      {
+        "term": "bro",
+        "stream_key": "goa-gang@g.us",
+        "addressee": "rohan",
+        "times": 4
+      },
+      {
+        "term": "bro",
+        "stream_key": "falcon@g.us",
+        "addressee": "sameer",
+        "times": 3
+      },
+      {
+        "term": "chotu",
+        "stream_key": "home@g.us",
+        "addressee": "vivaan",
+        "times": 5
+      }
+    ]
+  },
+  "input_events": [
+    "classify both terms from the record, then resolve a message that leads with each"
+  ],
+  "expected": {
+    "terms": {
+      "bro": {
+        "class": "generic",
+        "maps_to": null,
+        "distinct_addressees": 2
+      },
+      "chotu": {
+        "class": "discriminating",
+        "maps_to": "vivaan",
+        "distinct_addressees": 1
+      }
+    },
+    "roles": {
+      "generic_message": {
+        "status": "unknown"
+      },
+      "discriminating_message": {
+        "receiver": [
+          "vivaan"
+        ],
+        "rung": "address_term"
+      }
+    }
+  },
+  "wrong": [
+    {
+      "label": "generic-carries-evidence",
+      "assert_absent": "a generic term contributing addressee evidence"
+    },
+    {
+      "label": "nickname-lock",
+      "assert_absent": "a term said to two people mapped to one"
+    }
+  ],
+  "gates": [
+    "role_accuracy",
+    "crm_coverage"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 CRM-04 · Address terms"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "CRM-05",
+  "category": "CRM",
+  "title": "Quiet family outranks chatty acquaintances",
+  "pass": "crm",
+  "mode": "code",
+  "setup": {
+    "groups": [
+      {
+        "id": "family",
+        "label": "Family",
+        "circle": "family",
+        "user_reply_count": 4
+      },
+      {
+        "id": "batchmates",
+        "label": "2016 Batchmates",
+        "circle": "old_batchmates",
+        "user_reply_count": 120
+      }
+    ]
+  },
+  "input_events": [
+    "rank both groups for the same processing tick"
+  ],
+  "expected": {
+    "priority_order": [
+      "family",
+      "batchmates"
+    ],
+    "weights": {
+      "family": 0.9,
+      "old_batchmates": 0.3
+    },
+    "volume_weight_max": 0.1
+  },
+  "wrong": [
+    {
+      "label": "volume-equals-value",
+      "assert_absent": "reply volume lifting batchmates above Family"
+    }
+  ],
+  "gates": [
+    "circle_accuracy",
+    "priority_quality"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 CRM-05 · Quiet family outranks chatty acquaintances"
+  }
+}

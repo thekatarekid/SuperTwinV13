@@ -3,20 +3,88 @@
   "category": "ROL",
   "title": "Provisional person from a kid mention",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "Family group; no \"Vivaan\" anywhere.",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "ma",
+        "name": "Ma",
+        "pronoun": "she"
+      },
+      {
+        "id": "papa",
+        "name": "Papa",
+        "pronoun": "he"
+      },
+      {
+        "id": "isha",
+        "name": "Isha",
+        "pronoun": "she"
+      }
+    ],
+    "stream": {
+      "key": "family@g.us",
+      "label": "Family",
+      "audience": [
+        "self",
+        "ma",
+        "papa",
+        "isha"
+      ],
+      "is_group": true
+    },
+    "note": "No \"Vivaan\" anywhere in the record."
+  },
   "input_events": [
-    "Isha: \"Vivaan ke school ka annual day 5th Sept ko hai, sab aana\" · Ma: \"he's performing!! 🥹\"."
+    {
+      "id": "e1",
+      "ts": "2026-09-01T19:00+05:30",
+      "sender": "isha",
+      "text": "Vivaan ke school ka annual day 5th Sept ko hai, sab aana"
+    },
+    {
+      "id": "e2",
+      "ts": "2026-09-01T19:01+05:30",
+      "sender": "ma",
+      "text": "he's performing!! 🥹"
+    }
   ],
-  "expected": "provisional person Vivaan created (no identifiers; anchors: Isha's mentions, Family group; likely Isha's son — stated with confidence, not certainty); \"he\" → Vivaan; event claim + family task suggestion; person visible in People.",
+  "expected": {
+    "provisional_person": {
+      "name": "Vivaan",
+      "provisional": true,
+      "identifiers": 0,
+      "anchors_contain": [
+        "family@g.us",
+        "isha"
+      ],
+      "relationship_hint": {
+        "relation": "child_of",
+        "of": "isha",
+        "max_confidence": 0.99
+      }
+    },
+    "pronoun": {
+      "e2": {
+        "subject": "provisional:Vivaan",
+        "status": "resolved"
+      }
+    },
+    "visible_in_people": true,
+    "relationship_claims_written": 0
+  },
   "wrong": [
     {
       "label": "mention-drop",
-      "assert_absent": "no entity"
+      "assert_absent": "no entity for a person mentioned by name"
     },
     {
       "label": "relationship-overclaim",
-      "assert_absent": "asserts \"Isha's son\" at conf 1.0"
+      "assert_absent": "\"Isha's son\" asserted at confidence 1.0"
     }
   ],
   "gates": [
@@ -25,6 +93,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-09 · Provisional person from a kid mention"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-09 · Provisional person from a kid mention"
   }
 }

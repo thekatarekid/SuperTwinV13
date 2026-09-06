@@ -3,16 +3,76 @@
   "category": "ROL",
   "title": "Unaddressed group message → receiver = audience",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "Goa gang.",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya",
+        "aliases": [
+          "aditya"
+        ]
+      },
+      {
+        "id": "rohan",
+        "name": "Rohan Mehta",
+        "aliases": [
+          "rohan"
+        ]
+      },
+      {
+        "id": "tanvi",
+        "name": "Tanvi S",
+        "aliases": [
+          "tanvi"
+        ]
+      },
+      {
+        "id": "k1",
+        "name": "Karan",
+        "aliases": [
+          "karan"
+        ]
+      }
+    ],
+    "stream": {
+      "key": "goa-gang@g.us",
+      "label": "Goa gang",
+      "audience": [
+        "self",
+        "rohan",
+        "tanvi",
+        "k1"
+      ],
+      "is_group": true
+    }
+  },
   "input_events": [
-    "Tanvi: \"guys weather forecast says rain 18th, carry jackets\"."
+    {
+      "id": "e1",
+      "ts": "2026-08-26T09:00+05:30",
+      "sender": "tanvi",
+      "text": "guys weather forecast says rain 18th, carry jackets"
+    }
   ],
-  "expected": "receiver = whole audience; a packing note lands for everyone incl. self; no per-person misassignment.",
+  "expected": {
+    "roles": {
+      "e1": {
+        "receiver": [
+          "self",
+          "rohan",
+          "k1"
+        ],
+        "rung": "broadcast",
+        "status": "resolved"
+      }
+    },
+    "note": "a packing note lands for everyone including self; no per-person misassignment"
+  },
   "wrong": [
     {
       "label": "phantom-addressee",
-      "assert_absent": "invents a single receiver"
+      "assert_absent": "a single invented receiver on an unaddressed broadcast"
     }
   ],
   "gates": [
@@ -20,6 +80,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-02 · Unaddressed group message → receiver = audience"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-02 · Unaddressed group message → receiver = audience"
   }
 }

@@ -1,0 +1,58 @@
+{
+  "id": "CRM-01",
+  "category": "CRM",
+  "title": "Follow-up radar",
+  "pass": "crm",
+  "mode": "code",
+  "setup": {
+    "person": {
+      "name": "Sameer",
+      "circle": "coworkers"
+    },
+    "stream": {
+      "key": "sameer@s.whatsapp.net",
+      "label": "Sameer",
+      "is_group": false
+    },
+    "now": "2026-09-06T05:30:00.000Z"
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-01T05:00:00.000Z",
+      "sender": "sameer",
+      "text": "hey, done with the deck?"
+    }
+  ],
+  "expected": {
+    "radar": [
+      {
+        "direction": "i_owe",
+        "person": "Sameer",
+        "circle": "coworkers",
+        "lead_days": 3,
+        "follow_up_on": "2026-09-04",
+        "overdue": true
+      }
+    ],
+    "note": "Sameer asked on Tuesday; the coworker lead time is three days, so the twin starts acting Friday."
+  },
+  "wrong": [
+    {
+      "label": "radar-blind",
+      "assert_absent": "no owed-reply signal for an unanswered direct question"
+    },
+    {
+      "label": "lead-time-ignored",
+      "assert_absent": "acting before the circle's lead time"
+    }
+  ],
+  "gates": [
+    "crm_coverage",
+    "followup_precision"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 CRM-01 · Follow-up radar"
+  }
+}

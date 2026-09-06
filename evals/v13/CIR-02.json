@@ -3,16 +3,41 @@
   "category": "CIR",
   "title": "Important-services circle from sparse signals",
   "pass": "circles",
-  "mode": "live",
-  "setup": "unsaved number; 5 messages over 6 months: \"aunty maid coming at 4\", \"salary 6000 for feb\".",
+  "mode": "code",
+  "setup": {
+    "person": {
+      "name": "Sunita",
+      "contact_saved": false
+    },
+    "stream": {
+      "key": "maid@s.whatsapp.net",
+      "label": "unsaved number",
+      "is_group": false
+    },
+    "messages": [
+      "aunty maid coming at 4",
+      "salary 6000 for feb",
+      "kal nahi aa paungi",
+      "salary 6000 for march",
+      "aa rahi hoon 4 baje"
+    ],
+    "span_days": 180
+  },
   "input_events": [
-    "circle inference."
+    "circle inference over five messages spread across six months"
   ],
-  "expected": "classified important-services (maid), person record with role; payment recurrence candidate detected; NOT acquaintance-junk.",
+  "expected": {
+    "circle": "important_services",
+    "reason_contains": "service role",
+    "recurrence_candidate": {
+      "candidate": true,
+      "cadence": "monthly"
+    }
+  },
   "wrong": [
     {
       "label": "sparse-equals-spam",
-      "assert_absent": "the 'sparse-equals-spam' failure mode"
+      "assert_absent": "a sparse but real service relationship filed as acquaintance junk"
     }
   ],
   "gates": [
@@ -21,6 +46,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "CIR-02 · Important-services circle from sparse signals"
+    "section": "GoldenEvals V6P1 §1.1 (carried) CIR-02 · Important-services circle from sparse signals"
   }
 }

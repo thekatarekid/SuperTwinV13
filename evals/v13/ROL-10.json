@@ -3,16 +3,75 @@
   "category": "ROL",
   "title": "Retroactive receiver confirmation",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "yesterday's decision: \"book the court\" receiver inferred = Karan at 0.65 (second-look queued).",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "k1",
+        "name": "Karan"
+      },
+      {
+        "id": "rohan",
+        "name": "Rohan"
+      }
+    ],
+    "stream": {
+      "key": "badminton@g.us",
+      "label": "Badminton",
+      "audience": [
+        "self",
+        "k1",
+        "rohan"
+      ],
+      "is_group": true
+    },
+    "prior_resolution": {
+      "event_id": "e_court",
+      "receiver": [
+        "k1"
+      ],
+      "rung": "context",
+      "confidence": 0.65,
+      "basis": "context: Karan books the courts",
+      "subject_keywords": [
+        "court"
+      ]
+    }
+  },
   "input_events": [
-    "today, Karan: \"court booked for sat 7am ✅\"."
+    {
+      "id": "e_done",
+      "ts": "2026-09-03T08:00+05:30",
+      "sender": "k1",
+      "text": "court booked for sat 7am ✅"
+    }
   ],
-  "expected": "the earlier receiver decision is confirmed/upgraded (revision recorded, evidence appended); the booking task closes with two-sided evidence.",
+  "expected": {
+    "revision": {
+      "history_length": 2,
+      "old": {
+        "confidence": 0.65,
+        "status": "revised"
+      },
+      "new": {
+        "min_confidence": 0.9,
+        "revised_from": "the 0.65 row",
+        "evidence_count": 2
+      }
+    },
+    "closure": {
+      "closes": true,
+      "why": "two-sided evidence — the inferred receiver reports the item done"
+    }
+  },
   "wrong": [
     {
       "label": "frozen-decision",
-      "assert_absent": "yesterday's 0.65 never revisited"
+      "assert_absent": "yesterday's 0.65 never revisited, or edited in place"
     }
   ],
   "gates": [
@@ -21,6 +80,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-10 · Retroactive receiver confirmation"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-10 · Retroactive receiver confirmation"
   }
 }

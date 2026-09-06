@@ -3,16 +3,66 @@
   "category": "CIR",
   "title": "Low-reply family group still ranks top",
   "pass": "circles",
-  "mode": "live",
-  "setup": "Family group — user replied 4 times in 90 days; \"College Memes\" group — user replied 40 times. Content: Ma shares a doctor appointment; memes group shares memes.",
+  "mode": "code",
+  "setup": {
+    "streams": [
+      {
+        "id": "fam",
+        "label": "Family",
+        "is_group": true,
+        "member_count": 5,
+        "user_reply_count": 4,
+        "sample_texts": [
+          "Ma: doctor appointment thursday 4 baje hai",
+          "papa ko bata dena"
+        ],
+        "contact_name": "Ma",
+        "content_urgency": 0.8
+      },
+      {
+        "id": "memes",
+        "label": "College Memes",
+        "is_group": true,
+        "member_count": 60,
+        "user_reply_count": 40,
+        "sample_texts": [
+          "lmao",
+          "forwarded meme",
+          "good morning 🙏"
+        ],
+        "content_urgency": 0
+      }
+    ],
+    "note": "Same-day processing queue containing both."
+  },
   "input_events": [
-    "circle inference + a same-day processing queue containing both."
+    "circle inference over both streams, then the processing-priority rank"
   ],
-  "expected": "Family → family circle, high value (content: kin terms, care topics; contact names \"Ma\", \"Papa\"); memes → friends/acquaintance; Ma's appointment out-prioritizes memes despite 10x reply gap; brief includes the appointment.",
+  "expected": {
+    "circles": {
+      "fam": "family",
+      "memes": [
+        "acquaintances",
+        "old_batchmates",
+        "friends"
+      ]
+    },
+    "priority_order": [
+      "fam",
+      "memes"
+    ],
+    "reason_families": {
+      "fam": [
+        "metadata",
+        "content"
+      ]
+    },
+    "volume_weight_max": 0.1
+  },
   "wrong": [
     {
       "label": "volume-equals-value",
-      "assert_absent": "the core failure this category exists for"
+      "assert_absent": "the 10x reply gap putting the memes group above Family"
     }
   ],
   "gates": [
@@ -21,6 +71,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "CIR-01 · Low-reply family group still ranks top"
+    "section": "GoldenEvals V6P1 §1.1 (carried) CIR-01 · Low-reply family group still ranks top"
   }
 }

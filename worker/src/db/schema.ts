@@ -33,6 +33,7 @@ import { V6_FTS_PROJECTION } from "./migrations/0202_v6_fts_projection.js";
 import { V6_SPACE_CARD } from "./migrations/0203_v6_space_card.js";
 import { V6_CALENDAR } from "./migrations/0204_v6_calendar.js";
 import { V6_SPACES } from "./migrations/0205_v6_spaces.js";
+import { V6_PEOPLE } from "./migrations/0206_v6_people.js";
 
 export interface Migration {
   id: string;
@@ -997,4 +998,8 @@ export const MIGRATIONS: Migration[] = [
   // an asked-for space came from, the dormancy clock, and the enrichment
   // ledger (content hash per fetch target — the model sees a change only).
   { id: "0205_v6_spaces", sql: V6_SPACES },
+  // V6 P1 S5.4 (Build §8 lane D, Product_V6 §11.5 / §11.8): role_resolutions
+  // (the ladder's per-event verdict, revisable by a new row) and person_prefs
+  // (learned follow-up radar lead time).
+  { id: "0206_v6_people", sql: V6_PEOPLE },
 ];

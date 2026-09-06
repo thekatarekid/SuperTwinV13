@@ -3,72 +3,79 @@
   "category": "ROL",
   "title": "@mention receiver + no task theft",
   "pass": "orient+extract",
-  "mode": "live",
+  "mode": "code",
   "setup": {
     "roster": [
       {
         "id": "self",
-        "name": "Aditya"
+        "name": "Aditya",
+        "aliases": [
+          "aditya"
+        ]
       },
       {
         "id": "rohan",
-        "name": "Rohan Mehta"
+        "name": "Rohan Mehta",
+        "aliases": [
+          "rohan"
+        ]
       },
       {
         "id": "tanvi",
-        "name": "Tanvi S"
+        "name": "Tanvi S",
+        "aliases": [
+          "tanvi"
+        ]
       },
       {
         "id": "k1",
-        "name": "Karan"
+        "name": "Karan",
+        "aliases": [
+          "karan"
+        ]
       }
     ],
     "stream": {
       "key": "goa-gang@g.us",
-      "type": "wa.group",
-      "tier": "personal-group",
+      "label": "Goa gang",
       "audience": [
         "self",
         "rohan",
         "tanvi",
         "k1"
-      ]
+      ],
+      "is_group": true
     },
     "spaces": [
       {
         "id": "sp_goa_dec",
-        "label": "Goa trip with Rohan in December",
-        "exemplars": [
-          "dates 18-21 Dec locked",
-          "flight compare CCU-GOI"
-        ]
+        "label": "Goa trip with Rohan in December"
       }
     ],
-    "open_tasks": [],
-    "claims": []
+    "note": "The ladder runs on every message in order; the closure rule is code over roles."
   },
   "input_events": [
     {
-      "n": 1,
+      "id": "e1",
       "ts": "2026-08-26T10:02+05:30",
       "sender": "rohan",
       "text": "@Karan bhai book your ticket today, price badh raha hai"
     },
     {
-      "n": 2,
-      "ts": "10:03",
+      "id": "e2",
+      "ts": "2026-08-26T10:03+05:30",
       "sender": "k1",
       "text": "haan aaj pakka"
     },
     {
-      "n": 3,
-      "ts": "10:04",
+      "id": "e3",
+      "ts": "2026-08-26T10:04+05:30",
       "sender": "rohan",
       "text": "aditya tu ho gaya na?"
     },
     {
-      "n": 4,
-      "ts": "10:05",
+      "id": "e4",
+      "ts": "2026-08-26T10:05+05:30",
       "sender": "self",
       "text": "yes done last night"
     }
@@ -79,37 +86,35 @@
         "receiver": [
           "k1"
         ],
-        "basis": "@mention (structural)"
+        "rung": "structural",
+        "basis_contains": "@mention"
       },
       "e3": {
         "receiver": [
           "self"
         ],
-        "basis": "named address"
+        "rung": "named"
       }
     },
-    "tasks": [
-      {
-        "owner": "k1_monitoring_only",
-        "note": "no task for self"
-      }
-    ],
-    "closures": [
-      {
-        "task": "self flight booking",
-        "verdict": "close",
-        "evidence": "e4 'done last night' + e3 question"
-      }
-    ]
+    "task_owner": {
+      "e1": "k1",
+      "note": "monitoring only for self — the receiver owns it"
+    },
+    "closure": {
+      "question": "e3",
+      "answer": "e4",
+      "closes": true,
+      "why": "the person asked answered with a completion marker"
+    }
   },
   "wrong": [
     {
       "label": "task-theft",
-      "assert_absent": "a 'book ticket' task owned by self"
+      "assert_absent": "a 'book ticket' task owned by self — e1's receiver must never include self"
     },
     {
       "label": "receiver-blur",
-      "assert_absent": "e1 receiver = whole group"
+      "assert_absent": "e1 receiver = the whole group"
     }
   ],
   "gates": [
@@ -119,6 +124,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-01 · @mention receiver + no task theft (full fixture in the doc header)"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-01 · @mention receiver + no task theft"
   }
 }

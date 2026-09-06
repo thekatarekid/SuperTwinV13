@@ -40,6 +40,7 @@ import { liveExecutor } from "./liv.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
 import { spacesExecutor } from "./spc.js";
+import { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
 import { barExecutor, fixExecutor } from "./bar.js";
 import {
   browserEvalExecutor,
@@ -58,6 +59,7 @@ export { settingsExecutor } from "./set.js";
 export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
+export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
 export { barExecutor, fixExecutor } from "./bar.js";
 export {
   backfillExecutor,
@@ -76,13 +78,12 @@ export {
   timeExecutor,
 } from "./p3.js";
 export {
-  circlesExecutor,
   feedbackExecutor,
   tracesExecutor,
   userObjectsExecutor,
 } from "./p4.js";
 
-import { circlesExecutor, tracesExecutor, userObjectsExecutor } from "./p4.js";
+import { tracesExecutor, userObjectsExecutor } from "./p4.js";
 
 export async function registerProductExecutors(): Promise<void> {
   // CONTAINMENT CHOKEPOINT. Almost every executor below seeds rows through
@@ -138,7 +139,8 @@ export async function registerProductExecutors(): Promise<void> {
   // the person-card relationship correction (FIX-03) and the end-to-end
   // why?→trace chain (TRC-02).
   registerExecutor("user-objects", userObjectsExecutor);
-  registerExecutor("circles", circlesExecutor);
+  // `circles` moved to executors/people.ts in V6 P1 S5.4, where CIR-01..04 are
+  // all four wired (P4 could only do CIR-04, the edit path).
   // V6 P1 S5.5: the feedback pass now dispatches by id — FIX-01..06 keep
   // running live through p4.ts's executor, FIX-07..09 are code (the "Not mine"
   // chip and its undo, the behavioral rule, the golden-case drafts).
@@ -198,4 +200,20 @@ export async function registerProductExecutors(): Promise<void> {
   // ask-once ambiguity) against the real bar, retrieval, sufficiency and route
   // code with every model seam injected. Zero model calls.
   registerExecutor("bar", barExecutor);
+  // V6 P1 S5.4: ROL role-ladder cases (@mention, broadcast, the code set test,
+  // pronouns resolved or asked, generic vs discriminating address terms, the
+  // reply marker, a provisional person from a mention, a retroactive
+  // confirmation) against the real people/roles.ts. The baseline had NO
+  // executor for this pass — ten cases read pending. Zero model calls.
+  registerExecutor("orient+extract", rolesExecutor);
+  // V6 P1 S5.4: CIR circle cases (a quiet family group outranking a chatty
+  // one, sparse service traffic, applicability by circle, and a user's drag
+  // that shifts downstream at once and is never overwritten) against
+  // people/circles.ts and the corrections pipeline. Zero model calls.
+  registerExecutor("circles", circlesExecutor);
+  // V6 P1 S5.4: CRM cases (the follow-up radar and its lead times, no radar on
+  // a mass broadcast, provisional merge-forward on an identifier, address
+  // terms, circle priority) against people/{radar,provisional,address-terms,
+  // circles}.ts. Zero model calls.
+  registerExecutor("crm", crmExecutor);
 }

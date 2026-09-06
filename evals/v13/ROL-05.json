@@ -3,16 +3,82 @@
   "category": "ROL",
   "title": "Ambiguous pronoun → unknown + question",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "Goa gang; both Tanvi and a new member Riya active.",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "k1",
+        "name": "Karan",
+        "pronoun": "he"
+      },
+      {
+        "id": "tanvi",
+        "name": "Tanvi",
+        "pronoun": "she"
+      },
+      {
+        "id": "riya",
+        "name": "Riya",
+        "pronoun": "she"
+      }
+    ],
+    "stream": {
+      "key": "goa-gang@g.us",
+      "label": "Goa gang",
+      "audience": [
+        "self",
+        "k1",
+        "tanvi",
+        "riya"
+      ],
+      "is_group": true
+    },
+    "note": "Both women messaged recently; no reply marker on the pronoun message."
+  },
   "input_events": [
-    "Karan: \"she said she'll transfer her share tonight\" (no reply marker, both women messaged recently)."
+    {
+      "id": "e1",
+      "ts": "2026-08-27T20:00+05:30",
+      "sender": "tanvi",
+      "text": "kitna hua total?"
+    },
+    {
+      "id": "e2",
+      "ts": "2026-08-27T20:01+05:30",
+      "sender": "riya",
+      "text": "main kal dekh leti hoon"
+    },
+    {
+      "id": "e3",
+      "ts": "2026-08-27T20:04+05:30",
+      "sender": "k1",
+      "text": "she said she'll transfer her share tonight"
+    }
   ],
-  "expected": "subject unknown + hint (Tanvi|Riya), question queued; NO payment-claim attributed to either.",
+  "expected": {
+    "pronouns": {
+      "e3": {
+        "status": "unknown",
+        "hint": [
+          "tanvi",
+          "riya"
+        ]
+      }
+    },
+    "question_queued": {
+      "kind": "pronoun",
+      "status": "open"
+    },
+    "claims_written": 0
+  },
   "wrong": [
     {
       "label": "coin-flip-pronoun",
-      "assert_absent": "hard fail"
+      "assert_absent": "a subject picked between two equal candidates"
     }
   ],
   "gates": [
@@ -20,6 +86,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-05 · Ambiguous pronoun → unknown + question"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-05 · Ambiguous pronoun → unknown + question"
   }
 }

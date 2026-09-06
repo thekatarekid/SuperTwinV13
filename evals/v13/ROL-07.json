@@ -3,16 +3,69 @@
   "category": "ROL",
   "title": "Discriminating nickname, learned then used",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "6 prior observations: in Falcon group, \"boss\" is only ever used addressing Sameer.",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "sameer",
+        "name": "Sameer"
+      },
+      {
+        "id": "priya",
+        "name": "Priya"
+      }
+    ],
+    "stream": {
+      "key": "falcon@g.us",
+      "label": "Falcon",
+      "audience": [
+        "self",
+        "sameer",
+        "priya"
+      ],
+      "is_group": true
+    },
+    "address_memory": [
+      {
+        "term": "boss",
+        "stream_key": "falcon@g.us",
+        "addressee": "sameer",
+        "times": 6
+      }
+    ]
+  },
   "input_events": [
-    "Falcon group, self: \"boss can we push the demo to Friday?\""
+    {
+      "id": "e1",
+      "ts": "2026-09-02T10:00+05:30",
+      "sender": "self",
+      "text": "boss can we push the demo to Friday?"
+    }
   ],
-  "expected": "receiver = Sameer via address-style memory (discriminating, this group), stated as the basis; task/monitoring routed accordingly.",
+  "expected": {
+    "address_term": {
+      "term": "boss",
+      "class": "discriminating",
+      "maps_to": "sameer"
+    },
+    "roles": {
+      "e1": {
+        "receiver": [
+          "sameer"
+        ],
+        "rung": "address_term",
+        "basis_contains": "address-style memory"
+      }
+    }
+  },
   "wrong": [
     {
       "label": "style-amnesia",
-      "assert_absent": "unknown despite 6 observations"
+      "assert_absent": "an unknown verdict despite six observations"
     }
   ],
   "gates": [
@@ -20,6 +73,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-07 · Discriminating nickname, learned then used"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-07 · Discriminating nickname, learned then used"
   }
 }

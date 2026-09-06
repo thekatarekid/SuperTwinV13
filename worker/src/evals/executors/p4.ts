@@ -8,8 +8,8 @@
 //         gate are asserted in code on the same paths production runs.
 //         USR-05 additionally runs the REAL executor session on the
 //         bar-created task and must stop at the payment boundary.
-//   CIR · pass "circles"      — CIR-04: the People-view drag through the real
-//         corrections route (structured set_circle) + downstream reads.
+//   CIR · pass "circles"      — moved to executors/people.ts in V6 P1 S5.4,
+//         which wires all four circle cases, not only the edit path.
 //   FIX · pass "feedback"     — FIX-03: the "Tell the twin" utterance through
 //         the real corrections route with the LIVE correction-parse.v2
 //         parser; claim history asserted in code (supersede, never delete).
@@ -523,72 +523,6 @@ export const userObjectsExecutor: Executor = async ({ fixture }) => {
     default:
       throw new Error(`no USR executor path for ${fixture.id}`);
   }
-};
-
-// ===========================================================================
-// CIR — circles (CIR-04: user edit shifts downstream behavior)
-// ===========================================================================
-
-async function cir04(): Promise<ExecutorResult> {
-  const db = getDb();
-  const priya = createEntity({ type: "person", canonical: "Priya (eval CIR-04)", provisional: false, seenAt: new Date().toISOString() });
-  db.prepare(`UPDATE entities SET circle = 'friends' WHERE id = ?`).run(priya.id);
-  const violations: Violation[] = [];
-  try {
-    const before = circleOf(priya.id);
-    // The People-view drag: the UI posts the structured set_circle correction.
-    const res = await callRoute(handleCorrectionsRoute, "POST", "/api/corrections", {
-      target: { kind: "person", id: priya.id },
-      structured: { type: "set_circle", circle: "close_friends" },
-      scope: "global",
-    });
-    const body = res.body as Record<string, unknown> | null;
-    const after = circleOf(priya.id);
-    if (after !== "close_friends") {
-      violations.push({ label: "edit-ignored", note: `circle still '${String(after)}' after the drag` });
-    }
-    if (!body || body.status !== "applied") {
-      violations.push({ label: "edit-ignored", note: `correction not applied: ${JSON.stringify(body)}` });
-    }
-    const correctionRow = body?.correction_id
-      ? db.prepare(`SELECT id, status, target_id, instruction FROM corrections WHERE id = ?`).get(String(body.correction_id))
-      : null;
-    const decisionRow = body?.decision_id
-      ? db.prepare(`SELECT id, action, reason FROM decisions WHERE id = ?`).get(String(body.decision_id))
-      : null;
-    if (!correctionRow) violations.push({ label: "edit-ignored", note: "no corrections row logged" });
-    if (!decisionRow) violations.push({ label: "edit-ignored", note: "no decisions row (undo impossible)" });
-    return {
-      ok: violations.length === 0,
-      output: {
-        circle_before: before,
-        circle_after: after,
-        route_response: body,
-        correction_event_logged: correctionRow,
-        decision_row: decisionRow,
-        eval_case_auto_drafted: body?.eval_draft ?? null,
-        downstream_note:
-          "nudge thresholds, brief inclusion and the packer's roster line all read entities.circle at use time — the next pack/nudge check sees close_friends immediately (no cache, no re-derive step)",
-      },
-      seededContext: "Priya exists as a person entity with an auto-inferred circle 'friends'.",
-      violations,
-      gateObservations: [
-        { gateId: "correction_pipeline", passed: violations.length === 0, counted: true },
-        { gateId: "promotion_loop_integrity", passed: typeof (res.body as Record<string, unknown> | null)?.eval_draft === "string", counted: true },
-      ],
-    };
-  } finally {
-    db.prepare(`DELETE FROM corrections WHERE target_id = ?`).run(priya.id);
-    db.prepare(`DELETE FROM entities WHERE id = ?`).run(priya.id);
-  }
-}
-
-export const circlesExecutor: Executor = async ({ fixture }) => {
-  if (fixture.id === "CIR-04") return cir04();
-  return {
-    output: null,
-    pending: `${fixture.id} measures the circle-inference pass, which has no product surface yet (P4 shipped the circle EDIT path — CIR-04)`,
-  };
 };
 
 // ===========================================================================

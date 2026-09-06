@@ -69,6 +69,13 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // V6 P1 S3.3: BND is re-authored against the V6 P1 doc (§5.5, 12 cases) — the
   // V2 per-stream-window cases were replaced ("the call unit is time, not stream").
   { cat: "BND", name: "Bundling (V6 P1)", n: 12, doc: "V2", pass: "bundle", authored: true },
+  // V6 P1 S5.4: ROL and CIR are carried forward (GoldenEvals V6 P1 §1.1) and
+  // still parsed from the V2 doc, but the fixtures ON DISK are re-authored as
+  // deterministic code cases against people/* — the ladder, the address-term
+  // memory and the circle inference are code, so the cases that measure them
+  // are asserted by code and spend nothing. `materialize()` leaves them alone
+  // (isV6P1Authored reads their source.section), so the doc stays the
+  // documentation and the JSON stays the executable case.
   { cat: "ROL", name: "People role resolution", n: 10, doc: "V2", pass: "orient+extract" },
   { cat: "CIR", name: "Circles & relationship value", n: 4, doc: "V2", pass: "circles" },
   { cat: "CAT", name: "Category 1/2, promotion, Digest", n: 6, doc: "V2", pass: "digest" },
@@ -140,6 +147,12 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // GoldenEvals V6 Phase 1 §5.21 — Settings (S5.6). Code against scheduler/v6/dispatch.ts
   // (step off → held), settings/golden-gate.ts (stub runner) and the live preset read.
   { cat: "SET", name: "Settings (V6 P1)", n: 3, doc: "V2", pass: "settings", authored: true },
+  // GoldenEvals V6 Phase 1 §5.19 — the personal CRM (S5.4). Code against
+  // people/{radar,provisional,address-terms,circles}.ts: the follow-up radar and
+  // its lead times, no radar on a mass broadcast, a provisional person merged
+  // forward on an identifier, discriminating vs generic address terms, and the
+  // priority order a quiet family group wins.
+  { cat: "CRM", name: "People and the CRM (V6 P1)", n: 5, doc: "V2", pass: "crm", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

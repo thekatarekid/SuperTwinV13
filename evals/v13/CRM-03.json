@@ -1,0 +1,95 @@
+{
+  "id": "CRM-03",
+  "category": "CRM",
+  "title": "Provisional person",
+  "pass": "crm",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya"
+      },
+      {
+        "id": "ma",
+        "name": "Ma",
+        "pronoun": "she"
+      },
+      {
+        "id": "papa",
+        "name": "Papa",
+        "pronoun": "he"
+      },
+      {
+        "id": "isha",
+        "name": "Isha",
+        "pronoun": "she"
+      }
+    ],
+    "stream": {
+      "key": "family@g.us",
+      "label": "Family",
+      "audience": [
+        "self",
+        "ma",
+        "papa",
+        "isha"
+      ],
+      "is_group": true
+    },
+    "identifier": {
+      "kind": "phone",
+      "value": "+919812345678",
+      "push_name": "Vivaan"
+    }
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-01T19:00+05:30",
+      "sender": "isha",
+      "text": "Vivaan ke school ka annual day 5th Sept ko hai, sab aana"
+    },
+    {
+      "id": "e2",
+      "ts": "2026-09-04T10:00+05:30",
+      "sender": "vivaan",
+      "text": "hi mama, ye mera number hai"
+    }
+  ],
+  "expected": {
+    "before_identifier": {
+      "people_named_vivaan": 1,
+      "provisional": true,
+      "identifiers": 0
+    },
+    "after_identifier": {
+      "outcome": "merged",
+      "survivor_has_phone": true,
+      "provisional_redirects": true,
+      "people_named_vivaan": 1
+    },
+    "ambiguous_variant": {
+      "two_candidates": "queued",
+      "merged": false
+    }
+  },
+  "wrong": [
+    {
+      "label": "mention-drop",
+      "assert_absent": "the name-only mention left with no person record"
+    },
+    {
+      "label": "duplicate-person",
+      "assert_absent": "two people named Vivaan after the identifier arrives"
+    }
+  ],
+  "gates": [
+    "crm_coverage",
+    "identity_precision"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 CRM-03 · Provisional person"
+  }
+}

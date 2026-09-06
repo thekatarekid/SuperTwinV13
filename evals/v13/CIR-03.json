@@ -3,16 +3,65 @@
   "category": "CIR",
   "title": "Circle gates broadcast applicability",
   "pass": "circles",
-  "mode": "live",
-  "setup": "identical text in two streams: \"society water tank cleaning sunday, keep buckets filled\" in Sunrise Apartments 402 (never replied, 180 members) AND Ma saying \"sunday ko paani nahi aayega, bucket bhar lena\" in Family.",
+  "mode": "code",
+  "setup": {
+    "streams": [
+      {
+        "id": "society",
+        "key": "sunrise-402@g.us",
+        "label": "Sunrise Apartments 402",
+        "circle": "acquaintances",
+        "is_group": true,
+        "member_count": 180,
+        "user_replied": false,
+        "text": "society water tank cleaning sunday, keep buckets filled",
+        "sender": "secretary"
+      },
+      {
+        "id": "family",
+        "key": "family@g.us",
+        "label": "Family",
+        "circle": "family",
+        "is_group": true,
+        "member_count": 5,
+        "user_replied": true,
+        "text": "aditya sunday ko paani nahi aayega, bucket bhar lena",
+        "sender": "ma"
+      }
+    ],
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya",
+        "aliases": [
+          "aditya"
+        ]
+      },
+      {
+        "id": "ma",
+        "name": "Ma"
+      },
+      {
+        "id": "secretary",
+        "name": "Secretary"
+      }
+    ],
+    "note": "Both bundles land in the same tick."
+  },
   "input_events": [
-    "both bundles same tick."
+    "the same instruction in two streams, one tick"
   ],
-  "expected": "society version → low-key note at most (never-replied + acquaintance-scale group); Ma's version → a real reminder task (family circle + direct address). Model states the applicability reasoning.",
+  "expected": {
+    "applicability": {
+      "society": "note",
+      "family": "task"
+    },
+    "reasons_stated": true
+  },
   "wrong": [
     {
       "label": "broadcast-task-spam",
-      "assert_absent": "society task created with same weight"
+      "assert_absent": "a society task created with the same weight as Ma's"
     }
   ],
   "gates": [
@@ -21,6 +70,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "CIR-03 · Circle gates broadcast applicability"
+    "section": "GoldenEvals V6P1 §1.1 (carried) CIR-03 · Circle gates broadcast applicability"
   }
 }

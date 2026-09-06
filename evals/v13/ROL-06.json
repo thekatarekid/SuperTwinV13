@@ -3,20 +3,129 @@
   "category": "ROL",
   "title": "Generic address term carries zero addressee evidence",
   "pass": "orient+extract",
-  "mode": "live",
-  "setup": "address-style memory shows Aditya says \"bro\" to Rohan, Karan, AND Sameer across chats.",
+  "mode": "code",
+  "setup": {
+    "roster": [
+      {
+        "id": "self",
+        "name": "Aditya",
+        "aliases": [
+          "aditya"
+        ]
+      },
+      {
+        "id": "rohan",
+        "name": "Rohan Mehta",
+        "aliases": [
+          "rohan"
+        ]
+      },
+      {
+        "id": "tanvi",
+        "name": "Tanvi S",
+        "aliases": [
+          "tanvi"
+        ]
+      },
+      {
+        "id": "k1",
+        "name": "Karan",
+        "aliases": [
+          "karan"
+        ]
+      },
+      {
+        "id": "sameer",
+        "name": "Sameer"
+      }
+    ],
+    "stream": {
+      "key": "goa-gang@g.us",
+      "label": "Goa gang",
+      "audience": [
+        "self",
+        "rohan",
+        "tanvi",
+        "k1"
+      ],
+      "is_group": true
+    },
+    "address_memory": [
+      {
+        "term": "bro",
+        "stream_key": "goa-gang@g.us",
+        "addressee": "rohan",
+        "times": 4
+      },
+      {
+        "term": "bro",
+        "stream_key": "falcon@g.us",
+        "addressee": "sameer",
+        "times": 3
+      },
+      {
+        "term": "bro",
+        "stream_key": "badminton@g.us",
+        "addressee": "k1",
+        "times": 3
+      }
+    ],
+    "other_streams": [
+      {
+        "key": "falcon@g.us",
+        "label": "Falcon"
+      },
+      {
+        "key": "badminton@g.us",
+        "label": "Badminton"
+      }
+    ],
+    "context_owners": [
+      {
+        "keywords": [
+          "payment link",
+          "villa"
+        ],
+        "owner": "rohan",
+        "source": "ep_412: Rohan owns the villa booking"
+      }
+    ]
+  },
   "input_events": [
-    "Goa gang, self: \"bro send the payment link\"."
+    {
+      "id": "e1",
+      "ts": "2026-08-28T12:00+05:30",
+      "sender": "self",
+      "text": "bro send the payment link"
+    }
   ],
-  "expected": "\"bro\" contributes nothing; receiver inferred from context (Rohan owns the villa booking per ep_412) or unknown+question; and no \"bro = brother\" relationship claim ever.",
+  "expected": {
+    "address_term": {
+      "term": "bro",
+      "class": "generic",
+      "maps_to": null
+    },
+    "with_context": {
+      "receiver": [
+        "rohan"
+      ],
+      "rung": "context",
+      "basis_contains": "ep_412"
+    },
+    "without_context": {
+      "status": "unknown",
+      "question": true
+    },
+    "relationship_claims_written": 0
+  },
   "wrong": [
     {
       "label": "nickname-lock",
-      "assert_absent": "bro hard-mapped to one person"
+      "assert_absent": "\"bro\" hard-mapped to one person"
     },
     {
       "label": "literal-kinship",
-      "assert_absent": "the 'literal-kinship' failure mode"
+      "assert_absent": "a \"bro = brother\" relationship claim"
     }
   ],
   "gates": [
@@ -25,6 +134,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "ROL-06 · Generic address term carries zero addressee evidence"
+    "section": "GoldenEvals V6P1 §1.1 (carried) ROL-06 · Generic address term carries zero addressee evidence"
   }
 }

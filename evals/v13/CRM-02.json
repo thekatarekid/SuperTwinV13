@@ -1,0 +1,43 @@
+{
+  "id": "CRM-02",
+  "category": "CRM",
+  "title": "No radar on a 180-member group",
+  "pass": "crm",
+  "mode": "code",
+  "setup": {
+    "stream": {
+      "key": "sunrise-402@g.us",
+      "label": "Sunrise Apartments 402",
+      "is_group": true,
+      "member_count": 180,
+      "user_ever_replied": false
+    },
+    "now": "2026-09-06T05:30:00.000Z"
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-01T05:00:00.000Z",
+      "sender": "secretary",
+      "text": "can everyone keep buckets filled sunday?"
+    }
+  ],
+  "expected": {
+    "radar": [],
+    "why": "a broadcast to a never-replied 180-member group is not a debt"
+  },
+  "wrong": [
+    {
+      "label": "broadcast-debt",
+      "assert_absent": "an owed-reply entry from a mass broadcast"
+    }
+  ],
+  "gates": [
+    "crm_coverage",
+    "followup_precision"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 CRM-02 · No radar on a 180-member group"
+  }
+}

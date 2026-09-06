@@ -3,16 +3,43 @@
   "category": "CIR",
   "title": "User edits a circle → downstream behavior shifts",
   "pass": "circles",
-  "mode": "live",
-  "setup": "Priya auto-inferred \"friends\".",
+  "mode": "code",
+  "setup": {
+    "person": {
+      "name": "Priya",
+      "inferred_circle": "friends",
+      "inferred_by": "code:circles"
+    },
+    "drag": {
+      "to": "close_friends"
+    },
+    "next_day": {
+      "text": "hospital ja rahi hoon, thoda ghabra rahi hoon",
+      "content_urgency": 0.9
+    }
+  },
   "input_events": [
-    "user drags Priya to \"close friends\" in People; next day Priya messages about a health scare."
+    "the user drags Priya from friends to close friends in People; the next day Priya messages about a health scare"
   ],
-  "expected": "correction event logged; nudge threshold and brief inclusion reflect the new circle immediately; an eval case auto-drafted from the correction.",
+  "expected": {
+    "correction": {
+      "status": "applied",
+      "logged": true,
+      "eval_draft": true
+    },
+    "circle_after": "close_friends",
+    "downstream": {
+      "priority_rises": true,
+      "applicability": "task",
+      "date_mode": "plan",
+      "date_lead_days": 7
+    },
+    "code_never_overwrites": true
+  },
   "wrong": [
     {
       "label": "edit-ignored",
-      "assert_absent": "the 'edit-ignored' failure mode"
+      "assert_absent": "the drag recorded but downstream judgments unchanged"
     }
   ],
   "gates": [
@@ -21,6 +48,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "CIR-04 · User edits a circle → downstream behavior shifts"
+    "section": "GoldenEvals V6P1 §1.1 (carried) CIR-04 · User edits a circle → downstream behavior shifts"
   }
 }

@@ -137,6 +137,10 @@ import { handleWorldModelRoute } from "./worldmodel-routes.js";
 // — claims its own /api/spaces/* subpaths and returns false for the rest
 // (worldmodel owns /api/spaces and /api/spaces/:id/claims).
 import { handleSpacesRoute } from "./spaces-routes.js";
+// V6 P1 S5.4: the People surfaces — the person card, "Who I am", the follow-up
+// radar, and merge/split by drag with undo. Claims its own /api/people/*
+// subpaths and returns false for the rest (worldmodel owns the list).
+import { handlePeopleRoute } from "./people-routes.js";
 import { handleCalendarRoute } from "./calendar-routes.js";
 // V6 P1 S5.2: the ONE prioritized task list and the one-tap closure answers —
 // claims GET /api/tasks and /api/tasks/:id/(done|cancel|not-yet) only.
@@ -928,6 +932,13 @@ async function handle(
   // first.
   if (path.startsWith("/api/spaces/")) {
     const handled = await handleSpacesRoute(req, res);
+    if (handled) return;
+  }
+
+  // People surfaces (V6 P1 S5.4): card, "Who I am", radar, merge/split/undo.
+  // Before world-model so its subpaths are claimed first.
+  if (path.startsWith("/api/people/")) {
+    const handled = await handlePeopleRoute(req, res);
     if (handled) return;
   }
 

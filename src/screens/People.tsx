@@ -15,6 +15,14 @@
 // Person modal. Open merge questions ("same person?") surface at the top —
 // served by the worker, never re-derived here.
 //
+// V6 P1 S5.4 adds the two IDENTITY gestures, also drags, also undoable:
+//   person onto person   → merge   POST /api/people/merge
+//   alias chip onto a    → split   POST /api/people/split, then set_circle
+//   circle group                   when the group is a real circle
+// Undo is the inverse gesture (POST /api/people/undo with the mutation id),
+// not a second concept — so one undo chip serves corrections and identity
+// alike, each carrying its own reversal.
+//
 // Drag state lives in React (not dataTransfer) so the interaction — and its
 // tests — run identically under jsdom and the real webview.
 // ===========================================================================
@@ -23,8 +31,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CIRCLES,
   fetchPeople,
+  fetchPersonAliases,
+  mergePeople,
   postCorrection,
+  splitPerson,
   undoCorrection,
+  undoPeopleDrag,
+  type AliasChip,
   type Circle,
   type MergeQuestion,
   type PersonRow,
@@ -35,6 +48,15 @@ type CircleKey = Circle | "unassigned";
 
 const GROUPS: CircleKey[] = [...CIRCLES, "unassigned"];
 
+/** What is under the cursor: a whole person, or one alias chip of a person. */
+type Drag = { kind: "person"; person: PersonRow } | { kind: "alias"; alias: AliasChip; of: PersonRow };
+
+/** Every gesture hands back its own reversal — corrections and identity alike. */
+interface Undo {
+  summary: string;
+  run: () => Promise<unknown>;
+}
+
 export function People(props: {
   /** Context-locks the grounded bar to a person ("Tell the twin"). */
   onTellTwin?: (personId: string, label: string) => void;
@@ -42,10 +64,11 @@ export function People(props: {
   const [people, setPeople] = useState<PersonRow[] | null>(null);
   const [questions, setQuestions] = useState<MergeQuestion[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<PersonRow | null>(null);
-  const [over, setOver] = useState<CircleKey | null>(null);
+  const [aliases, setAliases] = useState<Record<string, AliasChip[]>>({});
+  const [dragging, setDragging] = useState<Drag | null>(null);
+  const [over, setOver] = useState<string | null>(null);
   const [open, setOpen] = useState<PersonRow | null>(null);
-  const [undo, setUndo] = useState<{ correctionId: string; summary: string } | null>(null);
+  const [undo, setUndo] = useState<Undo | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +76,13 @@ export function People(props: {
       setPeople(r.people);
       setQuestions(r.open_questions ?? []);
       setError(null);
+      // Alias chips are an enhancement, not the list: a worker that cannot
+      // serve them still renders everyone.
+      try {
+        setAliases((await fetchPersonAliases()).aliases ?? {});
+      } catch {
+        setAliases({});
+      }
     } catch {
       setError("worker unreachable");
     }
@@ -68,7 +98,7 @@ export function People(props: {
       try {
         const result = await postCorrection({ target: { kind: "person", id: personId }, structured });
         if (result.decision_id) {
-          setUndo({ correctionId: result.correction_id, summary: result.summary });
+          setUndo({ summary: result.summary, run: () => undoCorrection(result.correction_id) });
         }
         await refresh();
       } catch {
@@ -78,18 +108,55 @@ export function People(props: {
     [refresh],
   );
 
-  async function drop(circle: CircleKey): Promise<void> {
-    const person = dragging;
+  /** Drop on a circle group: re-file a person, or split an alias out into it. */
+  async function dropOnCircle(circle: CircleKey): Promise<void> {
+    const drag = dragging;
     setDragging(null);
     setOver(null);
-    if (!person || circle === "unassigned" || person.circle === circle) return;
+    if (!drag) return;
+    if (drag.kind === "alias") {
+      // Dragging an alias out of a person IS the split (spec §11.3).
+      try {
+        const result = await splitPerson(drag.alias.id);
+        if (!result.ok) {
+          setError(result.summary);
+          return;
+        }
+        if (result.undoId) setUndo({ summary: result.summary, run: () => undoPeopleDrag(result.undoId!) });
+        await refresh();
+        if (circle !== "unassigned") await correct(drag.alias.id, { type: "set_circle", circle });
+      } catch {
+        setError("split failed");
+      }
+      return;
+    }
+    if (circle === "unassigned" || drag.person.circle === circle) return;
     // The drag IS the correction (spec §14.4.1, CIR-04) — no dialog.
-    await correct(person.id, { type: "set_circle", circle });
+    await correct(drag.person.id, { type: "set_circle", circle });
   }
 
-  async function handleUndo(chip: { correctionId: string }): Promise<void> {
+  /** Drop one person onto another: the merge. The card dropped on survives. */
+  async function dropOnPerson(target: PersonRow): Promise<void> {
+    const drag = dragging;
+    setDragging(null);
+    setOver(null);
+    if (!drag || drag.kind !== "person" || drag.person.id === target.id) return;
     try {
-      await undoCorrection(chip.correctionId);
+      const result = await mergePeople(drag.person.id, target.id);
+      if (!result.ok) {
+        setError(result.summary);
+        return;
+      }
+      if (result.undoId) setUndo({ summary: result.summary, run: () => undoPeopleDrag(result.undoId!) });
+      await refresh();
+    } catch {
+      setError("merge failed");
+    }
+  }
+
+  async function handleUndo(chip: Undo): Promise<void> {
+    try {
+      await chip.run();
       setUndo(null);
       await refresh();
     } catch {
@@ -142,7 +209,7 @@ export function People(props: {
               if (dragging) setOver(g);
             }}
             onDragLeave={() => setOver((v) => (v === g ? null : v))}
-            onDrop={() => void drop(g)}
+            onDrop={() => void dropOnCircle(g)}
           >
             <h3 className="circle-title">
               ⦿ {g === "unassigned" ? "no circle yet" : circleLabel(g)}
@@ -151,15 +218,28 @@ export function People(props: {
             {rows.map((p) => (
               <div
                 key={p.id}
-                className="row person"
+                className={`row person${over === p.id ? " drop-target" : ""}`}
                 role="button"
                 tabIndex={0}
                 draggable
                 aria-label={`person ${p.name ?? p.id}`}
-                onDragStart={() => setDragging(p)}
+                onDragStart={() => setDragging({ kind: "person", person: p })}
                 onDragEnd={() => {
                   setDragging(null);
                   setOver(null);
+                }}
+                onDragOver={(e) => {
+                  // A person dropped on a person is a merge — claim the event
+                  // before the circle group sees it.
+                  if (!dragging || dragging.kind !== "person" || dragging.person.id === p.id) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOver(p.id);
+                }}
+                onDrop={(e) => {
+                  if (!dragging || dragging.kind !== "person" || dragging.person.id === p.id) return;
+                  e.stopPropagation();
+                  void dropOnPerson(p);
                 }}
                 onClick={() => setOpen(p)}
                 onKeyDown={(e) => {
@@ -169,6 +249,28 @@ export function People(props: {
                 <span className="glyph">◙</span>
                 <span>{p.name ?? p.id}</span>
                 {p.provisional !== 0 && <span className="chip">provisional</span>}
+                {(aliases[p.id] ?? []).map((a) => (
+                  <span
+                    key={a.id}
+                    className="chip alias"
+                    draggable
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`alias ${a.name ?? a.id} of ${p.name ?? p.id}`}
+                    title="drag out to split this person back apart"
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      setDragging({ kind: "alias", alias: a, of: p });
+                    }}
+                    onDragEnd={() => {
+                      setDragging(null);
+                      setOver(null);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    ⚯ {a.name ?? a.id}
+                  </span>
+                ))}
               </div>
             ))}
             {rows.length === 0 && <p className="empty">drag someone here</p>}

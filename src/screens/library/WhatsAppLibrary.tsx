@@ -14,6 +14,16 @@
 // text verbatim in `decisions`, grants the consent row, and only then imports.
 // Nothing is read between pairing and that confirm.
 //
+// The confirm is OPTIMISTIC (V6 P1 S6d L3). `importDone` flips only on the
+// daemon's `backfill_complete`, which over a real history is minutes away, so
+// gating the transition on it left the card sitting there under a button that
+// looked dead while the import ran underneath. The import view now goes up on
+// the click — before the request is even sent — carries the confirm's own
+// in-flight state, and keeps refreshing the chat list while history lands. A
+// confirm that fails rolls the view back to the card and says so; a window the
+// daemon has already installed skips the card entirely instead of offering a
+// second Confirm under a caveat that says one was already confirmed.
+//
 // STRICTLY READ-ONLY: there is no composer anywhere in this view.
 // ===========================================================================
 
@@ -35,6 +45,7 @@ import {
   pauseSource,
   pauseStream,
   type ChatStreamRow,
+  type ConfirmSourceRequest,
   type ImportRange,
   type InboxMessageRow,
   type SourceCounts,
@@ -143,8 +154,19 @@ export function WhatsAppLibrary(props: {
   const [error, setError] = useState<string | null>(null);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  // Confirm has its own two flags, deliberately not the shared `busy`:
+  //   confirming — the POST is on the wire (the button's in-flight state)
+  //   confirmed  — the user said yes; the import view is up OPTIMISTICALLY,
+  //                before the request answers and long before the import ends.
+  const [confirming, setConfirming] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const pollMs = props.pollMs ?? POLL_MS;
   const alive = useRef(true);
+  /** Latches synchronously — a second click cannot outrun React's re-render. */
+  const confirmInFlight = useRef(false);
+  /** A slow chat read skips its turn instead of queueing another behind it. */
+  const streamsInFlight = useRef(false);
 
   useEffect(() => {
     alive.current = true;
@@ -210,10 +232,84 @@ export function WhatsAppLibrary(props: {
     return () => es.close();
   }, [paired]);
 
+  // A range the daemon has already installed — or one persisted from an earlier
+  // confirm — means the yes ALREADY happened and history is flowing. Printing
+  // "A window (all) is already confirmed" as a caveat under a live "Confirm and
+  // import" button was the card contradicting itself; the honest state for that
+  // is the import view, not a second chance to choose.
+  const windowAlreadyChosen =
+    status?.importRange != null || counts?.counts.rangeInstalled === true;
+
   // Paired but not yet confirmed: ask the daemon what each window would import
   // (measured over the history it is holding) and keep asking while WhatsApp is
   // still sending — the bootstrap lands first, the bulk follows within minutes.
-  const awaitingConfirm = paired && status?.importDone !== true;
+  // Once the user has said yes the card is gone, so the polling stops with it:
+  // /counts is a daemon round-trip and the import needs the worker more.
+  const awaitingConfirm =
+    paired && status?.importDone !== true && !confirmed && !windowAlreadyChosen;
+
+  // Everything still landing, in ONE line inside this panel. `importDone` only
+  // flips on the daemon's `backfill_complete`, which for a real history is
+  // minutes away — so this is what the user watches after they confirm, and it
+  // must be true from the click, not from the first progress frame.
+  const progress = status?.progress;
+  const importing =
+    confirming ||
+    (paired && status?.importDone !== true) ||
+    (progress != null && progress.done !== true);
+
+  // The import view has to keep FILLING as events land: a chat list frozen at
+  // whatever existed when the panel mounted is the same "nothing is happening"
+  // the card was. Polled only while the import runs, at half the status
+  // cadence, and never stacked.
+  useEffect(() => {
+    if (!importing) return;
+    const timer = setInterval(() => {
+      if (streamsInFlight.current) return;
+      streamsInFlight.current = true;
+      void loadStreams().finally(() => {
+        streamsInFlight.current = false;
+      });
+    }, pollMs * 2);
+    return () => clearInterval(timer);
+  }, [importing, loadStreams, pollMs]);
+
+  /**
+   * The yes. The next screen goes up FIRST — before the request is sent, let
+   * alone answered — because the import behind it runs for minutes and a card
+   * that sits there while it does reads as a dead button. The request is still
+   * awaited: if it fails, the optimistic view is rolled back and the card says
+   * why, so the transition never claims an import that did not start.
+   */
+  const confirmNow = useCallback(
+    (req: ConfirmSourceRequest) => {
+      if (confirmInFlight.current) return; // impossible to double-fire
+      confirmInFlight.current = true;
+      setConfirming(true);
+      setConfirmError(null);
+      setConfirmed(true);
+      void (async () => {
+        try {
+          await confirmSource(SOURCE, req);
+          if (alive.current) {
+            void loadStatus();
+            void loadStreams();
+          }
+        } catch (err) {
+          // The yes never landed: nothing is importing, so say so and go back.
+          if (alive.current) {
+            setConfirmed(false);
+            setConfirmError(describeWorkerError(err));
+          }
+        } finally {
+          confirmInFlight.current = false;
+          if (alive.current) setConfirming(false);
+        }
+      })();
+    },
+    [loadStatus, loadStreams],
+  );
+
   useEffect(() => {
     if (!awaitingConfirm) return;
     let stop = false;
@@ -312,7 +408,7 @@ export function WhatsAppLibrary(props: {
     );
   }
 
-  if (status && status.paired && !status.importDone) {
+  if (status && awaitingConfirm) {
     // Understand can never exceed Index (CNS-03): the options stop at the index.
     const understandOptions = IMPORT_RANGES.filter(
       (r) => IMPORT_RANGES.indexOf(r) <= IMPORT_RANGES.indexOf(range),
@@ -332,22 +428,29 @@ export function WhatsAppLibrary(props: {
         }
         actions={[
           {
-            label: "Confirm and import",
+            label: confirming ? "confirming…" : "Confirm and import",
             onClick: () =>
-              void run(
-                () =>
-                  confirmSource(SOURCE, {
-                    index: range,
-                    understand: effectiveUnderstand,
-                    card_text: text,
-                    ...(counts ? { counts: counts.counts } : {}),
-                  }),
-                "confirm failed",
-              ),
-            disabled: busy,
+              confirmNow({
+                index: range,
+                understand: effectiveUnderstand,
+                card_text: text,
+                ...(counts ? { counts: counts.counts } : {}),
+              }),
+            disabled: confirming,
           },
         ]}
-        note={`Linked as ${status.pushName ?? "this account"} · ${STATE_TEXT[status.state] ?? status.state}`}
+        note={
+          <>
+            Linked as {status.pushName ?? "this account"} ·{" "}
+            {STATE_TEXT[status.state] ?? status.state}
+            {confirmError && (
+              <>
+                <br />
+                <strong>Nothing was imported — the confirm did not land:</strong> {confirmError}
+              </>
+            )}
+          </>
+        }
       >
         <label className="connect-field">
           <span>index (kept, searchable)</span>
@@ -389,9 +492,7 @@ export function WhatsAppLibrary(props: {
     );
   }
 
-  // ---- Connected: the chat inbox -------------------------------------------
-
-  const importing = status?.progress != null && status.progress.done !== true;
+  // ---- Connected (or importing): the chat inbox ----------------------------
 
   return (
     <section className="card inbox" aria-label="WhatsApp">
@@ -433,10 +534,21 @@ export function WhatsAppLibrary(props: {
       </header>
 
       {importing && (
-        <p className="empty" role="status">
-          importing… {status?.progress?.chatsDone ?? 0}
-          {status?.progress?.chatsTotal ? `/${status.progress.chatsTotal}` : ""} chats ·{" "}
-          {status?.progress?.messages ?? 0} messages — runs in the background
+        // This source's own state, inside this source's own panel. It has to
+        // say something true from the instant the user confirms — the daemon's
+        // first progress frame is not the start of the import, it is minutes in.
+        <p className="empty" role="status" aria-label="whatsapp import status">
+          {confirming
+            ? "confirming your window — the import starts the moment it lands"
+            : progress
+              ? `importing… ${progress.chatsDone ?? 0}${progress.chatsTotal ? `/${progress.chatsTotal}` : ""} chats · ${progress.messages ?? 0} messages — runs in the background`
+              : `importing your history — ${
+                  streams === null
+                    ? "reading what has landed so far…"
+                    : streams.length === 0
+                      ? "nothing has landed yet"
+                      : `${fmt(streams.length)} chat${streams.length === 1 ? "" : "s"} so far`
+                }`}
         </p>
       )}
       {error && <LoadFailure what="your chats" error={error} onRetry={retry} retrying={retrying} />}
@@ -450,7 +562,11 @@ export function WhatsAppLibrary(props: {
               <p className="empty">loading chats…</p>
             ) : null
           ) : streams.length === 0 ? (
-            <p className="empty">linked, but no chats have arrived yet</p>
+            <p className="empty">
+              {importing
+                ? "your chats appear here as they land"
+                : "linked, but no chats have arrived yet"}
+            </p>
           ) : (
             streams.map((s) => {
               const name = s.label ?? s.external_key;

@@ -234,6 +234,15 @@ export async function handleSourceRoute(
       // told to import the confirmed window — it drains the buffered history
       // filtered by it and releases the live messages it held, and the funnel,
       // now with a connected row, admits them. Nothing was ingested before this.
+      //
+      // CONTRACT (V6 P1 S6d L3): this route DISPATCHES the import, it does not
+      // run it. `importRange` writes one `import` command to the daemon's stdin
+      // and returns; the history that follows arrives over minutes, and
+      // `importDone` stays false until the daemon's own `backfill_complete`. So
+      // the 200 means "your yes is recorded and the import has started" —
+      // `importing: true` with the window it started on — and the client
+      // watches /status from there. A client must never wait on this response
+      // for the import to be over: it never will be.
       case "POST confirm": {
         if (!ingestion) return notReady(res);
         const body = (await readJsonBody(req)) as
@@ -281,6 +290,10 @@ export async function handleSourceRoute(
           consent: confirmed.consent,
           decision_id: confirmed.decisionId,
           floors: confirmed.floors,
+          // The import has STARTED on this window — not finished. The client
+          // moves to its import view on this, and watches /status for the rest.
+          importing: true,
+          range: confirmed.choice.index,
         });
         return true;
       }

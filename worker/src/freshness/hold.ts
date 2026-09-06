@@ -12,35 +12,39 @@
 //
 // A stopped pipeline is not a slow one, and it is never "caught up". This
 // module is the single answer to "is anything being understood right now?",
-// read from the same state the ops surfaces read:
+// and it does not invent that state — it reads the SAME facts every other halt
+// surface reads, so the chip, the halt banner (FIX-C3's `haltOf`) and Settings
+// › General cannot say three different things:
 //
-//   stopped  `model_activity_paused` — the human's kill switch (S0.8). Nothing
-//            is exempt, so nothing is being understood. Only the same switch
-//            lifts it.
-//   budget   `budget_tripped_at` — the spend latch (S0.2). It NEVER clears on
-//            its own, not on the hour and not on restart; an operator resets
-//            it in Settings › General. Until then every background call throws
-//            BUDGET_EXCEEDED before spawn.
-//   breaker  an understanding lane held by the S0.7 breaker after ten
-//            consecutive failures. This one lifts itself, so the phrase says
-//            when.
+//   kill-switch  `model_activity_paused` — the human's hard stop (S0.8).
+//   budget       `budget_tripped_at` — the spend latch (S0.2). It NEVER clears
+//                on its own, not on the hour and not on restart; an operator
+//                resets it. Until then every background call throws
+//                BUDGET_EXCEEDED before spawn.
 //
-// Precedence is the order above: the human's switch outranks a ceiling, and a
-// ceiling outranks a breaker (a breaker that keeps re-tripping on a latched
-// budget is a symptom of the latch, which is exactly what happened live).
+//     Both of those come from `providers/budget.backgroundModelHold()` — the
+//     one lookup the lanes themselves ask before they spend, so the chip is
+//     answering the same question the dispatcher is.
 //
-// The verdict is a pure function of (latch, switch, breakers, now) so it is
-// testable against fixed clocks; `understandingHold()` is the thin reader that
-// fetches those three from the budget module and the pool.
+//   breaker      an understanding lane held by the S0.7 breaker after ten
+//                consecutive failures. The lanes' own state, and the only one
+//                that lifts itself — so the phrase says when.
+//
+// Precedence is the order above (budget.ts owns the first two; a breaker that
+// keeps re-tripping on a latched budget is a symptom of the latch, which is
+// exactly what happened on the reporting user's machine).
+//
+// The verdict is a pure function of (hold, breakers, now) so it is testable
+// against fixed clocks; `understandingHold()` is the thin reader.
 //
 // Zero model calls. Two app_state reads and one in-memory map.
 // ===========================================================================
 
-import { budgetStatus } from "../providers/budget.js";
+import { backgroundModelHold, type ModelWorkHold } from "../providers/budget.js";
 import { resourcePool, type BreakerTrip, type LaneKey } from "../providers/pool.js";
 
-/** Why understanding is stopped. */
-export type UnderstandingHoldKind = "stopped" | "budget" | "breaker";
+/** Why understanding is stopped. The first two are budget.ts's own kinds. */
+export type UnderstandingHoldKind = "kill-switch" | "budget" | "breaker";
 
 export interface UnderstandingHold {
   kind: UnderstandingHoldKind;
@@ -68,12 +72,8 @@ export interface UnderstandingHold {
 export const UNDERSTANDING_LANES: readonly LaneKey[] = ["llm:understanding", "llm:live"];
 
 export interface HoldInput {
-  /** ISO time the kill switch was thrown; null while model activity runs. */
-  modelActivityPausedAt: string | null;
-  /** ISO time the spend latch tripped; null while it has not. */
-  budgetTrippedAt: string | null;
-  /** The latch's own words — "$3.05 spent in the last hour (ceiling $3)". */
-  budgetTrippedReason: string | null;
+  /** What the lanes themselves ask before they spend (budget.ts). */
+  model: ModelWorkHold;
   /** Every breaker currently holding a lane (pool.breakers()). */
   breakers: readonly BreakerTrip[];
 }
@@ -94,26 +94,26 @@ export function formatUntil(ms: number): string {
  * which is the ONLY case in which a surface may say "caught up".
  */
 export function holdFrom(input: HoldInput, now: number = Date.now()): UnderstandingHold | null {
-  if (input.modelActivityPausedAt) {
+  const m = input.model;
+  if (m.held && m.kind === "kill-switch") {
     return {
-      kind: "stopped",
+      kind: "kill-switch",
       label: "understanding paused — you stopped model activity",
       detail:
-        `"Stop all model activity" has been on since ${input.modelActivityPausedAt}. ` +
+        `${m.label ?? "model activity is off"}. ` +
         "Nothing is sent to a model until you turn it back on in Settings › General.",
-      since: input.modelActivityPausedAt,
+      since: m.since,
       until_ms: null,
     };
   }
-  if (input.budgetTrippedAt) {
-    const why = input.budgetTrippedReason ?? "a spend ceiling was reached";
+  if (m.held && m.kind === "budget") {
     return {
       kind: "budget",
       label: "understanding paused — spend ceiling reached",
       detail:
-        `${why}. The latch tripped at ${input.budgetTrippedAt} and does not clear on its own — ` +
-        "nothing new is being understood until it is reset in Settings › General.",
-      since: input.budgetTrippedAt,
+        `${m.reason ?? "a spend ceiling was reached"}. The latch tripped at ${m.since} and does not ` +
+        "clear on its own — nothing new is being understood until it is reset in Settings › General.",
+      since: m.since,
       until_ms: null,
     };
   }
@@ -135,16 +135,7 @@ export function holdFrom(input: HoldInput, now: number = Date.now()): Understand
   return null;
 }
 
-/** The live verdict: the budget latch, the kill switch and the pool's breakers. */
+/** The live verdict: the lanes' own hold, plus the pool's breakers. */
 export function understandingHold(now: number = Date.now()): UnderstandingHold | null {
-  const b = budgetStatus(now);
-  return holdFrom(
-    {
-      modelActivityPausedAt: b.modelActivityPausedAt,
-      budgetTrippedAt: b.trippedAt,
-      budgetTrippedReason: b.trippedReason,
-      breakers: resourcePool.breakers(),
-    },
-    now,
-  );
+  return holdFrom({ model: backgroundModelHold(), breakers: resourcePool.breakers() }, now);
 }

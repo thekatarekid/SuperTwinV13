@@ -540,6 +540,8 @@ describe("FIX-C5 — a stopped pipeline never says 'caught up'", () => {
     pending_backfill_count: 11_015,
     lag_minutes: null,
   };
+  /** budget.ts's "nothing is holding background work" answer. */
+  const RUNNING = { held: false, kind: null, since: null, reason: null, label: null } as const;
   const budgetHold: UnderstandingHold = {
     kind: "budget",
     label: "understanding paused — spend ceiling reached",
@@ -585,23 +587,33 @@ describe("FIX-C5 — a stopped pipeline never says 'caught up'", () => {
       lastCode: "BUDGET_EXCEEDED",
       lastError: "ceiling",
     };
+    // budget.ts owns the first two facts and their order — this module only
+    // phrases them, and adds the breaker underneath.
     expect(
       holdFrom(
         {
-          modelActivityPausedAt: "2026-09-06T10:00:00.000Z",
-          budgetTrippedAt: "2026-09-06T15:12:59.534Z",
-          budgetTrippedReason: "$3.05 spent in the last hour (ceiling $3)",
+          model: {
+            held: true,
+            kind: "kill-switch",
+            since: "2026-09-06T10:00:00.000Z",
+            reason: null,
+            label: '"Stop all model activity" has been on since 2026-09-06T10:00:00.000Z',
+          },
           breakers: [breaker],
         },
         NOW,
       )?.kind,
-    ).toBe("stopped");
+    ).toBe("kill-switch");
     expect(
       holdFrom(
         {
-          modelActivityPausedAt: null,
-          budgetTrippedAt: "2026-09-06T15:12:59.534Z",
-          budgetTrippedReason: "$3.05 spent in the last hour (ceiling $3)",
+          model: {
+            held: true,
+            kind: "budget",
+            since: "2026-09-06T15:12:59.534Z",
+            reason: "$3.05 spent in the last hour (ceiling $3)",
+            label: "the spend ceiling was reached at 2026-09-06T15:12:59.534Z",
+          },
           breakers: [breaker],
         },
         NOW,
@@ -611,10 +623,7 @@ describe("FIX-C5 — a stopped pipeline never says 'caught up'", () => {
       label: "understanding paused — spend ceiling reached",
       until_ms: null,
     });
-    const b = holdFrom(
-      { modelActivityPausedAt: null, budgetTrippedAt: null, budgetTrippedReason: null, breakers: [breaker] },
-      NOW,
-    );
+    const b = holdFrom({ model: RUNNING, breakers: [breaker] }, NOW);
     expect(b?.kind).toBe("breaker");
     expect(b?.label).toBe("understanding paused — provider errors, retrying in 12 min");
     expect(b?.until_ms).toBe(breaker.untilMs);
@@ -624,9 +633,7 @@ describe("FIX-C5 — a stopped pipeline never says 'caught up'", () => {
     expect(
       holdFrom(
         {
-          modelActivityPausedAt: null,
-          budgetTrippedAt: null,
-          budgetTrippedReason: null,
+          model: RUNNING,
           breakers: [
             {
               lane: "llm:enrichment",
@@ -644,12 +651,7 @@ describe("FIX-C5 — a stopped pipeline never says 'caught up'", () => {
   });
 
   it("holdFrom: nothing holding it is null — the only licence to say 'caught up'", () => {
-    expect(
-      holdFrom(
-        { modelActivityPausedAt: null, budgetTrippedAt: null, budgetTrippedReason: null, breakers: [] },
-        NOW,
-      ),
-    ).toBeNull();
+    expect(holdFrom({ model: RUNNING, breakers: [] }, NOW)).toBeNull();
     expect(formatUntil(30_000)).toBe("under a minute");
     expect(formatUntil(-5)).toBe("any moment");
     expect(formatUntil(90 * 60_000)).toBe("2 hours");

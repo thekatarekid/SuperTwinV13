@@ -333,7 +333,7 @@ export type FreshnessStatus =
 
 /** Why understanding is stopped (worker/src/freshness/hold.ts). */
 export interface UnderstandingHold {
-  kind: "stopped" | "budget" | "breaker";
+  kind: "kill-switch" | "budget" | "breaker";
   /** The chip's phrase — "understanding paused — spend ceiling reached". */
   label: string;
   /** One line of why, ending in what lifts it. */

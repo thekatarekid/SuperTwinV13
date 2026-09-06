@@ -8,6 +8,7 @@ import {
   coverageGaps,
   FixtureError,
   loadDirectory,
+  MATERIALIZED_CASES,
   parseFixture,
   TOTAL_CASES,
   validateFixture,
@@ -146,16 +147,29 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 278 cases (72 from V1 minus SEG/CRI/CON/EXE, 206 from V2 incl. the V6P1 authored categories)", () => {
-    expect(TOTAL_CASES).toBe(278);
+  it("the doc-parsed half never moves; every authored category owns its own row", () => {
+    // THE TRIPWIRE IS ON WHAT THE DOCS OWN. `MATERIALIZED_CASES` — the cases
+    // --materialize parses out of the V1/V2 docs — is 147 and stays 147
+    // (materialize.test.ts pins the same number against the files on disk).
+    // TOTAL_CASES is NOT a fixed number: every V6 P1 task lands an `authored`
+    // category of its own, so a hard-coded total would make each lane rewrite
+    // this line, and two lanes landing in one stage would fight over it. What
+    // is asserted instead is the invariant between the two constants, the V1
+    // half (nothing is being added there), and one row per category below —
+    // which is the assertion that actually catches a typo'd `n` or `pass`.
+    expect(MATERIALIZED_CASES).toBe(147);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(72);
-    // 206: 201 through S4.4 (LIV-07 authored on the LIV row), plus BRF (2) and
-    // GATE-A (3).
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(206);
+    expect(TOTAL_CASES).toBe(
+      MATERIALIZED_CASES +
+        CATEGORIES.filter((c) => c.authored).reduce((s, c) => s + c.n, 0) +
+        CATEGORIES.reduce((s, c) => s + (c.authoredExtra ?? 0), 0),
+    );
     // V6 P1 S5.3 — the derived calendar, five code cases on the `calendar` pass.
     expect(CATEGORIES.find((c) => c.cat === "CAL")).toMatchObject({ n: 5, pass: "calendar", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "TIER")?.n).toBe(4);
     expect(CATEGORIES.find((c) => c.cat === "DIG")?.n).toBe(2);
+    // V6 P1 S4.6 — the brief, two code cases on the `brief` pass.
+    expect(CATEGORIES.find((c) => c.cat === "BRF")).toMatchObject({ n: 2, pass: "brief", authored: true });
     expect(CATEGORIES.some((c) => c.cat === "SEG")).toBe(false);
     expect(CATEGORIES.some((c) => c.cat === "BND")).toBe(true);
     expect(CATEGORIES.find((c) => c.cat === "CON")?.authored).toBe(true);

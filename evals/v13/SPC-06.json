@@ -1,0 +1,37 @@
+{
+  "id": "SPC-06",
+  "category": "SPC",
+  "title": "graduation",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "Fourteen measured days, each green on both gates (over-creation < 10%, zero false auto-merges) with real proposals in the window. Then, two days after graduating, a day carrying a reversed auto-merge.",
+    "graduation_mode": "propose",
+    "clean_days": 14,
+    "proposals_per_day": 3
+  },
+  "input_events": [
+    "Fourteen clean days on the gates, then a false auto-merge two days after the flip."
+  ],
+  "expected": {
+    "after_clean_weeks": { "flipped": "graduated", "mode": "auto", "born_status": "active" },
+    "after_false_merge": { "flipped": "reset", "mode": "propose", "born_status": "proposed", "consecutive_green": 0 },
+    "decision_flips": ["auto", "propose"],
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "graduates-on-silence",
+      "assert_absent": "an install graduating on fourteen days with no proposals in them"
+    },
+    {
+      "label": "clock-not-reset",
+      "assert_absent": "auto-create surviving a false auto-merge"
+    }
+  ],
+  "gates": ["false_auto_merge", "over_creation"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-06 · graduation"
+  }
+}

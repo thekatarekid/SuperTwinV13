@@ -1,0 +1,36 @@
+{
+  "id": "SPC-02",
+  "category": "SPC",
+  "title": "asked-for is never proposed",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "Propose-only mode is ON (the fresh-install default). Propose-only governs INFERENCE, not instruction: a space the user asks for in the bar is created active at once, swept, and shown.",
+    "graduation_mode": "propose",
+    "utterance": "plan hampi trek in october",
+    "thread_id": "th_bar_1"
+  },
+  "input_events": [
+    { "surface": "bar", "text": "plan hampi trek in october" }
+  ],
+  "expected": {
+    "status": "active",
+    "born_via": "asked",
+    "created_by": "user",
+    "label": "hampi trek in october",
+    "shown_in_list": true,
+    "swept": true,
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "proposed-anyway",
+      "assert_absent": "a space the user asked for sitting in the review queue"
+    }
+  ],
+  "gates": ["over_creation"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-02 · asked-for is never proposed"
+  }
+}

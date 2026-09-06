@@ -7,11 +7,11 @@
 // `claude` spawn. It does not expire, it survives restart, and only this
 // switch releases it. In-flight work finishes; nothing new starts.
 //
-// Space creation reads honestly for the shipped default: the twin CREATES new
-// spaces, and propose-only is the setting you turn on if you would rather vet
-// each one first. The over-creation streak is still shown — it is a health
-// read now, not a gate anything is waiting on (worker consolidation/
-// graduation.ts).
+// Space creation (V6 P1 S5.1): PROPOSE-ONLY is the default — inferred spaces
+// wait in Review until approved — and the install graduates to auto-create
+// after two clean weeks on the gates (no false merges, no over-creation). A
+// false merge afterwards resets the clock. The switch is still yours either
+// way, and a hand-set choice is sticky (worker consolidation/graduation.ts).
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
@@ -153,13 +153,13 @@ export function GeneralPanel(): JSX.Element {
           </div>
           <p className="meta">
             {auto
-              ? "Auto-create is the default. Every creation is a reversible decision — open a space and undo it, or switch to propose-only to approve each one first."
-              : "New spaces queue for your approval in Review. Switch back to auto-create whenever you like; anything already waiting stays in the queue either way."}
+              ? "Every creation is a reversible decision — open a space and undo it, or switch to propose-only to approve each one first. A false merge sends the twin back to propose-only on its own."
+              : "New spaces the twin infers queue for your approval in Review; anything you ask for in the bar is created at once. After two clean weeks the twin graduates to auto-create — or switch now."}
           </p>
           <p className="meta">
             Filing health: gates green {grad.consecutive_green}/{grad.required_days} days
-            {grad.window_proposals !== undefined && ` · ${grad.window_proposals} in the window`}. For
-            your information — it no longer gates this switch.
+            {grad.window_proposals !== undefined && ` · ${grad.window_proposals} in the window`}.
+            {auto ? " A false auto-merge resets the clock." : " Fourteen clean days flips the switch for you."}
           </p>
         </>
       )}

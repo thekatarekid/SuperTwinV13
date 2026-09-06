@@ -1,0 +1,37 @@
+{
+  "id": "SPC-05",
+  "category": "SPC",
+  "title": "the sweep pulls the justifying utterance",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "A space born from the bar keeps the sentence that asked for it as its birth evidence, and remembers the bar thread that sentence lives in. \"why?\" on the space reads both: the quote is shown verbatim, and opening it reopens the thread.",
+    "utterance": "start tracking the ITR filing for FY26",
+    "thread_id": "th_bar_9"
+  },
+  "input_events": [
+    { "surface": "bar", "text": "start tracking the ITR filing for FY26" }
+  ],
+  "expected": {
+    "birth_via": "asked",
+    "evidence_quote": "start tracking the ITR filing for FY26",
+    "thread_id": "th_bar_9",
+    "why_decision_action": "create",
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "paraphrased-evidence",
+      "assert_absent": "birth evidence that rewrites the user's sentence instead of quoting it"
+    },
+    {
+      "label": "orphan-why",
+      "assert_absent": "a space whose why-panel cannot reach the bar thread it was born in"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-05 · the sweep pulls the justifying utterance"
+  }
+}

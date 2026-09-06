@@ -133,6 +133,10 @@ import { handleSurfacesRoute } from "./surfaces-routes.js";
 // World-model reads (P1.1): people / spaces / claims / tone. Same contract —
 // returns false for a path it does not claim.
 import { handleWorldModelRoute } from "./worldmodel-routes.js";
+// V6 P1 S5.1: the Spaces list/view/sweep-preview/wake/enrichment/refile routes
+// — claims its own /api/spaces/* subpaths and returns false for the rest
+// (worldmodel owns /api/spaces and /api/spaces/:id/claims).
+import { handleSpacesRoute } from "./spaces-routes.js";
 import { handleCalendarRoute } from "./calendar-routes.js";
 // V6 P1 S5.2: the ONE prioritized task list and the one-tap closure answers —
 // claims GET /api/tasks and /api/tasks/:id/(done|cancel|not-yet) only.
@@ -911,6 +915,14 @@ async function handle(
   // Settings › Calendar.
   if (path.startsWith("/api/calendar") || path === "/api/settings/calendar") {
     const handled = await handleCalendarRoute(req, res);
+    if (handled) return;
+  }
+
+  // Spaces surfaces (V6 P1 S5.1): list by life area, view, sweep preview,
+  // wake, enrichment, re-file. Before world-model so its subpaths are claimed
+  // first.
+  if (path.startsWith("/api/spaces/")) {
+    const handled = await handleSpacesRoute(req, res);
     if (handled) return;
   }
 

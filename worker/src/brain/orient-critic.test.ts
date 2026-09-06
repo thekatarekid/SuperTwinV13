@@ -226,22 +226,25 @@ describe("runBrainTick — full tick with stubbed provider", () => {
       summary: string;
     }[];
     expect(eps).toHaveLength(3); // new episode + proposal episode + unsorted episode
-    // Auto-create (the default): the new space is born ACTIVE. The born-status
-    // comes from proposedStatus() alone — never from the model — and flips to
-    // 'proposed' only while the user has propose-only on (Settings › General).
-    const spaces = db.prepare(`SELECT label, status FROM spaces`).all() as {
+    // Propose-only (the V6 P1 default, S5.1): an inferred space is born
+    // PROPOSED for the review queue. The born-status comes from
+    // proposedStatus() alone — never from the model — and becomes 'active'
+    // once the install graduates (two clean weeks) or the user flips it.
+    const spaces = db.prepare(`SELECT label, status, born_via FROM spaces`).all() as {
       label: string;
       status: string;
+      born_via: string | null;
     }[];
-    expect(spaces).toEqual([{ label: "Goa trip in December", status: "active" }]);
+    expect(spaces).toEqual([{ label: "Goa trip in December", status: "proposed", born_via: "inferred" }]);
     // Unsorted row for e3.
     expect(db.prepare(`SELECT COUNT(*) AS n FROM unsorted`).get()).toEqual({ n: 1 });
     // Every derived-object change wrote a decisions row.
     const decisions = db
       .prepare(`SELECT target_kind, action FROM decisions ORDER BY created_at`)
       .all() as { target_kind: string; action: string }[];
-    // Auto-create records a 'create'; propose-only would record a 'propose'.
-    expect(decisions.some((d) => d.target_kind === "space" && d.action === "create")).toBe(true);
+    // Propose-only records a 'propose' (auto-create would record a 'create').
+    expect(decisions.some((d) => d.target_kind === "space" && d.action === "propose")).toBe(true);
+    expect(decisions.some((d) => d.target_kind === "space" && d.action === "create")).toBe(false);
     expect(decisions.filter((d) => d.target_kind === "episode")).not.toHaveLength(0);
     // The bundle is marked dispatched (cursor moved, events stamped).
     expect(

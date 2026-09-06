@@ -433,7 +433,11 @@ export function applyDormancy(now: Date, report: T2Report): void {
     .all(cutoff) as { id: string; status: string }[];
   for (const s of stale) {
     db.prepare(
-      `UPDATE spaces SET status = 'dormant', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      // S5.1: stamp the dormancy clock the WOKEN birth reads back
+      // (spaces/birth.ts wakeSpace → "reactivated with its old evidence").
+      `UPDATE spaces SET status = 'dormant',
+              dormant_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE id = ? AND status = 'active'`,
     ).run(s.id);
     writeDecision({

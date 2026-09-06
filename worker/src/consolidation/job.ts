@@ -27,6 +27,7 @@ import { sweepSpaceOnActivation, unsweptActiveSpaces } from "./sweep.js";
 import { runT2 } from "./t2.js";
 import { machineIdleAndOnPower, runT3, t3Due } from "./t3.js";
 import { checkGraduation } from "./graduation.js";
+import { reviewUnsortedWeekly, unsortedReviewDue } from "../spaces/unsorted.js";
 
 export interface ConsolidationJobHandle {
   stop(): void;
@@ -102,11 +103,31 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
         log(`[consolidation] decide drain failed: ${(err as Error).message}`);
       }
 
-      // Over-creation bookkeeping: cheap, code-only, must run whether or not
-      // the machine ever idles — so it rides the minute tick, not T3. It only
-      // MEASURES: auto-create is the default and nothing here changes the mode.
+      // S5.1: the weekly unsorted review — a lookup before it is a call. Due
+      // every seven days; an unchanged unsorted skips outright with zero
+      // calls (SPC-07). Births re-review unsorted on their own via the sweep.
       try {
-        checkGraduation();
+        if (unsortedReviewDue()) {
+          const r = await reviewUnsortedWeekly(deps);
+          if (r.skipped) log("[consolidation] unsorted weekly review: nothing landed since the last review — no call");
+          else
+            log(
+              `[consolidation] unsorted weekly review: ${r.changedRows} changed, ` +
+                `${r.spacesReviewed} space(s) reviewed, ${r.attached} attached`,
+            );
+        }
+      } catch (err) {
+        log(`[consolidation] unsorted review failed: ${(err as Error).message}`);
+      }
+
+      // Graduation bookkeeping (S5.1): measure yesterday's gates, graduate
+      // propose-only to auto-create after two clean weeks, reset on a false
+      // merge. Code-only, must run whether or not the machine ever idles — so
+      // it rides the minute tick, not T3.
+      try {
+        const g = checkGraduation();
+        if (g.flipped === "graduated") log("[consolidation] graduation: two clean weeks — space creation is now auto");
+        if (g.flipped === "reset") log("[consolidation] graduation: false auto-merge — back to propose-only, clock reset");
       } catch (err) {
         log(`[consolidation] graduation check failed: ${(err as Error).message}`);
       }

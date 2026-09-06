@@ -1,0 +1,36 @@
+{
+  "id": "SPC-03",
+  "category": "SPC",
+  "title": "birth dedupe on user-created",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "`sp_goa_dec` is live. Birth is deduped by the critic EVEN for user-created spaces: the bar's create path consults the same dedupe and asks instead of minting a second row.",
+    "existing_space": { "id": "sp_goa_dec", "label": "goa trip", "status": "active" },
+    "utterance": "plan a goa trip"
+  },
+  "input_events": [
+    { "surface": "bar", "text": "plan a goa trip" }
+  ],
+  "expected": {
+    "outcome": "ask",
+    "duplicate_of": "sp_goa_dec",
+    "spaces_after": 1,
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "duplicate-space",
+      "assert_absent": "a second space beside sp_goa_dec for the same trip"
+    },
+    {
+      "label": "silent-attach",
+      "assert_absent": "the utterance filed into the existing space without asking"
+    }
+  ],
+  "gates": ["over_creation"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-03 · birth dedupe on user-created"
+  }
+}

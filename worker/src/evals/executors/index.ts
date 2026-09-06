@@ -38,6 +38,7 @@ import { claimsExecutor } from "./fact.js";
 import { liveExecutor } from "./liv.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
+import { spacesExecutor } from "./spc.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -53,6 +54,7 @@ export { criExecutor } from "./cri.js";
 export { conExecutor } from "./con.js";
 export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
+export { spacesExecutor } from "./spc.js";
 export {
   backfillExecutor,
   consolidateExecutor,
@@ -176,4 +178,10 @@ export async function registerProductExecutors(): Promise<void> {
   // tasks/closure-rules.ts, tasks/wakeups.ts and the real decide / next-step
   // passes on canned output. Zero model calls.
   registerExecutor("tasks", tskExecutor);
+  // V6 P1 S5.1: SPC space cases (inferred birth in propose-only with the sweep
+  // preview, asked-for never proposed, dedupe on user-created, woken with its
+  // old evidence, the justifying utterance, graduation and its reset, the
+  // weekly unsorted review on change only, enrichment on change only) — against
+  // brain/commit.ts, spaces/* and consolidation/graduation.ts. Zero model calls.
+  registerExecutor("space", spacesExecutor);
 }

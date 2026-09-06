@@ -1147,7 +1147,7 @@ export const saveSettingsAssist = (
 
 export interface GraduationSettings {
   mode: "propose" | "auto";
-  /** What a fresh install does — "auto" since the auto-create default landed. */
+  /** What a fresh install does — "propose" (V6 P1 S5.1: graduates to auto after two clean weeks). */
   default_mode?: "propose" | "auto";
   reverted: boolean;
   required_days: number;
@@ -1689,3 +1689,161 @@ export const saveCalendarSettings = (
   circles: Record<string, Partial<CalendarCirclePolicy>>,
 ): Promise<{ circles: Record<string, CalendarCirclePolicy> }> =>
   request("/api/settings/calendar", post({ circles }));
+
+// ---------------------------------------------------------------------------
+// Spaces (V6 P1 S5.1) — the list by life area, the view with why-targets on
+// every element, the sweep preview, wake, and the re-file drag.
+// ---------------------------------------------------------------------------
+
+/** A space row as the Spaces list serves it: the stored row plus its decorations. */
+export interface SpaceListRow extends SpaceRow {
+  area: string;
+  summary: string | null;
+  latest: string | null;
+  latest_ts: string | null;
+  born_via: "inferred" | "asked" | "woken" | null;
+  task_count: number;
+  next_action: string | null;
+  freshness: string | null;
+  people: string[];
+}
+
+export interface SpacesList {
+  areas: { area: string; spaces: SpaceListRow[] }[];
+  /** Dormant spaces, collapsed by default. */
+  dormant: SpaceListRow[];
+}
+
+export interface SpaceBirthEvidence {
+  quote: string;
+  event_ids: string[];
+  thread_id?: string | null;
+}
+
+export interface SpaceViewChapter {
+  id: string;
+  label: string;
+  status: string;
+  target_date: string | null;
+  summary: string | null;
+}
+
+export interface SpaceViewTask {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  owner: string | null;
+  due: string | null;
+  chapter_id: string | null;
+  evidence_json: string | null;
+  confidence: number | null;
+}
+
+export interface SpaceViewEpisode {
+  id: string;
+  summary: string | null;
+  state: string;
+  first_ts: string | null;
+  last_ts: string | null;
+  chapter_id: string | null;
+  stream_id: string | null;
+  quotes: { event_id: string; ts: string | null; actor: string | null; text: string | null }[];
+}
+
+export interface SpaceEnrichment {
+  id: string;
+  kind: string;
+  url: string;
+  content_hash: string;
+  summary: string | null;
+  fetched_at: string;
+  changed_at: string;
+  fetch_count: number;
+}
+
+export interface SpaceView {
+  space: SpaceRow & {
+    summary: string | null;
+    latest: string | null;
+    latest_ts: string | null;
+    plan_json: string | null;
+    born_via: "inferred" | "asked" | "woken" | null;
+    birth_evidence_json: string | null;
+    bar_thread_id: string | null;
+    dormant_at: string | null;
+    woken_at: string | null;
+  };
+  area: string;
+  plan: unknown;
+  /** Chapters with a target date — [] when the goal has no stages. */
+  milestones: SpaceViewChapter[];
+  chapters: SpaceViewChapter[];
+  tasks: SpaceViewTask[];
+  follow_ups: { id: string; kind: string; payload: unknown; status: string; task_id: string | null }[];
+  episodes: SpaceViewEpisode[];
+  enrichments: SpaceEnrichment[];
+  people: string[];
+  birth: {
+    via: "inferred" | "asked" | "woken" | null;
+    evidence: SpaceBirthEvidence[];
+    thread_id: string | null;
+    woken_at: string | null;
+  };
+}
+
+export interface SweepPreview {
+  spaceId: string;
+  count: number;
+  items: { episodeId: string; summary: string | null; lastTs: string | null; source: "unsorted" | "log" }[];
+  /** "will pull in 3 related items" — what the proposal card shows. */
+  line: string;
+}
+
+/** The fourteen default life areas, plus the "Other" bucket the list ends with. */
+export const LIFE_AREAS = [
+  "Work",
+  "Health",
+  "Money",
+  "Admin",
+  "People",
+  "Home",
+  "Travel",
+  "Shopping",
+  "Content",
+  "Learning",
+  "Hobbies",
+  "Events",
+  "Community",
+  "Safety",
+] as const;
+export const OTHER_AREA = "Other";
+
+export const fetchSpacesList = (): Promise<SpacesList> => request("/api/spaces/list");
+export const fetchSpaceView = (id: string): Promise<SpaceView> =>
+  request(`/api/spaces/${encodeURIComponent(id)}/view`);
+export const fetchSweepPreview = (id: string): Promise<SweepPreview> =>
+  request(`/api/spaces/${encodeURIComponent(id)}/sweep-preview`);
+
+export interface RefileOutcome {
+  moved: boolean;
+  decisionId: string | null;
+  from: string | null;
+  to: string | null;
+  reason?: string;
+}
+
+/** The drag in the list: a space card dropped on another life area. */
+export const refileSpace = (id: string, lifeArea: string): Promise<RefileOutcome> =>
+  request(`/api/spaces/${encodeURIComponent(id)}/refile`, post({ life_area: lifeArea }));
+
+/** The drag in the view: an episode dropped on another space (null → unsorted). */
+export const refileEpisode = (
+  spaceId: string,
+  episodeId: string,
+  toSpaceId: string | null,
+): Promise<RefileOutcome> =>
+  request(`/api/spaces/${encodeURIComponent(spaceId)}/refile`, post({ episode_id: episodeId, to_space_id: toSpaceId }));
+
+export const wakeSpace = (id: string, signal = "user"): Promise<{ woke: boolean; reason?: string }> =>
+  request(`/api/spaces/${encodeURIComponent(id)}/wake`, post({ signal }));

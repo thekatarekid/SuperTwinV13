@@ -679,10 +679,13 @@ export function commitTick(input: CommitInput): CommitReport {
       // The status a pass may write comes from ONE guard, never from the
       // model: "active" by default, "proposed" under propose-only.
       const bornStatus = proposedStatus();
+      // S5.1: an inferred birth remembers how it was born and the evidence
+      // that justified it (the founding quotes) — the proposal card and the
+      // space view's "why?" read them back.
       db.prepare(
         `INSERT INTO spaces (id, label, life_area, goal, status, exemplars_json, created_by, confidence,
-                             updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'orient', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+                             born_via, birth_evidence_json, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'orient', ?, 'inferred', ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
       ).run(
         spaceId,
         p.label,
@@ -691,6 +694,9 @@ export function commitTick(input: CommitInput): CommitReport {
         bornStatus,
         JSON.stringify([p.summary]),
         p.confidence,
+        JSON.stringify(
+          p.evidence.map((e) => ({ quote: e.quote, event_ids: e.event_ids.map((a) => resolveRows([a])[0]?.id ?? a) })),
+        ),
       );
       report.createdSpaces.push(spaceId);
       decide("space", spaceId, bornStatus === "active" ? "create" : "propose", {

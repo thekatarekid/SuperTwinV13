@@ -1,0 +1,41 @@
+{
+  "id": "SPC-04",
+  "category": "SPC",
+  "title": "woken",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "`sp_ma_bday` went dormant after 30 quiet days, keeping one episode and one open task. The calendar's lead-time tick reaches T-14 on Ma's birthday and wakes it. Waking re-activates the SAME row with its old evidence — nothing is re-derived, nothing is re-created.",
+    "space": { "id": "sp_ma_bday", "label": "ma's birthday", "status": "dormant", "life_area": "People" },
+    "episodes": 1,
+    "open_tasks": 1,
+    "signal": "calendar lead time T-14"
+  },
+  "input_events": [
+    { "kind": "calendar.lead_time", "text": "Ma's birthday is 14 days out" }
+  ],
+  "expected": {
+    "woke": true,
+    "status": "active",
+    "old_evidence": { "episodes": 1, "open_tasks": 1 },
+    "episodes_still_attached": 1,
+    "sweep_rearmed": true,
+    "decide_requeued": 1,
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "reborn",
+      "assert_absent": "a second space for Ma's birthday instead of the dormant one waking"
+    },
+    {
+      "label": "evidence-lost",
+      "assert_absent": "a woken space that lost the episodes or open tasks it slept with"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-04 · woken"
+  }
+}

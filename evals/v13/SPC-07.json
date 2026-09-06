@@ -1,0 +1,36 @@
+{
+  "id": "SPC-07",
+  "category": "SPC",
+  "title": "unsorted reviewed on change only",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "One unsorted episode that landed BEFORE the last weekly review, and an active space its terms match. The cadence says the review is due; the change watermark says nothing landed since. A lookup answers before a call is made.",
+    "unsorted_open": 1,
+    "last_review_at": "2026-09-01T00:00:00.000Z",
+    "now": "2026-09-10T00:00:00.000Z"
+  },
+  "input_events": [
+    "The weekly review fires with nothing written into unsorted since the last one.",
+    "Then one new episode lands in unsorted and the review fires again."
+  ],
+  "expected": {
+    "unchanged": { "skipped": true, "model_calls": 0 },
+    "changed": { "skipped": false, "model_calls": 1, "spaces_reviewed": 1 }
+  },
+  "wrong": [
+    {
+      "label": "clock-driven-call",
+      "assert_absent": "a review call made on an unsorted pile with nothing written since the last review"
+    },
+    {
+      "label": "every-row-every-space",
+      "assert_absent": "one call per space per row instead of one bounded call per space with candidates"
+    }
+  ],
+  "gates": ["clock_only_call"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-07 · unsorted reviewed on change only"
+  }
+}

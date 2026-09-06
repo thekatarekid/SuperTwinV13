@@ -64,7 +64,11 @@ function ftsQueryFor(label: string, goal: string | null): string | null {
   return [...new Set(words)].map((w) => `"${w}"`).join(" OR ");
 }
 
-/** Unsorted open episodes + log retrieval over spaceless episodes. */
+/**
+ * Unsorted episodes (open first, then the 30-day archived ones — "still
+ * sweepable when a space is finally born", Product_V6 §11.10) + log retrieval
+ * over spaceless episodes.
+ */
 export function sweepCandidates(spaceId: string): string[] {
   const db = getDb();
   const space = db.prepare(`SELECT label, goal FROM spaces WHERE id = ?`).get(spaceId) as
@@ -77,8 +81,8 @@ export function sweepCandidates(spaceId: string): string[] {
     .prepare(
       `SELECT u.episode_id FROM unsorted u
         JOIN episodes e ON e.id = u.episode_id
-        WHERE u.status = 'open' AND e.space_id IS NULL
-        ORDER BY u.created_at DESC LIMIT ?`,
+        WHERE u.status IN ('open','archived') AND e.space_id IS NULL
+        ORDER BY (u.status = 'open') DESC, u.created_at DESC LIMIT ?`,
     )
     .all(SWEEP_CANDIDATE_CAP) as { episode_id: string }[];
   for (const r of unsorted) {
@@ -138,7 +142,7 @@ export function attachEpisode(
     `UPDATE unsorted
         SET status = 'claimed', claimed_by_space_id = ?,
             resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-      WHERE episode_id = ? AND status = 'open'`,
+      WHERE episode_id = ? AND status IN ('open','archived')`,
   ).run(spaceId, episodeId);
   writeDecision({
     runId,

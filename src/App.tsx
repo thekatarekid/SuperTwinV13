@@ -1,9 +1,9 @@
 // ===========================================================================
 // SuperTwinV13 shell — build P1.7 (spec §14.1, §14.2, §14.4, §14.6).
 //
-// Translucent liquid-glass main window: top-center pill nav (Home · Calendar
-// · Timeline · Library · People · Settings, ⌘1-6), the Home sections, the one modal
-// system, the
+// Translucent liquid-glass main window: top-center pill nav (Home · Spaces ·
+// Calendar · Timeline · Library · People · Settings, ⌘1-N), the Home sections,
+// the one modal system, the
 // grounded bar (collapsed + context-locked states), and the feedback loop —
 // every correction path (drag, chips, "Tell the twin") posts through
 // /api/corrections and surfaces an undo chip.
@@ -42,6 +42,7 @@ import { Library } from "./screens/Library";
 import { People } from "./screens/People";
 import { Timeline } from "./screens/Timeline";
 import { Settings } from "./screens/Settings";
+import { Spaces } from "./screens/Spaces";
 import { ArtifactModal } from "./modals/ArtifactModal";
 import { ClaimModal } from "./modals/ClaimModal";
 import { ProposalModal } from "./modals/ProposalModal";
@@ -50,6 +51,8 @@ import { TaskModal } from "./modals/TaskModal";
 
 const TABS = [
   { id: "home", label: "⌂ Home" },
+  // V6 P1 S5.1: spaces by life area, with the why-panel and drag to re-file.
+  { id: "spaces", label: "◈ Spaces" },
   // V6 P1 S5.3: the derived calendar — four layers, shown alone or together.
   { id: "calendar", label: "▦ Calendar" },
   { id: "timeline", label: "◷ Timeline" },
@@ -102,7 +105,7 @@ export function App(): JSX.Element {
     void refresh();
   }, [refresh]);
 
-  // Esc walks back one layer; ⌘1-6 switch tabs (spec §14.1.3).
+  // Esc walks back one layer; ⌘1-N switch tabs (spec §14.1.3).
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (e.key === "Escape") {
@@ -111,7 +114,7 @@ export function App(): JSX.Element {
         else void hideMainWindow();
         return;
       }
-      if (e.metaKey && e.key >= "1" && e.key <= "6") {
+      if (e.metaKey && e.key >= "1" && e.key <= String(TABS.length)) {
         const next = TABS[Number(e.key) - 1];
         if (next) {
           e.preventDefault();
@@ -264,6 +267,7 @@ export function App(): JSX.Element {
             }
           />
         )}
+        {tab === "spaces" && <Spaces onTellTwin={(id, label) => lockTo("space", id, label)} />}
         {tab === "calendar" && <Calendar onOpenSpace={openSpaceById} />}
         {tab === "timeline" && <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />}
         {tab === "library" && <Library />}

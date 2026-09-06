@@ -1,0 +1,62 @@
+{
+  "id": "SPC-01",
+  "category": "SPC",
+  "title": "inferred birth in propose-only",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "Fresh install: space creation is PROPOSE-ONLY (the V6 P1 default). Orient sees the goal across a WhatsApp chat, three Airbnb visits and one Goibibo screen and PROPOSES a space; the three browser/screen items are filed to unsorted, so the sweep the proposal card previews has exactly three related items to offer.",
+    "graduation_mode": "propose",
+    "orient": {
+      "episodes": [],
+      "proposals": [
+        {
+          "label": "Goa trip in December",
+          "life_area": "Travel",
+          "goal": "plan the goa trip, 18-21 dec",
+          "stream": "S1",
+          "events": ["e1"],
+          "summary": "Goa 18-21 Dec being planned",
+          "evidence": [{ "event_ids": ["e1"], "quote": "lets lock goa 18-21 dec" }],
+          "confidence": 0.86
+        }
+      ],
+      "unsorted": [
+        { "stream": "S2", "events": ["e2"], "summary": "airbnb anjuna villa", "reason": "no goal evidence yet", "confidence": 0.5 },
+        { "stream": "S2", "events": ["e3"], "summary": "airbnb vagator villa", "reason": "no goal evidence yet", "confidence": 0.5 },
+        { "stream": "S2", "events": ["e4"], "summary": "airbnb candolim villa", "reason": "no goal evidence yet", "confidence": 0.5 }
+      ],
+      "questions": []
+    },
+    "critic": { "verdicts": [] }
+  },
+  "input_events": [
+    { "stream": "S1", "actor": "contact:rohan", "text": "guys lets lock goa 18-21 dec" },
+    { "stream": "S2", "actor": "self", "text": "airbnb anjuna villa" },
+    { "stream": "S2", "actor": "self", "text": "airbnb vagator villa" },
+    { "stream": "S2", "actor": "self", "text": "airbnb candolim villa" }
+  ],
+  "expected": {
+    "status": "proposed",
+    "born_via": "inferred",
+    "in_review_queue": true,
+    "sweep_preview_count": 3,
+    "sweep_preview_line": "will pull in 3 related items",
+    "model_calls": 0
+  },
+  "wrong": [
+    {
+      "label": "auto-created",
+      "assert_absent": "a space born active while the install is still in propose-only mode"
+    },
+    {
+      "label": "preview-is-a-call",
+      "assert_absent": "a model call made to show what the sweep would pull in"
+    }
+  ],
+  "gates": ["over_creation"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-01 · inferred birth in propose-only"
+  }
+}

@@ -6,10 +6,10 @@
 //                claim compression (evidence preserved in the decision row),
 //                ephemeral expiry (reversible decision), summary re-queue,
 //                eval hook, and the due/last-run bookkeeping.
-//   spaces:      a fresh install AUTO-CREATES (no app_state row → "auto"),
-//                daily over-creation metrics from the decisions ledger are
-//                informational only, propose-only is opt-in and sticky, and
-//                the commit path's born-status follows the switch.
+//   spaces:      a fresh install is PROPOSE-ONLY (V6 P1 S5.1), two clean
+//                weeks on the gates graduate it to auto-create, a false
+//                auto-merge resets the clock, the user's hand-set choice is
+//                sticky both ways, and the commit path's born-status follows.
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -252,20 +252,21 @@ function dayStr(base: Date, back: number): string {
   return new Date(base.getTime() - back * 86_400_000).toISOString().slice(0, 10);
 }
 
-describe("space-creation mode", () => {
+describe("space-creation mode (V6 P1 S5.1: propose-only → graduation → reset)", () => {
   const now = new Date("2026-08-28T09:00:00Z");
 
-  it("a FRESH INSTALL auto-creates: no app_state row, spaces born active", () => {
-    // Nothing written to app_state — this is the out-of-the-box state.
+  it("a FRESH INSTALL is PROPOSE-ONLY: no app_state row, inferred spaces born proposed", () => {
     expect(appStateGet(GRADUATION_MODE_KEY)).toBeNull();
-    expect(DEFAULT_GRADUATION_MODE).toBe("auto");
-    expect(graduationMode()).toBe("auto");
-    expect(spaceCreationStatus()).toBe("active");
-    expect(proposedStatus()).toBe("active"); // the commit path follows
+    expect(DEFAULT_GRADUATION_MODE).toBe("propose");
+    expect(graduationMode()).toBe("propose");
+    expect(spaceCreationStatus()).toBe("proposed");
+    expect(proposedStatus()).toBe("proposed"); // the commit path follows
 
-    // And nothing has to be earned first: zero measured days, still auto.
+    // Zero measured days: nothing graduates, nothing flips.
     expect(consecutiveGreenDays(now)).toBe(0);
-    expect(checkGraduation(now).mode).toBe("auto");
+    const check = checkGraduation(now);
+    expect(check.mode).toBe("propose");
+    expect(check.flipped).toBeNull();
   });
 
   it("measures a day's gates from the decisions ledger", () => {
@@ -286,10 +287,7 @@ describe("space-creation mode", () => {
     expect(recordGraduationMetrics(day3).gatesOk).toBe(true);
   });
 
-  it("reports the streak as INFORMATION — a green window changes nothing", () => {
-    // 14 green days ending yesterday: under the old build this graduated the
-    // install and announced it. Auto-create is the default now, so a clean
-    // window is a health read and nothing more.
+  it("two clean weeks graduate propose-only to auto-create — one decision row (SPC-06)", () => {
     for (let back = 1; back <= GRADUATION_REQUIRED_DAYS; back++) {
       const day = dayStr(now, back);
       seedDay(day, 3, 0);
@@ -300,20 +298,22 @@ describe("space-creation mode", () => {
     const check = checkGraduation(now);
     expect(check.consecutiveGreen).toBe(GRADUATION_REQUIRED_DAYS);
     expect(check.windowProposals).toBe(3 * GRADUATION_REQUIRED_DAYS);
+    expect(check.flipped).toBe("graduated");
     expect(check.mode).toBe("auto");
+    expect(graduationMode()).toBe("auto");
+    expect(spaceCreationStatus()).toBe("active");
+    const dec = getDb()
+      .prepare(`SELECT pass, new_json FROM decisions WHERE target_kind = 'setting' AND target_id = ?`)
+      .all(GRADUATION_MODE_KEY) as { pass: string; new_json: string }[];
+    expect(dec).toHaveLength(1);
+    expect(dec[0]!.pass).toBe("code:graduation");
+    expect(JSON.parse(dec[0]!.new_json)).toEqual({ mode: "auto" });
 
-    // No mode write, and no "spaces now auto-create" announcement: the flip
-    // that used to fire here is gone with the default it existed to reach.
-    expect(appStateGet(GRADUATION_MODE_KEY)).toBeNull();
-    expect(
-      getDb()
-        .prepare(`SELECT COUNT(*) n FROM decisions WHERE target_kind = 'setting'`)
-        .get(),
-    ).toEqual({ n: 0 });
-    expect(getDb().prepare(`SELECT COUNT(*) n FROM artifacts`).get()).toEqual({ n: 0 });
+    // Idempotent: a second tick on the same window flips nothing.
+    expect(checkGraduation(now).flipped).toBeNull();
   });
 
-  it("a red day is still measured red, and still changes no mode", () => {
+  it("a red day inside the window does not graduate (over-creation gate)", () => {
     for (let back = 1; back <= GRADUATION_REQUIRED_DAYS; back++) {
       const day = dayStr(now, back);
       seedDay(day, 3, back === 7 ? 2 : 0); // day-7: 66% over-creation
@@ -321,36 +321,60 @@ describe("space-creation mode", () => {
     }
     const check = checkGraduation(now);
     expect(check.consecutiveGreen).toBeLessThan(GRADUATION_REQUIRED_DAYS);
-    expect(check.mode).toBe("auto"); // the metric never drives the switch
-    expect(spaceCreationStatus()).toBe("active");
+    expect(check.mode).toBe("propose");
+    expect(check.flipped).toBeNull();
+    expect(spaceCreationStatus()).toBe("proposed");
   });
 
-  it("propose-only is opt-in, sticky, and keeps the review queue working", () => {
-    // The user turns propose-only ON in Settings.
-    setGraduationMode("propose", "user");
-    expect(graduationMode()).toBe("propose");
-    expect(graduationUserReverted()).toBe(true);
-    expect(spaceCreationStatus()).toBe("proposed"); // new spaces queue for review
-    expect(proposedStatus()).toBe("proposed");
+  it("fourteen silent days prove nothing: no proposals, no graduation", () => {
+    for (let back = 1; back <= GRADUATION_REQUIRED_DAYS; back++) recordGraduationMetrics(dayStr(now, back));
+    expect(consecutiveGreenDays(now)).toBe(GRADUATION_REQUIRED_DAYS);
+    const check = checkGraduation(now);
+    expect(check.windowProposals).toBe(0);
+    expect(check.mode).toBe("propose");
+    expect(check.flipped).toBeNull();
+  });
 
-    // The choice is a decision row like every other change.
-    const dec = getDb()
-      .prepare(`SELECT * FROM decisions WHERE target_kind = 'setting' AND target_id = ?`)
-      .all(GRADUATION_MODE_KEY);
-    expect(dec).toHaveLength(1);
-
-    // A perfect 14-day window does NOT hand auto-create back behind their back.
+  it("a false auto-merge after graduation resets the clock — back to propose-only (SPC-06)", () => {
     for (let back = 1; back <= GRADUATION_REQUIRED_DAYS; back++) {
-      const day = dayStr(now, back);
-      seedDay(day, 3, 0);
-      recordGraduationMetrics(day);
+      seedDay(dayStr(now, back), 3, 0);
+      recordGraduationMetrics(dayStr(now, back));
+    }
+    expect(checkGraduation(now).mode).toBe("auto");
+
+    // Two days later a reversed auto-merge lands on "yesterday".
+    const later = new Date(now.getTime() + 2 * 86_400_000);
+    seedDay(dayStr(later, 1), 4, 0, 1);
+    const check = checkGraduation(later);
+    expect(check.flipped).toBe("reset");
+    expect(check.mode).toBe("propose");
+    expect(spaceCreationStatus()).toBe("proposed");
+    expect(check.consecutiveGreen).toBe(0); // the streak restarts
+    const flips = getDb()
+      .prepare(`SELECT new_json FROM decisions WHERE target_kind = 'setting' AND target_id = ? ORDER BY rowid`)
+      .all(GRADUATION_MODE_KEY) as { new_json: string }[];
+    expect(flips.map((f) => JSON.parse(f.new_json).mode)).toEqual(["auto", "propose"]);
+  });
+
+  it("the user's choice is sticky both ways — code never overrides it", () => {
+    // Propose-only by hand: a perfect window does NOT graduate behind their back.
+    setGraduationMode("propose", "user");
+    expect(graduationUserReverted()).toBe(true);
+    for (let back = 1; back <= GRADUATION_REQUIRED_DAYS; back++) {
+      seedDay(dayStr(now, back), 3, 0);
+      recordGraduationMetrics(dayStr(now, back));
     }
     expect(checkGraduation(now).mode).toBe("propose");
-    expect(graduationMode()).toBe("propose");
-    expect(spaceCreationStatus()).toBe("proposed");
+    expect(checkGraduation(now).flipped).toBeNull();
 
-    // And they can switch back by hand whenever they like.
+    // Auto by hand: a false merge is shown red but does not flip them back.
     setGraduationMode("auto", "user");
+    expect(graduationUserReverted()).toBe(false);
     expect(spaceCreationStatus()).toBe("active");
+    const later = new Date(now.getTime() + 2 * 86_400_000);
+    seedDay(dayStr(later, 1), 4, 0, 1);
+    const check = checkGraduation(later);
+    expect(check.flipped).toBeNull();
+    expect(check.mode).toBe("auto");
   });
 });

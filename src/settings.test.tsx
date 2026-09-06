@@ -5,8 +5,9 @@
 //   layout        the eight subtabs are ONE centred row above the panel, not a
 //                 vertical list inside it; the row does not live in the
 //                 scrolling panel and only the selected panel renders.
-//   auto-create   a fresh install creates spaces active; propose-only is the
-//                 opt-in, and the copy says which one you are in.
+//   graduation    a fresh install PROPOSES (V6 P1 S5.1) and graduates to
+//                 auto-create after two clean weeks; the copy says which one
+//                 you are in and what the streak buys.
 //   undo run      the link reads before it writes: a confirm names the blast
 //                 radius, and nothing is POSTed until it is accepted.
 //
@@ -44,12 +45,13 @@ function stubSettings(): WorkerStub {
     notifications_enabled: true,
     brief_times: ["08:30", "18:30"],
     appearance: "system",
-    graduation_mode: "auto",
+    graduation_mode: "propose",
   });
-  // The fresh-install shape the worker now serves: auto-create, nothing earned.
+  // The fresh-install shape the worker serves (V6 P1 S5.1): propose-only,
+  // graduating to auto-create after two clean weeks on the gates.
   stub.routes.set("/api/settings/graduation", {
-    mode: "auto",
-    default_mode: "auto",
+    mode: "propose",
+    default_mode: "propose",
     reverted: false,
     required_days: 14,
     consecutive_green: 0,
@@ -261,39 +263,39 @@ describe("Settings subtab row", () => {
 // ---------------------------------------------------------------------------
 
 describe("Settings › General", () => {
-  it("a fresh install reads as AUTO-CREATE, with propose-only offered", async () => {
+  it("a fresh install reads as PROPOSE-ONLY with the graduation streak, auto-create offered", async () => {
     stubSettings();
     render(<Settings />);
-    await waitFor(() => expect(screen.getByText(/Auto-create — the twin files/)).toBeTruthy());
-    expect(screen.getByRole("button", { name: /Switch to propose-only/ })).toBeTruthy();
-    // The old build promised auto-create only after a 14-day streak; the
-    // streak is now reported as information, not as a gate.
-    expect(screen.getByText(/no longer gates this switch/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Propose-only — new spaces wait/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: /Switch to auto-create/ })).toBeTruthy();
+    // The streak is the gate: two clean weeks graduate the install.
+    expect(screen.getByText(/0\/14 days/)).toBeTruthy();
+    expect(screen.getByText(/graduates to auto-create/)).toBeTruthy();
     // Version footer (cross-phase gate: version + built-through phase visible).
     expect(screen.getByText("v13.4.0 · built through P4")).toBeTruthy();
   });
 
-  it("propose-only reads as the review queue and can be switched back", async () => {
+  it("auto-create reads as graduated and can be switched back to propose-only", async () => {
     const stub = stubSettings();
     stub.routes.set("/api/settings/graduation", {
-      mode: "propose",
-      default_mode: "auto",
-      reverted: true,
+      mode: "auto",
+      default_mode: "propose",
+      reverted: false,
       required_days: 14,
-      consecutive_green: 9,
+      consecutive_green: 14,
       window_proposals: 40,
       min_proposals: 5,
       window: [],
     });
     render(<Settings />);
-    await waitFor(() => expect(screen.getByText(/Propose-only — new spaces wait/)).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: /Switch to auto-create/ }));
+    await waitFor(() => expect(screen.getByText(/Auto-create — the twin files/)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Switch to propose-only/ }));
     await waitFor(() => {
       const posts = stub.calls.filter(
         (c) => c.path === "/api/settings/graduation" && c.method === "POST",
       );
       expect(posts).toHaveLength(1);
-      expect(posts[0]!.body).toEqual({ mode: "auto" });
+      expect(posts[0]!.body).toEqual({ mode: "propose" });
     });
   });
 

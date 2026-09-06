@@ -32,6 +32,7 @@ import { V6_GRAPH } from "./migrations/0201_v6_graph.js";
 import { V6_FTS_PROJECTION } from "./migrations/0202_v6_fts_projection.js";
 import { V6_SPACE_CARD } from "./migrations/0203_v6_space_card.js";
 import { V6_CALENDAR } from "./migrations/0204_v6_calendar.js";
+import { V6_SPACES } from "./migrations/0205_v6_spaces.js";
 
 export interface Migration {
   id: string;
@@ -991,4 +992,9 @@ export const MIGRATIONS: Migration[] = [
   // rules (always a confirm suggestion), people's dates and their lead-time
   // plans. Tasks and the twin's steps are read from `tasks`, not copied.
   { id: "0204_v6_calendar", sql: V6_CALENDAR },
+  // V6 P1 S5.1 (Build §8 lane A, Product_V6_Phase1 §13): how a space was born
+  // (inferred | asked | woken), the evidence that justified it, the bar thread
+  // an asked-for space came from, the dormancy clock, and the enrichment
+  // ledger (content hash per fetch target — the model sees a change only).
+  { id: "0205_v6_spaces", sql: V6_SPACES },
 ];

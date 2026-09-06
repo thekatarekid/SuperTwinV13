@@ -23,6 +23,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 
 import { getDb } from "../db/connection.js";
 import { decisionsFor, writeDecision } from "../db/decisions.js";
+import { sweepPreview, type SweepPreview } from "../spaces/birth.js";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -45,11 +46,16 @@ function getSpace(id: string): SpaceRow | undefined {
   return getDb().prepare(`SELECT * FROM spaces WHERE id = ?`).get(id) as SpaceRow | undefined;
 }
 
-/** The review queue: every proposed space, newest first, with its evidence. */
-function reviewQueue(): SpaceRow[] {
-  return getDb()
+/**
+ * The review queue: every proposed space, newest first, with its evidence
+ * and the sweep PREVIEW — what approving it would pull in (S5.1, SPC-01:
+ * "will pull in 3 related items"). Retrieval only; zero model calls.
+ */
+function reviewQueue(): (SpaceRow & { sweep_preview: SweepPreview })[] {
+  const rows = getDb()
     .prepare(`SELECT * FROM spaces WHERE status = 'proposed' ORDER BY created_at DESC`)
     .all() as SpaceRow[];
+  return rows.map((r) => ({ ...r, sweep_preview: sweepPreview(r.id) }));
 }
 
 /**

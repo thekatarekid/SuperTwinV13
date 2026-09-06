@@ -116,6 +116,11 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // calendar/{clocks,store,layers}.ts: tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable.
   { cat: "CAL", name: "Calendar — derived (V6 P1)", n: 5, doc: "V2", pass: "calendar", authored: true },
+  // GoldenEvals V6 Phase 1 §5.19 — spaces (S5.1). Code against brain/commit.ts (the
+  // inferred birth), spaces/{birth,unsorted,enrichment,view}.ts and consolidation/
+  // graduation.ts: the three birth modes, the sweep preview, the weekly review on
+  // change only, enrichment on change only, and graduation with its reset.
+  { cat: "SPC", name: "Spaces (V6 P1)", n: 8, doc: "V2", pass: "space", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

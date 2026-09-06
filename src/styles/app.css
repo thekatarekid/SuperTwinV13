@@ -1131,6 +1131,66 @@ body.aux-window {
   cursor: grab;
 }
 
+/* A person dropped ON a person is a merge (V6 P1 S5.4). */
+.people .row.person.drop-target {
+  outline: 1px solid var(--accent);
+  background: rgba(106, 167, 255, 0.1);
+}
+
+/* One chip per tombstone: drag it out of the row to split the person apart. */
+.people .chip.alias {
+  cursor: grab;
+  border-style: dashed;
+  margin-left: 4px;
+}
+
+/* -- Spaces: life-area groups, drag to re-file, the view (V6 P1 S5.1) ------ */
+
+.spaces-screen {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.spaces .area-group {
+  border: 1px dashed transparent;
+  border-radius: 10px;
+  padding: 2px 6px;
+  margin-bottom: var(--sp-2);
+}
+
+.spaces .area-group.drop-target,
+.space-view .row.drop.drop-target {
+  border-color: var(--accent);
+  background: rgba(106, 167, 255, 0.08);
+}
+
+.spaces .area-title {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  margin: 4px 0;
+  font-weight: 500;
+}
+
+.spaces .row.space,
+.space-view .row.episode {
+  cursor: grab;
+}
+
+.space-view .row.drop {
+  border: 1px dashed var(--glass-border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 8px;
+  padding: 2px 6px;
+  margin-bottom: 4px;
+}
+
+.space-view blockquote {
+  margin: 2px 0 6px;
+  padding-left: var(--sp-2);
+  border-left: 2px solid var(--accent);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
 /* -- generative kit: the document-card overflow fallback (spec §14.5) ------- */
 
 .document-card {

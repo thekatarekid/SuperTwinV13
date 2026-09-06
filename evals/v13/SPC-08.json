@@ -1,0 +1,38 @@
+{
+  "id": "SPC-08",
+  "category": "SPC",
+  "title": "enrichment on change only",
+  "pass": "space",
+  "mode": "code",
+  "setup": {
+    "note": "P1 enrichment is web fetch only. Every refresh is hashed in code and compared with the last hash for the same (space, kind, url). Only a moved hash reaches the model — an unchanged fare page is bookkeeping, not a call.",
+    "space": { "id": "sp_goa_enrich", "label": "goa trip" },
+    "kind": "fare",
+    "url": "https://example.invalid/ccu-goi"
+  },
+  "input_events": [
+    { "kind": "web.fetch", "text": "CCU-GOI 18 Dec — Rs 4,300" },
+    { "kind": "web.fetch", "text": "CCU-GOI 18 Dec —  Rs 4,300 " },
+    { "kind": "web.fetch", "text": "CCU-GOI 18 Dec — Rs 5,100" }
+  ],
+  "expected": {
+    "first": { "changed": true, "queued": true },
+    "unchanged": { "changed": false, "queued": false, "model_calls": 0, "new_decisions": 0 },
+    "moved": { "changed": true, "queued": true }
+  },
+  "wrong": [
+    {
+      "label": "unchanged-fetch-calls",
+      "assert_absent": "a Decide row queued for a fetch whose content hash did not move"
+    },
+    {
+      "label": "reflow-is-a-change",
+      "assert_absent": "whitespace-only reflow counted as a changed enrichment"
+    }
+  ],
+  "gates": ["clock_only_call"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.19 SPC-08 · enrichment on change only"
+  }
+}

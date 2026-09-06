@@ -116,7 +116,9 @@ describe("send() — an extraction call is a bare instrument", () => {
     const probe = await sendBare();
     expect(argValue(probe.argv, "--setting-sources")).toBe("");
     expect(argValue(probe.argv, "--allowedTools")).toBe("");
-    expect(argValue(probe.argv, "--max-turns")).toBe("1");
+    // Two: one answer plus one preamble allowance (FIX-C2, cli.ts
+    // PLAIN_COMPLETION_MAX_TURNS). Bounded is the contract, not "one".
+    expect(argValue(probe.argv, "--max-turns")).toBe("2");
     expect((argValue(probe.argv, "--disallowedTools") ?? "").split(",")).toHaveLength(13);
     expect(probe.thinking).toBe("0");
   });

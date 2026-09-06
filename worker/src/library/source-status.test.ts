@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
-import { grantConsent, setConsentState } from "../db/v6core.js";
+import { addEpisodeEvents, grantConsent, setConsentState } from "../db/v6core.js";
 import { freshnessOverview } from "../freshness/index.js";
 import { floorLabel, sourceStatus, windowLabel } from "./source-status.js";
 
@@ -55,13 +55,29 @@ function env(source: string, key: string, ts: string, n: number): EventEnvelope 
   };
 }
 
-/** Seed `total` events for a source and mark `dispatched` of them understood. */
-function seed(source: string, key: string, ts: string, total: number, dispatched: number): void {
+/**
+ * Seed `total` events for a source and mark `understood` of them understood.
+ *
+ * FIX-C5: "understood" is membership of an episode, not `dispatched_at` — the
+ * dispatcher's flag is also stamped on every archive row, so it counted
+ * history nobody had read. The seed therefore does both halves of what a real
+ * pass does: it dispatches the rows AND files them under an episode.
+ */
+let episodeSeq = 0;
+
+function seed(source: string, key: string, ts: string, total: number, understood: number): void {
   const rows: EventEnvelope[] = [];
   for (let i = 0; i < total; i += 1) rows.push(env(source, key, ts, i));
   const r = appendEvents(rows, NOW);
-  const mark = getDb().prepare(`UPDATE events SET dispatched_at = ? WHERE id = ?`);
-  for (const id of r.ids.slice(0, dispatched)) mark.run(new Date(NOW).toISOString(), id);
+  const db = getDb();
+  const mark = db.prepare(`UPDATE events SET dispatched_at = ? WHERE id = ?`);
+  const read = r.ids.slice(0, understood);
+  for (const id of read) mark.run(new Date(NOW).toISOString(), id);
+  if (read.length > 0) {
+    const episodeId = `ep_seed_${(episodeSeq += 1)}`;
+    db.prepare(`INSERT INTO episodes (id, state, created_by) VALUES (?, 'open', 'test')`).run(episodeId);
+    addEpisodeEvents(episodeId, read, "test");
+  }
 }
 
 describe("windowLabel — the window in force, as one honest phrase", () => {

@@ -389,6 +389,29 @@ function inheritCacheSplit(onto: Usage, from: Usage | null): Usage {
 }
 
 /**
+ * The CLI stopped on its own turn cap — a SOFT stop, not a broken run (FIX-C2).
+ *
+ * OBSERVED (claude 2.1.x, `--max-turns 1`): the process exits 0 and the
+ * terminal line is
+ *   {"type":"result","subtype":"error_max_turns","is_error":true,
+ *    "errors":["Reached maximum number of turns (1)"], ...}
+ * with real turns and real spend behind it. The subtype is matched first; the
+ * message is matched as a fallback because it is what actually landed in
+ * `runs.error_msg` on the 13.11.5 install and older/newer CLIs word the
+ * subtype differently.
+ *
+ * A poison result (num_turns 0, "No conversation found") is checked FIRST by
+ * the adapter and is a different animal: that one re-runs fresh, this one
+ * never re-issues the same call blind.
+ */
+export function isMaxTurnsResult(r: ParsedResult): boolean {
+  if (!r.isError) return false;
+  if (typeof r.subtype === "string" && r.subtype.toLowerCase().includes("max_turns")) return true;
+  const joined = (r.errors ?? []).join(" ").toLowerCase();
+  return joined.includes("maximum number of turns");
+}
+
+/**
  * Decide whether a `result` object represents a POISONED resume — i.e. the
  * requested session did not exist / could not be resumed. Exit code is 0 in
  * this case, so this is the authoritative check.

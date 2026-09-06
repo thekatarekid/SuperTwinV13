@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   buildCliArgs,
   buildChildEnv,
+  PLAIN_COMPLETION_MAX_TURNS,
   PROMPT_CACHE_TTL,
   safeCwd,
   THINKING_BUDGET_TOKENS,
@@ -59,11 +60,16 @@ function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
 }
 
 describe("buildCliArgs — plain completion mode", () => {
-  it("forces --max-turns 1, tool denial, and neutral settings", () => {
+  it("forces --max-turns 2, tool denial, and neutral settings", () => {
     const args = buildCliArgs({ allowedTools: [], plainCompletion: true });
 
-    // Single turn (forced regardless of caller).
-    expect(argValue(args, "--max-turns")).toBe("1");
+    // Two turns, forced regardless of caller: one answer plus one preamble
+    // allowance (FIX-C2). One was a turn too few — a model that opens with
+    // "I'll process this bundle of 92 events" spent the only turn it had and
+    // the CLI ended the run before the JSON, which the ladder then paid for
+    // all over again at full context.
+    expect(argValue(args, "--max-turns")).toBe(String(PLAIN_COMPLETION_MAX_TURNS));
+    expect(PLAIN_COMPLETION_MAX_TURNS).toBe(2);
 
     // Hard tool denial covers every built-in agentic tool.
     const disallowed = argValue(args, "--disallowedTools") ?? "";
@@ -88,13 +94,13 @@ describe("buildCliArgs — plain completion mode", () => {
     expect(argValue(args, "--setting-sources")).toBe("");
   });
 
-  it("forces one turn even if the caller passes a larger maxTurns", () => {
+  it("owns its turn budget even if the caller passes a larger maxTurns", () => {
     const args = buildCliArgs({
       allowedTools: [],
       plainCompletion: true,
       maxTurns: 25,
     });
-    expect(argValue(args, "--max-turns")).toBe("1");
+    expect(argValue(args, "--max-turns")).toBe("2");
   });
 
   it("still streams (partial messages / stream-json) for token accounting", () => {
@@ -155,7 +161,7 @@ describe("buildCliArgs — the bare-call contract", () => {
     const args = buildCliArgs({ allowedTools: [], plainCompletion: true });
     expect(argValue(args, "--setting-sources")).toBe("");
     expect(argValue(args, "--allowedTools")).toBe("");
-    expect(argValue(args, "--max-turns")).toBe("1");
+    expect(argValue(args, "--max-turns")).toBe("2");
     expect(args).toContain("--disallowedTools");
     withEnv({ MAX_THINKING_TOKENS: undefined }, () => {
       expect(buildChildEnv("claude", true).MAX_THINKING_TOKENS).toBe("0");
@@ -260,7 +266,7 @@ describe("buildCliArgs — transport stage 1+2 (S0.4) argv snapshot", () => {
         "--append-system-prompt",
         "INSTRUCTIONS",
         "--max-turns",
-        "1",
+        "2",
       ]
     `);
     // SPD-04 wrong: `double-prompt` — the block appears exactly once on argv.
@@ -472,7 +478,7 @@ describe("buildCliArgs — model selection", () => {
       model: "haiku",
     });
     expect(argValue(args, "--model")).toBe("haiku");
-    expect(argValue(args, "--max-turns")).toBe("1");
+    expect(argValue(args, "--max-turns")).toBe("2");
   });
 });
 

@@ -1,10 +1,12 @@
 // ===========================================================================
 // Freshness — "Knows you: X → Y" watermark math (build P2.4, spec §5.4).
 //
-// The invariant under test: the chip renders the UNDERSTOOD range (dispatched
-// events), never the captured range — a freshly imported but unread year of
-// history must NOT widen "knows you", and the left edge crawls backward only
-// as dispatch works through it.
+// The invariant under test: the chip renders the UNDERSTOOD range — events
+// that carry an episode (FIX-C5; it used to be `dispatched_at IS NOT NULL`,
+// which is the dispatcher's own flag and is set on every archive row) — never
+// the captured range. A freshly imported but unread year of history must NOT
+// widen "knows you", and the left edge crawls backward only as understanding
+// works through it.
 //
 // And the defect this file now pins down: shipped 13.4.1 counted IMPORTED
 // HISTORY in the lag number, so importing a few months of browser history made
@@ -21,7 +23,10 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
+import { addEpisodeEvents } from "../db/v6core.js";
 import { markSourceBackfillComplete } from "../db/watermarks.js";
+import { resetBudgetForTests, setModelActivityPaused, tripBudget } from "../providers/budget.js";
+import { holdFrom, formatUntil, type UnderstandingHold } from "./hold.js";
 import {
   formatLag,
   formatLeftEdge,
@@ -34,6 +39,7 @@ import {
   statusRank,
   FRESHNESS_PROMISE_MIN,
 } from "./index.js";
+import { understoodBySource, understoodForSource } from "./understood.js";
 
 const NOW = Date.parse("2026-08-28T12:00:00.000Z");
 
@@ -48,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   closeDb();
+  resetBudgetForTests();
   delete process.env.SUPERTWIN_DB_PATH;
   rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -75,6 +82,23 @@ function markDispatched(ids: string[]): void {
   const db = getDb();
   const stmt = db.prepare(`UPDATE events SET dispatched_at = ? WHERE id = ?`);
   for (const id of ids) stmt.run("2026-08-28T11:59:00.000Z", id);
+}
+
+/**
+ * FIX-C5: what "understood" means now. The dispatcher handing a row to a tick
+ * is not understanding — a pass can fail, dead-letter or produce nothing — so
+ * these helpers separate the two, and every test that used to say "dispatched,
+ * therefore understood" now says which one it means.
+ */
+let episodeSeq = 0;
+
+function markUnderstood(ids: string[]): string {
+  const db = getDb();
+  const episodeId = `ep_test_${(episodeSeq += 1)}`;
+  db.prepare(`INSERT INTO episodes (id, state, created_by) VALUES (?, 'open', 'test')`).run(episodeId);
+  markDispatched(ids);
+  addEpisodeEvents(episodeId, ids, "test");
+  return episodeId;
 }
 
 describe("formatting", () => {
@@ -167,7 +191,12 @@ describe("freshnessStatus — the verdict the chip shows", () => {
 });
 
 describe("detail line", () => {
-  it("shows the history queue as a shrinking count, then caught up", () => {
+  it("REGRESSION (FIX-C5): a queue that is still moving is not 'caught up'", () => {
+    // This line used to end in "understanding: caught up" with 28 events still
+    // waiting — the string was `status === "catching_up" ? label : "caught up"`,
+    // so every state but one was reported as settled. On the reporting user's
+    // machine the same clause printed "caught up" over 10,985 undispatched
+    // events and a latched spend ceiling.
     expect(
       freshnessDetail(
         {
@@ -182,7 +211,28 @@ describe("detail line", () => {
         },
         NOW,
       ),
-    ).toBe("capturing live ✓ · importing history: at 2024 (72%, 28 left) · understanding: caught up");
+    ).toBe(
+      "capturing live ✓ · importing history: at 2024 (72%, 28 left) · importing history — 28 events left",
+    );
+  });
+
+  it("only a settled pipeline reads 'caught up'", () => {
+    expect(
+      freshnessDetail(
+        {
+          captured_to: "2026-08-28T11:58:00.000Z",
+          understood_from: "2026-08-01T00:00:00.000Z",
+          backfill_complete: true,
+          understood_percent: 100,
+          event_count: 10,
+          understand_window_count: 10,
+          pending_live_count: 0,
+          pending_backfill_count: 0,
+          lag_minutes: null,
+        },
+        NOW,
+      ),
+    ).toBe("capturing live ✓ · understanding: caught up");
   });
 
   it("names a breached live promise", () => {
@@ -213,8 +263,8 @@ describe("understood vs captured", () => {
       ],
       NOW,
     );
-    // Only the fresh event has been read by a tick.
-    markDispatched([r.ids[1]]);
+    // Only the fresh event has been read: dispatched AND cited by an episode.
+    markUnderstood([r.ids[1]]);
     const f = sourceFreshness("whatsapp", NOW);
     expect(f.captured_from).toBe("2024-01-05T00:00:00.000Z");
     expect(f.understood_from).toBe("2026-08-28T11:58:00.000Z");
@@ -232,11 +282,11 @@ describe("understood vs captured", () => {
       ],
       NOW,
     );
-    markDispatched([r.ids[2]]);
+    markUnderstood([r.ids[2]]);
     expect(sourceFreshness("whatsapp", NOW).understood_from).toBe("2026-08-28T11:58:00.000Z");
-    markDispatched([r.ids[1]]);
+    markUnderstood([r.ids[1]]);
     expect(sourceFreshness("whatsapp", NOW).understood_from).toBe("2025-06-01T00:00:00.000Z");
-    markDispatched([r.ids[0]]);
+    markUnderstood([r.ids[0]]);
     const f = sourceFreshness("whatsapp", NOW);
     expect(f.understood_from).toBe("2024-01-05T00:00:00.000Z");
     expect(f.understood_percent).toBe(100);
@@ -273,7 +323,7 @@ describe("understood vs captured", () => {
     }
     const live = env("browser", "chain-live", "2026-08-28T11:58:00.000Z", "fresh");
     const r = appendEvents([...rows, live], NOW);
-    markDispatched([r.ids[0], r.ids[r.ids.length - 1]]);
+    markUnderstood([r.ids[0], r.ids[r.ids.length - 1]]);
 
     const f = sourceFreshness("browser", NOW);
     expect(f.pending_backfill_count).toBe(11);
@@ -292,7 +342,7 @@ describe("understood vs captured", () => {
       ],
       NOW,
     );
-    markDispatched(r.ids);
+    markUnderstood(r.ids);
     const f = sourceFreshness("whatsapp", NOW);
     expect(f.pending_count).toBe(0);
     expect(f.lag_minutes).toBeNull();
@@ -313,7 +363,7 @@ describe("overview + per-stream edges", () => {
   it("header chip spans all sources' understood ranges", () => {
     const r1 = appendEvents([env("whatsapp", "goa@g.us", "2024-01-05T00:00:00.000Z", "wa")], NOW);
     const r2 = appendEvents([env("browser", "chain-1", "2026-08-28T11:58:00.000Z", "web")], NOW);
-    markDispatched([r1.ids[0], r2.ids[0]]);
+    markUnderstood([r1.ids[0], r2.ids[0]]);
     const o = freshnessOverview(NOW);
     expect(o.sources.map((s) => s.source_id).sort()).toEqual(["browser", "whatsapp"]);
     expect(o.label).toBe("Knows you: 2024 → 2 min ago");
@@ -370,5 +420,277 @@ describe("overview + per-stream edges", () => {
     expect(o.sources[0].lag_minutes).toBe(5);
     expect(o.lag_minutes).toBeNull();
     expect(o.status).toBe("up_to_date");
+  });
+});
+
+// ===========================================================================
+// FIX-C5 — `dispatched_at` is overloaded, so "understood" was a fiction.
+//
+// The shape these tests reproduce is the reporting user's live home, scaled
+// down: a consented source whose INDEX window reaches back years and whose
+// UNDERSTAND window starts last month. The consent gate writes every row
+// outside the Understand window with origin='archive' AND
+// dispatched_at = capture_ts — precisely so the lane builders (which select
+// `dispatched_at IS NULL`) never look at it again. Freshness then defined
+// understood as `dispatched_at IS NOT NULL` and swept all of it in:
+// understood_count 16,596 against 632 real, and "Knows you: 2010".
+// ===========================================================================
+
+/** An archive row exactly as the consent gate writes it (S1.2). */
+function archived(source: string, key: string, ts: string, text: string): EventEnvelope {
+  return { ...env(source, key, ts, text), origin: "archive" };
+}
+
+describe("FIX-C5 — understood means an episode, never a dispatch flag", () => {
+  it("THE DEFECT: archive rows are dispatched but were never understood", () => {
+    // Ten rows the user asked us to KEEP but not to READ, one live row we did.
+    const old: EventEnvelope[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      old.push(archived("browser", `chain-${i}`, `201${i}-09-27T22:32:57.000Z`, `old page ${i}`));
+    }
+    const r = appendEvents([...old, env("browser", "chain-live", "2026-08-28T11:58:00.000Z", "now")], NOW);
+
+    // The gate's own stamp: archive rows carry a dispatched_at they never earned.
+    const dispatched = getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE dispatched_at IS NOT NULL`)
+      .get() as { n: number };
+    expect(dispatched.n).toBe(10);
+
+    markUnderstood([r.ids[10]]);
+    const f = sourceFreshness("browser", NOW, { hold: null });
+
+    // The old numbers would have been: understood_count 11, understood_from
+    // 2010-09-27, label "Knows you: 2010 → 2 min ago".
+    expect(f.understood_count).toBe(1);
+    expect(f.understood_from).toBe("2026-08-28T11:58:00.000Z");
+    expect(f.label).toBe("Knows you: Aug 2026 → 2 min ago");
+    expect(f.label).not.toContain("2010");
+
+    // And the two halves of the log are still both reported, by their own names.
+    expect(f.event_count).toBe(11);
+    expect(f.archive_count).toBe(10);
+    expect(f.understand_window_count).toBe(1);
+    expect(f.understood_percent).toBe(100);
+  });
+
+  it("a dispatched event with no episode is not understood", () => {
+    // The failure mode that makes "dispatched" the wrong proxy even inside the
+    // window: the bundle went out, the pass produced nothing.
+    const r = appendEvents(
+      [
+        env("whatsapp", "goa@g.us", "2026-08-28T11:00:00.000Z", "a"),
+        env("whatsapp", "goa@g.us", "2026-08-28T11:30:00.000Z", "b"),
+      ],
+      NOW,
+    );
+    markDispatched(r.ids);
+    markUnderstood([r.ids[0]]);
+
+    const f = sourceFreshness("whatsapp", NOW, { hold: null });
+    expect(f.understood_count).toBe(1);
+    expect(f.understood_percent).toBe(50);
+    expect(f.understood_to).toBe("2026-08-28T11:00:00.000Z");
+  });
+
+  it("the shared definition is the same rows for both surfaces", () => {
+    const r = appendEvents(
+      [
+        archived("whatsapp", "goa@g.us", "2023-01-01T00:00:00.000Z", "archived"),
+        env("whatsapp", "goa@g.us", "2026-08-28T11:00:00.000Z", "read"),
+        env("browser", "chain-1", "2026-08-28T11:30:00.000Z", "read too"),
+      ],
+      NOW,
+    );
+    markUnderstood([r.ids[1], r.ids[2]]);
+
+    const map = understoodBySource();
+    expect(map.get("whatsapp")).toEqual({
+      events: 1,
+      bytes: 0,
+      from: "2026-08-28T11:00:00.000Z",
+      to: "2026-08-28T11:00:00.000Z",
+    });
+    expect(understoodForSource("browser").events).toBe(1);
+    expect(understoodForSource("whatsapp")).toEqual(map.get("whatsapp"));
+  });
+
+  it("an archive row cannot enter the understood aggregate even with a membership row", () => {
+    // Belt and braces: membership should never be written for an archive row,
+    // and if something ever does, the count must still refuse it.
+    const r = appendEvents([archived("browser", "chain-1", "2011-01-01T00:00:00.000Z", "old")], NOW);
+    markUnderstood(r.ids);
+    expect(understoodForSource("browser").events).toBe(0);
+    expect(sourceFreshness("browser", NOW, { hold: null }).understood_count).toBe(0);
+  });
+
+  it("a source that is all archive says so instead of claiming to be caught up", () => {
+    appendEvents([archived("browser", "chain-1", "2011-01-01T00:00:00.000Z", "old")], NOW);
+    const f = sourceFreshness("browser", NOW, { hold: null });
+    expect(f.understand_window_count).toBe(0);
+    expect(f.understood_percent).toBe(0);
+    expect(f.detail).toContain("understanding: nothing is inside the understand window");
+    expect(f.detail).not.toContain("caught up");
+  });
+});
+
+describe("FIX-C5 — a stopped pipeline never says 'caught up'", () => {
+  const counts = {
+    event_count: 100,
+    pending_live_count: 0,
+    pending_backfill_count: 11_015,
+    lag_minutes: null,
+  };
+  const budgetHold: UnderstandingHold = {
+    kind: "budget",
+    label: "understanding paused — spend ceiling reached",
+    detail: "…",
+    since: "2026-09-06T15:12:59.534Z",
+    until_ms: null,
+  };
+
+  it("the hold outranks every other verdict", () => {
+    const v = freshnessStatus(counts, budgetHold);
+    expect(v.status).toBe("paused");
+    expect(v.label).toBe("understanding paused — spend ceiling reached");
+    expect(statusRank("paused")).toBeGreaterThan(statusRank("catching_up"));
+  });
+
+  it("but an empty log still has nothing to say", () => {
+    expect(freshnessStatus({ ...counts, event_count: 0 }, budgetHold).status).toBe("no_data");
+  });
+
+  it("REGRESSION: the detail line said 'caught up' at the exact moment it was stopped", () => {
+    const detail = freshnessDetail(
+      {
+        captured_to: "2026-09-06T16:00:00.000Z",
+        understood_from: "2026-09-02T00:00:00.000Z",
+        backfill_complete: false,
+        understood_percent: 9,
+        understand_window_count: 7283,
+        ...counts,
+      },
+      NOW,
+      budgetHold,
+    );
+    expect(detail).toContain("understanding paused — spend ceiling reached");
+    expect(detail).not.toContain("caught up");
+  });
+
+  it("holdFrom: the kill switch outranks the latch, which outranks the breaker", () => {
+    const breaker = {
+      lane: "llm:understanding" as const,
+      trippedAt: "2026-09-06T15:13:32.000Z",
+      untilMs: NOW + 12 * 60_000,
+      failures: 10,
+      lastCode: "BUDGET_EXCEEDED",
+      lastError: "ceiling",
+    };
+    expect(
+      holdFrom(
+        {
+          modelActivityPausedAt: "2026-09-06T10:00:00.000Z",
+          budgetTrippedAt: "2026-09-06T15:12:59.534Z",
+          budgetTrippedReason: "$3.05 spent in the last hour (ceiling $3)",
+          breakers: [breaker],
+        },
+        NOW,
+      )?.kind,
+    ).toBe("stopped");
+    expect(
+      holdFrom(
+        {
+          modelActivityPausedAt: null,
+          budgetTrippedAt: "2026-09-06T15:12:59.534Z",
+          budgetTrippedReason: "$3.05 spent in the last hour (ceiling $3)",
+          breakers: [breaker],
+        },
+        NOW,
+      ),
+    ).toMatchObject({
+      kind: "budget",
+      label: "understanding paused — spend ceiling reached",
+      until_ms: null,
+    });
+    const b = holdFrom(
+      { modelActivityPausedAt: null, budgetTrippedAt: null, budgetTrippedReason: null, breakers: [breaker] },
+      NOW,
+    );
+    expect(b?.kind).toBe("breaker");
+    expect(b?.label).toBe("understanding paused — provider errors, retrying in 12 min");
+    expect(b?.until_ms).toBe(breaker.untilMs);
+  });
+
+  it("holdFrom: an enrichment breaker does not claim understanding has stopped", () => {
+    expect(
+      holdFrom(
+        {
+          modelActivityPausedAt: null,
+          budgetTrippedAt: null,
+          budgetTrippedReason: null,
+          breakers: [
+            {
+              lane: "llm:enrichment",
+              trippedAt: "2026-09-06T15:13:32.000Z",
+              untilMs: NOW + 60_000,
+              failures: 10,
+              lastCode: null,
+              lastError: null,
+            },
+          ],
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("holdFrom: nothing holding it is null — the only licence to say 'caught up'", () => {
+    expect(
+      holdFrom(
+        { modelActivityPausedAt: null, budgetTrippedAt: null, budgetTrippedReason: null, breakers: [] },
+        NOW,
+      ),
+    ).toBeNull();
+    expect(formatUntil(30_000)).toBe("under a minute");
+    expect(formatUntil(-5)).toBe("any moment");
+    expect(formatUntil(90 * 60_000)).toBe("2 hours");
+  });
+
+  it("END TO END: the live latch turns the chip's own verdict, from the database", () => {
+    const r = appendEvents(
+      [
+        env("whatsapp", "goa@g.us", "2026-08-28T11:00:00.000Z", "a"),
+        env("whatsapp", "goa@g.us", "2026-08-28T11:58:00.000Z", "b"),
+      ],
+      NOW,
+    );
+    markUnderstood([r.ids[0]]);
+
+    // Running: the twin has read one of the two, nothing is holding it.
+    expect(freshnessOverview(NOW).status).toBe("up_to_date");
+    expect(freshnessOverview(NOW).hold).toBeNull();
+
+    // The ceiling trips — the same latch the user's worker has held since
+    // 15:12:59Z, which never clears on its own.
+    tripBudget("$3.05 spent in the last hour (ceiling $3)", NOW);
+
+    const o = freshnessOverview(NOW);
+    expect(o.status).toBe("paused");
+    expect(o.status_label).toBe("understanding paused — spend ceiling reached");
+    expect(o.hold?.kind).toBe("budget");
+    expect(o.hold?.detail).toContain("$3.05 spent in the last hour");
+    expect(o.hold?.detail).toContain("Settings › General");
+    expect(o.sources[0].detail).not.toContain("caught up");
+    // The identity line survives: what it HAS understood is still true.
+    expect(o.label).toBe("Knows you: Aug 2026 → 1h ago");
+  });
+
+  it("END TO END: the kill switch reads as the human's own choice", () => {
+    appendEvents([env("whatsapp", "goa@g.us", "2026-08-28T11:58:00.000Z", "a")], NOW);
+    setModelActivityPaused(true, NOW);
+    const o = freshnessOverview(NOW);
+    expect(o.status).toBe("paused");
+    expect(o.status_label).toBe("understanding paused — you stopped model activity");
+    setModelActivityPaused(false, NOW);
+    expect(freshnessOverview(NOW).status).not.toBe("paused");
   });
 });

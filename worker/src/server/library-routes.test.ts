@@ -14,6 +14,7 @@ import { type AddressInfo } from "node:net";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
+import { addEpisodeEvents } from "../db/v6core.js";
 import { handleLibraryRoute, screenSessions } from "./library-routes.js";
 
 // Midday UTC of the REAL current day: the route computes "today" with
@@ -71,6 +72,22 @@ function env(
   };
 }
 
+/**
+ * Mark events READ. FIX-C5: understanding is episode membership, not the
+ * dispatcher's `dispatched_at` flag — that flag is also stamped on every
+ * archive row, so on its own it proved nothing about what the twin knows.
+ */
+let episodeSeq = 0;
+
+function markUnderstood(ids: string[]): void {
+  const db = getDb();
+  const episodeId = `ep_routes_${(episodeSeq += 1)}`;
+  db.prepare(`INSERT INTO episodes (id, state, created_by) VALUES (?, 'open', 'test')`).run(episodeId);
+  const mark = db.prepare(`UPDATE events SET dispatched_at = ts WHERE id = ?`);
+  for (const id of ids) mark.run(id);
+  addEpisodeEvents(episodeId, ids, "test");
+}
+
 async function get(path: string): Promise<{ status: number; body: unknown }> {
   const res = await fetch(`${base}${path}`);
   return { status: res.status, body: await res.json() };
@@ -88,7 +105,7 @@ async function post(path: string, body?: unknown): Promise<{ status: number; bod
 describe("GET /api/freshness", () => {
   it("returns per-source freshness and the header chip label", async () => {
     const r = appendEvents([env("whatsapp", "goa@g.us", "2026-08-28T11:58:00.000Z", "hi")], NOW);
-    getDb().prepare(`UPDATE events SET dispatched_at = ts WHERE id = ?`).run(r.ids[0]);
+    markUnderstood([r.ids[0]]);
     const { status, body } = await get("/api/freshness");
     expect(status).toBe(200);
     const o = body as { sources: { source_id: string }[]; label: string | null };
@@ -346,7 +363,7 @@ describe("GET /api/library/source-status", () => {
       ],
       NOW,
     );
-    getDb().prepare(`UPDATE events SET dispatched_at = ts WHERE id = ?`).run(r.ids[0]);
+    markUnderstood([r.ids[0]]);
 
     const { status, body } = await get("/api/library/source-status?source=whatsapp");
     expect(status).toBe(200);

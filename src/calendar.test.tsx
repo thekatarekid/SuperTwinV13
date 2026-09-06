@@ -15,7 +15,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { resetLoadCache } from "./components/LoadState";
 import { Calendar } from "./screens/Calendar";
 import { stubWorker, type WorkerStub } from "./test-utils";
 import type { CalendarItemView, CalendarViewResponse } from "./lib/api";
@@ -105,8 +104,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  // FIX-C4: the view is cached per range for an instant re-visit.
-  resetLoadCache();
 });
 
 describe("Calendar — layers separable (CAL-05)", () => {

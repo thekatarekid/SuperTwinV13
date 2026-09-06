@@ -6,16 +6,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resetLoadCache } from "./components/LoadState";
 import { Timeline } from "./screens/Timeline";
 import { homeFixture, stubWorker, type WorkerStub } from "./test-utils";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  // FIX-C4: the screen keeps its answer in the module-level pane cache so a
-  // tab flip repaints instantly. Between tests that cache is someone else's
-  // fixture, so it is dropped like any other global.
-  resetLoadCache();
 });
 
 const rows = [

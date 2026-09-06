@@ -46,7 +46,11 @@ export function FreshnessChip(): JSX.Element | null {
   // Nothing captured at all: no chip, rather than an empty promise.
   if (!data || data.status === "no_data") return null;
 
-  const lagging = data.status === "catching_up";
+  // FIX-C5: a stopped pipeline is at least as loud as a slow one. `paused`
+  // means the spend latch, the kill switch or a breaker is holding every model
+  // call — the worker's own phrase says which, and the operator control is in
+  // Settings › General.
+  const lagging = data.status === "catching_up" || data.status === "paused";
   const detail = data.sources
     .filter((s) => s.label)
     .map((s) => `${s.source_id}: ${s.label} — ${s.detail}`)
@@ -62,7 +66,9 @@ export function FreshnessChip(): JSX.Element | null {
   const contributing = data.sources.filter(
     (s) => s.status === data.status && (s.pending_backfill_count > 0 || s.pending_live_count > 0),
   ).length;
-  const across = contributing > 1 ? ` across ${contributing} sources` : "";
+  // A hold is not a roll-up: the pipeline is stopped for every source at once,
+  // so "across 2 sources" would be noise on a sentence that is already whole.
+  const across = data.status !== "paused" && contributing > 1 ? ` across ${contributing} sources` : "";
 
   return (
     <span

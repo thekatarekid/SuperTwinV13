@@ -323,15 +323,38 @@ export const startScreenRecording = (): Promise<{
 // ---- Freshness + Library (P2.4, spec §5.4 / §14.3.2) -----------------------
 
 /** Worst-first; see worker/src/freshness for what each state means. */
-export type FreshnessStatus = "catching_up" | "importing_history" | "up_to_date" | "no_data";
+export type FreshnessStatus =
+  /** FIX-C5: the pipeline is stopped — spend latch, kill switch or breaker. */
+  | "paused"
+  | "catching_up"
+  | "importing_history"
+  | "up_to_date"
+  | "no_data";
+
+/** Why understanding is stopped (worker/src/freshness/hold.ts). */
+export interface UnderstandingHold {
+  kind: "stopped" | "budget" | "breaker";
+  /** The chip's phrase — "understanding paused — spend ceiling reached". */
+  label: string;
+  /** One line of why, ending in what lifts it. */
+  detail: string;
+  since: string | null;
+  /** Epoch ms it lifts on its own; null when only a human can lift it. */
+  until_ms: number | null;
+}
 
 export interface SourceFreshness {
   source_id: string;
   captured_from: string | null;
   captured_to: string | null;
+  /** Edges of what the twin has READ — events that carry an episode (FIX-C5). */
   understood_from: string | null;
   understood_to: string | null;
   event_count: number;
+  /** Events inside the UNDERSTAND window: the denominator for progress. */
+  understand_window_count?: number;
+  /** Outside it: kept and searchable, never sent to a model. */
+  archive_count?: number;
   understood_count: number;
   pending_count: number;
   pending_live_count: number;
@@ -354,6 +377,8 @@ export interface FreshnessOverview {
   status_label: string;
   pending_live_count: number;
   pending_backfill_count: number;
+  /** Null while understanding is running; otherwise why it is stopped. */
+  hold?: UnderstandingHold | null;
 }
 
 export const fetchFreshness = (): Promise<FreshnessOverview> => request("/api/freshness");
@@ -396,7 +421,11 @@ export interface SourceStatusView {
     status: FreshnessStatus;
     status_label: string;
     detail: string;
+    /** The denominator of "X of N understood": events inside the window. */
     event_count: number;
+    /** Everything the log holds for this source, archive rows included. */
+    captured_count?: number;
+    /** Events that carry an episode — what the twin has actually read. */
     understood_count: number;
     understood_percent: number;
     pending_live_count: number;
@@ -2211,7 +2240,10 @@ export interface SourceStorage {
     decision_id: string | null;
   } | null;
   searchable: TierBar;
+  /** What the twin has READ: events that carry an episode (FIX-C5). */
   understood: TierBar;
+  /** The queue: inside the Understand window, model-bound, not read yet. */
+  in_understand_window?: TierBar;
   searchable_only: TierBar & { label: "searchable-only"; note: string };
 }
 

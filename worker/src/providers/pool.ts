@@ -272,6 +272,14 @@ export interface FailureDecision {
    * pool on its next `run()`, not by this unit waiting in place.
    */
   breakerTripped?: boolean;
+  /**
+   * Set when the provider stopped SOFTLY — today only MAX_TURNS (FIX-C2). The
+   * call did not break: it ran out of turns with the model's own words already
+   * streamed. `action` is "quarantine" so no caller loops by accident, but a
+   * caller that knows how to salvage or re-ask narrowly should do that instead
+   * of parking the unit. Never counted towards the lane's breaker.
+   */
+  softStop?: boolean;
 }
 
 /** One tripped breaker — the banner's payload (SPD-07). */
@@ -286,6 +294,18 @@ export interface BreakerTrip {
   /** The last failure's code and message — what the banner explains. */
   lastCode: string | null;
   lastError: string | null;
+}
+
+/**
+ * True for a SOFT provider stop (FIX-C2): the CLI ended the run on its own
+ * turn cap rather than failing. It is not an outage and it is not a defect, so
+ * it must neither pause the lane (a refusal) nor count towards the S0.7
+ * consecutive-failure breaker (an error) — the caller salvages the partial
+ * answer or re-asks narrowly.
+ */
+export function isSoftStop(err: ProviderFailure): boolean {
+  if (err.code === "MAX_TURNS") return true;
+  return /reached maximum number of turns/i.test(err.message ?? "");
 }
 
 /** True for the outage-shaped failures: rate limit, quota, auth. */
@@ -318,6 +338,17 @@ export function classifyFailure(
       waitMs: 0,
       spendsRetryBudget: false,
       reason: "cancelled",
+    };
+  }
+  if (isSoftStop(err)) {
+    // Handed straight back: no wait, no retry budget, and — the point of the
+    // whole exercise — no second full-context call issued from in here.
+    return {
+      action: "quarantine",
+      waitMs: 0,
+      spendsRetryBudget: false,
+      reason: "error",
+      softStop: true,
     };
   }
   if (isRefusal(err)) {
@@ -593,6 +624,12 @@ export class ResourcePool {
   ): FailureDecision {
     if (err.code === "CANCELLED") {
       // A cancel is nobody's failure: neither streak moves.
+      return classifyFailure(err, retriesSpent, 0);
+    }
+    if (isSoftStop(err)) {
+      // Neither is a turn cap (FIX-C2). Ten preambles in a row are not a lane
+      // that cannot work — they are ten answers that needed a second turn, and
+      // tripping the breaker on them stops a lane that is perfectly healthy.
       return classifyFailure(err, retriesSpent, 0);
     }
     if (isRefusal(err)) {

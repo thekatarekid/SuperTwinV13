@@ -68,6 +68,32 @@ export const PROMPT_CACHE_TTL = "5m";
 export const EFFORT_LEVELS: readonly string[] = ["low", "medium", "high", "xhigh", "max"];
 
 /**
+ * The turn cap plain completion floors itself at (FIX-C2).
+ *
+ * It used to be pinned to 1, and one turn was a turn too few. `--max-turns 1`
+ * is not "answer once": it is "stop after the first assistant message". A
+ * model that opens with a one-line preamble — "I'll process this history-mode
+ * bundle of 92 events across 9 WhatsApp streams" — has spent the only turn it
+ * had, and the CLI ends the run with is_error and
+ * "Reached maximum number of turns (1)" BEFORE the JSON or the wire lines
+ * arrive. The adapter read that as CLI_ERROR and the ladder re-issued the
+ * WHOLE full-context call.
+ *
+ * MEASURED on the 13.11.5 install: 35 of 187 runs died exactly this way
+ * (orient.v7 18, decide 9, critic.v5 8), 542K tokens and $0.43 burned on
+ * preambles, and every one of them fed the S0.7 consecutive-failure counter.
+ *
+ * Two is a CEILING, never a target: a model that finishes in one turn still
+ * uses one, and a caller cannot raise it — plain completion still owns its own
+ * turn budget. The cost of the second turn (when it happens) is a cache READ of
+ * the pack at 0.1x, against a full re-issue that pays cache CREATION at 1.25x
+ * plus a second admitted call. Cheaper, strictly. The rest of the bare-call
+ * contract — every tool denied, MAX_THINKING_TOKENS=0, neutral settings,
+ * --max-budget-usd — still bounds the run.
+ */
+export const PLAIN_COMPLETION_MAX_TURNS = 2;
+
+/**
  * Directories the CLI must never be pointed at (arch §4.1.4). macOS protects
  * ~/Documents, ~/Desktop and ~/Downloads with TCC; a child of the ad-hoc-signed
  * .app that starts its scan there blocks in a single openat() with NO output
@@ -310,8 +336,11 @@ export function buildCliArgs(opts: {
   if (appendSystemPrompt && appendSystemPrompt.length) {
     cliArgs.push("--append-system-prompt", appendSystemPrompt);
   }
-  // Plain-completion forces a single turn; otherwise honour the caller.
-  const effectiveMaxTurns = plainCompletion ? 1 : maxTurns;
+  // Plain completion sets its OWN turn budget and a caller cannot raise it —
+  // that part of the bare-call contract is unchanged. Only the number moved,
+  // from 1 to PLAIN_COMPLETION_MAX_TURNS (FIX-C2): see the constant for what
+  // one turn cost.
+  const effectiveMaxTurns = plainCompletion ? PLAIN_COMPLETION_MAX_TURNS : maxTurns;
   if (typeof effectiveMaxTurns === "number") {
     cliArgs.push("--max-turns", String(effectiveMaxTurns));
   }

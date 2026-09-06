@@ -17,7 +17,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resetLoadCache } from "./components/LoadState";
 import { People } from "./screens/People";
 import { Radar } from "./screens/people/Radar";
 import { WhoIAm } from "./screens/people/WhoIAm";
@@ -25,9 +24,6 @@ import { stubWorker, type WorkerStub } from "./test-utils";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  // FIX-C4: both panels cache their answer for an instant re-visit; between
-  // tests that answer belongs to the previous fixture.
-  resetLoadCache();
 });
 
 const EMPTY_CARD = {

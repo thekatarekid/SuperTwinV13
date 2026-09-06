@@ -18,6 +18,42 @@
 //   Interactive chat and the grounded bar are COUNTED but EXEMPT from the
 //   latch: a trip must not brick the one surface you need to diagnose it.
 //
+// THE RESUME (13.11.6, FIX-C1). Clearing the latch was not enough to resume.
+// The ledger still held the hour that caused the trip, so the first call after
+// the operator's reset re-breached the hour ceiling and re-latched instantly:
+// the button worked, the app went back to paused, and nothing said why. So the
+// reset carries a FORGIVENESS POINT (`budget.resumed_at`): the HOUR windows —
+// spend and calls — are measured from the resume onwards, because an operator
+// who presses resume has read the reason and accepted the hour already spent.
+//   The DAY windows are NOT forgiven. The 13.4.x incident was a nine-hour,
+// $41 runaway: that is what the daily ceiling is for, and a rate limiter you
+// can acknowledge must not become a total you can wish away. So resuming buys
+// the rest of the day's budget and no more — and this is still not auto-resume
+// (SPD-02's wrong mode): nothing about the clock clears anything. A human does.
+//
+// THE HOLD (13.11.6, FIX-C1). A latch that only throws at the spawn site is a
+// latch every lane discovers the expensive way: it builds the bundle, opens a
+// run, is refused, records the failure, walks a retry ladder and — after three
+// strikes — DEAD-LETTERS the work and stamps the rows, so the backlog is
+// consumed without ever being understood. Ten of those in a row trip the S0.7
+// breaker, which pauses the lane 30 minutes and then re-arms against a
+// condition that by construction never clears on its own: spin, refuse,
+// re-trip, forever. That is what the user's 13.11.5 install did for three
+// hours (one `media` run every ~50 s, every one BUDGET_EXCEEDED).
+//
+//   `backgroundModelHold()` is the question a background lane asks BEFORE it
+//   starts work: "may I spend right now?". Held means STAND DOWN, not fail —
+//   nothing is dispatched, nothing is stamped, no attempt is recorded, no run
+//   row is written, nothing is dead-lettered, and the next tick after an
+//   operator resets the latch dispatches exactly what was waiting. It is the
+//   same shape settings/steps.ts already uses for a switched-off step (SET-01)
+//   and executor/queue-job.ts already uses for the queue.
+//
+//   A held lane is LOUD: `reportBackgroundHold()` writes one `[budget] HELD`
+//   line per lane per minute. Standing down quietly would reproduce the
+//   original defect in a new place — the C3 heartbeat counts refusals, and a
+//   lane that never asks is refused zero times.
+//
 // THE KILL SWITCH (S0.8, T0-13; SPD-03). `app_state.model_activity_paused`
 //   is checked at the same choke point, first. It is the human's "Stop all
 //   model activity": NOTHING is exempt — not chat, not the bar — because the
@@ -69,6 +105,11 @@ export const DEFAULT_CEILINGS: Readonly<BudgetCeilings> = Object.freeze({
 export const BUDGET_TRIPPED_KEY = "budget_tripped_at";
 export const BUDGET_TRIPPED_REASON_KEY = "budget_tripped_reason";
 export const BUDGET_LEDGER_KEY = "budget.ledger";
+/**
+ * ISO time of the operator's last reset — the point the HOUR windows are
+ * measured from, so that pressing resume actually resumes (FIX-C1).
+ */
+export const BUDGET_RESUMED_KEY = "budget.resumed_at";
 /** The kill switch. Value is the ISO time it was thrown; absent = running. */
 export const MODEL_ACTIVITY_PAUSED_KEY = "model_activity_paused";
 
@@ -128,6 +169,7 @@ export function setBudgetStore(s: BudgetStore | null): void {
 export function resetBudgetForTests(): void {
   memory.clear();
   storeOverride = null;
+  holdLoggedAt.clear();
 }
 
 // ---- ceilings --------------------------------------------------------------
@@ -197,8 +239,16 @@ export interface WindowTotals {
   usd: number;
 }
 
-function totals(ledger: Bucket[], now: number, windowMs: number): WindowTotals {
-  const floor = Math.floor((now - windowMs) / MINUTE_MS);
+/**
+ * Spend and calls in the trailing `windowMs`, never counting anything before
+ * `sinceMs` (the operator's resume point; 0 = count the whole window). The
+ * resume MINUTE itself counts: a call admitted seconds after the tap is spend
+ * the resume is responsible for.
+ */
+function totals(ledger: Bucket[], now: number, windowMs: number, sinceMs = 0): WindowTotals {
+  const windowFloor = Math.floor((now - windowMs) / MINUTE_MS);
+  const resumeFloor = sinceMs > 0 ? Math.floor(sinceMs / MINUTE_MS) - 1 : Number.NEGATIVE_INFINITY;
+  const floor = Math.max(windowFloor, resumeFloor);
   let calls = 0;
   let usd = 0;
   for (const b of ledger) {
@@ -212,11 +262,26 @@ function totals(ledger: Bucket[], now: number, windowMs: number): WindowTotals {
 
 // ---- the latch -------------------------------------------------------------
 
+/** The operator's last reset as epoch ms; 0 when there has never been one. */
+function resumedAtMs(s: BudgetStore): number {
+  const raw = s.get(BUDGET_RESUMED_KEY);
+  if (!raw) return 0;
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? t : 0;
+}
+
 export interface BudgetStatus {
   trippedAt: string | null;
   trippedReason: string | null;
   /** ISO time the kill switch was thrown; null while model activity runs. */
   modelActivityPausedAt: string | null;
+  /**
+   * ISO time of the operator's last reset, or null. `hour` is measured from
+   * here (FIX-C1), so a surface showing "$X of $3 this hour" shows the same
+   * number the gate is about to compare — never a forgiven hour the ceiling
+   * has already stopped charging for.
+   */
+  resumedAt: string | null;
   hour: WindowTotals;
   day: WindowTotals;
   ceilings: BudgetCeilings;
@@ -226,11 +291,13 @@ export interface BudgetStatus {
 export function budgetStatus(now: number = Date.now()): BudgetStatus {
   const s = store();
   const ledger = loadLedger(s, now);
+  const resumed = resumedAtMs(s);
   return {
     trippedAt: s.get(BUDGET_TRIPPED_KEY),
     trippedReason: s.get(BUDGET_TRIPPED_REASON_KEY),
     modelActivityPausedAt: s.get(MODEL_ACTIVITY_PAUSED_KEY),
-    hour: totals(ledger, now, HOUR_MS),
+    resumedAt: s.get(BUDGET_RESUMED_KEY),
+    hour: totals(ledger, now, HOUR_MS, resumed),
     day: totals(ledger, now, DAY_MS),
     ceilings: budgetCeilings(),
   };
@@ -257,6 +324,7 @@ export function setModelActivityPaused(paused: boolean, now: number = Date.now()
   } else {
     if (s.get(MODEL_ACTIVITY_PAUSED_KEY) === null) return;
     s.delete(MODEL_ACTIVITY_PAUSED_KEY);
+    holdLoggedAt.clear();
     console.error("[budget] model activity resumed by the operator.");
   }
 }
@@ -289,10 +357,131 @@ export function tripBudget(reason: string, now: number = Date.now()): void {
 }
 
 /** The operator's explicit reset. Nothing else clears the latch. */
-export function resetBudgetLatch(): void {
+export function resetBudgetLatch(now: number = Date.now()): void {
   const s = store();
+  const was = s.get(BUDGET_TRIPPED_KEY);
   s.delete(BUDGET_TRIPPED_KEY);
   s.delete(BUDGET_TRIPPED_REASON_KEY);
+  // FIX-C1: the hour that caused the trip is forgiven from here, or the first
+  // call after the reset would re-breach it and re-latch on the spot. The day
+  // is not forgiven — see the header.
+  s.set(BUDGET_RESUMED_KEY, new Date(now).toISOString());
+  holdLoggedAt.clear();
+  if (was !== null) {
+    const day = totals(loadLedger(s, now), now, DAY_MS);
+    console.error(
+      `[budget] latch reset by the operator (was tripped at ${was}) — the hour is forgiven from now; ` +
+        `today still stands at ${day.calls} calls / $${day.usd.toFixed(2)}. Held lanes resume on their next tick.`,
+    );
+  }
+}
+
+// ---- the hold --------------------------------------------------------------
+
+/** Which switch is holding background model work. */
+export type ModelHoldKind = "kill-switch" | "budget";
+
+/** The answer to "may a background lane spend right now?". */
+export interface ModelWorkHold {
+  held: boolean;
+  kind: ModelHoldKind | null;
+  /** ISO time the hold began (the trip, or the switch being thrown). */
+  since: string | null;
+  /** The ceiling that was breached, when the hold is the budget latch. */
+  reason: string | null;
+  /** One line, already phrased for a log or a queue's `reason` field. */
+  label: string | null;
+}
+
+const RUNNING: Readonly<ModelWorkHold> = Object.freeze({
+  held: false,
+  kind: null,
+  since: null,
+  reason: null,
+  label: null,
+});
+
+/**
+ * May a BACKGROUND lane start model work right now?
+ *
+ * The kill switch first (it means everything), then the ceiling latch. This is
+ * a pure lookup — no ledger arithmetic, no writes — so a lane may ask it on
+ * every tick. It deliberately does NOT consider the current window: a lane
+ * that is merely close to a ceiling still works, and the ceiling itself is
+ * enforced where it must be, at the spawn site in `admitCall`.
+ *
+ * Interactive callers (chat, the grounded bar) never ask: they are exempt from
+ * the latch by `isLatchExempt`, so that the surface you would use to diagnose
+ * a trip keeps answering.
+ */
+export function backgroundModelHold(): ModelWorkHold {
+  const s = store();
+  const pausedAt = s.get(MODEL_ACTIVITY_PAUSED_KEY);
+  if (pausedAt !== null) {
+    return {
+      held: true,
+      kind: "kill-switch",
+      since: pausedAt,
+      reason: null,
+      label: `"Stop all model activity" has been on since ${pausedAt}`,
+    };
+  }
+  const trippedAt = s.get(BUDGET_TRIPPED_KEY);
+  if (trippedAt !== null) {
+    const reason = s.get(BUDGET_TRIPPED_REASON_KEY);
+    return {
+      held: true,
+      kind: "budget",
+      since: trippedAt,
+      reason,
+      label: `the spend ceiling was reached at ${trippedAt}${reason ? ` — ${reason}` : ""}`,
+    };
+  }
+  return RUNNING;
+}
+
+/** Convenience for the call sites that only branch on it. */
+export function isBackgroundModelHeld(): boolean {
+  return backgroundModelHold().held;
+}
+
+/** At most one `[budget] HELD` line per lane per minute. */
+export const HOLD_LOG_INTERVAL_MS = 60_000;
+
+const holdLoggedAt = new Map<string, number>();
+
+/**
+ * Ask the hold AND say so in the operator log, at most once a minute per lane.
+ *
+ * A lane that stands down silently is the original defect wearing a different
+ * hat: worker.log would read the same whether the pipeline was idle, dead, or
+ * hard-stopped. The line names the lane, the switch and the way out.
+ */
+export function reportBackgroundHold(
+  lane: string,
+  now: number = Date.now(),
+  log: (line: string) => void = (line) => console.error(line),
+): ModelWorkHold {
+  const hold = backgroundModelHold();
+  if (!hold.held) {
+    holdLoggedAt.delete(lane);
+    return hold;
+  }
+  const last = holdLoggedAt.get(lane);
+  if (last === undefined || now - last >= HOLD_LOG_INTERVAL_MS) {
+    holdLoggedAt.set(lane, now);
+    log(
+      `[budget] HELD — ${lane} is standing down: ${hold.label}. ` +
+        "Nothing is dropped and nothing is stamped; the work waits. " +
+        "Resume from the banner in the app, or POST /api/ops/budget/reset.",
+    );
+  }
+  return hold;
+}
+
+/** Test seam: forget which lanes have already logged their hold. */
+export function resetHoldLogForTests(): void {
+  holdLoggedAt.clear();
 }
 
 // ---- exemption -------------------------------------------------------------
@@ -335,8 +524,8 @@ export class BudgetExceededError extends Error {
   }
 }
 
-function breach(ledger: Bucket[], now: number, c: BudgetCeilings): string | null {
-  const hour = totals(ledger, now, HOUR_MS);
+function breach(ledger: Bucket[], now: number, c: BudgetCeilings, hourSince = 0): string | null {
+  const hour = totals(ledger, now, HOUR_MS, hourSince);
   const day = totals(ledger, now, DAY_MS);
   // Calls: the Nth call is allowed, the (N+1)th is not.
   if (hour.calls + 1 > c.callsPerHour) return `${hour.calls} calls in the last hour (ceiling ${c.callsPerHour})`;
@@ -369,8 +558,9 @@ export function admitCall(
   const ceilings = budgetCeilings();
   const ledger = loadLedger(s, now);
   const exempt = isLatchExempt(meta);
+  const resumed = resumedAtMs(s);
 
-  const reason = breach(ledger, now, ceilings);
+  const reason = breach(ledger, now, ceilings, resumed);
   if (reason) tripBudget(reason, now);
 
   const tripped = s.get(BUDGET_TRIPPED_KEY);
@@ -380,7 +570,8 @@ export function admitCall(
       trippedAt: tripped,
       trippedReason: s.get(BUDGET_TRIPPED_REASON_KEY),
       modelActivityPausedAt: null,
-      hour: totals(ledger, now, HOUR_MS),
+      resumedAt: s.get(BUDGET_RESUMED_KEY),
+      hour: totals(ledger, now, HOUR_MS, resumed),
       day: totals(ledger, now, DAY_MS),
       ceilings,
     });

@@ -85,6 +85,7 @@ import {
 } from "../db/ingest.js";
 import { logRun } from "../db/index.js";
 import { DEFAULT_PROVIDER_ID } from "../providers/index.js";
+import { reportBackgroundHold } from "../providers/budget.js";
 import {
   getMediaBackfillEnabled,
   getMediaConcurrency,
@@ -461,6 +462,16 @@ export class MediaQueue {
    */
   private claimMedia(): PendingMediaRow[] {
     if (!getMediaDescribeEnabled()) return [];
+    // FIX-C1: a hard stop HOLDS the queue, it does not burn it. While the
+    // budget latch or the kill switch is on, every description call is refused
+    // BEFORE spawn and the refusal never clears on its own, so claiming rows
+    // buys nothing but an error row and a retry ladder — on the user's
+    // 13.11.5 install, one `media` run with status='error' every ~50 seconds
+    // for three hours. Claiming nothing leaves the rows pending, exactly where
+    // the next tick after an operator resets the latch will find them.
+    // Posters (ffmpeg) and transcripts (whisper) are local and are NOT gated
+    // here: they cost no tokens and keep working through a hold.
+    if (reportBackgroundHold("media descriptions").held) return [];
     // A refused call is refused for every slot, so no new one is made at all.
     if (Date.now() < this.backoffUntil) return [];
 

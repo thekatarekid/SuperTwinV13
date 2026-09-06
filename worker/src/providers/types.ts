@@ -62,6 +62,14 @@ export type ProviderErrorCode =
   | "BUDGET_EXCEEDED"
   /** providers/budget.ts: "Stop all model activity" is on, thrown BEFORE spawn. */
   | "MODEL_ACTIVITY_PAUSED"
+  /**
+   * The CLI stopped because it hit `--max-turns`, not because anything broke
+   * (FIX-C2). It is a SOFT stop: whatever the model streamed before the cap is
+   * still the model's own words, so the caller salvages or re-asks NARROWLY —
+   * it must never trigger a blind re-issue of the same full-context call, and
+   * it must not feed the S0.7 consecutive-failure breaker.
+   */
+  | "MAX_TURNS"
   | "BAD_REQUEST";
 
 /**
@@ -91,8 +99,9 @@ export interface SendOptions {
   /** Cap the number of agent turns. */
   maxTurns?: number;
   /**
-   * Bounded, tool-free, single-turn JSON completion mode (extraction stages).
-   * When true the adapter forces: --max-turns 1, hard tool denial via
+   * Bounded, tool-free, short-turn JSON completion mode (extraction stages).
+   * When true the adapter forces: --max-turns PLAIN_COMPLETION_MAX_TURNS (2 —
+   * one answer plus one preamble allowance, see cli.ts), hard tool denial via
    * --disallowedTools (every built-in agentic tool), --setting-sources "" (so
    * the user's/project's CLAUDE.md, hooks and settings are NOT loaded), and
    * MAX_THINKING_TOKENS=0 (extended thinking disabled). Together these stop the

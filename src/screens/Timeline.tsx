@@ -6,30 +6,10 @@
 // filing chip (→ space) on every filed row, and click → modal. Twin actions
 // (source "twin", incl. bar threads) are first-class rows on the same
 // timeline. Paging rides the worker's `next_before` cursor ("show more").
-//
-// ---------------------------------------------------------------------------
-// FIX-C4 — "NOTHING CAPTURED YET" OVER A LOG WITH THOUSANDS OF ROWS.
-//
-// `rows` started as `[]`, and `[]` was rendered as the verdict: the screen's
-// first frame said "nothing captured yet" while /api/timeline was still on the
-// wire. On the user's own worker that read took ~15 s (better-sqlite3 is
-// synchronous and a WhatsApp import held the database), and it answered 200
-// with rows — so the screen spent fifteen seconds denying an event log it was
-// about to render.
-//
-// Two changes, both from the L2 contract in components/LoadState.tsx:
-//
-//   * `null` is NO ANSWER YET and paints a skeleton; `[]` is the answer
-//     "nothing", and only that prints the empty line.
-//   * the answered page is kept in the pane cache, so coming back to the tab
-//     repaints the last timeline in the same frame and re-reads underneath —
-//     the main tabs stop costing a cold aggregate every time they are opened.
-//     Only the UNFILTERED first page is cached: a filtered view is a different
-//     question and must not be served from the base view's answer.
 // ===========================================================================
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { LoadFailure, PanelSkeleton, RefreshingHint, useCachedRead } from "../components/LoadState";
+import { useCallback, useEffect, useState } from "react";
+import { LoadFailure } from "../components/LoadState";
 import {
   describeWorkerError,
   fetchTimeline,
@@ -37,14 +17,6 @@ import {
   type SpaceRow,
   type TimelineRowView,
 } from "../lib/api";
-
-/** What the pane cache holds for the base (unfiltered, un-jumped) view. */
-interface TimelinePage {
-  rows: TimelineRowView[];
-  next_before: string | null;
-}
-
-const TIMELINE_CACHE_KEY = "timeline.page";
 
 const SOURCE_GLYPHS: Record<string, string> = {
   wa: "⬡ WhatsApp",
@@ -80,10 +52,8 @@ export function Timeline(props: {
   /** Filing chip click → the space modal (spec §14.3.1). */
   onOpenSpace: (spaceId: string) => void;
 }): JSX.Element {
-  const cache = useCachedRead<TimelinePage>(TIMELINE_CACHE_KEY);
-  // null is "no answer yet" — the whole point. [] is the answer "nothing".
-  const [rows, setRows] = useState<TimelineRowView[] | null>(cache.seed?.rows ?? null);
-  const [nextBefore, setNextBefore] = useState<string | null>(cache.seed?.next_before ?? null);
+  const [rows, setRows] = useState<TimelineRowView[]>([]);
+  const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [days, setDays] = useState<{ day: string; count: number }[]>([]);
   const [sources, setSources] = useState<string[]>([]);
   const [source, setSource] = useState("");
@@ -93,20 +63,10 @@ export function Timeline(props: {
   const [selected, setSelected] = useState<TimelineRowView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // The rows on screen belong to the base view, so a base-view read may cache
-  // its answer. A filtered read must not (it is a different question), and
-  // "show more" must not either (the cache holds the first page).
-  const filtered = source !== "" || person !== "" || space !== "" || jumpDay !== null;
-  const filteredRef = useRef(filtered);
-  filteredRef.current = filtered;
 
   const load = useCallback(
     async (append: boolean, before?: string) => {
       setLoading(true);
-      const cacheable = !append && !filteredRef.current;
-      // Newest issue wins: a slow first reply must not overwrite the answer a
-      // later read already delivered, on screen or in the cache (L2).
-      const token = cache.begin();
       try {
         const page = await fetchTimeline({
           before,
@@ -114,19 +74,16 @@ export function Timeline(props: {
           person: person || undefined,
           space: space || undefined,
         });
-        if (!cache.accept(token)) return;
-        setRows((prev) => (append ? [...(prev ?? []), ...page.rows] : page.rows));
+        setRows((prev) => (append ? [...prev, ...page.rows] : page.rows));
         setNextBefore(page.next_before);
         setError(null);
-        if (cacheable) cache.publish(token, { rows: page.rows, next_before: page.next_before });
       } catch (err) {
-        if (!cache.accept(token)) return;
         setError(describeWorkerError(err));
       } finally {
         setLoading(false);
       }
     },
-    [source, person, space, cache],
+    [source, person, space],
   );
 
   useEffect(() => {
@@ -145,7 +102,7 @@ export function Timeline(props: {
 
   // Group rows under day headings.
   const grouped: { day: string; rows: TimelineRowView[] }[] = [];
-  for (const row of rows ?? []) {
+  for (const row of rows) {
     const day = dayOf(row.ts);
     const last = grouped[grouped.length - 1];
     if (last && last.day === day) last.rows.push(row);
@@ -201,13 +158,7 @@ export function Timeline(props: {
           retrying={loading}
         />
       )}
-      {/* Unknown is not empty: no answer yet means a skeleton, and the empty
-          line only once the worker has actually said "nothing" (FIX-C4). */}
-      {!error && rows === null && <PanelSkeleton what="your timeline" rows={5} />}
-      {!error && rows !== null && rows.length === 0 && (
-        <p className="empty">nothing captured yet</p>
-      )}
-      {rows !== null && <RefreshingHint active={loading} what="the timeline" />}
+      {!error && rows.length === 0 && <p className="empty">nothing captured yet</p>}
 
       {grouped.map((group) => (
         <section key={group.day} aria-label={dayHeading(group.day)}>

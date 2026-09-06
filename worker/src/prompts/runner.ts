@@ -536,6 +536,14 @@ export class PromptRunner {
         { code: call.errorCode, message: call.errorMessage },
         retriesSpent,
       );
+      if (decision.softStop) {
+        // FIX-C2. The CLI stopped on its turn cap, not on a fault: the model's
+        // own bytes are already in `call.text`. Hand it back UNLOGGED — only
+        // the caller knows whether the partial parsed (ok), needed the one
+        // repair round (retried) or was empty (quarantined) — and above all do
+        // NOT re-issue the same full-context call from in here.
+        return call;
+      }
       if (decision.breakerTripped) {
         // The lane's breaker just tripped on this failure (S0.7, SPD-07): the
         // lane is paused 30 min with a banner up, and this unit is quarantined
@@ -638,7 +646,18 @@ export class PromptRunner {
 
     try {
       const first = await this.dispatch(spec, spec.user, calls, logOnce);
-      if (!first.ok) {
+      // FIX-C2: a turn-cap stop is not a transport failure. Fall through to the
+      // parse — a preamble parses to `no_wire_lines`, which is exactly the
+      // whole-answer repair ask, and that ask is NARROW ("wire lines only")
+      // where the old blind re-issue was the same 22K-token pack again.
+      const firstSoftStop = !first.ok && String(first.errorCode) === "MAX_TURNS";
+      if (firstSoftStop) {
+        console.warn(
+          `[turn-cap] ${spec.callType} hit the CLI turn cap with ${first.text.length} chars in hand ` +
+            `— salvaging or re-asking narrowly, never re-issuing the pack`,
+        );
+      }
+      if (!first.ok && !firstSoftStop) {
         const code = String(first.errorCode ?? "CLI_ERROR");
         const cancelled = code === "CANCELLED";
         return this.finish(spec, calls, {
@@ -661,6 +680,12 @@ export class PromptRunner {
       const parse1 = parseWire(first.text);
       const ask = buildRepairAsk(parse1);
       if (!ask.needed) {
+        // Reached after a turn cap only when the lines that DID arrive all
+        // parsed: that is a salvage — a usable answer for one call instead of
+        // four. Logged "ok" (nothing was retried); the `runs` row still
+        // carries error_code MAX_TURNS, so the salvage stays visible and the
+        // retry-rate metric stays honest. An answer that came back as prose
+        // has a `no_wire_lines` violation and takes the repair round below.
         logOnce(first, "ok");
         return this.finish(spec, calls, { status: "ok", outcome: singleRound(parse1) });
       }
@@ -673,7 +698,10 @@ export class PromptRunner {
         calls,
         logOnce,
       );
-      if (!second.ok) {
+      // FIX-C2 again on the repair round: a turn cap there still leaves the
+      // model's bytes, and round 1's accepted records are already banked.
+      const secondSoftStop = !second.ok && String(second.errorCode) === "MAX_TURNS";
+      if (!second.ok && !(secondSoftStop && second.text.trim().length > 0)) {
         const outcome = singleRound(parse1);
         const code = String(second.errorCode ?? "CLI_ERROR");
         return this.finish(spec, calls, {

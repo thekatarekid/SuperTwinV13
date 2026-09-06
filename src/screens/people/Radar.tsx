@@ -18,16 +18,11 @@
 // lives in the worker, so the surface has nothing to filter.
 //
 // Rows are already ordered by the worker, soonest follow-up first.
-//
-// FIX-C4 — the radar was the second of the two panels the user reported as
-// "stuck on loading": a literal `loading…` for the whole length of a read that
-// queues behind a running import. It paints the shared skeleton instead, and
-// keeps its answer in the pane cache so returning to People is instant.
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
 
-import { LoadFailure, PanelSkeleton, useCachedRead } from "../../components/LoadState";
+import { LoadFailure } from "../../components/LoadState";
 import { describeWorkerError, fetchRadar, setRadarLead, type RadarEntryView } from "../../lib/api";
 import { circleLabel } from "../../modals/PersonModal";
 
@@ -86,33 +81,26 @@ export function Radar(props: {
   /** Pin the clock — the tests and the person card ask "at what time?". */
   now?: string;
 }): JSX.Element {
-  // Keyed by the question asked: the whole radar and one person's slice of it
-  // are different answers and must not share a cached one.
-  const cache = useCachedRead<RadarEntryView[]>(`people.radar.${props.person ?? "all"}`);
-  const [radar, setRadar] = useState<RadarEntryView[] | null>(cache.seed);
+  const [radar, setRadar] = useState<RadarEntryView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const token = cache.begin();
     try {
       const r = await fetchRadar({
         ...(props.person ? { person: props.person } : {}),
         ...(props.now ? { now: props.now } : {}),
       });
-      if (!cache.accept(token)) return;
       setRadar(r.radar);
       setError(null);
-      cache.publish(token, r.radar);
     } catch (err) {
-      if (!cache.accept(token)) return;
       setError(describeWorkerError(err));
     } finally {
       setLoading(false);
     }
-  }, [props.person, props.now, cache]);
+  }, [props.person, props.now]);
 
   useEffect(() => {
     void refresh();
@@ -158,7 +146,7 @@ export function Radar(props: {
           </button>
         </p>
       )}
-      {!error && radar === null && <PanelSkeleton what="the follow-up radar" rows={3} className="inline" />}
+      {!error && radar === null && <p className="empty">loading…</p>}
       {!error && radar !== null && radar.length === 0 && <p className="empty">nothing owed either way</p>}
 
       {radar !== null &&

@@ -26,6 +26,21 @@
 // The live lane runs on the pool's reserved `live` lane (providers/pool.ts):
 // two hundred queued history bundles cannot delay a live flush (GATE-09).
 //
+// HARD STOP (13.11.6, FIX-C1). Before it hands a bundle to any sink the
+// dispatcher asks providers/budget's `backgroundModelHold()`: is the spend
+// ceiling latched, or is "stop all model activity" on? Held means STAND DOWN,
+// exactly as a switched-off step does (SET-01) — no sink, no stamp, no attempt
+// row, no dead letter — and the next tick after an operator resets the latch
+// dispatches precisely what was waiting.
+//
+// It has to be a hold and not a failure. A refused call comes back as an
+// ordinary failure, and an ordinary failure walks the three-strikes ladder in
+// attempts.ts: at the third the bundle is dead-lettered AND `markDispatched`
+// stamps its rows, so a latch nobody noticed would quietly eat the backlog it
+// could not read — the events end up `dispatched_at IS NOT NULL` and no lane
+// ever offers them again, even after the latch is cleared. On the user's
+// 13.11.5 install the latch tripped 41 minutes in and stayed set for hours.
+//
 // EVAL ISOLATION (S3.9): rows whose `origin` is in `ignoreOrigins` are never
 // gated, bundled or stamped by this dispatcher. DEFAULT_IGNORED_ORIGINS is
 // ["eval"] — the origin the golden harness writes (db/eventlog.ts) — so a
@@ -61,6 +76,7 @@ import { planHistory } from "./history.js";
 import { planDigest } from "./digest.js";
 import { attemptEligibility, recordFailedAttempt, recordSuccess, RETRY_DELAY_MS } from "./attempts.js";
 import { laneStepEnabled, STEP_OFF_HOLD_MS } from "../../settings/steps.js";
+import { reportBackgroundHold, type ModelWorkHold } from "../../providers/budget.js";
 
 // ---- Hooks and options -------------------------------------------------------
 
@@ -76,6 +92,13 @@ export const FRESHNESS_KEY = "assist.freshness";
 
 /** How often the production dispatcher ticks. */
 export const TICK_MS = 5_000;
+
+/**
+ * How long a live bundle held by the budget latch or the kill switch waits
+ * before it is offered again (FIX-C1). Same shape as STEP_OFF_HOLD_MS: the
+ * hold is re-asked, never assumed to persist.
+ */
+export const HARD_STOP_HOLD_MS = 30_000;
 
 export type SinkStatus = "committed" | "empty" | "quarantined" | "stale" | "failed";
 
@@ -106,6 +129,12 @@ export interface DispatcherOptions {
    * the step is on again.
    */
   stepEnabled?: (lane: "live" | "history" | "digest") => boolean;
+  /**
+   * Whether background model work is hard-stopped right now — the budget latch
+   * or the kill switch (FIX-C1). Default asks providers/budget and writes one
+   * `[budget] HELD` line per lane per minute. A held lane keeps its bundles.
+   */
+  modelHold?: (lane: "live" | "history" | "digest") => ModelWorkHold;
   /** Serve history bundles (default true). */
   history?: boolean;
   /** Serve digest bundles (default true). */
@@ -145,6 +174,11 @@ export interface DispatcherStats {
   indexOnly: number;
   /** Bundles offered while their lane's step was switched off (held, never dropped). */
   heldForStep: number;
+  /**
+   * Bundles offered while model work was hard-stopped — the budget latch or the
+   * kill switch (FIX-C1). Held, never dropped, never stamped, never attempted.
+   */
+  heldForBudget: number;
 }
 
 // ---- Failure detail ----------------------------------------------------------
@@ -161,8 +195,7 @@ export interface DispatcherStats {
 export function describeSinkFailure(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   const frames = (err.stack ?? "")
-    .split("
-")
+    .split("\n")
     .slice(1)
     .map((l) => l.trim())
     .filter((l) => l.startsWith("at "))
@@ -231,6 +264,7 @@ export class Dispatcher {
   private readonly log: (line: string) => void;
   private readonly preset: () => FreshnessPreset | string | null;
   private readonly stepEnabled: (lane: "live" | "history" | "digest") => boolean;
+  private readonly modelHold: (lane: "live" | "history" | "digest") => ModelWorkHold;
   private readonly ignoreOrigins: ReadonlySet<string>;
   private readonly serveHistory: boolean;
   private readonly serveDigest: boolean;
@@ -257,6 +291,7 @@ export class Dispatcher {
     deadLetters: 0,
     indexOnly: 0,
     heldForStep: 0,
+    heldForBudget: 0,
   };
 
   constructor(opts: DispatcherOptions = {}) {
@@ -267,6 +302,7 @@ export class Dispatcher {
     this.log = opts.log ?? (() => {});
     this.preset = opts.preset ?? readPreset;
     this.stepEnabled = opts.stepEnabled ?? laneStepEnabled;
+    this.modelHold = opts.modelHold ?? ((lane) => reportBackgroundHold(`the ${lane} lane`));
     this.ignoreOrigins = new Set(opts.ignoreOrigins ?? DEFAULT_IGNORED_ORIGINS);
     this.serveHistory = opts.history ?? true;
     this.serveDigest = opts.digest ?? true;
@@ -529,6 +565,15 @@ export class Dispatcher {
     if (!this.stepEnabled(lane)) {
       this.statsState.heldForStep += 1;
       if (lane === "live") this.requeueLive(bundle, nowMs + STEP_OFF_HOLD_MS);
+      return "held";
+    }
+    // FIX-C1: a hard stop HOLDS, it never burns. Above the attempt ladder on
+    // purpose — below it, three refused offers dead-letter the bundle and stamp
+    // its rows, which is how a latched budget silently consumes the very
+    // backlog it is refusing to read.
+    if (this.modelHold(lane).held) {
+      this.statsState.heldForBudget += 1;
+      if (lane === "live") this.requeueLive(bundle, nowMs + HARD_STOP_HOLD_MS);
       return "held";
     }
     const ref = bundleRef(bundle);

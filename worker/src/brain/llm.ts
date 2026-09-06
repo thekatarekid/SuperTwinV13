@@ -488,6 +488,11 @@ async function dispatch<T>(
       { code: call.errorCode, message: call.errorMessage },
       retriesSpent,
     );
+    // FIX-C2. A turn-cap stop is handed straight back, unlogged: the model's
+    // own bytes are in `call.text`, the caller salvages or runs its ONE repair
+    // round (which asks narrowly, "JSON only, no preamble"), and the same
+    // full-context call is never re-issued from in here.
+    if (decision.softStop) return call;
     if (decision.breakerTripped) return call;
     if (decision.action === "pause" && pauses < maxPauses) {
       pauses += 1;
@@ -636,7 +641,18 @@ async function execute<T>(
   });
 
   const first = await dispatch(spec, system, spec.user, deps, calls);
-  if (!first.ok) {
+  // FIX-C2: MAX_TURNS is a soft stop, not a transport failure — fall through
+  // to the parse. A preamble ("I'll process this bundle of 92 events…") burned
+  // the turn but broke nothing, and the repair round below re-asks for the
+  // JSON alone instead of paying for the whole pack a second time.
+  const firstSoftStop = !first.ok && String(first.errorCode) === "MAX_TURNS";
+  if (firstSoftStop) {
+    console.warn(
+      `[turn-cap] ${spec.pass} hit the CLI turn cap with ${first.text.length} chars in hand ` +
+        `— salvaging or re-asking narrowly, never re-issuing the pack`,
+    );
+  }
+  if (!first.ok && !firstSoftStop) {
     const code = String(first.errorCode ?? "CLI_ERROR");
     // A cancel and a full pool are both "not now", not the unit's fault:
     // logged as an error, handed back unquarantined.
@@ -666,12 +682,18 @@ async function execute<T>(
     "YOUR PREVIOUS ANSWER:",
     first.text,
     "",
-    `Your previous answer could not be used: ${round1.problem}.`,
+    firstSoftStop
+      ? // Name the real cause (FIX-C2): the answer was a preamble that spent
+        // the turn budget, so the ask is "skip the preamble", not "try again".
+        "Your previous answer stopped at the turn limit before the JSON arrived."
+      : `Your previous answer could not be used: ${round1.problem}.`,
     "Answer again with ONLY the JSON object required by the schema — no prose,",
-    "no code fences, no commentary.",
+    "no code fences, no commentary. Do not announce what you are about to do.",
   ].join("\n");
   const second = await dispatch(spec, system, repairUser, deps, calls);
-  if (!second.ok) {
+  // A turn cap on the repair round leaves bytes too: try them before parking.
+  const secondSoftStop = !second.ok && String(second.errorCode) === "MAX_TURNS";
+  if (!second.ok && !(secondSoftStop && second.text.trim().length > 0)) {
     const code = String(second.errorCode ?? "CLI_ERROR");
     const handBack = code === "CANCELLED" || code === "POOL_OVERFLOW";
     logRun(spec, second, handBack ? "error" : "quarantined", deps);

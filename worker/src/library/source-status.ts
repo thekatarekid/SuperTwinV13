@@ -82,7 +82,18 @@ export interface SourceStatusView {
     /** THIS source's own phrase — "importing history — 4,359 events left". */
     status_label: string;
     detail: string;
+    /**
+     * The denominator of "X of N events understood": events inside the
+     * UNDERSTAND window. FIX-C5 — this was the whole log, so a source with a
+     * large searchable-only archive behind it (browser: 15,931 of 23,214 rows)
+     * read "632 of 23,214 · 9%", pairing a count of what was read with a total
+     * that includes rows no model will ever see. `captured_count` is that
+     * total, under its own name.
+     */
     event_count: number;
+    /** Everything the log holds for this source, archive rows included. */
+    captured_count: number;
+    /** Events that carry an episode (freshness/understood.ts). */
     understood_count: number;
     understood_percent: number;
     pending_live_count: number;
@@ -156,7 +167,8 @@ export function sourceStatus(sourceId: string, nowMs: number = Date.now()): Sour
       status: f.status,
       status_label: f.status_label,
       detail: f.detail,
-      event_count: f.event_count,
+      event_count: f.understand_window_count,
+      captured_count: f.event_count,
       understood_count: f.understood_count,
       understood_percent: f.understood_percent,
       pending_live_count: f.pending_live_count,

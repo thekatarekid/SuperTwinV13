@@ -50,6 +50,7 @@ import { verdictFor, type CriticOutput } from "./critic.js";
 import { findBirthDuplicate, resolveCriticOverlap } from "./space-birth.js";
 import { resolveEventAliases, type OrientEvidence, type OrientOutput } from "./orient.js";
 import type { CommittedEpisode } from "./reduce.js";
+import { normalizeQuote, quoteIsVerbatim } from "./verbatim.js";
 
 export const SECOND_LOOK_MIN = 0.6;
 export const SECOND_LOOK_MAX = 0.75;
@@ -111,6 +112,16 @@ export interface CommitRejection {
   eventIds: string[];
 }
 
+/** One evidence entry that did not verify but did not sink its item. */
+export interface EvidenceDrop {
+  item: number;
+  kind: "episode" | "proposal";
+  reason: "evidence_unresolved" | "evidence_not_verbatim";
+  /** The model's bytes, verbatim — never a cleaned-up version. */
+  quote: string;
+  detail: string;
+}
+
 export interface CommitCoverage {
   /** Bundle aliases no item placed. Flagged, still stamped. */
   uncovered: string[];
@@ -131,6 +142,14 @@ export interface CommitReport {
   questions: string[];
   decisions: string[];
   rejections: CommitRejection[];
+  /**
+   * Evidence entries the item shed on the way in (FIX-C2). An item with two
+   * quotes, one verifiable and one not, keeps the verifiable one and files
+   * with it: the alternative was throwing away a whole ~22K-token Orient pass
+   * over one span, three times, until the bundle dead-lettered. An item whose
+   * evidence ALL fails is still a reject — nothing is claimed without proof.
+   */
+  evidenceDropped: EvidenceDrop[];
   coverage: CommitCoverage;
   /**
    * Bundle events the tick handled — members of committed items plus the
@@ -154,20 +173,6 @@ interface EventRow {
   ts: string | null;
   stream_id: string | null;
   text: string | null;
-}
-
-/** Whitespace-collapsed, NFC, outer quotation marks off — still verbatim. */
-function normalizeQuote(s: string): string {
-  return s
-    .normalize("NFC")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, "")
-    .trim();
-}
-
-function normalizeText(s: string): string {
-  return s.normalize("NFC").replace(/\s+/g, " ");
 }
 
 /** Seed the space_index lanes from the founding events (bridge keys). */
@@ -204,6 +209,7 @@ export function commitTick(input: CommitInput): CommitReport {
     questions: orient.questions,
     decisions: [],
     rejections: [],
+    evidenceDropped: [],
     coverage: { uncovered: [], duplicated: [] },
     handledEventIds: [],
     heldEventIds: [],
@@ -327,36 +333,72 @@ export function commitTick(input: CommitInput): CommitReport {
     return { ok: true, streamId };
   };
 
-  /** Rule 4: every evidence entry resolves and quotes verbatim. */
-  const evidenceOk = (
-    evidence: readonly OrientEvidence[],
-  ): { ok: true } | { ok: false; reason: RejectReason; detail: string } => {
+  /**
+   * Rule 4: evidence resolves and quotes verbatim — now PER ENTRY (FIX-C2).
+   *
+   * The bar itself is unchanged: nothing is claimed without a verbatim quote
+   * over real event ids. What changed is the blast radius of ONE bad entry. It
+   * used to sink the item, which held the item's events, which failed the
+   * bundle, which was re-attempted twice more at full context and then
+   * dead-lettered — a ~22K-token pass thrown away over a single span, and the
+   * single largest driver of `bundle_attempts.last_error` on the user's
+   * install. Now a failing entry is DROPPED and named, and the item files on
+   * whatever evidence actually verified. An item where NOTHING verifies still
+   * rejects, with the first failure's reason and detail byte-for-byte as
+   * before, because that item has no proof at all.
+   */
+  type EvidenceCheck =
+    | { ok: true; kept: OrientEvidence[]; dropped: Omit<EvidenceDrop, "item" | "kind">[] }
+    | { ok: false; reason: RejectReason; detail: string };
+
+  const evidenceOk = (evidence: readonly OrientEvidence[]): EvidenceCheck => {
     if (evidence.length === 0) {
       return { ok: false, reason: "no_evidence", detail: "no evidence entries" };
     }
+    const kept: OrientEvidence[] = [];
+    const dropped: Omit<EvidenceDrop, "item" | "kind">[] = [];
     for (const ev of evidence) {
       const ids = resolveEvidenceIds(ev.event_ids);
       if (ids.length === 0) {
-        return {
-          ok: false,
+        dropped.push({
           reason: "evidence_unresolved",
+          quote: ev.quote,
           detail: `event_ids ${JSON.stringify(ev.event_ids)} resolve to nothing`,
-        };
+        });
+        continue;
       }
-      const q = normalizeQuote(ev.quote);
-      if (!q) {
-        return { ok: false, reason: "evidence_not_verbatim", detail: "empty quote" };
+      if (!normalizeQuote(ev.quote)) {
+        dropped.push({ reason: "evidence_not_verbatim", quote: ev.quote, detail: "empty quote" });
+        continue;
       }
-      const hit = ids.some((id) => normalizeText(eventRow(id)?.text ?? "").includes(q));
-      if (!hit) {
-        return {
-          ok: false,
+      const texts = ids.map((id) => eventRow(id)?.text ?? "");
+      if (!quoteIsVerbatim(ev.quote, texts)) {
+        dropped.push({
           reason: "evidence_not_verbatim",
+          quote: ev.quote,
           detail: `"${ev.quote}" is not in ${aliasesFor(ids).join(",")}`,
-        };
+        });
+        continue;
       }
+      kept.push(ev);
     }
-    return { ok: true };
+    if (kept.length === 0) {
+      const first = dropped[0]!;
+      return { ok: false, reason: first.reason, detail: first.detail };
+    }
+    return { ok: true, kept, dropped };
+  };
+
+  /** Record the shed entries: on the report, and out loud in the operator log. */
+  const noteDrops = (
+    item: number,
+    kind: "episode" | "proposal",
+    dropped: readonly Omit<EvidenceDrop, "item" | "kind">[],
+  ): void => {
+    for (const d of dropped) {
+      report.evidenceDropped.push({ item, kind, ...d });
+      console.warn(`[commit] ${kind} item ${item}: evidence dropped — ${d.reason}: ${d.detail}`);
+    }
   };
 
   // ---- Writers --------------------------------------------------------------
@@ -491,6 +533,7 @@ export function commitTick(input: CommitInput): CommitReport {
         fail(ev.reason, ev.detail);
         continue;
       }
+      noteDrops(item, "episode", ev.dropped);
       const verdict = verdictFor(critic, item);
       if (verdict.verdict === "reject") {
         fail("critic", verdict.reason ?? "critic reject");
@@ -623,6 +666,10 @@ export function commitTick(input: CommitInput): CommitReport {
         fail(ev.reason, ev.detail);
         continue;
       }
+      noteDrops(item, "proposal", ev.dropped);
+      // The birth record below remembers what SURVIVED, never a quote code
+      // just told the operator it could not find (S5.1 birth_evidence_json).
+      const keptEvidence = ev.kept;
       const verdict = verdictFor(critic, item);
       if (verdict.verdict === "reject") {
         fail("critic", verdict.reason ?? "critic reject");
@@ -695,7 +742,7 @@ export function commitTick(input: CommitInput): CommitReport {
         JSON.stringify([p.summary]),
         p.confidence,
         JSON.stringify(
-          p.evidence.map((e) => ({ quote: e.quote, event_ids: e.event_ids.map((a) => resolveRows([a])[0]?.id ?? a) })),
+          keptEvidence.map((e) => ({ quote: e.quote, event_ids: e.event_ids.map((a) => resolveRows([a])[0]?.id ?? a) })),
         ),
       );
       report.createdSpaces.push(spaceId);

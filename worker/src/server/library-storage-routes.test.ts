@@ -119,10 +119,14 @@ describe("RET-04 — archive-only rows are searchable (Library half)", () => {
     expect(archive!.eventId).toBe(oldId);
 
     // Labelled searchable-only, from the one helper the UI and search share.
+    // FIX-C5: the row INSIDE the window is "queued", not "understood" — this
+    // very test proves two lines down that neither row carries an episode, and
+    // the label used to contradict it.
     const rows = getDb()
       .prepare(`SELECT id, origin FROM events WHERE id IN (?, ?) ORDER BY ts`)
       .all(oldId, newId) as { id: string; origin: string | null }[];
-    expect(rows.map((r) => tierLabel(r))).toEqual(["searchable-only", "understood"]);
+    expect(rows.map((r) => tierLabel(r))).toEqual(["searchable-only", "queued"]);
+    expect(tierLabel({ origin: "live", in_episode: true })).toBe("understood");
 
     // Carries no episode.
     const membership = getDb()
@@ -133,24 +137,32 @@ describe("RET-04 — archive-only rows are searchable (Library half)", () => {
       .get(oldId, oldId, oldId) as { n: number };
     expect(membership.n).toBe(0);
 
-    // The Library sees two bars: 2 searchable, 1 understood, 1 searchable-only.
+    // The Library sees the log split in two: 2 searchable, of which 1 is
+    // inside the Understand window and 1 is searchable-only.
     const { status, json } = await get("/api/library/storage");
     expect(status).toBe(200);
     const wa = json.sources.find((s: any) => s.source === "whatsapp");
     expect(wa).toBeDefined();
     expect(wa.searchable.events).toBe(2);
-    expect(wa.understood.events).toBe(1);
+    expect(wa.in_understand_window.events).toBe(1);
     expect(wa.searchable_only.events).toBe(1);
+    // FIX-C5: and NOTHING is understood — the in-window row was never sent to
+    // a model, which the membership check above has just proved. This panel
+    // used to call it "understood · 1 event" on the strength of the window
+    // alone, and on the reporting user's home that arithmetic published 12,120
+    // understood events against 1,061 that any episode cited.
+    expect(wa.understood.events).toBe(0);
+    expect(wa.understood.from).toBeNull();
     expect(wa.searchable_only.label).toBe("searchable-only");
     expect(wa.searchable_only.note).toBe(SEARCHABLE_ONLY_NOTE);
     expect(wa.searchable_only.note).toMatch(/carries no episode/);
     expect(wa.searchable_only.from).toBe(daysAgo(30));
-    expect(wa.understood.from).toBe(daysAgo(1));
+    expect(wa.in_understand_window.from).toBe(daysAgo(1));
     // Bytes per tier: what the disk holds for each, and the tiers add up.
     expect(wa.searchable.bytes).toBeGreaterThan(0);
-    expect(wa.understood.bytes).toBeGreaterThan(0);
+    expect(wa.in_understand_window.bytes).toBeGreaterThan(0);
     expect(wa.searchable_only.bytes).toBeGreaterThan(0);
-    expect(wa.understood.bytes + wa.searchable_only.bytes).toBe(wa.searchable.bytes);
+    expect(wa.in_understand_window.bytes + wa.searchable_only.bytes).toBe(wa.searchable.bytes);
     expect(wa.consent).toMatchObject({ state: "connected", index_all: true, understand_from: daysAgo(7) });
   });
 });

@@ -75,38 +75,6 @@ const NUDGE_MAX_STREAMS = 50;
 const BACKFILL_FLUSH_MS = 250;
 
 /**
- * ONE COHORT PER TURN OF THE EVENT LOOP (FIX-C4).
- *
- * WHAT WAS BROKEN. WhatsApp's daemon serves history ASCENDING, so every
- * historical event goes through the re-order buffer, which spills at
- * `page_hint_events * 20` = 10,000 events (adapters/backfill-order.ts). A
- * spill returns TWENTY cohorts from one `pushEvent()` call, and the loop that
- * consumed them wrote all twenty — 10,000 synchronous better-sqlite3 inserts —
- * inside the single macrotask that happened to deliver the ten-thousandth
- * event. `flushBackfill()` does the same for whatever the buffer still holds.
- *
- * Node is single-threaded and better-sqlite3 is synchronous, so for the whole
- * length of that write NOTHING else runs: not a queued HTTP request, not a
- * timer, not the socket read from the daemon. Measured on the user's own
- * machine mid-import, one main tab's worth of reads — /api/spaces,
- * /api/timeline, /api/people, /api/calendar fired together — took 15.01 s wall
- * and ALL FOUR finished within 100 ms of each other. That signature is not a
- * slow query (the same count read read-only off the same file takes 0.055 s);
- * it is four requests parked behind one block of synchronous work.
- *
- * THE FIX. The cohort stays the transaction unit — a page of history lands or
- * does not — but only ONE cohort is written per turn. The rest queue and drain
- * on `setImmediate`, which runs after the poll phase, so every request that
- * arrived during the previous cohort is answered before the next one starts.
- * A 10,000-event spill becomes twenty ~500-row blocks with the event loop free
- * between them instead of one fifteen-second freeze.
- *
- * Nothing about ORDER changes: the queue is FIFO and cohorts are written in
- * exactly the order the buffer produced them, newest first.
- */
-const COHORTS_PER_TURN = 1;
-
-/**
  * How long ingest must be quiet before the import is SEALED — i.e. before every
  * stream of the source is marked `backfill_complete` (db/watermarks).
  *
@@ -213,10 +181,6 @@ export class Ingestion {
   // is, and delaying it to sort it would be absurd.
   private readonly backfillBuffer: DescendingCohortBuffer<SourceEvent> | null;
   private backfillTimer: NodeJS.Timeout | null = null;
-
-  // Cohorts waiting for their own turn of the event loop (COHORTS_PER_TURN).
-  private readonly cohortQueue: SourceEvent[][] = [];
-  private cohortDrain: NodeJS.Immediate | null = null;
 
   // Post-import seal (see BACKFILL_SEAL_MS). Armed by the daemon's
   // `backfill_complete`, re-armed by every row that inserts after it.
@@ -376,13 +340,6 @@ export class Ingestion {
     // pass in start().
     if (s.type === "backfill_complete") {
       this.flushBackfill();
-      // Durability ordering, unchanged by FIX-C4's cooperative drain: every
-      // row the buffer held is on disk BEFORE `import_done` is stamped. A
-      // queued cohort exists nowhere but memory, and an install that was
-      // killed here would otherwise carry "the import finished" over history
-      // that never landed. This is one block, once, at the end of the push —
-      // not the per-spill freeze the queue exists to remove.
-      this.drainCohortQueue();
       this.markImportDone(s.range);
       markSourceBackfillComplete(this.sourceId);
       this.scheduleBackfillSeal();
@@ -535,7 +492,7 @@ export class Ingestion {
     if (this.paused) return;
 
     if (e.is_historical === true && this.backfillBuffer) {
-      this.emitCohorts(this.backfillBuffer.pushEvent(e));
+      for (const cohort of this.backfillBuffer.pushEvent(e)) this.writeCohort(cohort);
       this.scheduleBackfillFlush();
       return;
     }
@@ -563,71 +520,7 @@ export class Ingestion {
   /** Write everything still buffered, newest cohort first. */
   flushBackfill(): void {
     if (!this.backfillBuffer) return;
-    this.emitCohorts(this.backfillBuffer.flush());
-  }
-
-  /**
-   * Hand cohorts to the writer, one per turn of the event loop (FIX-C4).
-   *
-   * The FIRST cohort is written inline, which keeps the ordinary case — one
-   * page boundary, one cohort — exactly as synchronous as it was, and keeps
-   * `flushBackfill()` a write rather than a promise for every caller and test
-   * that treats it as one. Everything beyond that queues, so a 20-cohort spill
-   * no longer parks every HTTP request behind 10,000 inserts.
-   */
-  private emitCohorts(cohorts: readonly SourceEvent[][]): void {
-    if (cohorts.length === 0) return;
-    for (const cohort of cohorts) this.cohortQueue.push(cohort as SourceEvent[]);
-    // FIFO, so a cohort produced now can never overtake one still queued.
-    for (let i = 0; i < COHORTS_PER_TURN && this.cohortQueue.length > 0; i += 1) {
-      this.writeCohort(this.cohortQueue.shift()!);
-    }
-    this.scheduleCohortDrain();
-  }
-
-  /**
-   * Give the loop its turn, then write the next cohort. `setImmediate` fires in
-   * the check phase — after poll — so requests that arrived while the previous
-   * cohort was being written are answered BEFORE the next one starts.
-   *
-   * Deliberately not `unref`'d: rows already taken out of the re-order buffer
-   * exist nowhere else, so the process must stay alive long enough to write
-   * them.
-   */
-  private scheduleCohortDrain(): void {
-    if (this.cohortDrain || this.cohortQueue.length === 0) return;
-    this.cohortDrain = setImmediate(() => {
-      this.cohortDrain = null;
-      for (let i = 0; i < COHORTS_PER_TURN && this.cohortQueue.length > 0; i += 1) {
-        const cohort = this.cohortQueue.shift()!;
-        try {
-          this.writeCohort(cohort);
-        } catch (err) {
-          // writeCohort already retries a failed batch row by row; anything
-          // that still throws must not take the drain down with it.
-          console.error(`[ingest] queued cohort failed: ${String(err)}`);
-        }
-      }
-      this.scheduleCohortDrain();
-    });
-  }
-
-  /**
-   * Write every queued cohort NOW, on this tick. For shutdown and for tests:
-   * the drain is cooperative, and a caller that is about to stop the loop has
-   * to be able to say "no more turns — land what is left".
-   */
-  drainCohortQueue(): void {
-    if (this.cohortDrain) {
-      clearImmediate(this.cohortDrain);
-      this.cohortDrain = null;
-    }
-    while (this.cohortQueue.length > 0) this.writeCohort(this.cohortQueue.shift()!);
-  }
-
-  /** Cohorts still waiting for a turn — the tests assert the loop was freed. */
-  get queuedCohorts(): number {
-    return this.cohortQueue.length;
+    for (const cohort of this.backfillBuffer.flush()) this.writeCohort(cohort);
   }
 
   // ---- Post-import seal ----------------------------------------------------

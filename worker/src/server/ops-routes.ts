@@ -344,8 +344,18 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
   //
   // The operator's explicit reset of the ceiling latch. Nothing else clears
   // it (SPD-02). Does not touch the kill switch.
+  //
+  // FIX-C1: the reset also lifts every LLM lane pause. Before the hold landed,
+  // ten refused calls tripped the S0.7 breaker and paused the lane 30 minutes;
+  // an operator who resumed spending would otherwise sit through the rest of
+  // that pause wondering why nothing moved — and the pause was raised by the
+  // very condition they just cleared. Lanes paused for any other reason are
+  // re-paused by the next real refusal, which costs one call.
   if (method === "POST" && path === "/api/ops/budget/reset") {
     resetBudgetLatch();
+    for (const lane of OPS_LANES) {
+      if (lane.startsWith("llm")) resourcePool.resumeLane(lane);
+    }
     sendJson(res, 200, budgetStatus());
     return true;
   }

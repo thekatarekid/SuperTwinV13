@@ -23,6 +23,7 @@ import { activeCriticPrompt, modelForVersionedPass, type VersionedPrompt } from 
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { resolveEventAliases, type OrientOutput, type OrientRun } from "./orient.js";
+import { quoteIsVerbatim } from "./verbatim.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,9 +160,6 @@ function expand(tokens: readonly string[]): string[] {
   return out;
 }
 
-function norm(s: string): string {
-  return s.replace(/\s+/g, " ").trim().toLowerCase();
-}
 
 /**
  * The mechanical check. Deterministic, DB-free — the callers supply what
@@ -188,7 +186,12 @@ export function mechanicalCriticCheck(input: MechanicalInput): MechanicalReport 
     if (input.eventTexts) {
       for (const ev of evidence) {
         const cited = expand(ev.event_ids).map((a) => input.eventTexts!.get(a)).filter((t): t is string => typeof t === "string");
-        if (cited.length > 0 && !cited.some((t) => norm(t).includes(norm(ev.quote)))) {
+        // FIX-C2: the SAME matcher the commit path uses. These two used to
+        // disagree — the critic lower-cased and skipped NFC, the writer did
+        // neither — so the critic could wave through an item the commit then
+        // rejected (and flag one it would have taken). The critic's job is to
+        // predict the writer exactly.
+        if (cited.length > 0 && !quoteIsVerbatim(ev.quote, cited)) {
           notVerbatim.push(n);
           break;
         }

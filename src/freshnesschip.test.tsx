@@ -142,6 +142,53 @@ describe("FreshnessChip", () => {
     await waitFor(() => expect(screen.queryByLabelText("freshness")).toBeNull());
   });
 
+  it("FIX-C5: a stopped pipeline reads as stopped, and reads loud", async () => {
+    // The reporting user's live state: the $3/hour ceiling latched at
+    // 15:12:59Z, every call refused before spawn ever since, 11,015 events
+    // waiting — and this chip said "importing history", with a hover detail
+    // that ended "understanding: caught up".
+    stubFreshness({
+      status: "paused",
+      status_label: "understanding paused — spend ceiling reached",
+      pending_backfill_count: 11_015,
+      hold: {
+        kind: "budget",
+        label: "understanding paused — spend ceiling reached",
+        detail: "$3.05 spent in the last hour (ceiling $3). Reset it in Settings › General.",
+        since: "2026-09-06T15:12:59.534Z",
+        until_ms: null,
+      },
+      sources: [
+        source({
+          status: "paused",
+          status_label: "understanding paused — spend ceiling reached",
+          pending_backfill_count: 6618,
+          pending_count: 6618,
+          backfill_complete: false,
+          detail: "capturing live ✓ · understanding paused — spend ceiling reached",
+        }),
+        source({
+          source_id: "browser",
+          status: "paused",
+          status_label: "understanding paused — spend ceiling reached",
+          pending_backfill_count: 4367,
+          pending_count: 4367,
+          backfill_complete: false,
+          detail: "capturing live ✓ · understanding paused — spend ceiling reached",
+        }),
+      ],
+    });
+    const el = await chip();
+    expect(el.textContent).toContain("understanding paused — spend ceiling reached");
+    expect(el.textContent).not.toContain("caught up");
+    expect(el.textContent).not.toContain("up to date");
+    // A hold is one fact about the whole pipeline, not a sum over sources.
+    expect(el.textContent).not.toContain("across 2 sources");
+    expect(el.className).toContain("freshness-paused");
+    expect(el.className).toContain("lagging");
+    expect(el.getAttribute("title")).not.toContain("caught up");
+  });
+
   it("renders nothing when the worker is unreachable", async () => {
     vi.stubGlobal(
       "fetch",

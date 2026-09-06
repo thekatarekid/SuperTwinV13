@@ -39,6 +39,7 @@ import { getDb } from "../db/connection.js";
 import { writeRunLedger } from "../db/index.js";
 import { packTierUser, parseTierV1, TIER_SAMPLE_MAX, TIER_V1_ID, TIER_V1_SYSTEM, type TierV1Result } from "../prompts/tier.v1.js";
 import { systemPromptPath } from "../prompts/runner.js";
+import { reportBackgroundHold } from "../providers/budget.js";
 import { resourcePool, type ResourcePool } from "../providers/pool.js";
 import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/registry.js";
 import type { Provider, ProviderResult } from "../providers/types.js";
@@ -385,6 +386,14 @@ export async function tierStream(streamId: string, deps: TieringDeps = {}): Prom
     if (hit) {
       decision = hit;
       cached = true;
+    } else if (reportBackgroundHold("stream tiering").held) {
+      // FIX-C1. Model work is hard-stopped (budget latch / kill switch): the
+      // call would be refused before spawn, so it is not made. The stream takes
+      // the same UNRESOLVED fallback a failed call takes — T2, not cached — so
+      // the next pass after the operator resumes asks it properly. No call, no
+      // `runs` row, no cached guess made from an answer nobody gave.
+      decision = unresolvedBusinessDecision();
+      defaulted = true;
     } else {
       modelCalls = 1;
       const call = await runTierCall(

@@ -40,7 +40,7 @@
 //   --setting-sources ""   no CLAUDE.md, skills, hooks, MCP, plugins
 //   --disallowedTools …    all 13 built-ins
 //   --allowedTools ""      nothing granted, whatever the caller passed
-//   --max-turns 1          one turn
+//   --max-turns 2          one answer + one preamble allowance (FIX-C2)
 //   MAX_THINKING_TOKENS=0  no extended thinking (§4.3 ladder, default `off`)
 //   cwd = tmpdir()         never a TCC-protected directory (§4.1.4)
 // and the instruction block goes in ONCE, as --append-system-prompt (a resume
@@ -80,6 +80,7 @@ import type {
 import { emptyUsage, hasSpend, sumUsage } from "../usage.js";
 import {
   StreamJsonParser,
+  isMaxTurnsResult,
   isPoisonResult,
   type ParsedResult,
 } from "./parser.js";
@@ -104,6 +105,7 @@ export {
   buildChildEnv,
   buildCliArgs,
   isValidSessionId,
+  PLAIN_COMPLETION_MAX_TURNS,
   PROMPT_CACHE_TTL,
   resolveClaudeBin,
   safeCwd,
@@ -621,13 +623,18 @@ class ClaudeLocalProvider implements Provider {
     }
 
     // A result with is_error that WASN'T poison-fallen-back (e.g. an API error
-    // mid-turn). Surface as CLI_ERROR.
+    // mid-turn). Surface as CLI_ERROR — EXCEPT the CLI's own turn cap, which
+    // is a soft stop and gets its own code (FIX-C2): the run did not break, it
+    // ran out of turns, and whatever it streamed is still the model's words.
+    // Calling that CLI_ERROR is what made the ladder re-issue the whole
+    // full-context call and what fed the S0.7 breaker with non-failures.
     if (attempt.result && attempt.result.isError) {
+      const code = isMaxTurnsResult(attempt.result) ? "MAX_TURNS" : "CLI_ERROR";
       const message =
         (attempt.result.errors ?? []).join("; ") || "claude reported an error";
       onEvent({
         type: "error",
-        code: "CLI_ERROR",
+        code,
         message,
         sessionId: sessionId || undefined,
       });
@@ -636,7 +643,7 @@ class ClaudeLocalProvider implements Provider {
         usage: attempt.usage,
         freshFallback,
         status: "error",
-        errorCode: "CLI_ERROR",
+        errorCode: code,
       };
     }
 

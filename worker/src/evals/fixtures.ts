@@ -83,7 +83,13 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "CIR", name: "Circles & relationship value", n: 4, doc: "V2", pass: "circles" },
   { cat: "CAT", name: "Category 1/2, promotion, Digest", n: 6, doc: "V2", pass: "digest" },
   { cat: "CHP", name: "Chapters", n: 6, doc: "V2", pass: "decide" },
-  { cat: "AST", name: "Assist lane", n: 9, doc: "V2", pass: "assist" },
+  // AST (the V2 doc's nine assist-lane cases) is RETIRED — R1, build §2.3 /
+  // §7.3 step 3. The lane those cases measured (watcher, evaluator, tick,
+  // cursor, gate) is deleted, so the fixtures are deleted too rather than
+  // left reading pending against a pass nothing registers. `--materialize`
+  // no longer writes them back: dropping the row here is what stops it.
+  // Every assertion they carried lives on in LIV / EXE / NUD / CROSS / GATE,
+  // recorded case by case in parity.ts and checked by `--ast-parity`.
   { cat: "SCH", name: "Scheduled / routine tasks", n: 8, doc: "V2", pass: "schedule" },
   { cat: "FUP", name: "Follow-up tasks", n: 5, doc: "V2", pass: "decide" },
   { cat: "USR", name: "User-created objects & grounded bar", n: 6, doc: "V2", pass: "user-objects" },

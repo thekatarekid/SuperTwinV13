@@ -4,9 +4,9 @@
 //
 // The one thing worth testing about a prompt is that it still says what the
 // prompt it was split from says. Both live.v1 and live-decide.v1 are
-// selectable — the fallback runs one, a green ORIENT re-measure flips back to
-// the other — so a rule that drifts in one and not the other would make the
-// twin behave differently depending on a constant nobody re-reads.
+// selectable — the merged pass ships (R1), the fallback is one env var away —
+// so a rule that drifts in one and not the other would make the twin behave
+// differently depending on a constant nobody re-reads.
 // ===========================================================================
 
 import { describe, expect, it } from "vitest";
@@ -91,14 +91,23 @@ describe("registration", () => {
     expect(modelForVersionedPass(activeLiveDecidePrompt())).toBeTruthy();
   });
 
-  it("the fallback is what runs by default (Build §7.3, item 1 red)", () => {
-    expect(DEFAULT_LIVE_MODE).toBe("two-call");
+  it("is the FALLBACK, not the default — selectable, never automatic (Build §7.3)", () => {
+    // This prompt exists for a red item 1 on the S4 ship gate. The gate went
+    // green at the S4 release and again at S6, so R1 flipped the default to
+    // the merged one-call lane. The prompt stays registered and reachable:
+    // "keep the merged pack, make two calls" has to remain an answer, and an
+    // answer you cannot select is not one.
+    expect(DEFAULT_LIVE_MODE).toBe("merged");
     const saved = process.env[LIVE_PROMPT_ENV];
     try {
       delete process.env[LIVE_PROMPT_ENV];
+      expect(activeLiveMode()).toBe("merged");
+      process.env[LIVE_PROMPT_ENV] = "two-call";
       expect(activeLiveMode()).toBe("two-call");
+      expect(activeLiveDecidePrompt().pass).toBe("live-decide.v1");
     } finally {
-      if (saved !== undefined) process.env[LIVE_PROMPT_ENV] = saved;
+      if (saved === undefined) delete process.env[LIVE_PROMPT_ENV];
+      else process.env[LIVE_PROMPT_ENV] = saved;
     }
   });
 });

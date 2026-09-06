@@ -26,7 +26,7 @@
 // Every case removes its own rows afterwards.
 // ===========================================================================
 
-import { createArtifact } from "../../assist/artifacts.js";
+import { createArtifact } from "../../surfaces/artifacts.js";
 import { PREPARED_ACTION_KIND } from "../../brain/live.js";
 import { getDb } from "../../db/connection.js";
 import { appStateDelete, appStateSet } from "../../db/ingest.js";

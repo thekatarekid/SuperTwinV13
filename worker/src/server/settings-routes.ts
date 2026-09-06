@@ -54,7 +54,7 @@ import {
   setAssistEnabled,
   setAssistQuietHours,
   setAssistThreshold,
-} from "../assist/settings.js";
+} from "../settings/assist-settings.js";
 import {
   checkGraduation,
   graduationMode,
@@ -303,6 +303,14 @@ function captureSettings(): Record<string, unknown> {
 }
 
 function assistSettings(): Record<string, unknown> {
+  // `assist_topics` is a LEGACY table since R1 (build §2.3): the code trigger
+  // gate that filled it — per-topic novelty, cooldown, suppression — was
+  // deleted with the assist lane, and the politeness throttle is output-side
+  // now (surfaces/router.ts, `assist.dismissed.*`, NUD-07/08). Nothing writes
+  // a new row, so a fresh install reads an empty list and the panel shows its
+  // empty state. The read and the clear stay because an UPGRADED database can
+  // still carry pre-R1 rows, and "suppression is visible state, not a black
+  // box" — a user must be able to see and drop what an old build suppressed.
   const suppressed = getDb()
     .prepare(
       `SELECT topic_key, suppressed_until FROM assist_topics

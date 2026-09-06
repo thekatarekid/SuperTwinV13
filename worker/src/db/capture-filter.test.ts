@@ -318,9 +318,10 @@ describe("pause states: private moment and the quick-pause key", () => {
   });
 
   it("the panel quick-pause key (capture.paused_until) now stops CAPTURE, not just nudges", () => {
-    // The V13 defect: assist/settings wrote this key and only the assist
-    // watcher read it. The funnel reads it too now. (Wall clock here: the
-    // legacy funnel has no injectable clock.)
+    // The V13 defect: the settings module wrote this key and only the assist
+    // watcher read it. The funnel reads it too now — which is why the key
+    // outlived the watcher, deleted in R1. (Wall clock here: the legacy
+    // funnel has no injectable clock.)
     const wall = Date.now();
     appStateSet("capture.paused_until", new Date(wall + 30 * 60_000).toISOString());
     expect(capturePauseState(wall)).toMatchObject({ paused: true, privateUntil: null });

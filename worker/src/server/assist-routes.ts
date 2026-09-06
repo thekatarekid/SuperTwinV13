@@ -30,11 +30,11 @@ import {
   recordSignal,
   setArtifactStatus,
   type ArtifactStatus,
-} from "../assist/artifacts.js";
+} from "../surfaces/artifacts.js";
 import {
   getCapturePausedUntil,
   setCapturePausedUntil,
-} from "../assist/settings.js";
+} from "../settings/assist-settings.js";
 import { unreadCount } from "../surfaces/router.js";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

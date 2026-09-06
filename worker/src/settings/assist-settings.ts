@@ -1,10 +1,26 @@
 // ===========================================================================
-// [CODE] Assist lane settings — build P2.2, spec §10.1 + §14.9.
+// [CODE] Settings › Assist — the user-facing knobs (spec §10.1 + §14.9).
 //
-// Every knob the code trigger gate reads lives here as an app_state key with
-// a spec default, user-editable in Settings › Assist. There is NO daily nudge
-// cap on purpose (spec §10.1): rate emerges from novelty + intent confidence
-// + hygiene, and these are the hygiene numbers.
+// HOME. This file was `assist/settings.ts` until R1 (Build V6 P1 §2.3 / §7.3
+// step 3), which deleted the assist lane. S4.4 named this file as the
+// DESTINATION of the behavioural thresholds, not part of what dies, so it
+// moved into `settings/` beside p1-settings.ts. The `assist.*` app_state keys
+// and the `/api/settings` block keep their names: they are user data and the
+// Settings surface's own vocabulary, and renaming them would silently reset
+// every knob a user has already set.
+//
+// WHAT READS WHAT, after the retirement:
+//   quiet hours · cooldown · per-category novelty N   Settings surface only.
+//     The code trigger gate that consumed them is gone; they stay editable and
+//     stored so the retirement is reversible and no user setting is dropped.
+//   `assist.intent_confidence_min`                    the LIVE floor, read
+//     through settings/p1-settings.ts + surfaces/nudge-verdict.ts (one row,
+//     one reader, both sides — S4.4).
+//   `capture.paused_until`                            the menu-bar quick-pause,
+//     read by the panel routes and db/capture-filter.ts.
+//
+// There is NO daily nudge cap on purpose (spec §10.1): rate emerges from
+// novelty + intent confidence + hygiene, and these are the hygiene numbers.
 // ===========================================================================
 
 import { appStateGet, appStateSet } from "../db/ingest.js";

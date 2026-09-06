@@ -35,6 +35,7 @@ import { addEpisodeEvents, episodeMemberIds } from "../../db/v6core.js";
 import { runBrainTick, type TickReport } from "../../brain/consumer.js";
 import { listPreparedActions, PREPARED_ACTION_KIND, type PreparedActionRow } from "../../brain/live.js";
 import type { JsonPassDeps } from "../../brain/llm.js";
+import { activeLiveMode } from "../../prompts/versions.js";
 import type { Provider, Usage } from "../../providers/types.js";
 import type { BundleEvent, DeltaBundle } from "../../scheduler/v6/bundle.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
@@ -570,11 +571,15 @@ function assertCase(id: string, run: LivRun, expected: Record<string, unknown>):
       }
       if (run.report.status !== "committed") v.push({ label: "live-behind-history", note: `tick status ${run.report.status}` });
       // …and the flush produced the thing a live flush is for.
+      // The call COUNT follows the live mode, so the fixture's numbers are a
+      // pin on what ships and the default is what the tree is set to: merged
+      // spends one call, Build §7.3's two-call fallback spends one of each.
       const wantCalls = rec(expected.calls);
-      if (run.calls.live !== num(wantCalls.understanding, 1) || run.calls.decide !== num(wantCalls.decide, 1)) {
+      const wantDecide = num(wantCalls.decide, activeLiveMode() === "two-call" ? 1 : 0);
+      if (run.calls.live !== num(wantCalls.understanding, 1) || run.calls.decide !== wantDecide) {
         v.push({
           label: "nudge-starved",
-          note: `${run.calls.live} understanding + ${run.calls.decide} decide call(s) — the §7.3 fallback spends one of each`,
+          note: `${run.calls.live} understanding + ${run.calls.decide} decide call(s), expected 1 + ${wantDecide} in ${activeLiveMode()} mode`,
         });
       }
       if (run.prepared.length !== num(expected.prepared, 1)) {

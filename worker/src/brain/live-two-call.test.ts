@@ -3,6 +3,16 @@
 // calls: one stub provider answers all three calls of a tick and is asked what
 // it was sent.
 //
+// THE FALLBACK IS NO LONGER THE DEFAULT (R1). The S4 ship gate's item 1 went
+// green at the S4 release and again at the S6 graduation sweep, and S6 made
+// orient.v7 / critic.v5 the shipped pair — so `DEFAULT_LIVE_MODE` is "merged"
+// and production spends ONE live.v1 per bundle. What §7.3 promises is a
+// fallback that still WORKS, not one that is switched on, so this file pins
+// `SUPERTWIN_PROMPT_LIVE=two-call` for its own cases and keeps proving the
+// two-call lane end to end. If an ORIENT re-measure ever regresses, flipping
+// back is one env var, and this suite is the evidence that the var still
+// leads somewhere.
+//
 // What has to be true for the fallback to be worth taking:
 //
 //   ONE PACK          both calls read the same `packed.user`. "Keep the
@@ -30,7 +40,13 @@ import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { collectTick, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
 import type { Provider, Usage } from "../providers/types.js";
-import { activeOrientPrompt } from "../prompts/versions.js";
+import {
+  activeLiveMode,
+  activeOrientPrompt,
+  DEFAULT_LIVE_MODE,
+  LIVE_PROMPT_ENV,
+  LIVE_PROMPT_TWO_CALL,
+} from "../prompts/versions.js";
 import { LIVE_DECIDE_V1 } from "../prompts/live-decide.v1.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";
 import { parseLiveDecideAnswer, renderUnderstandingBlock, runLiveUnderstanding } from "./live.js";
@@ -41,6 +57,8 @@ let tmpDir: string;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "supertwin-two-call-"));
   process.env.SUPERTWIN_DB_PATH = join(tmpDir, "st.db");
+  // The fallback is a mode, not the default, since R1 — select it explicitly.
+  process.env[LIVE_PROMPT_ENV] = LIVE_PROMPT_TWO_CALL;
   closeDb();
   runMigrations();
   resetStableSystemPromptsForTests();
@@ -53,6 +71,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDb();
   delete process.env.SUPERTWIN_DB_PATH;
+  delete process.env[LIVE_PROMPT_ENV];
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -148,6 +167,20 @@ const DECIDE = JSON.stringify({
 });
 
 describe("the live lane spends two calls over one pack", () => {
+  it("is REACHABLE but not the default — §7.3 keeps the capability, R1 removed the switch", () => {
+    // The two halves of the promise, stated where they can both be read: what
+    // ships is one merged call, and the fallback is still one env var away.
+    expect(DEFAULT_LIVE_MODE).toBe("merged");
+    expect(activeLiveMode()).toBe("two-call"); // because beforeEach selected it
+    const saved = process.env[LIVE_PROMPT_ENV];
+    try {
+      delete process.env[LIVE_PROMPT_ENV];
+      expect(activeLiveMode()).toBe("merged");
+    } finally {
+      process.env[LIVE_PROMPT_ENV] = saved!;
+    }
+  });
+
   it("orient, critic, decide — in that order, on the same packed user block", async () => {
     const bundle = seedBundle(["lets lock goa 18-21 dec"]);
     const deps = recordingDeps([UNDERSTANDING, CRITIC, DECIDE]);

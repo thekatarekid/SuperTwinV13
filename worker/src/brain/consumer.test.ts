@@ -120,13 +120,16 @@ function undispatched(): number {
 }
 
 /**
- * Model calls one LIVE tick spends: the understanding call and — while the S4
- * ship gate's item 1 is red and the lane runs Build §7.3's two-call fallback —
- * the decide call. These bundles produce nothing to grade, so the Critic never
- * runs. BND-09/10 are about how many TICKS happen, not how many calls a tick
- * costs, so they count in these units.
+ * Model calls one LIVE tick spends: ONE merged `live.v1` — understanding and
+ * decide in the same answer. It was 2 from S4.4 until R1, while the lane ran
+ * Build §7.3's two-call fallback (orient, then live-decide.v1); the ship gate
+ * went green at the S4 release and again at S6, so `DEFAULT_LIVE_MODE` is
+ * "merged" and the second call is gone. These bundles produce nothing to
+ * grade, so the Critic never runs. BND-09/10 are about how many TICKS happen,
+ * not how many calls a tick costs, so they count in these units — and the
+ * two-call lane keeps its own coverage in live-two-call.test.ts.
  */
-const CALLS_PER_TICK = 2;
+const CALLS_PER_TICK = 1;
 
 describe("BND-09 · keyed in-flight", () => {
   it("the same bundle key submitted twice before the first settles → one Orient call", async () => {

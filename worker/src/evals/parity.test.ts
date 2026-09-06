@@ -1,5 +1,10 @@
 // ===========================================================================
 // AST parity ledger (Build V6 P1 §7.3 ship-gate item 2). Zero model calls.
+//
+// R1 deleted the nine AST fixtures with the lane they measured, so the ledger
+// is now the ONLY record of what that lane proved. These cases changed shape
+// with it: "every AST case in the corpus is covered" became "no AST case is
+// in the corpus, and the ledger still names all nine".
 // ===========================================================================
 
 import { describe, expect, it } from "vitest";
@@ -46,10 +51,12 @@ const allPass = (map: readonly RehomedAssertion[] = AST_PARITY): CaseResult[] =>
   rehomedCaseIds(map).map((id) => result(id, "pass"));
 
 describe("the parity map", () => {
-  it("covers every AST case in the corpus", () => {
-    const ast = corpusIds().filter((id) => id.startsWith("AST-")).sort();
-    expect(ast).toHaveLength(9);
-    expect(retiredCaseIds().sort()).toEqual(ast);
+  it("names all nine retired cases, and none of them is still in the corpus", () => {
+    expect(corpusIds().filter((id) => id.startsWith("AST-"))).toEqual([]);
+    const retired = retiredCaseIds();
+    expect(retired).toHaveLength(9);
+    expect([...new Set(retired)]).toHaveLength(9);
+    expect(retired.every((id) => /^AST-0[1-9]$/.test(id))).toBe(true);
   });
 
   it("every re-homed case exists, and none of them is an AST case", () => {
@@ -72,7 +79,7 @@ describe("the parity map", () => {
 
 describe("astParityGaps", () => {
   it("names a home that does not exist", () => {
-    const gaps = astParityGaps(["AST-01"], [{ from: "AST-01", assertion: "a".repeat(50), to: ["LIV-99"] }]);
+    const gaps = astParityGaps(["LIV-01"], [{ from: "AST-01", assertion: "a".repeat(50), to: ["LIV-99"] }]);
     expect(gaps).toEqual(["AST-01 → LIV-99: the re-homed case does not exist"]);
   });
 
@@ -87,15 +94,29 @@ describe("astParityGaps", () => {
     expect(gaps).toContain("AST-01 → AST-02: re-homed onto the lane being retired");
   });
 
-  it("names an AST case the map forgot", () => {
-    const gaps = astParityGaps(["AST-01", "AST-77", "LIV-01"], [{ from: "AST-01", assertion: "a".repeat(50), to: ["LIV-01"] }]);
-    expect(gaps).toContain("AST-77 is in the corpus but no parity row re-homes its assertion");
+  it("names an AST fixture that came BACK into the corpus", () => {
+    // The resurrection guard. A re-materialized AST-77 would run on the
+    // `assist` pass, which nothing registers since R1 — so it would read
+    // `pending` forever, and a pending case measures nothing.
+    const gaps = astParityGaps(["AST-77", "LIV-01"], [{ from: "AST-01", assertion: "a".repeat(50), to: ["LIV-01"] }]);
+    expect(gaps).toContain("AST-77 is back in the corpus — the assist lane it runs on was deleted in R1");
   });
 
   it("names a row with no home at all", () => {
-    expect(astParityGaps(["AST-01"], [{ from: "AST-01", assertion: "a".repeat(50), to: [] }])).toContain(
+    expect(astParityGaps(["LIV-01"], [{ from: "AST-01", assertion: "a".repeat(50), to: [] }])).toContain(
       "AST-01: no case carries its assertion",
     );
+  });
+
+  it("names a retired case the ledger re-homes twice", () => {
+    const gaps = astParityGaps(
+      ["LIV-01"],
+      [
+        { from: "AST-01", assertion: "a".repeat(50), to: ["LIV-01"] },
+        { from: "AST-01", assertion: "b".repeat(50), to: ["LIV-01"] },
+      ],
+    );
+    expect(gaps).toEqual(["AST-01: re-homed twice — one row per retired case"]);
   });
 });
 
@@ -138,7 +159,7 @@ describe("assessAstParity", () => {
 
   it("a static gap sinks the report even when every measured home passed", () => {
     const map: RehomedAssertion[] = [{ from: "AST-01", assertion: "a".repeat(50), to: ["LIV-01", "LIV-99"] }];
-    const report = assessAstParity([result("LIV-01", "pass"), result("LIV-99", "pass")], ["AST-01", "LIV-01"], map);
+    const report = assessAstParity([result("LIV-01", "pass"), result("LIV-99", "pass")], ["LIV-01"], map);
     expect(report.ok).toBe(false);
     expect(report.gaps).toHaveLength(1);
   });

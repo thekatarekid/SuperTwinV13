@@ -20,8 +20,8 @@ import {
   getArtifact,
   graduateArtifact,
   markNudged,
-} from "../assist/artifacts.js";
-import { getCapturePausedUntil } from "../assist/settings.js";
+} from "../surfaces/artifacts.js";
+import { getCapturePausedUntil } from "../settings/assist-settings.js";
 import { handleAssistRoute, panelSnapshot } from "./assist-routes.js";
 
 let tmpDir: string;

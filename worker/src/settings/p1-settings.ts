@@ -104,7 +104,7 @@ export const BURST_K_KEY = "assist.burst_k";
 export const BURST_W_S_KEY = "assist.burst_window_s";
 export const CARD_DURATION_S_KEY = "assist.card_duration_s";
 export const MERGE_WINDOW_S_KEY = "assist.merge_window_s";
-export const INTENT_FLOOR_KEY = "assist.intent_confidence_min"; // shared with assist/settings.ts
+export const INTENT_FLOOR_KEY = "assist.intent_confidence_min"; // shared with ./assist-settings.ts
 export const BLOCKED_KINDS_KEY = "assist.blocked_kinds";
 export const BEHAVIORAL_RULES_KEY = "assist.behavioral_rules";
 

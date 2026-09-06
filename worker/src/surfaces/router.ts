@@ -64,7 +64,7 @@
 // ===========================================================================
 
 import { listPreparedActions, PREPARED_ACTION_KIND, PREPARED_KINDS, type PreparedKind } from "../brain/live.js";
-import { getArtifact, markNudged, recordSignal, setArtifactStatus, type ArtifactRow } from "../assist/artifacts.js";
+import { getArtifact, markNudged, recordSignal, setArtifactStatus, type ArtifactRow } from "./artifacts.js";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { appStateGet, appStateSet } from "../db/ingest.js";
@@ -524,7 +524,7 @@ export function pendingItems(): RoutableItem[] {
   });
 }
 
-/** Local hydrate: `artifacts` rows, the same shape assist/artifacts.ts uses. */
+/** Local hydrate: `artifacts` rows, the same shape ./artifacts.ts uses. */
 function hydrate(r: Record<string, unknown>): ArtifactRow {
   return {
     id: String(r.id),

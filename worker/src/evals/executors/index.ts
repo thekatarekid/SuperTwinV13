@@ -27,7 +27,6 @@ import {
 } from "./passes.js";
 import { digExecutor } from "./dig.js";
 import { tierExecutor } from "./tier.js";
-import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
 import { commitExecutor } from "./cmt.js";
@@ -79,7 +78,6 @@ export {
   digestExecutor,
   extractExecutor,
 } from "./passes.js";
-export { assistExecutor } from "./assist.js";
 export { stubExecutor } from "./stub.js";
 export {
   browserEvalExecutor,
@@ -136,9 +134,11 @@ export async function registerProductExecutors(): Promise<void> {
   // (TIER-01/02/04 code, zero model calls; TIER-03 one cached tier.v1 call).
   registerExecutor("tier", tierExecutor);
   registerExecutor("scheduler.backfill", backfillExecutor);
-  // P2 integration: the assist lane (AST) — gate/suppression/risk-line cases
-  // drive the product code directly; evaluator cases run the live prompt.
-  registerExecutor("assist", assistExecutor);
+  // The `assist` pass is UNREGISTERED since R1 (build §2.3 / §7.3 step 3): the
+  // lane it drove — watcher, evaluator, tick, cursor, gate — is deleted, and
+  // its nine AST fixtures went with it. Every assertion they carried has a
+  // green V6 home, recorded case by case in evals/parity.ts and checked by
+  // `npm run eval -- --ast-parity`.
   // P3 integration + gates: schedules/time through Decide + the code policy
   // gate and the code-asserted browser harness. ("executor" is unregistered
   // since S4.2: GoldenEvals V6 P1 §5.12 gives EXE to executor-lite, and the

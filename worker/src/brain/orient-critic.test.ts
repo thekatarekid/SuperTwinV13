@@ -215,10 +215,11 @@ describe("runBrainTick — full tick with stubbed provider", () => {
 
     const report = await runBrainTick(bundle, deps);
     expect(report.status).toBe("committed");
-    // One Orient, one Critic, and — since the S4 ship gate is red and the
-    // live lane runs Build §7.3's two-call fallback — one decide call. This
-    // bundle's events are origin "live", so it takes the live path.
-    expect(deps.calls()).toBe(3);
+    // One merged live.v1 (understanding + decide in a single answer) and one
+    // Critic. This bundle's events are origin "live", so it takes the live
+    // path — which spends ONE call since R1 flipped `DEFAULT_LIVE_MODE` to
+    // "merged"; under Build §7.3's two-call fallback it was 3.
+    expect(deps.calls()).toBe(2);
 
     const db = getDb();
     // Episodes committed with ranges.

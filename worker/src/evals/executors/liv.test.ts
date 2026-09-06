@@ -15,6 +15,7 @@ import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { setConsentGateMode } from "../../db/consent-gate.js";
 import { loadFixture } from "../fixtures.js";
 import { liveExecutor } from "./liv.js";
+import { activeLiveMode } from "../../prompts/versions.js";
 
 const FIX = join(import.meta.dirname, "../../../../evals/v13");
 
@@ -135,10 +136,15 @@ describe("live executor (LIV-01..07)", () => {
     const { r, out } = await run("LIV-07");
     expect(r.violations).toEqual([]);
     expect(out.tick.status).toBe("committed");
-    // Both §7.3 calls went through the reserved live lane while the
-    // background lanes were parked, and neither parked call was released
-    // first — the pool held the live slot back, as GATE-09 says it must.
-    expect(r.metrics).toMatchObject({ canned_live_answers: 1, canned_decide_answers: 1, canned_critic_answers: 1 });
+    // The live call went through the RESERVED live lane while the background
+    // lanes were parked, and no parked call was released first — the pool
+    // held the live slot back, as GATE-09 says it must. ONE live call: R1
+    // flipped `DEFAULT_LIVE_MODE` to "merged", so understanding and decide
+    // arrive in the same answer. The decide count is read off the mode rather
+    // than pinned (the fixture does not name it), so the fallback stays green
+    // too — this case is about starvation, not arithmetic.
+    expect(r.metrics).toMatchObject({ canned_live_answers: 1, canned_critic_answers: 1 });
+    expect(r.metrics?.canned_decide_answers).toBe(activeLiveMode() === "two-call" ? 1 : 0);
     const st = (r.output as { starvation: { inFlightBefore: number; waitingBefore: number; elapsedMs: number; historyCompletedDuringLive: number; historyBundles: number } }).starvation;
     expect(st.historyBundles).toBe(200);
     expect(st.inFlightBefore).toBeGreaterThan(0);

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 
-import { createArtifact } from "../assist/artifacts.js";
+import { createArtifact } from "../surfaces/artifacts.js";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { handleNudgeRoute } from "./nudge-routes.js";
 

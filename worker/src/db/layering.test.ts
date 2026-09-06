@@ -3,11 +3,12 @@
 //
 // WHY THIS FILE EXISTS. S4.7 wired the injection detector into the single
 // ingest funnel, db/eventlog.ts, and the detector writes its card through
-// assist/artifacts.ts — which at the time imported brain/critic, brain/llm
+// surfaces/artifacts.ts (`assist/artifacts.ts` until R1) — which at the time
+// imported brain/critic, brain/llm
 // and prompts/critic.v4 at module scope. That closed a ring:
 //
 //   db/settings -> db/ingest -> db/eventlog -> safety/injection ->
-//   assist/artifacts -> brain/critic -> brain/orient -> packer/index ->
+//   surfaces/artifacts -> brain/critic -> brain/orient -> packer/index ->
 //   packer/spaces -> retrieval/embedder -> media/tools -> db/settings
 //
 // media/tools.ts builds WHISPER_MODELS from DEFAULT_WHISPER_MODEL at module
@@ -20,7 +21,7 @@
 // may reach brain/, packer/ or retrieval/ through module-scope imports. The
 // db layer is what those layers are built ON. A pass that needs the model
 // stack from inside a db-adjacent module loads it lazily (`await import()`)
-// the way assist/artifacts.ts#graduateArtifact does.
+// the way surfaces/artifacts.ts#graduateArtifact does.
 //
 // Type-only imports are invisible at runtime and do not count.
 // ===========================================================================

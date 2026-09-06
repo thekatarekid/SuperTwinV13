@@ -2,10 +2,10 @@
 // [CODE] AST parity — Build V6 P1 §7.3 ship-gate item 2, "AST parity on the
 // re-homed LIV cases".
 //
-// S4.4 deletes `assist/` (watcher, evaluator, tick, cursor, gate) and with it
-// the nine AST fixtures, which are the only cases in the golden set that run
+// R1 deleted `assist/` (watcher, evaluator, tick, cursor, gate) and with it
+// the nine AST fixtures, which were the only cases in the golden set that ran
 // on the `assist` pass. Deleting a lane is only safe if nothing it PROVED
-// stops being proved: every assertion an AST case carried has to have a new
+// stops being proved: every assertion an AST case carried had to have a new
 // home among the V6 cases, and that home has to be green.
 //
 // This module is that ledger, and it is deliberately explicit rather than
@@ -14,21 +14,29 @@
 // in one sentence, and the V6 cases that carry it now — and two checks run
 // over it:
 //
-//   astParityGaps(ids)       every home names a fixture that EXISTS, no home
-//                            is itself an AST case, and every AST fixture in
-//                            the corpus is accounted for. Static — no run.
+//   astParityGaps(ids)       every home names a fixture that EXISTS and is
+//                            not itself an AST case, every retired case is
+//                            named exactly once, and NO AST fixture is back
+//                            in the corpus. Static — no run.
 //   assessAstParity(rs, ids) of the homes a run actually selected, every one
 //                            passed. A home that was not selected is reported
 //                            as "not measured", never as a pass.
 //
 // The CLI wires both behind `--ast-parity` (evals/cli.ts), so the gate is a
 // command, not a paragraph in a report.
+//
+// THE LEDGER OUTLIVES THE DELETION ON PURPOSE. Once the fixtures are gone the
+// obvious move is to delete their ledger too — and then nothing in the tree
+// remembers that NUD-07 is carrying AST-03's suppression assertion, so the
+// next person to trim NUD has no way to know what they are also deleting.
+// The rows below are the record of that debt, and the checks are what keep it
+// payable.
 // ===========================================================================
 
 import type { CaseResult } from "./runner.js";
 
 export interface RehomedAssertion {
-  /** The retiring case (dies with `assist/` in S4.4). */
+  /** The retired case (deleted with `assist/` in R1). */
   from: string;
   /** What it proved, in one sentence. */
   assertion: string;
@@ -37,9 +45,9 @@ export interface RehomedAssertion {
 }
 
 /**
- * The nine AST cases and where each one's assertion lives in V6 Phase 1.
- * GoldenEvals V6 P1 §5.11 (LIV) · §5.12 (EXE) · §5.13 (NUD) · §5.10 (CROSS) ·
- * §5.2 (GATE).
+ * The nine retired AST cases and where each one's assertion lives in V6 Phase
+ * 1. GoldenEvals V6 P1 §5.11 (LIV) · §5.12 (EXE) · §5.13 (NUD) · §5.10 (CROSS)
+ * · §5.2 (GATE).
  */
 export const AST_PARITY: readonly RehomedAssertion[] = [
   {
@@ -103,14 +111,20 @@ export function rehomedCaseIds(map: readonly RehomedAssertion[] = AST_PARITY): s
   return [...new Set(map.flatMap((r) => r.to))].sort();
 }
 
-/** The retiring case ids the map covers. */
+/** The retired case ids the map covers. */
 export function retiredCaseIds(map: readonly RehomedAssertion[] = AST_PARITY): string[] {
   return map.map((r) => r.from);
 }
 
 /**
- * Static check: the map is complete and points at real, non-AST fixtures.
- * `ids` is every fixture id in the corpus.
+ * Static check: the map is complete, points at real non-AST fixtures, and the
+ * retired lane has stayed retired. `ids` is every fixture id in the corpus.
+ *
+ * Before R1 this also required each `from` to still BE in the corpus — the
+ * ledger was grading a retirement that had not happened yet. It has happened,
+ * so the direction flips: an AST fixture back on disk is now the gap, because
+ * a case running on a pass nothing registers reads `pending`, and a pending
+ * case is not a measurement.
  */
 export function astParityGaps(
   ids: readonly string[],
@@ -118,14 +132,15 @@ export function astParityGaps(
 ): string[] {
   const have = new Set(ids);
   const gaps: string[] = [];
-  const covered = new Set(map.map((r) => r.from));
+  const covered = new Set<string>();
   for (const id of ids) {
-    if (id.startsWith("AST-") && !covered.has(id)) {
-      gaps.push(`${id} is in the corpus but no parity row re-homes its assertion`);
+    if (id.startsWith("AST-")) {
+      gaps.push(`${id} is back in the corpus — the assist lane it runs on was deleted in R1`);
     }
   }
   for (const row of map) {
-    if (!have.has(row.from)) gaps.push(`${row.from}: the retiring case is not in the corpus`);
+    if (covered.has(row.from)) gaps.push(`${row.from}: re-homed twice — one row per retired case`);
+    covered.add(row.from);
     if (row.to.length === 0) gaps.push(`${row.from}: no case carries its assertion`);
     for (const to of row.to) {
       if (!have.has(to)) gaps.push(`${row.from} → ${to}: the re-homed case does not exist`);
@@ -148,7 +163,7 @@ export interface ParityReport {
   failed: ParityRow[];
   /** Rows where at least one home was not selected by this run. */
   unmeasured: ParityRow[];
-  /** Static gaps (missing fixtures, uncovered AST cases). */
+  /** Static gaps (missing homes, or an AST fixture back in the corpus). */
   gaps: string[];
   ok: boolean;
 }
@@ -179,7 +194,7 @@ const MARK: Record<string, string> = { pass: "✓", fail: "✗", pending: "·", 
 /** The table `--ast-parity` prints. */
 export function renderAstParity(report: ParityReport): string {
   const lines: string[] = [
-    "AST PARITY — every assertion the retiring assist/ lane proved, and where it lives now",
+    "AST PARITY — every assertion the retired assist/ lane proved, and where it lives now",
     "",
   ];
   for (const row of report.rows) {
@@ -197,12 +212,14 @@ export function renderAstParity(report: ParityReport): string {
       `  NOTE ${report.unmeasured.map((r) => r.from).join(", ")} — a home was not selected by this run (not measured, not passed)`,
     );
   }
-  // Item 2 is one of four. Parity holding clears THIS item; it does not on its
-  // own authorise the retirement (Build V6 P1 §7.3: "all four must hold").
+  // Item 2 was one of four, and all four held at the S4 release gate and again
+  // at S6, which is what authorised the R1 deletion. What this line reports
+  // now is the standing obligation, not a gate to open: the assertions came
+  // across, and they are still green.
   lines.push(
     report.ok
-      ? "  PARITY HOLDS — §7.3 item 2 of four is clear (the other three still gate assist/)"
-      : "  PARITY DOES NOT HOLD — keep assist/ (Build V6 P1 §7.3 fallback)",
+      ? "  PARITY HOLDS — nothing the deleted assist/ lane proved has stopped being proved"
+      : "  PARITY DOES NOT HOLD — an assertion the retirement carried is unhomed or red",
   );
   return lines.join("\n");
 }

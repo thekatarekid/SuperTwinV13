@@ -112,7 +112,7 @@ export const CAPTURE_LIST_KEYS: Readonly<Record<CaptureListKind, string>> = {
 
 /** ISO deadline of the private moment (menu bar / hotkey). */
 export const PRIVATE_UNTIL_KEY = "capture.private_until";
-/** ISO deadline of the panel's quick-pause (assist/settings CAPTURE_PAUSED_UNTIL_KEY). */
+/** ISO deadline of the panel's quick-pause (settings/assist-settings CAPTURE_PAUSED_UNTIL_KEY). */
 export const QUICK_PAUSE_UNTIL_KEY = "capture.paused_until";
 
 /** The private moment is fifteen minutes. Not a setting. */
@@ -233,7 +233,7 @@ export function endPrivateMoment(): void {
   writeDeadline(PRIVATE_UNTIL_KEY, null);
 }
 
-/** The panel quick-pause deadline, or null. Same key assist/settings writes. */
+/** The panel quick-pause deadline, or null. Same key settings/assist-settings writes. */
 export function quickPauseUntil(nowMs: number = Date.now()): string | null {
   const iso = readDeadline(QUICK_PAUSE_UNTIL_KEY);
   return isLive(iso, nowMs) ? iso : null;

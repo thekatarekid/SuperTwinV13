@@ -80,7 +80,7 @@ export class GatedToolRefusedError extends Error {
 /**
  * Tool NAMES that may never be registered as risk "safe". Kept in code next
  * to the registry so the EXE-04 assertion and the capability surface evolve
- * together (same posture as assist's RISKY_TOOL_NAME_PATTERNS).
+ * together (the posture the retired assist lane's risky-name patterns held).
  */
 export const GATED_ONLY_NAME_PATTERNS: readonly RegExp[] = [
   /send/i,

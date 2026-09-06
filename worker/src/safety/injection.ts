@@ -58,7 +58,7 @@
 import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 
-import { createArtifact, type ArtifactRow } from "../assist/artifacts.js";
+import { createArtifact, type ArtifactRow } from "../surfaces/artifacts.js";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { SELF_ENTITY_ID } from "../db/migrations/0201_v6_graph.js";

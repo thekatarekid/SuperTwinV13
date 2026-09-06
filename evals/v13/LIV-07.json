@@ -133,10 +133,9 @@
     "episode": "ep_611",
     "calls": {
       "understanding": 1,
-      "decide": 1,
       "critic": 1
     },
-    "note": "Two model calls per live bundle is the Build §7.3 fallback, engaged because the S4 ship gate's item 1 is red. Both run on the reserved live lane; neither waits on the parked understanding work."
+    "note": "The assertion is the LANE, not the arithmetic: one understanding call and one critic, both on the reserved live lane, neither waiting on the parked history work. The decide count is deliberately NOT pinned — it follows `DEFAULT_LIVE_MODE`, which is \"merged\" since R1 (understanding and decide in one answer, zero extra calls) and would be 1 under Build §7.3's two-call fallback. The executor derives it, so selecting the fallback does not turn this case red."
   },
   "wrong": [
     {
@@ -145,7 +144,7 @@
     },
     {
       "label": "nudge-starved",
-      "assert_absent": "the tick completes but the decide half never runs, so the flush produces no prepared action"
+      "assert_absent": "the tick completes but the decide half is missing, so the flush produces no prepared action"
     }
   ],
   "gates": [

@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createArtifact } from "../assist/artifacts.js";
+import { createArtifact } from "./artifacts.js";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appStateSet } from "../db/ingest.js";
 import { BLOCKED_KINDS_KEY, CARD_DURATION_S_KEY, MERGE_WINDOW_S_KEY } from "../settings/p1-settings.js";

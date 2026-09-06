@@ -1,5 +1,12 @@
 // ===========================================================================
-// Artifact store — build P2.2, spec §10.5/§10.6. Durable prepared work.
+// Artifact store — durable prepared work (spec §10.5/§10.6).
+//
+// HOME. This file was `assist/artifacts.ts` until R1 (Build V6 P1 §2.3 / §7.3
+// step 3), which deleted the assist lane — watcher, evaluator, tick, cursor,
+// gate. The STORE was never part of that lane: executor-lite writes its
+// artifacts here, safety/injection.ts writes its cards here, and router.ts
+// reads and ranks them, so it moved to `surfaces/` beside the router that
+// surfaces what it holds, rather than dying with its first caller.
 //
 //   * DEDUP: `content_key` fingerprints what the artifact was prepared FROM.
 //     Identical re-captured content NEVER mints (or nudges) a second artifact
@@ -8,8 +15,7 @@
 //     the "why?" surface and undo work like everywhere else.
 //   * RECONCILE SIGNALS are graded, not binary (spec §10.6): edited / used >
 //     opened+dwelled > glanced; dismissed and ignored are negative;
-//     "don't do this" is the strongest. Dismissals feed the per-context
-//     suppression in gate.ts.
+//     "don't do this" is the strongest.
 //   * GRADUATION goes through the Critic gate (spec §10.6): the artifact's
 //     proposed durable task is graded by the same precision-biased pass that
 //     grades every other write — never a silent promotion.
@@ -20,7 +26,6 @@ import { createHash, randomBytes } from "node:crypto";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import type { JsonPassDeps } from "../brain/llm.js";
-import { noteDismissed, noteReopened } from "./gate.js";
 
 // The model stack (brain/llm, brain/critic, prompts/critic.v4) is loaded
 // INSIDE graduateArtifact rather than imported at module scope, and that is
@@ -30,7 +35,7 @@ import { noteDismissed, noteReopened } from "./gate.js";
 // closes the ring
 //
 //   db/settings -> db/ingest -> db/eventlog -> safety/injection ->
-//   assist/artifacts -> brain/critic -> brain/orient -> packer ->
+//   surfaces/artifacts -> brain/critic -> brain/orient -> packer ->
 //   retrieval/embedder -> media/tools -> db/settings
 //
 // and media/tools.ts reads DEFAULT_WHISPER_MODEL from db/settings AT MODULE
@@ -259,13 +264,11 @@ export function setArtifactStatus(
     old: { status: prev.status },
     new: { status },
   });
-  // Dismissals feed the per-context politeness throttle; reopening lifts it.
-  if (status === "dismissed" && prev.topicKey) {
-    noteDismissed(prev.topicKey, { nowMs: opts.nowMs });
-  }
-  if (prev.status === "dismissed" && status === "seen" && prev.topicKey) {
-    noteReopened(prev.topicKey, { nowMs: opts.nowMs });
-  }
+  // The politeness throttle a dismissal feeds is OUTPUT-side since S4.4: the
+  // router's per-kind `assist.dismissed.*` counters (noteNotNow /
+  // forgiveDismissal, NUD-07/08), not the retired gate's per-topic
+  // `assist_topics` suppression. This function writes the row and the
+  // decision; ranking is the router's.
   const next = getArtifact(id);
   if (!next) throw new Error(`artifact ${id} vanished after update`);
   return next;

@@ -206,11 +206,27 @@ export const LIVE_PROMPT_TWO_CALL = "two-call";
 export type LiveCallMode = "merged" | "two-call" | "off";
 
 /**
- * Build §7.3 fallback, engaged: item 1 of the S4 ship gate is red, so the
- * live lane makes TWO calls over the merged pack. Set to "merged" in the same
- * commit that records a green ORIENT golden re-measure.
+ * ONE CALL. The live lane spends a single merged `live.v1` on a bundle: the
+ * understanding half (byte-compatible with orient.v7) and the decide half in
+ * the same answer, over the S3.2 pack.
+ *
+ * This was "two-call" — the Build §7.3 fallback — from S4.4 until R1. The
+ * fallback existed because item 1 of the S4 ship gate (ORIENT golden ≥
+ * baseline) was red when S4.4 ran: rather than ship an understanding pass no
+ * golden run had cleared, the lane spent the FROZEN orient prompt on
+ * understanding and `live-decide.v1` on the decide half. The gate went green
+ * at the S4 release (TOP 10/10 under orient.v7 + critic.v5) and again at the
+ * S6 graduation sweep, and S6 made v7/v5 the defaults — so the merged pass
+ * now embeds the very text the golden set scores, and the second call buys
+ * nothing but spend.
+ *
+ * THE CAPABILITY STAYS. "two-call" is still a mode, still selectable by
+ * `SUPERTWIN_PROMPT_LIVE=two-call` or the app_state row, and still covered by
+ * brain/live-two-call.test.ts. What was removed is the DEFAULT, not the
+ * fallback: if a future ORIENT re-measure regresses, §7.3's answer is one env
+ * var away.
  */
-export const DEFAULT_LIVE_MODE: LiveCallMode = "two-call";
+export const DEFAULT_LIVE_MODE: LiveCallMode = "merged";
 
 /** app_state key holding the live pass selection ("v1" | "two-call" | "off"). */
 export function livePromptVersionKey(): string {
@@ -235,9 +251,9 @@ export function activeLiveMode(): LiveCallMode {
 /**
  * The MERGED live prompt (live.v1) — what runs when `activeLiveMode()` is
  * "merged", and null when the live lane is switched off entirely. It is not
- * the mode: under the §7.3 fallback this still names live.v1 (the prompt the
- * gate is about) while the lane makes two calls instead. Ask `activeLiveMode`
- * for what actually runs.
+ * the mode: under the §7.3 two-call fallback this still names live.v1 (the
+ * prompt the gate is about) while the lane makes two calls instead. Ask
+ * `activeLiveMode` for what actually runs.
  */
 export function activeLivePrompt(): VersionedPrompt | null {
   for (const candidate of [normalise(process.env[LIVE_PROMPT_ENV]), normalise(stored(livePromptVersionKey()))]) {

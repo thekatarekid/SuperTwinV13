@@ -9,27 +9,29 @@
 //   4. A history bundle containing a stale "pay by 5 pm" emits ZERO prepared
 //      actions
 //
-// Items 2, 3 and 4 are decidable without a model and are decided here (3 in
-// full in executors/cross.test.ts; this file asserts it is wired and named).
-// Item 1 needs the real passes and is measured by the eval CLI:
+// ALL FOUR HELD, AND THE RETIREMENT HAS RUN (R1). This file is no longer a
+// gate deciding whether to delete a lane — it is the record of the gate that
+// was cleared and the regression guard on what the decision rests on. Item 1
+// is the measured pair being the SHIPPED pair; items 2, 3 and 4 are decidable
+// without a model and are decided here (3 in full in executors/cross.test.ts;
+// this file asserts it is wired and named).
+//
+// HOW ITEM 1 WAS MEASURED, since a number in a report is not a test:
 //
 //   SUPERTWIN_PROMPT_ORIENT=v7 SUPERTWIN_PROMPT_CRITIC=v5 \
 //     npm run eval -- --cat TOP --compare-baseline
 //
-// MEASURED AT THE S4 GATE (2026-09-06, orient.v7 + critic.v5, 21 live calls
-// per run):
-//
-//   run 1   TOP 9/10   regressed: TOP-08 (critic rejected the birthday
-//                      proposal — "e2 was not in the [BUNDLE]", a harness gap
-//                      this commit closes in executors/orient.ts)
-//   TOP-08 alone       pass, with that gap closed (3 calls)
-//   run 2   TOP 8/10   regressed: TOP-06 (judge: split point ambiguous),
-//                      TOP-08 (judge: a proposal is not an episode)
-//
-// RE-MEASURED AT THE S4 RELEASE GATE and again at the S6 GRADUATION GATE, both
-// 10/10 = 100% under v7 / v5 with `--compare-baseline` green. The S6 sweep also
-// measured the SHIPPED pair for the first time — v6 / v4 scored 80% — and ran
-// one 26-event fresh install under each pair:
+//   S4 gate (2026-09-06, 21 live calls per run)
+//     run 1   TOP 9/10   regressed: TOP-08 (critic rejected the birthday
+//                        proposal — "e2 was not in the [BUNDLE]", a harness
+//                        gap closed in executors/orient.ts)
+//     TOP-08 alone       pass, with that gap closed (3 calls)
+//     run 2   TOP 8/10   regressed: TOP-06 (judge: split point ambiguous),
+//                        TOP-08 (judge: a proposal is not an episode)
+//   S4 RELEASE gate      TOP 10/10 = 100%, `--compare-baseline` green
+//   S6 GRADUATION gate   TOP 10/10 = 100% again — and the SHIPPED pair
+//                        measured for the first time: v6 / v4 scored 80%.
+//                        One 26-event fresh install under each pair:
 //
 //                            v6 / v4      v7 / v5
 //     episodes committed        9           19
@@ -37,24 +39,18 @@
 //     orient QUARANTINED        5            0
 //     cost vs the confirm card BREACHED    HOLDS
 //
-// So ITEM 1 HOLDS, and S6 landed checklist step 1 (the prompt-version flip).
-// Steps 2 and 3 — `DEFAULT_LIVE_MODE` -> "merged" and deleting `assist/` — did
-// NOT land: they are a refactor (the nine AST fixtures ride executors/assist.ts,
-// and surfaces/router.ts + safety/injection.ts import assist/artifacts.ts), not
-// a constant, and Stage 6 is a measurement gate. The tests below assert the
-// half-flipped state exactly, so nothing downstream can drift either way.
+// THE CHECKLIST, ALL THREE STEPS LANDED:
+//   1. `DEFAULT_ORIENT_VERSION` / `DEFAULT_CRITIC_VERSION` → v7 / v5   (S6)
+//   2. `DEFAULT_LIVE_MODE` → "merged"                                  (R1)
+//   3. delete `assist/{watcher,evaluator,gate}.ts`                     (R1)
 //
-// S4.4 ENGAGED THE OTHER HALF of that fallback — "make two calls". The live
-// lane no longer runs the merged one-call `live.v1` by default: it packs once
-// (S3.2, unchanged) and spends the frozen orient prompt on understanding, then
-// `live-decide.v1` on the decide half. So the only understanding prompt
-// production runs is the one the ORIENT golden set measures, and nothing the
-// twin files rides on text item 1 could not clear.
-//
-// THE CHECKLIST TO FLIP, when a re-measure clears the bar:
-//   1. `DEFAULT_ORIENT_VERSION` / `DEFAULT_CRITIC_VERSION` → v7 / v5
-//   2. `DEFAULT_LIVE_MODE` → "merged"
-//   3. delete `assist/{watcher,evaluator,gate}.ts` and this file
+// Step 3's checklist line also said "and this file". It is kept instead, with
+// its assertions inverted, because three of the four items are behaviour this
+// tree still has to hold — item 4 in particular (a stale deadline in a
+// history bundle preparing nothing) has no other home — and a gate whose
+// evidence is deleted the moment it goes green is a gate nobody can re-check.
+// What WAS deleted is the assertion that `assist/` is still on disk; a
+// resurrection guard stands in its place.
 //
 // Zero model calls in this file.
 // ===========================================================================
@@ -90,7 +86,7 @@ import {
 import { DEFAULT_INTENT_FLOOR } from "../settings/p1-settings.js";
 import { DEFAULT_NUDGE_INTENT_FLOOR, nudgeThresholds, nudgeVerdict } from "../surfaces/nudge-verdict.js";
 import { loadFixture } from "./fixtures.js";
-import { astParityGaps } from "./parity.js";
+import { astParityGaps, rehomedCaseIds, retiredCaseIds } from "./parity.js";
 import { cleanupLiv, runLivCase, type LivRun } from "./executors/liv.js";
 
 const FIX = join(import.meta.dirname, "../../../evals/v13");
@@ -103,15 +99,13 @@ const corpusIds = (): string[] =>
 // Item 1 — ORIENT golden >= baseline (the code half)
 // ---------------------------------------------------------------------------
 
-describe("§7.3 item 1 — ORIENT golden set (measured green at S6; the flip landed)", () => {
+describe("§7.3 item 1 — ORIENT golden set (measured green at S4 and S6)", () => {
   it("the defaults ARE the measured pair — the golden set cleared the bar", () => {
     // Build §2.1 froze v6 / v4 "until the S4 gate". The S4 gate measured item
     // 1 green under v7 / v5 (TOP 10/10, COMPARE green) and left the flip to a
     // later commit; the S6 graduation sweep then measured WHAT SHIPS and found
     // v6 / v4 at 80% against its own frozen 100%, and a v6 / v4 fresh install
     // quarantining 5 of 12 history bundles where v7 / v5 quarantined none.
-    // Checklist item 1 is landed. Items 2 (DEFAULT_LIVE_MODE) and 3 (delete
-    // assist/) are NOT — see the fallback block below.
     expect(DEFAULT_ORIENT_VERSION).toBe("v7");
     expect(DEFAULT_CRITIC_VERSION).toBe("v5");
     expect(activeOrientPrompt().pass).toBe("orient.v7");
@@ -130,48 +124,58 @@ describe("§7.3 item 1 — ORIENT golden set (measured green at S6; the flip lan
     expect(PROMPT_VERSION_ENV.critic).toBe("SUPERTWIN_PROMPT_CRITIC");
   });
 
-  it("the merged pass still embeds orient.v7's own text, so a green re-measure would carry", () => {
-    // If live.v1 paraphrased orient.v7 instead of embedding it, a TOP score
-    // measured on the orient pass would say nothing about the merged live
-    // lane we would be flipping back to. It does not paraphrase — and while
-    // the gate is red the lane does not run it at all (see the fallback
-    // block below).
+  it("the merged pass embeds orient.v7's own text, so the TOP score carries to it", () => {
+    // THIS IS WHAT MAKES THE FLIP LEGITIMATE. The golden set scores the ORIENT
+    // pass; production now runs the MERGED pass. If live.v1 paraphrased
+    // orient.v7 instead of embedding it verbatim, a green TOP would say
+    // nothing about the lane that actually ships, and the two-call fallback
+    // would still be the only honest default.
     const live = LIVE_VERSIONS[DEFAULT_LIVE_VERSION];
     expect(live.pass).toBe("live.v1");
     expect(LIVE_V1.system).toContain(ORIENT_V7_SCHEMA);
     expect(LIVE_V1.system).toContain(ORIENT_V7_PACK);
+    // …and the pass those two constants belong to is the pass that is active,
+    // so "the golden set scored v7" and "production reads v7's text" are the
+    // same statement rather than two that happen to agree today.
+    expect(activeOrientPrompt().system).toContain(ORIENT_V7_SCHEMA);
+    expect(activeOrientPrompt().system).toContain(ORIENT_V7_PACK);
   });
 });
 
-describe("§7.3 fallback — one of the four is red, so the retirement is blocked", () => {
-  it("the fallback is ENGAGED: the merged pack stays and the live lane makes TWO calls", () => {
-    // "Keep the merged pack, make two calls, do not delete assist/." Not a
-    // switch someone could forget to throw — the default itself.
-    expect(DEFAULT_LIVE_MODE).toBe("two-call");
-    expect(activeLiveMode()).toBe("two-call");
-    // The merged pack is the S3.2 packer, and both calls read the same one:
-    // the decide prompt describes the very same blocks.
-    expect(LIVE_DECIDE_V1.system).toContain(ORIENT_V7_PACK);
-    // Call 1 is the orient prompt, byte for byte — the pass the golden set
-    // scores. That is what makes the fallback worth anything, and after the S6
-    // flip the scored pass and the shipped pass are the same one.
-    expect(activeOrientPrompt().pass).toBe("orient.v7");
-    // Call 2 is P-01's decide half, sharing its schema verbatim with live.v1
-    // so both modes parse one shape.
-    expect(LIVE_DECIDE_V1.pass).toBe("live-decide.v1");
+describe("§7.3 — all four held, so the retirement ran", () => {
+  it("ONE merged call per bundle: the fallback is stood down, not the pack", () => {
+    // "Keep the merged pack, make two calls, do not delete assist/" was the
+    // §7.3 answer to a RED item 1. It is green, so the pack stays (it always
+    // was the S3.2 work worth keeping) and the second call goes.
+    expect(DEFAULT_LIVE_MODE).toBe("merged");
+    expect(activeLiveMode()).toBe("merged");
+    expect(activeLivePrompt()!.pass).toBe("live.v1");
+    // live.v1 carries BOTH halves — the understanding schema the golden set
+    // scores and P-01's decide schema, which it shares verbatim with the
+    // fallback's second call so either mode parses one shape.
+    expect(LIVE_V1.system).toContain(ORIENT_V7_SCHEMA);
     expect(LIVE_V1.system).toContain(LIVE_V1_DECIDE_SCHEMA);
     expect(LIVE_DECIDE_V1.system).toContain(LIVE_V1_DECIDE_SCHEMA);
   });
 
-  it("the merged one-call pass stays selectable, so flipping back is one env var", () => {
+  it("the two-call fallback stays REACHABLE — §7.3 promises a capability, not a default", () => {
+    // Removing the default must not remove the answer. Each selector still
+    // resolves, and a typo still lands on the default rather than taking the
+    // live lane down. The lane itself is driven end to end in
+    // brain/live-two-call.test.ts, which pins this env var for its own cases.
     expect(LIVE_PROMPT_ENV).toBe("SUPERTWIN_PROMPT_LIVE");
     expect(LIVE_PROMPT_OFF).toBe("off");
     expect(LIVE_PROMPT_TWO_CALL).toBe("two-call");
     const saved = process.env[LIVE_PROMPT_ENV];
     try {
+      process.env[LIVE_PROMPT_ENV] = LIVE_PROMPT_TWO_CALL;
+      expect(activeLiveMode()).toBe("two-call");
+      // The fallback's second call reads the SAME pack as the first — that is
+      // what made it worth taking, and it still does.
+      expect(LIVE_DECIDE_V1.pass).toBe("live-decide.v1");
+      expect(LIVE_DECIDE_V1.system).toContain(ORIENT_V7_PACK);
       process.env[LIVE_PROMPT_ENV] = "v1";
       expect(activeLiveMode()).toBe("merged");
-      expect(activeLivePrompt()!.pass).toBe("live.v1");
       process.env[LIVE_PROMPT_ENV] = LIVE_PROMPT_OFF;
       expect(activeLiveMode()).toBe("off");
       expect(activeLivePrompt()).toBeNull();
@@ -183,23 +187,28 @@ describe("§7.3 fallback — one of the four is red, so the retirement is blocke
     }
   });
 
-  it("`assist/` is STILL IN THE TREE — all four hold, the refactor has not run", () => {
-    // Delete this test in the same commit that deletes assist/. The gate no
-    // longer blocks it — `--cat TOP --compare-baseline` is green under the
-    // SHIPPED defaults as of S6 — but the deletion is a refactor rather than a
-    // flag, so it is a tracked residual and this test is what keeps the tree
-    // honest about that.
-    for (const f of ["index.ts", "watcher.ts", "evaluator.ts", "gate.ts", "artifacts.ts"]) {
-      expect(existsSync(join(import.meta.dirname, "../assist", f)), `assist/${f}`).toBe(true);
-    }
+  it("`assist/` IS GONE — and every module that outlived the lane has a new home", () => {
+    // The inverse of the test that stood here until R1. A resurrection guard:
+    // the whole directory is absent, not just its entry point, so a stray
+    // `assist/gate.ts` cannot come back under an unregistered pass.
+    const src = join(import.meta.dirname, "..");
+    expect(existsSync(join(src, "assist")), "worker/src/assist").toBe(false);
+    // What did NOT die with the lane, at its new address. The artifact store
+    // is written by executor-lite and safety/injection.ts and read by the
+    // router; the Settings › Assist knobs are user data.
+    expect(existsSync(join(src, "surfaces/artifacts.ts"))).toBe(true);
+    expect(existsSync(join(src, "settings/assist-settings.ts"))).toBe(true);
+    // The lane's eval pass went with it: no fixture may name `assist` again.
+    expect(corpusIds().some((id) => id.startsWith("AST-"))).toBe(false);
   });
 
-  it("the behavioural thresholds already moved — one floor, one reader, both sides", () => {
-    // S4.4's half of the retirement that does NOT need assist/ gone: the
+  it("the behavioural thresholds moved — one floor, one reader, both sides", () => {
+    // S4.4's half of the retirement, landed before the deletion: the
     // output-side verdict. brain/live.ts (the writer) and surfaces/router.ts
     // (the reader) used to hold two different defaults for the same
     // `assist.intent_confidence_min` row — 0.7 and 0.6 — so an action at 0.65
-    // was shelved by one and carded by the other. Now there is one function.
+    // was shelved by one and carded by the other. Now there is one function,
+    // and the retired gate's input-side copy of the decision is gone.
     expect(DEFAULT_INTENT_FLOOR).toBe(DEFAULT_NUDGE_INTENT_FLOOR);
     expect(nudgeThresholds().intentFloor).toBe(DEFAULT_NUDGE_INTENT_FLOOR);
     const t = { intentFloor: 0.7, blockedKinds: ["something_moved"] };
@@ -214,8 +223,20 @@ describe("§7.3 fallback — one of the four is red, so the retirement is blocke
 // ---------------------------------------------------------------------------
 
 describe("§7.3 item 2 — AST parity on the re-homed cases", () => {
-  it("every assertion the retiring assist/ lane proved has a home that exists", () => {
+  it("every assertion the retired assist/ lane proved has a home that exists", () => {
+    // Static half only. The run half ("and that home is green") is
+    // `npm run eval -- --ast-parity`, which grades the homes a run measured.
     expect(astParityGaps(corpusIds())).toEqual([]);
+  });
+
+  it("the ledger still names all nine retired cases, now that the fixtures are gone", () => {
+    // The fixtures were the only other record of what AST proved. With them
+    // deleted, this array IS the record — so its shape is asserted, not
+    // assumed: nine rows, no duplicates, every home outside the retired lane.
+    expect(retiredCaseIds()).toHaveLength(9);
+    expect(new Set(retiredCaseIds()).size).toBe(9);
+    expect(rehomedCaseIds().every((id) => !id.startsWith("AST-"))).toBe(true);
+    for (const id of rehomedCaseIds()) expect(corpusIds()).toContain(id);
   });
 });
 

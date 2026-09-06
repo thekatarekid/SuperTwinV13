@@ -45,7 +45,7 @@ describe("isCodeCase", () => {
     expect(isCodeCase("BND", "Window cut, one bundle per active stream")).toBe(true);
     expect(isCodeCase("CAT", "Chat category by user-reply (pure code)")).toBe(true);
     expect(isCodeCase("TRC", "Liveness: no dead passes (code)")).toBe(true);
-    expect(isCodeCase("AST", "Below-threshold silence (novelty gate, code)")).toBe(true);
+    expect(isCodeCase("SCH", "Wake-up reads before it calls (lookup first, code)")).toBe(true);
     expect(isCodeCase("ROL", "@mention receiver + no task theft")).toBe(false);
   });
 });
@@ -60,19 +60,23 @@ describe("parseDoc against the real docs", () => {
     expect(cases.filter((c) => c.id.startsWith("TOP"))).toHaveLength(10);
   });
 
-  it("V2 yields 75 cases — BND is hand-authored since V6 P1 S3.3 and no longer parsed", () => {
+  it("V2 yields 66 cases — BND is hand-authored (S3.3) and AST is retired (R1)", () => {
+    // parseDoc skips any `### CAT` section fixtures.ts does not list, so
+    // retiring a category is one line there: the doc keeps its prose, the
+    // parser stops writing fixtures for it. AST left with the assist lane.
     const cases = parseDoc(v2, "V2");
-    expect(cases).toHaveLength(75);
+    expect(cases).toHaveLength(66);
     expect(cases.filter((c) => c.id.startsWith("BND"))).toHaveLength(0);
+    expect(cases.filter((c) => c.id.startsWith("AST"))).toHaveLength(0);
   });
 });
 
 describe("materializeDocs", () => {
   const fixtures = materializeDocs(v1, v2);
 
-  it("produces the docs' full coverage — 147 validated fixtures (hand-authored V6 categories excluded)", () => {
+  it("produces the docs' full coverage — 138 validated fixtures (hand-authored V6 categories excluded)", () => {
     expect(fixtures).toHaveLength(MATERIALIZED_CASES);
-    expect(MATERIALIZED_CASES).toBe(147);
+    expect(MATERIALIZED_CASES).toBe(138);
     const perCat = new Map<string, number>();
     for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
     // `authoredExtra` cases (FIX-07..09) are hand-written, so the doc owes

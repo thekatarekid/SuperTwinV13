@@ -4,6 +4,17 @@
 // pinned clock, zero model calls, sandboxed DB. The live lane runs Build
 // §7.3's two-call fallback here as it does in production, so each case spends
 // one understanding call and one decide call on the same canned answer.
+//
+// SANDBOXED DB IS NOT A SANDBOXED HOME. LIV-09 drives the REAL
+// executor/lite.ts, and `liteWorkspaceDir()` mkdir -p's
+// <homeRoot()>/executor/lite-<id>/ and writes result.json there. This file set
+// SUPERTWIN_DB_PATH but not SUPERTWIN_HOME, so `homeRoot()` fell through to its
+// production default and every run of this suite left a directory in the
+// user's real ~/SuperTwinV13/executor/. Nothing failed, because writing a file
+// is not an assertion. Found at the V6P1S6c gate; the class is also closed in
+// src/test-setup.ts, which now defaults SUPERTWIN_HOME to a scratch dir before
+// every test. Both, deliberately: the rail catches what is forgotten, and this
+// line says what this suite needs.
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -24,6 +35,7 @@ let tmpDir: string;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "supertwin-liv-eval-"));
   process.env.SUPERTWIN_DB_PATH = join(tmpDir, "st.db");
+  process.env.SUPERTWIN_HOME = join(tmpDir, "home");
   closeDb();
   runMigrations();
   setConsentGateMode("open");
@@ -32,6 +44,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDb();
   delete process.env.SUPERTWIN_DB_PATH;
+  delete process.env.SUPERTWIN_HOME;
   rmSync(tmpDir, { recursive: true, force: true });
 });
 

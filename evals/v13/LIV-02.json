@@ -1,0 +1,176 @@
+{
+  "id": "LIV-02",
+  "category": "LIV",
+  "title": "history never nudges",
+  "pass": "live",
+  "mode": "code",
+  "setup": {
+    "note": "The same sentence inside a history bundle (lane history, origin backfill). The recorded output is the orient shape with a stray decide.prepared key.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "history",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "t_88",
+        "space": "sp_goa_dec",
+        "title": "pay villa advance ₹15,000",
+        "owner": "self",
+        "due": "2026-09-05",
+        "risk_class": "approve-first",
+        "type": "explicit"
+      }
+    ],
+    "history": [
+      {
+        "alias": "h1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "villa sol wale bol rahe advance aaj chahiye",
+        "minutes_ago": 39,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h2",
+        "stream": "S1",
+        "actor": "contact:karan",
+        "text": "kitna?",
+        "minutes_ago": 37,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h3",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "15k total, 5k each",
+        "minutes_ago": 36,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h4",
+        "stream": "S1",
+        "actor": "self",
+        "text": "main kar deta hoon, baad me collect",
+        "minutes_ago": 30,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h5",
+        "stream": "S1",
+        "actor": "contact:tanvi",
+        "text": "👍",
+        "minutes_ago": 29,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h6",
+        "stream": "S1",
+        "actor": "contact:karan",
+        "text": "mera 5k monday tak pakka",
+        "minutes_ago": 29,
+        "episode": "ep_611"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_611",
+        "space": "sp_goa_dec",
+        "summary": "advance discussion"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "advance by 5 pm today or they release it",
+        "minutes_ago": 1
+      }
+    ],
+    "live": {
+      "episodes": [
+        {
+          "action": "join",
+          "episode": "ep_611",
+          "stream": "S1",
+          "events": [
+            "e1"
+          ],
+          "summary": "Rohan says the Villa Sol advance must be paid by 5 pm today or the hold is released.",
+          "space": "sp_goa_dec",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "advance by 5 pm today or they release it"
+            }
+          ],
+          "confidence": 0.96
+        }
+      ],
+      "proposals": [],
+      "unsorted": [],
+      "questions": [],
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "needs_you",
+            "intent": "Pay the Villa Sol advance before 5 pm",
+            "intent_confidence": 0.94,
+            "action": "question",
+            "space": "sp_goa_dec",
+            "urgency": "today",
+            "deadline_at": "2026-09-05T17:00:00+05:30",
+            "inputs": {
+              "task": "t_88",
+              "amount": "₹15,000",
+              "payee": "Villa Sol"
+            },
+            "grounded_in": [
+              "e1"
+            ],
+            "reasoning": "Open task t_88 now has a hard deadline from Rohan's message."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "recorded live.v1 output for LIV-02 (setup.live) through the real live tick"
+  ],
+  "expected": {
+    "prepared": 0,
+    "episode": "ep_611",
+    "note": "history runs orient (no decide section); a stray decide key is ignored by the orient parser and the live decide half never runs. The closure check for \"main kar deta hoon\" is decided by the per-space decide pass, so the commit queues sp_goa_dec for it.",
+    "decide_queued": [
+      "sp_goa_dec"
+    ]
+  },
+  "wrong": [
+    {
+      "label": "history-nudge",
+      "assert_absent": "any prepared action row, or the live decide half running, from a history bundle"
+    },
+    {
+      "label": "episode-lost",
+      "assert_absent": "the episode fails to commit"
+    }
+  ],
+  "gates": [
+    "assist_from_history"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.11 LIV-02 · history never nudges (hard)"
+  }
+}

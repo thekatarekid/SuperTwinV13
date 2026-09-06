@@ -66,6 +66,10 @@ export const HARD_GATES: readonly Gate[] = [
   { id: "overwrite", metric: "overwrite = 0 (a superseded claim keeps its row, text and history)", kind: "zero_violations", threshold: null, doc: "V2" },
   // -- V6 P1 (GoldenEvals V6 P1 §3.1, CON / IDEM): a wake-up is a lookup before it is a call.
   { id: "clock_only_call", metric: "clock_only_call = 0 (no model call on a store with nothing written since the last pass)", kind: "zero_violations", threshold: null, doc: "V2" },
+  // -- V6 P1 (GoldenEvals V6 P1 §3.1, LIV): the live call may interrupt only on
+  // what just happened, and history never interrupts at all.
+  { id: "assist_from_history", metric: "assist_from_history = 0 (a history bundle never produces a prepared action)", kind: "zero_violations", threshold: null, doc: "V2" },
+  { id: "nudge_without_grounding", metric: "nudge_without_grounding = 0 (every prepared action cites an event of this flush)", kind: "zero_violations", threshold: null, doc: "V2" },
 ];
 
 const HARD_BY_ID = new Map(HARD_GATES.map((g) => [g.id, g]));

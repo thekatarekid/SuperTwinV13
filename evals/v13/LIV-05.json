@@ -1,0 +1,198 @@
+{
+  "id": "LIV-05",
+  "category": "LIV",
+  "title": "bad understanding JSON",
+  "pass": "live",
+  "mode": "code",
+  "setup": {
+    "note": "The recorded understanding has one malformed episode (no summary) beside a valid one; the decide section is valid.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "live",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "t_88",
+        "space": "sp_goa_dec",
+        "title": "pay villa advance ₹15,000",
+        "owner": "self",
+        "due": "2026-09-05",
+        "risk_class": "approve-first",
+        "type": "explicit"
+      }
+    ],
+    "history": [
+      {
+        "alias": "h1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "villa sol wale bol rahe advance aaj chahiye",
+        "minutes_ago": 39,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h2",
+        "stream": "S1",
+        "actor": "contact:karan",
+        "text": "kitna?",
+        "minutes_ago": 37,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h3",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "15k total, 5k each",
+        "minutes_ago": 36,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h4",
+        "stream": "S1",
+        "actor": "self",
+        "text": "main kar deta hoon, baad me collect",
+        "minutes_ago": 30,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h5",
+        "stream": "S1",
+        "actor": "contact:tanvi",
+        "text": "👍",
+        "minutes_ago": 29,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h6",
+        "stream": "S1",
+        "actor": "contact:karan",
+        "text": "mera 5k monday tak pakka",
+        "minutes_ago": 29,
+        "episode": "ep_611"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_611",
+        "space": "sp_goa_dec",
+        "summary": "advance discussion"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "S1",
+        "actor": "contact:tanvi",
+        "text": "haan",
+        "minutes_ago": 2
+      },
+      {
+        "alias": "e2",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "advance by 5 pm today or they release it",
+        "minutes_ago": 1
+      }
+    ],
+    "live": {
+      "understanding": {
+        "episodes": [
+          {
+            "action": "new",
+            "stream": "S1",
+            "events": [
+              "e1"
+            ],
+            "evidence": [
+              {
+                "event_ids": [
+                  "e1"
+                ],
+                "quote": "haan"
+              }
+            ],
+            "confidence": 0.7
+          },
+          {
+            "action": "join",
+            "episode": "ep_611",
+            "stream": "S1",
+            "events": [
+              "e2"
+            ],
+            "summary": "Rohan says the Villa Sol advance must be paid by 5 pm today or the hold is released.",
+            "space": "sp_goa_dec",
+            "evidence": [
+              {
+                "event_ids": [
+                  "e2"
+                ],
+                "quote": "advance by 5 pm today or they release it"
+              }
+            ],
+            "confidence": 0.96
+          }
+        ],
+        "proposals": [],
+        "unsorted": [],
+        "questions": []
+      },
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "needs_you",
+            "intent": "Pay the Villa Sol advance before 5 pm",
+            "intent_confidence": 0.94,
+            "action": "question",
+            "space": "sp_goa_dec",
+            "urgency": "today",
+            "deadline_at": "2026-09-05T17:00:00+05:30",
+            "inputs": {
+              "task": "t_88",
+              "amount": "₹15,000",
+              "payee": "Villa Sol"
+            },
+            "grounded_in": [
+              "e2"
+            ],
+            "reasoning": "Open task t_88 now has a hard deadline from Rohan's message."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "recorded live.v1 output for LIV-05 (setup.live) through the real live tick"
+  ],
+  "expected": {
+    "rejected": 1,
+    "committed_episode_members": [
+      "e2"
+    ],
+    "prepared": 1
+  },
+  "wrong": [
+    {
+      "label": "good-items-lost",
+      "assert_absent": "the valid episode fails to commit because a sibling item was malformed, or the malformed item leaves no quarantine row"
+    },
+    {
+      "label": "decide-lost",
+      "assert_absent": "the valid decide section does not run"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.11 LIV-05 · bad understanding JSON"
+  }
+}

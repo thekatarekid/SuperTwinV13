@@ -1,0 +1,130 @@
+{
+  "id": "LIV-03",
+  "category": "LIV",
+  "title": "grounding is this flush",
+  "pass": "live",
+  "mode": "code",
+  "setup": {
+    "note": "One trivial new event ('ok'); thread history carries 3-week-old villa-comparison intent. The recorded output grounds a compare action only in old context.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "live",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "t_88",
+        "space": "sp_goa_dec",
+        "title": "pay villa advance ₹15,000",
+        "owner": "self",
+        "due": "2026-09-05",
+        "risk_class": "approve-first",
+        "type": "explicit"
+      }
+    ],
+    "history": [
+      {
+        "alias": "h1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "villa sol vs casa anjuna, compare karo",
+        "minutes_ago": 30240,
+        "episode": "ep_old"
+      },
+      {
+        "alias": "h2",
+        "stream": "S1",
+        "actor": "self",
+        "text": "airbnb pe dekhta hoon, pool wala chahiye",
+        "minutes_ago": 30235,
+        "episode": "ep_old"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_old",
+        "space": "sp_goa_dec",
+        "summary": "villa comparison, three weeks ago"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "ok",
+        "minutes_ago": 1
+      }
+    ],
+    "live": {
+      "understanding": {
+        "episodes": [],
+        "proposals": [],
+        "unsorted": [
+          {
+            "stream": "S1",
+            "events": [
+              "e1"
+            ],
+            "summary": "Rohan acknowledges.",
+            "reason": "no content to file",
+            "confidence": 0.5
+          }
+        ],
+        "questions": []
+      },
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "help_now",
+            "intent": "Comparing Anjuna villas for the December trip",
+            "intent_confidence": 0.9,
+            "action": "compare",
+            "space": "sp_goa_dec",
+            "urgency": "none",
+            "deadline_at": null,
+            "inputs": {
+              "candidates": [
+                "Villa Sol",
+                "Casa Anjuna"
+              ]
+            },
+            "grounded_in": [
+              "h2",
+              "evt_three_weeks_old"
+            ],
+            "reasoning": "The thread history shows the user comparing villas."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "recorded live.v1 output for LIV-03 (setup.live) through the real live tick"
+  ],
+  "expected": {
+    "prepared": 0,
+    "dropped_ungrounded": 1
+  },
+  "wrong": [
+    {
+      "label": "old-context-nudge",
+      "assert_absent": "a prepared action persisted whose grounded_in resolves to nothing in this bundle"
+    }
+  ],
+  "gates": [
+    "nudge_without_grounding"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.11 LIV-03 · grounding is this flush (hard)"
+  }
+}

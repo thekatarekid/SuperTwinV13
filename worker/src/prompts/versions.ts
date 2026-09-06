@@ -25,6 +25,7 @@ import { CRITIC_V4 } from "./critic.v4.js";
 import { CRITIC_V5 } from "./critic.v5.js";
 import { ORIENT_V6 } from "./orient.v6.js";
 import { ORIENT_V7 } from "./orient.v7.js";
+import { LIVE_V1 } from "./live.v1.js";
 
 export type PromptFamily = "orient" | "critic";
 
@@ -133,4 +134,38 @@ export function modelForVersionedPass(prompt: VersionedPrompt): string {
     (prompt.settingsKey !== prompt.pass ? stored(`selected_model_${prompt.settingsKey}`) : null) ??
     DEFAULT_PASS_MODEL
   );
+}
+
+// ---------------------------------------------------------------------------
+// The LIVE pass (V6 P1 S4.1, P-01). One version so far; the live lane runs it
+// by default. `SUPERTWIN_PROMPT_LIVE=off` (or app_state `prompt_version.live`
+// = "off") falls the live lane back to orient.v7-style understanding only —
+// the S4 §7.3 fallback ("keep the merged pack, make two calls").
+// ---------------------------------------------------------------------------
+
+export const LIVE_VERSIONS = {
+  v1: { pass: LIVE_V1.pass, version: LIVE_V1.version, system: LIVE_V1.system, settingsKey: LIVE_V1.settingsKey },
+} as const satisfies Record<string, VersionedPrompt>;
+
+export type LiveVersion = keyof typeof LIVE_VERSIONS;
+export const DEFAULT_LIVE_VERSION: LiveVersion = "v1";
+export const LIVE_PROMPT_ENV = "SUPERTWIN_PROMPT_LIVE";
+export const LIVE_PROMPT_OFF = "off";
+
+/** app_state key holding the live pass selection ("v1" | "off"). */
+export function livePromptVersionKey(): string {
+  return "prompt_version.live";
+}
+
+/**
+ * The live prompt to run on the live lane, or null when it is switched off
+ * (env → app_state → default v1). Off means the consumer runs the orient
+ * prompt for live bundles too — understanding only, no prepared actions.
+ */
+export function activeLivePrompt(): VersionedPrompt | null {
+  for (const candidate of [normalise(process.env[LIVE_PROMPT_ENV]), normalise(stored(livePromptVersionKey()))]) {
+    if (candidate === LIVE_PROMPT_OFF) return null;
+    if (candidate && candidate in LIVE_VERSIONS) return LIVE_VERSIONS[candidate as LiveVersion];
+  }
+  return LIVE_VERSIONS[DEFAULT_LIVE_VERSION];
 }

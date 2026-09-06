@@ -27,7 +27,10 @@ import { markDispatchedEvents, type DeltaBundle } from "../scheduler/v6/bundle.j
 import { clearBundleAttempts, noteBundleAttempt } from "../db/v6core.js";
 import { ensureDigests, recordContextStats } from "../packer/index.js";
 import type { JsonPassDeps } from "./llm.js";
-import { runOrient } from "./orient.js";
+import { runOrient, type OrientRun } from "./orient.js";
+import { applyLiveDecide, runLive, type LiveApplyReport, type LiveOutput, type LiveRun } from "./live.js";
+import { activeLivePrompt } from "../prompts/versions.js";
+import type { PackOptions } from "../packer/index.js";
 import { runCritic } from "./critic.js";
 import { commitTick, type CommitReport } from "./commit.js";
 import { enqueueCommitted } from "./reduce.js";
@@ -42,6 +45,17 @@ export interface TickReport {
   commit?: CommitReport;
   orientRunIds: string[];
   criticRunIds: string[];
+  /**
+   * V6 S4.1: the live pass ran (live.v1) and this is what its decide half did
+   * — tasks/closures/schedules applied, prepared actions persisted / dropped.
+   * Absent on history bundles and when the live pass is switched off.
+   */
+  live?: LiveApplyReport;
+}
+
+export interface TickOptions {
+  /** Packer options (clock, thin policy) — tests and the eval executors. */
+  packOpts?: PackOptions;
 }
 
 /**
@@ -119,6 +133,7 @@ export function isBundleStale(bundle: DeltaBundle): boolean {
 export async function runBrainTick(
   bundle: DeltaBundle,
   deps: JsonPassDeps = {},
+  opts: TickOptions = {},
 ): Promise<TickReport> {
   // Execution-time revalidation (S0.3 / T0-3, BND-10) — before the digest
   // step, which is the first thing that can reach a model.
@@ -137,14 +152,36 @@ export async function runBrainTick(
     console.error("[brain] digest generation failed (continuing):", err);
   }
 
-  const orientRun = await runOrient(bundle, deps);
+  // V6 S4.1: a live bundle runs live.v1 — ONE call that understands and
+  // decides. History keeps orient (no decide section; any stray decide key is
+  // ignored by the orient parser). Off-switch: SUPERTWIN_PROMPT_LIVE=off.
+  const livePrompt = bundle.lane === "live" ? activeLivePrompt() : null;
+  const orientRun: OrientRun | LiveRun = livePrompt
+    ? await runLive(bundle, deps, opts.packOpts ?? {}, livePrompt)
+    : await runOrient(bundle, deps, opts.packOpts ?? {});
+  const liveOut: LiveOutput | undefined = livePrompt ? (orientRun as LiveRun).live : undefined;
   if (!orientRun.output) {
-    // Quarantined — the runner parked the unit; the next tick re-collects.
+    // Understanding quarantined — the runner parked the unit; the next tick
+    // re-collects. A valid decide half still runs (LIV-05): its prepared
+    // actions are grounded in this bundle's events and dedupe by content key,
+    // so the re-collected bundle cannot mint them twice.
+    let live: LiveApplyReport | undefined;
+    if (liveOut?.decide) {
+      live = applyLiveDecide({
+        bundle,
+        live: liveOut,
+        aliases: orientRun.packed.eventAliases,
+        commit: null,
+        runId: orientRun.result.runIds[0] ?? null,
+        now: deps.now?.() ?? new Date(),
+      });
+    }
     return {
       bundle,
       status: "quarantined",
       orientRunIds: orientRun.result.runIds,
       criticRunIds: [],
+      ...(live ? { live } : {}),
     };
   }
 
@@ -181,6 +218,25 @@ export async function runBrainTick(
     console.error("[brain] reduce enqueue failed (continuing):", err);
   }
 
+  // V6 S4.1: the decide half — after the commit so tasks can land in the
+  // space the understanding just touched. A bad decide never blocks the
+  // commit above (it is logged inside applyLiveDecide and dropped).
+  let live: LiveApplyReport | undefined;
+  if (liveOut) {
+    try {
+      live = applyLiveDecide({
+        bundle,
+        live: liveOut,
+        aliases: orientRun.packed.eventAliases,
+        commit,
+        runId: runId ?? null,
+        now: deps.now?.() ?? new Date(),
+      });
+    } catch (err) {
+      console.error("[brain] live decide apply failed (continuing):", err);
+    }
+  }
+
   // Cursor on event ids: stamp what committed (plus the uncovered, flagged
   // rows); hold the rejected items' rows for the next tick — three strikes on
   // the same held set dead-letters it and stamps it too.
@@ -215,6 +271,7 @@ export async function runBrainTick(
     commit,
     orientRunIds: orientRun.result.runIds,
     criticRunIds: criticRun.result.runIds,
+    ...(live ? { live } : {}),
   };
 }
 

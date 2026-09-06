@@ -550,6 +550,37 @@ function stagedChapters(spaceId: string, out: DecideOutputV9, runId: string | nu
 }
 
 // ---------------------------------------------------------------------------
+// Item application for the live pass (V6 P1 S4.1)
+// ---------------------------------------------------------------------------
+
+export interface DecideItems {
+  tasks?: readonly DecideTaskV9[];
+  closures?: readonly (DecideClosure | DecideClosureV9)[];
+  schedules?: readonly DecideOutputV9["schedules"][number][];
+}
+
+/**
+ * Apply already-validated decide items to ONE space under exactly the rules
+ * the per-space pass uses (dedupe by open title, ownership → monitor, closure
+ * floor, check_at → closure check, schedule policy gate). live.v1's decide
+ * section (brain/live.ts) routes its items here per space so the live and
+ * the per-space lanes can never disagree on what a task or a closure does.
+ */
+export function applyDecideItems(
+  spaceId: string,
+  items: DecideItems,
+  runId: string | null,
+  now: Date,
+  applied: DecideApplied = emptyDecideApplied(),
+): DecideApplied {
+  const chapterIdByLabel = new Map<string, string>();
+  for (const task of items.tasks ?? []) applyTask(spaceId, task, chapterIdByLabel, runId, applied);
+  for (const closure of items.closures ?? []) applyClosure(spaceId, closure, runId, applied, now);
+  for (const schedule of items.schedules ?? []) applySchedule(spaceId, schedule, runId, applied, now);
+  return applied;
+}
+
+// ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
 

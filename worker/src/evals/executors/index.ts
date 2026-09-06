@@ -35,6 +35,7 @@ import { packExecutor } from "./pck.js";
 import { conExecutor } from "./con.js";
 import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
+import { liveExecutor } from "./liv.js";
 import { calendarExecutor } from "./cal.js";
 import {
   browserEvalExecutor,
@@ -157,6 +158,11 @@ export async function registerProductExecutors(): Promise<void> {
   // the real brain/extract-pass.ts with recorded extract.v6 outputs. Zero
   // model calls.
   registerExecutor("claims", claimsExecutor);
+  // V6 P1 S4.1: LIV live-call cases (the villa sentence, history never nudges,
+  // grounding is this flush, section-independent parsing, the intent floor) —
+  // recorded live.v1 output through the real tick (pack → live.v1 → critic →
+  // commit → applyLiveDecide) with a pinned clock. Zero model calls.
+  registerExecutor("live", liveExecutor);
   // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.

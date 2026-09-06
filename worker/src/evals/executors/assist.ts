@@ -7,9 +7,21 @@
 // those cases drive the actual product functions and assert exactly —
 // dup-inflation, gate-bypass, risky-leak, ephemeral-delete and
 // binary-reconcile are code violations, not judged prose. The
-// evaluator-facing cases (AST-01/07/08 and the forced sub-threshold check of
-// AST-02) run the REAL assist evaluator prompt through the traced JSON
-// runner (live CLI), exactly like executors/orient.ts does for Orient.
+// evaluator-facing cases (AST-01/07/08) run the REAL assist evaluator prompt
+// through the traced JSON runner (live CLI), exactly like executors/orient.ts
+// does for Orient.
+//
+// AST-02 IS NOT ONE OF THEM (Stage 4 gate). Its fixture is `mode: "code"` and
+// its own expectation is "zero model calls", but its forced sub-threshold
+// probe used to run the live evaluator with empty deps — so every
+// `npm run eval -- --mode code` run, the run that is supposed to cost
+// nothing, spent two `claude` invocations, and the tasks/decisions rows that
+// probe left behind (stamped hours ahead of the harness clock) woke CON-01's
+// "nothing changed" roll in whole-suite runs. The probe now answers from a
+// scripted provider, which is the half that was ever ours to assert: that
+// CODE reads a sub-threshold evaluation as "nothing". Whether the live model
+// returns a low confidence on idle browsing is a model property, and
+// AST-01/07/08 exercise the real prompt.
 //
 // Every run seeds under a per-run nonce (unique stream keys, urls and space
 // ids) so topic accumulators and artifact dedup keys never collide across
@@ -18,6 +30,8 @@
 
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import { getDb } from "../../db/connection.js";
+import type { JsonPassDeps } from "../../brain/llm.js";
+import type { Usage } from "../../providers/types.js";
 import { normaliseUrl } from "../../bridges/normalise.js";
 import { appendEvent, readEnvelope, type EventEnvelope } from "../../db/eventlog.js";
 import {
@@ -57,10 +71,21 @@ import {
 // Seeding helpers
 // ---------------------------------------------------------------------------
 
-/** Mocked "now": today 14:00 LOCAL — inside no default quiet window. */
+/**
+ * Mocked "now": 14:00 LOCAL — inside no default quiet window.
+ *
+ * Yesterday's 14:00 when today's has not arrived yet. A fixture must never
+ * stamp a row AHEAD of the real clock: these events are left behind in the
+ * harness home, and every "has anything been written since T?" lookup in the
+ * product reads a future row as news that just landed. That is precisely how
+ * a suite run before 2pm made CON-01's quiet hourly roll (cutoff `now + 1s`)
+ * find three events and run — a red that appeared and vanished with the time
+ * of day, in a case that had nothing to do with assist.
+ */
 function baseNow(): number {
   const d = new Date();
   d.setHours(14, 0, 0, 0);
+  if (d.getTime() > Date.now()) d.setDate(d.getDate() - 1);
   return d.getTime();
 }
 
@@ -270,6 +295,38 @@ async function ast01(): Promise<ExecutorResult> {
 // AST-02 · Below-threshold silence (novelty gate, code)
 // ---------------------------------------------------------------------------
 
+/** What the fixture says a forced evaluation of idle browsing comes back as. */
+const SUB_THRESHOLD_EVAL = JSON.stringify({
+  intent: "browsing news, no goal I can name",
+  intent_confidence_0_1: 0.2,
+  helpfulness_0_1: 0.1,
+  action: null,
+  artifact_type: null,
+  space_hint: null,
+  reasoning: "generic scrolling; nothing to prepare",
+});
+
+/** A provider that answers `text` without spawning anything. */
+function scriptedEvaluator(text: string): JsonPassDeps {
+  const usage: Usage = {
+    inputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    outputTokens: 0,
+  };
+  return {
+    provider: {
+      id: "scripted-assist-evaluator",
+      cancel: () => false,
+      async send(opts) {
+        opts.onEvent({ type: "delta", text });
+        opts.onEvent({ type: "done", sessionId: "scripted", usage });
+        return { sessionId: "scripted", usage, freshFallback: false, status: "ok" };
+      },
+    },
+  };
+}
+
 async function ast02(): Promise<ExecutorResult> {
   const s = makeSeeder("AST-02");
   const streamKey = `news.example-${s.nonce}`;
@@ -313,9 +370,14 @@ async function ast02(): Promise<ExecutorResult> {
     violations.push({ label: "clippy", note: "identical re-capture incremented the accumulator" });
   }
 
-  // The fixture's harness-injected FORCED evaluation: the production path made
-  // zero model calls (gate not ready); this one call is the test probe.
-  const forced = await runAssistEvaluator(topic, {}, { nowMs: s.now });
+  // The fixture's harness-injected FORCED evaluation. The production path
+  // above made zero model calls (the gate is not ready) and this probe makes
+  // zero too: a scripted provider answers with the sub-threshold evaluation
+  // the fixture describes ("watcher returns low intent_confidence → nothing"),
+  // and what is asserted is that OUR code reads it as nothing.
+  const forced = await runAssistEvaluator(topic, scriptedEvaluator(SUB_THRESHOLD_EVAL), {
+    nowMs: s.now,
+  });
   const ev = forced.status === "ok" || forced.status === "repaired" ? forced.output! : null;
   if (ev && isActionable(ev)) {
     violations.push({

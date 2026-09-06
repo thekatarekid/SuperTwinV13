@@ -94,6 +94,9 @@ describe("Settings › Intelligence (§25)", () => {
       "executor",
       "chat",
       "tier",
+      // S4.6's brief lane spends under its own stem, so Settings › Intelligence
+      // gets its own row (categories BRF) — not a hidden sub-setting of digest.
+      "brief",
     ]);
     const decide = r.body.steps.find((s: { key: string }) => s.key === "decide");
     expect(decide).toMatchObject({ label: "Decide", recommended: "sonnet", enabled: true });

@@ -19,10 +19,28 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
-import { CRITIC_V4 } from "../prompts/critic.v4.js";
-import { parseCriticOutput } from "../brain/critic.js";
-import { runJsonPass, type JsonPassDeps } from "../brain/llm.js";
+import type { JsonPassDeps } from "../brain/llm.js";
 import { noteDismissed, noteReopened } from "./gate.js";
+
+// The model stack (brain/llm, brain/critic, prompts/critic.v4) is loaded
+// INSIDE graduateArtifact rather than imported at module scope, and that is
+// load-bearing, not a style choice. S4.7 made the ingest funnel
+// (db/eventlog.ts) import safety/injection.ts, which writes its card through
+// createArtifact() here — so a module-scope edge from this file into brain/
+// closes the ring
+//
+//   db/settings -> db/ingest -> db/eventlog -> safety/injection ->
+//   assist/artifacts -> brain/critic -> brain/orient -> packer ->
+//   retrieval/embedder -> media/tools -> db/settings
+//
+// and media/tools.ts reads DEFAULT_WHISPER_MODEL from db/settings AT MODULE
+// SCOPE. Entering that ring at db/settings leaves the constant in its TDZ:
+// real ESM throws "Cannot access 'DEFAULT_WHISPER_MODEL' before
+// initialization", and the vitest/CJS transforms quietly hand back
+// `undefined`, which is how the bundled whisper model lost its id. The card
+// writer is pure SQL; only graduation needs a model, and it is already async.
+// src/db/layering.test.ts fails if any db/ module regains a module-scope path
+// into brain/ or packer/.
 
 export type ArtifactStatus = "new" | "seen" | "dismissed" | "graduated" | "expired";
 
@@ -347,6 +365,11 @@ export async function graduateArtifact(
       ` "${artifact.summary ?? artifact.title}"`,
   ].join("\n");
 
+  const [{ CRITIC_V4 }, { parseCriticOutput }, { runJsonPass }] = await Promise.all([
+    import("../prompts/critic.v4.js"),
+    import("../brain/critic.js"),
+    import("../brain/llm.js"),
+  ]);
   const result = await runJsonPass(
     {
       pass: CRITIC_V4.pass,

@@ -237,14 +237,34 @@ describe.skipIf(!goAvailable)("P3.5 demo path (stubbed models + real --mock daem
         await waitFor(() => frames.some((f) => f.type === "paired"), 15_000, "pairing");
 
         // 4. Approve tap → mint the single-use token (the modal's only mint).
-        const minted = await call(
+        //    S4.5: a send token must name what it approves. An unbound mint is
+        //    refused, because a token good for "some WhatsApp send" is good for
+        //    any recipient and any words — the thing this gate exists to stop.
+        const unbound = await call(
           (req, res) => handleSourceRoute(req, res, ingestion),
           "POST",
           "/api/approvals/mint",
           { action: "whatsapp.send" },
         );
+        expect(unbound.status).toBe(400);
+
+        // The modal binds the mint to the two strings it just displayed — the
+        // same two the send route will read back out of the stored run.
+        const minted = await call(
+          (req, res) => handleSourceRoute(req, res, ingestion),
+          "POST",
+          "/api/approvals/mint",
+          {
+            action: "whatsapp.send",
+            bind: { to: ROHAN_JID, text: "locking goa 18-21 dec then? 🔥" },
+          },
+        );
         expect(minted.status).toBe(200);
-        expect(minted.body.token).toMatch(/^[0-9a-f]{64}$/);
+        // st1~action~id~expiry~bindDigest~signature — the binding travels IN
+        // the token, so the daemon can refuse a re-aimed send on its own.
+        expect(minted.body.token).toMatch(
+          /^st1~whatsapp\.send~[0-9a-f]{32}~\d+~[0-9a-f]{16,}~[0-9a-f]{16,}$/,
+        );
 
         // 5. Token → the send route → the daemon actually sends.
         const sent = await call(

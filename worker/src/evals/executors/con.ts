@@ -29,7 +29,13 @@ import { commitTick } from "../../brain/commit.js";
 import type { JsonPassDeps } from "../../brain/llm.js";
 import { parseOrientOutput } from "../../brain/orient.js";
 import { claimHistory, writeClaimVersion } from "../../claims/store.js";
-import { mergeQuestionId, runT2, T2_LAST_ROLL_KEY, type T2Report } from "../../consolidation/t2.js";
+import {
+  mergeQuestionId,
+  runT2,
+  T2_CHANGE_SOURCES,
+  T2_LAST_ROLL_KEY,
+  type T2Report,
+} from "../../consolidation/t2.js";
 import { COMPRESS_KEEP, runT3, T3_CLOSED_BY } from "../../consolidation/t3.js";
 import { getDb } from "../../db/connection.js";
 import { decisionsFor } from "../../db/decisions.js";
@@ -201,7 +207,8 @@ const con01: CaseFn = async (fixture, w) => {
   w.episode("ep_a0", a, "closed");
   // "An hour with no writes": the last roll happened after every write above.
   const previousRoll = appStateGet(T2_LAST_ROLL_KEY);
-  appStateSet(T2_LAST_ROLL_KEY, new Date(Date.now() + 1_000).toISOString());
+  const quietCutoff = new Date(Date.now() + 1_000).toISOString();
+  appStateSet(T2_LAST_ROLL_KEY, quietCutoff);
   const judge = stubJudge([MERGE_VERDICT(a, 0.99)]);
   const before = count(`SELECT COUNT(*) AS n FROM questions WHERE target_id = ?`, b);
   const quiet = await runT2(deps(judge));
@@ -212,6 +219,22 @@ const con01: CaseFn = async (fixture, w) => {
     providerCalls: judge.calls.length,
     questions: count(`SELECT COUNT(*) AS n FROM questions WHERE target_id = ?`, b) - before,
   };
+  // When the quiet roll runs anyway, name WHICH source woke it — measured here,
+  // while the cutoff still stands and before the second phase writes. In a
+  // whole-suite run this case shares one home with 150 others, and a single row
+  // another fixture stamped in the FUTURE is indistinguishable from "the store
+  // changed"; the counts below name the table instead of leaving the next agent
+  // to bisect categories (Stage 4 gate).
+  const wokeBy: string[] = [];
+  if (!unchanged.rollSkipped && unchanged.changedRows > 0) {
+    for (const src of T2_CHANGE_SOURCES) {
+      const n = count(
+        `SELECT COUNT(*) AS n FROM ${src.table} WHERE ${src.column} >= ?${src.where ? ` AND ${src.where}` : ""}`,
+        quietCutoff,
+      );
+      if (n > 0) wokeBy.push(`${src.table}=${n}`);
+    }
+  }
 
   // One write since the last roll wakes it: the touched pair is judged once.
   appStateSet(T2_LAST_ROLL_KEY, new Date(Date.now() - 1_000).toISOString());
@@ -248,7 +271,8 @@ const con01: CaseFn = async (fixture, w) => {
     violations,
     metrics: { clock_only_call: unchanged.providerCalls, model_calls: judge.calls.length },
     notes: [
-      `unchanged store: roll ${unchanged.rollSkipped ? "skipped" : "RAN"}, ${unchanged.providerCalls} judge call(s)`,
+      `unchanged store: roll ${unchanged.rollSkipped ? "skipped" : "RAN"}, ${unchanged.providerCalls} judge call(s)` +
+        (wokeBy.length ? ` — woken by rows dated after the cutoff: ${wokeBy.join(", ")}` : ""),
       `after one write: ${changed.changedRows} changed row(s), ${changed.modelCalls} judge call(s), ${changed.mergeQuestions} merge question(s)`,
     ],
   };

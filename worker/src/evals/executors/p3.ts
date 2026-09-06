@@ -28,7 +28,9 @@ import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import type { Fixture } from "../fixtures.js";
 import type { GateInput } from "../gates.js";
 import { runJsonPass } from "../../brain/llm.js";
-import { DECIDE_V8_SYSTEM, validateDecideV8Output, type DecideOutputV8, type DecideScheduleV8 } from "../../prompts/decide.v8.js";
+import { type DecideOutputV8, type DecideScheduleV8 } from "../../prompts/decide.v8.js";
+import { DECIDE_V9_SYSTEM, validateDecideV9Output } from "../../prompts/decide.v9.js";
+import { FIXTURE_NOW } from "./clock.js";
 import { FOLLOWUP_V1_SYSTEM, validateFollowupOutput, type FollowupOutput } from "../../prompts/followup.v1.js";
 import { BRIEF_V1_SYSTEM, validateBriefOutput, type BriefOutput } from "../../prompts/brief.v1.js";
 import { evaluateSchedulePolicy, type SchedulePolicyVerdict } from "../../scheduler/v6/schedule-policy.js";
@@ -122,6 +124,10 @@ interface PolicyRow {
   task: string;
   requested: string;
   fire_at: string | null;
+  /** The window the evidence names (v9 window_opens_at), if any. */
+  window_opens_at: string | null;
+  /** The instant the code gate actually fires at (TIM-04 clamp applied). */
+  fire_at_applied: string | null;
   recurrence: string | null;
   decision: SchedulePolicyVerdict["decision"];
   reasons: string[];
@@ -150,6 +156,7 @@ export function schedulePolicyView(
     const resolved = riskFor(fixtureId, sched, {
       followups: followups as { title: string; risk_class?: string | null; confidence?: number | null }[],
     });
+    const windowOpensAt = (sched as { window_opens_at?: string | null }).window_opens_at ?? null;
     const verdict = evaluateSchedulePolicy({
       requestedMode: sched.mode,
       riskClass: resolved.risk,
@@ -157,11 +164,17 @@ export function schedulePolicyView(
       fireAt: sched.fire_at ?? null,
       recurrence: sched.recurrence ?? null,
       now,
+      // TIM-04 (S3.7): the code gate never lets a fire precede the window the
+      // evidence names; with a poll plan it may lead by POLL_LEAD_MAX_MS.
+      windowOpensAt,
+      polling: sched.polling !== null && sched.polling !== undefined,
     });
     rows.push({
       task: sched.task,
       requested: sched.mode,
       fire_at: sched.fire_at ?? null,
+      window_opens_at: windowOpensAt,
+      fire_at_applied: verdict.fireAt !== null ? verdict.fireAt.toISOString() : null,
       recurrence: sched.recurrence ?? null,
       decision: verdict.decision,
       reasons: verdict.reasons,
@@ -204,23 +217,23 @@ async function scheduleLive(fixture: Fixture): Promise<ExecutorResult> {
   const seed = fixtureSeed(fixture.id);
   const user = [
     fixtureUser(fixture.setup, seed?.events ?? fixture.input_events, { letter: fixture.id === "SCH-06" ? "B" : "A", lane: fixture.id === "SCH-06" ? "backfill" : "live" }, seed?.state),
-    calendarBlock(),
+    calendarBlock(FIXTURE_NOW),
     "",
     "NEW COMMITTED EPISODES (all sources, time-ordered): the NEW BUNDLE events above.",
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V8_SYSTEM,
+    system: DECIDE_V9_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },
-    validate: validateDecideV8Output,
+    validate: validateDecideV9Output,
   });
   const out = result.output;
   if (!out) {
     return { ok: false, output: { error: result.error, responses: result.responses }, seededContext: seed?.state };
   }
-  const { rows, violations } = schedulePolicyView(fixture.id, out, new Date());
+  const { rows, violations } = schedulePolicyView(fixture.id, out, FIXTURE_NOW);
   const gateObservations: GateInput[] = [
     { gateId: "auto_schedule_policy_violation", passed: violations.length === 0, counted: true },
   ];
@@ -343,7 +356,7 @@ async function nextStepLive(fixture: Fixture): Promise<ExecutorResult> {
   const user = [
     "[TRIGGER] a task in ONE space just closed — the next-step pass runs now.",
     seed?.state ?? String(fixture.setup ?? ""),
-    calendarBlock(),
+    calendarBlock(FIXTURE_NOW),
     ...fixture.input_events.map((e) => `[INPUT] ${typeof e === "string" ? e : JSON.stringify(e)}`),
   ].join("\n");
   const result = await runJsonPass<FollowupOutput>({
@@ -366,7 +379,7 @@ async function nextStepLive(fixture: Fixture): Promise<ExecutorResult> {
   if (out.followups.length > FOLLOWUPS_PER_TRIGGER) {
     violations.push({ label: "followup-flood", note: `${out.followups.length} proposals; the cap is ${FOLLOWUPS_PER_TRIGGER}` });
   }
-  const { rows, violations: policyViolations } = schedulePolicyView(fixture.id, { followups: kept }, new Date());
+  const { rows, violations: policyViolations } = schedulePolicyView(fixture.id, { followups: kept }, FIXTURE_NOW);
   if (fixture.id === "FUP-04") {
     for (const row of rows) {
       if (row.recurrence && row.decision === "auto") {

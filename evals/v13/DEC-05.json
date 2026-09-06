@@ -1,0 +1,91 @@
+{
+  "id": "DEC-05",
+  "category": "DEC",
+  "title": "another person's task becomes monitoring",
+  "pass": "decide-space",
+  "mode": "code",
+  "setup": {
+    "note": "\"@Karan book the cab\" — Karan's task. It is stored as Karan's (advise-only, never the user's action); the user gets one monitoring follow-up. ROL-01 (live) stays the role oracle.",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active"
+    },
+    "tasks": [],
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "contact:rohan",
+        "text": "@Karan book the cab for 18th"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_cab",
+        "summary": "Rohan asks Karan to book the cab",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": null,
+      "latest": "Rohan asked Karan to book the cab.",
+      "plan": null,
+      "milestones": [],
+      "tasks": [
+        {
+          "title": "Book the cab for 18 Dec",
+          "type": "errand",
+          "owner": "contact:karan",
+          "space": "sp_goa_dec",
+          "due": null,
+          "origin": "explicit",
+          "category": "transaction",
+          "risk_class": "approve-final",
+          "steps": [],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "@Karan book the cab for 18th"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "closures": [],
+      "schedules": [],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
+  "input_events": [
+    "canned decide.v9 output for DEC-05 (setup.decide) applied by the real pass"
+  ],
+  "expected": {
+    "their_task_owner": "contact:karan",
+    "monitor": {
+      "owner": "self",
+      "category": "monitoring",
+      "risk_class": "advise-only"
+    }
+  },
+  "wrong": [
+    {
+      "label": "task-theft",
+      "assert_absent": "the cab booking as the user's own task, or runnable by the twin"
+    },
+    {
+      "label": "no-follow-up",
+      "assert_absent": "the user gets nothing to watch"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 DEC-05 · another person's task becomes monitoring"
+  }
+}

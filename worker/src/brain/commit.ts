@@ -47,6 +47,7 @@ import { addEpisodeEvents } from "../db/v6core.js";
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { spaceCreationStatus } from "../consolidation/graduation.js";
 import { verdictFor, type CriticOutput } from "./critic.js";
+import { findBirthDuplicate, resolveCriticOverlap } from "./space-birth.js";
 import { resolveEventAliases, type OrientEvidence, type OrientOutput } from "./orient.js";
 import type { CommittedEpisode } from "./reduce.js";
 
@@ -125,6 +126,8 @@ export interface CommitReport {
   rejected: number;
   downgraded: number;
   flagged: number;
+  /** Proposals filed into an existing space instead of being born (S3.7 dedupe). */
+  dedupedBirths: number;
   questions: string[];
   decisions: string[];
   rejections: CommitRejection[];
@@ -197,6 +200,7 @@ export function commitTick(input: CommitInput): CommitReport {
     rejected: 0,
     downgraded: 0,
     flagged: 0,
+    dedupedBirths: 0,
     questions: orient.questions,
     decisions: [],
     rejections: [],
@@ -639,6 +643,35 @@ export function commitTick(input: CommitInput): CommitReport {
         });
         insertUnsorted(episodeId, verdict.reason ?? "critic downgrade", p.confidence);
         report.committedEpisodes.push({ episodeId, spaceId: null, streamId: stream.streamId });
+        continue;
+      }
+
+      // ---- Space-birth dedupe (S3.7, Product §13.3): via the critic's
+      // flag_overlap (it names the space this proposal duplicates), backed by
+      // the code-side label match. A duplicate files INTO the existing space;
+      // no second space is born. Applies to every birth path.
+      const dup =
+        (verdict.verdict === "flag_overlap" ? resolveCriticOverlap(verdict.space_id) : null) ??
+        findBirthDuplicate(p.label, p.goal ?? null);
+      if (dup) {
+        const episodeId = insertEpisode({
+          summary: p.summary,
+          streamId: stream.streamId,
+          rows,
+          confidence: p.confidence,
+        });
+        decide("episode", episodeId, "create", {
+          new: { summary: p.summary, events: rows.map((r) => r.id) },
+          confidence: p.confidence,
+        });
+        attachEpisode(episodeId, dup.spaceId, p.confidence, `space birth deduped into ${dup.spaceId} (${dup.via})`);
+        decide("space", dup.spaceId, "dedupe_birth", {
+          new: { proposedLabel: p.label, goal: p.goal ?? null, via: dup.via, score: dup.score },
+          reason: verdict.reason ?? `duplicate of "${dup.label}"`,
+          confidence: p.confidence,
+        });
+        report.dedupedBirths++;
+        report.committedEpisodes.push({ episodeId, spaceId: dup.spaceId, streamId: stream.streamId });
         continue;
       }
 

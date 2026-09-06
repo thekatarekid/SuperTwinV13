@@ -16,7 +16,8 @@ import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
 import { EXTRACT_V6_SYSTEM, validateExtractV6Output, type ExtractV6Output } from "../../prompts/extract.v6.js";
 import { type DecideOutput } from "../../prompts/decide.v1.js";
-import { DECIDE_V8_SYSTEM, validateDecideV8Output } from "../../prompts/decide.v8.js";
+import { DECIDE_V9_SYSTEM, validateDecideV9Output } from "../../prompts/decide.v9.js";
+import { FIXTURE_NOW } from "./clock.js";
 import { CLOSE_CONFIDENCE_FLOOR } from "../../brain/decide-pass.js";
 import { validateConsolidateOutput, type ConsolidateVerdict } from "../../prompts/consolidate.v1.js";
 import { CONSOLIDATE_V3_SYSTEM } from "../../prompts/consolidate.v3.js";
@@ -127,17 +128,18 @@ export const decideExecutor: Executor = async ({ fixture }) => {
   const seed = fixtureSeed(fixture.id);
   const user = [
     fixtureUser(fixture.setup, seed?.events ?? fixture.input_events, band, seed?.state),
-    calendarBlock(),
+    // The fixture era's clock, never the wall clock (S3.7: SCH/TIM drifted red).
+    calendarBlock(FIXTURE_NOW),
     "",
     "NEW COMMITTED EPISODES (all sources, time-ordered): the NEW BUNDLE events above.",
   ].join("\n");
   const result = await runJsonPass({
     pass: "decide",
-    system: DECIDE_V8_SYSTEM,
+    system: DECIDE_V9_SYSTEM,
     user,
     role: "decide",
     unit: { kind: "eval", id: fixture.id },
-    validate: validateDecideV8Output,
+    validate: validateDecideV9Output,
   });
   const out = result.output;
   const applied = out ? decideAppliedView(out) : undefined;

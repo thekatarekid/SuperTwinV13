@@ -85,6 +85,9 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "PCK", name: "The pack (V6 P1)", n: 7, doc: "V2", pass: "pack", authored: true },
   // GoldenEvals V6 Phase 1 §5.6 — the state gate (S3.3). Code-asserted against scheduler/v6.
   { cat: "GATE", name: "The state gate (V6 P1)", n: 10, doc: "V2", pass: "gate", authored: true },
+  // GoldenEvals V6 Phase 1 §5.17 — decide (S3.7, decide.v9). Code-asserted against
+  // brain/decide-pass.ts (+ decide-apply, schedule-policy, closure-check) with canned outputs.
+  { cat: "DEC", name: "Decide — one space (V6 P1)", n: 6, doc: "V2", pass: "decide-space", authored: true },
   // GoldenEvals V6 Phase 1 §5.9 — the critic (S3.5). Re-authored against critic.v5 +
   // the mechanical layer; the V1 CRI-01..08 prose cases were replaced.
   { cat: "CRI", name: "Critic (V6 P1)", n: 4, doc: "V2", pass: "critic", authored: true },

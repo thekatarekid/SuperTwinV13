@@ -139,9 +139,18 @@ export interface SpaceCard {
 export function packSpaceState(spaceId: string): SpaceCard | null {
   const db = getDb();
   const sp = db
-    .prepare(`SELECT id, label, goal, life_area, status, plan_json FROM spaces WHERE id = ?`)
+    .prepare(`SELECT id, label, goal, life_area, status, plan_json, summary, latest FROM spaces WHERE id = ?`)
     .get(spaceId) as
-    | { id: string; label: string; goal: string | null; life_area: string | null; status: string; plan_json: string | null }
+    | {
+        id: string;
+        label: string;
+        goal: string | null;
+        life_area: string | null;
+        status: string;
+        plan_json: string | null;
+        summary: string | null;
+        latest: string | null;
+      }
     | undefined;
   if (!sp) return null;
   const chapters = db
@@ -162,8 +171,10 @@ export function packSpaceState(spaceId: string): SpaceCard | null {
       ` status=${sp.status}` +
       (sp.goal !== null ? `\ngoal: ${sp.goal}` : ""),
   ];
+  if (sp.summary !== null) lines.push(`summary: ${sp.summary}`);
+  if (sp.latest !== null) lines.push(`latest: ${sp.latest}`);
   if (chapters.length > 0) {
-    lines.push("chapters:");
+    lines.push("milestones (chapters):");
     for (const c of chapters) {
       lines.push(
         `  ${c.id} "${c.label}" status=${c.status}` + (c.target_date !== null ? ` target=${c.target_date}` : ""),

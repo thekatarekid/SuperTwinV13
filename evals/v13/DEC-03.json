@@ -1,0 +1,102 @@
+{
+  "id": "DEC-03",
+  "category": "DEC",
+  "title": "one-sided intent is not closure",
+  "pass": "decide-space",
+  "mode": "code",
+  "setup": {
+    "note": "Karan: \"paying tonight\" — one-sided intent. The task stays open; a check at 09:00 IST the next day (2026-08-30T03:30Z), run as a lookup first: nothing new → the \"done?\" card by code, zero calls.",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active"
+    },
+    "tasks": [
+      {
+        "id": "tsk_karan_pay",
+        "title": "Collect Karan's 5k share",
+        "type": "explicit",
+        "risk_class": "advise-only",
+        "owner": "self",
+        "status": "open"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "contact:karan",
+        "text": "paying tonight pakka"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_karan",
+        "summary": "Karan says he is paying tonight",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": null,
+      "latest": "Karan says he pays tonight.",
+      "plan": null,
+      "milestones": [],
+      "tasks": [],
+      "closures": [
+        {
+          "task": "tsk_karan_pay",
+          "verdict": "check_at",
+          "check_at": "2026-08-30T09:00+05:30",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "paying tonight pakka"
+            }
+          ]
+        }
+      ],
+      "schedules": [],
+      "follow_ups": [],
+      "questions": []
+    },
+    "advance_clock_to": "2026-08-30T03:31:00.000Z"
+  },
+  "input_events": [
+    "canned decide.v9 output for DEC-03 (setup.decide) applied by the real pass"
+  ],
+  "expected": {
+    "task": "tsk_karan_pay",
+    "status": "open",
+    "check_at": "2026-08-30T03:30:00.000Z",
+    "closure_check": {
+      "asked": 1,
+      "escalated": 0,
+      "model_calls": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "one-sided-close",
+      "assert_absent": "the task closed on \"paying tonight\", or no check scheduled, or no done? card"
+    },
+    {
+      "label": "clock-only-call",
+      "assert_absent": "a model call fired by the clock with nothing new"
+    },
+    {
+      "label": "wrong-date",
+      "assert_absent": "the check at any instant but 09:00 IST next day"
+    }
+  ],
+  "gates": [
+    "false_auto_close"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 DEC-03 · one-sided intent is not closure"
+  }
+}

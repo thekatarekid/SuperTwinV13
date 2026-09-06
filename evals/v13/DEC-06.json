@@ -1,0 +1,81 @@
+{
+  "id": "DEC-06",
+  "category": "DEC",
+  "title": "milestones only when staged",
+  "pass": "decide-space",
+  "mode": "code",
+  "setup": {
+    "note": "A one-shot \"renew Airtel\" space. The model wraps the goal in one milestone; code drops it — a single stage is not staged.",
+    "space": {
+      "id": "sp_airtel",
+      "label": "Renew Airtel postpaid plan",
+      "goal": "renew before 5 Sep",
+      "status": "active"
+    },
+    "tasks": [
+      {
+        "id": "tsk_airtel",
+        "title": "Renew Airtel plan",
+        "type": "explicit",
+        "risk_class": "approve-final",
+        "owner": "self",
+        "status": "open",
+        "due": "2026-09-05"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "airtel",
+        "text": "Your plan expires on 05 Sep. Renew now."
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_airtel",
+        "summary": "Airtel renewal reminder",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": "Airtel plan expires 5 Sep; renewal pending.",
+      "latest": "Reminder received.",
+      "plan": [
+        "renew before 5 Sep"
+      ],
+      "milestones": [
+        {
+          "label": "Renew Airtel",
+          "state": "active",
+          "episodes": [
+            "ep_airtel"
+          ]
+        }
+      ],
+      "tasks": [],
+      "closures": [],
+      "schedules": [],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
+  "input_events": [
+    "canned decide.v9 output for DEC-06 (setup.decide) applied by the real pass"
+  ],
+  "expected": {
+    "milestones": 0
+  },
+  "wrong": [
+    {
+      "label": "phantom-milestones",
+      "assert_absent": "a milestone list on a one-shot goal"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 DEC-06 · milestones only when staged"
+  }
+}

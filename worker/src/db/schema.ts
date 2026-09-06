@@ -30,6 +30,7 @@ import { PRUNE_SOURCES } from "./migrations/0108_prune_sources.js";
 import { V6_CORE } from "./migrations/0200_v6_core.js";
 import { V6_GRAPH } from "./migrations/0201_v6_graph.js";
 import { V6_FTS_PROJECTION } from "./migrations/0202_v6_fts_projection.js";
+import { V6_SPACE_CARD } from "./migrations/0203_v6_space_card.js";
 
 export interface Migration {
   id: string;
@@ -980,4 +981,8 @@ export const MIGRATIONS: Migration[] = [
   // rebuilt over ten columns (the three appended LAST — ordinals 0–6 keep
   // their meaning); `chunks_fts` puts BM25 over chunks and cards.
   { id: "0202_v6_fts_projection", sql: V6_FTS_PROJECTION },
+  // V6 P1 S3.7 (Build §6.2 lane C, Product_V6_Phase1 §13.1): the space card's
+  // `summary` / `latest` / `latest_ts`, written by decide.v9. Milestones stay
+  // chapters rows (status done|active|todo); plan stays plan_json.
+  { id: "0203_v6_space_card", sql: V6_SPACE_CARD },
 ];

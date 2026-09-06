@@ -1,0 +1,88 @@
+{
+  "id": "DEC-04",
+  "category": "DEC",
+  "title": "cancellation closes as cancelled",
+  "pass": "decide-space",
+  "mode": "code",
+  "setup": {
+    "note": "The hotel booking was cancelled with a confirmation. Closure verdict cancelled → status cancelled, never done.",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active"
+    },
+    "tasks": [
+      {
+        "id": "tsk_hotel",
+        "title": "Book the Anjuna hotel",
+        "type": "explicit",
+        "risk_class": "approve-final",
+        "owner": "self",
+        "status": "open"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "self",
+        "text": "cancelled the anjuna hotel — refund initiated, ref CNX-2291"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_cancel",
+        "summary": "Anjuna hotel cancelled",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": "Hotel cancelled; stay still open.",
+      "latest": "Anjuna hotel cancelled, refund pending.",
+      "plan": [
+        "pick the villa"
+      ],
+      "milestones": [],
+      "tasks": [],
+      "closures": [
+        {
+          "task": "tsk_hotel",
+          "verdict": "cancelled",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "refund initiated, ref CNX-2291"
+            }
+          ]
+        }
+      ],
+      "schedules": [],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
+  "input_events": [
+    "canned decide.v9 output for DEC-04 (setup.decide) applied by the real pass"
+  ],
+  "expected": {
+    "task": "tsk_hotel",
+    "status": "cancelled"
+  },
+  "wrong": [
+    {
+      "label": "closed-as-done",
+      "assert_absent": "a cancellation recorded as done"
+    }
+  ],
+  "gates": [
+    "false_auto_close"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 DEC-04 · cancellation closes as cancelled"
+  }
+}

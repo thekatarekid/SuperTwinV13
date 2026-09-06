@@ -1,0 +1,196 @@
+{
+  "id": "DEC-02",
+  "category": "DEC",
+  "title": "plan updates, tasks follow",
+  "pass": "decide-space",
+  "mode": "code",
+  "setup": {
+    "note": "\"flights booked\" (PNR 4X7K2, dep 18 Dec 07:00 IST). Closure of book flights; implicit web check-in scheduled at the T-48h window (16 Dec 07:00 IST = 01:30Z) as auto; a cab on 18 Dec suggested. The model in this fixture fires 06:55 — code moves it to the window (TIM-04).",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active"
+    },
+    "chapters": [
+      {
+        "id": "ch_flights",
+        "label": "Flights",
+        "status": "active"
+      },
+      {
+        "id": "ch_stay",
+        "label": "Stay",
+        "status": "active"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "tsk_flights",
+        "title": "Book flights CCU-GOI for all 4",
+        "type": "explicit",
+        "risk_class": "approve-final",
+        "owner": "self",
+        "status": "open"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "self",
+        "text": "flights booked! PNR 4X7K2 · Confirmed · 18 Dec 07:00 dep"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_flights",
+        "summary": "Flights booked, PNR 4X7K2",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": "Dates 18-21 Dec locked, flights booked (PNR 4X7K2), villa shortlisted.",
+      "latest": "Flights confirmed.",
+      "plan": [
+        "lock villa",
+        "collect shares",
+        "cabs",
+        "packing list",
+        "web check-in"
+      ],
+      "milestones": [
+        {
+          "label": "Flights",
+          "state": "done",
+          "episodes": [
+            "ep_flights"
+          ]
+        },
+        {
+          "label": "Stay",
+          "state": "active"
+        }
+      ],
+      "tasks": [
+        {
+          "title": "Web check-in",
+          "type": "check-in",
+          "owner": "self",
+          "space": "sp_goa_dec",
+          "due": "2026-12-16T07:00+05:30",
+          "origin": "implicit",
+          "category": "scheduling",
+          "risk_class": "auto",
+          "steps": [
+            "open airline check-in at T-48h",
+            "select seats",
+            "save boarding passes"
+          ],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "PNR 4X7K2 · Confirmed"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "title": "Cab to airport 18 Dec",
+          "type": "cab",
+          "owner": "self",
+          "space": "sp_goa_dec",
+          "due": "2026-12-18T04:30+05:30",
+          "origin": "suggested",
+          "category": "transaction",
+          "risk_class": "approve-final",
+          "steps": [],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "18 Dec 07:00 dep"
+            }
+          ],
+          "confidence": 0.7
+        }
+      ],
+      "closures": [
+        {
+          "task": "tsk_flights",
+          "verdict": "done",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "PNR 4X7K2 · Confirmed"
+            }
+          ]
+        }
+      ],
+      "schedules": [
+        {
+          "task": "Web check-in",
+          "fire_at": "2026-12-16T06:55+05:30",
+          "window_opens_at": "2026-12-16T07:00+05:30",
+          "mode": "auto",
+          "reason": "T-48h before 18 Dec 07:00 IST departure",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "18 Dec 07:00 dep"
+            }
+          ]
+        }
+      ],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
+  "input_events": [
+    "canned decide.v9 output for DEC-02 (setup.decide) applied by the real pass"
+  ],
+  "expected": {
+    "closed": "tsk_flights",
+    "checkin_fire_at": "2026-12-16T01:30:00.000Z",
+    "checkin_mode": "auto",
+    "cab_due": "2026-12-18"
+  },
+  "wrong": [
+    {
+      "label": "missed-closure",
+      "assert_absent": "book flights still open after a confirmed PNR"
+    },
+    {
+      "label": "missed-entailment",
+      "assert_absent": "no implicit web check-in, or no suggested cab"
+    },
+    {
+      "label": "confirm-for-obvious",
+      "assert_absent": "confirm mode for a pure read-only time-bound check"
+    },
+    {
+      "label": "early-fire",
+      "assert_absent": "a fire time before the check-in window opens"
+    },
+    {
+      "label": "wrong-date",
+      "assert_absent": "cab on any day but 18 Dec"
+    }
+  ],
+  "gates": [
+    "auto_schedule_policy_violation",
+    "false_auto_close"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 DEC-02 · plan updates, tasks follow"
+  }
+}

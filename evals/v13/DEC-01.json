@@ -1,0 +1,108 @@
+{
+  "id": "DEC-01",
+  "category": "DEC",
+  "title": "new episode routes to the right milestone",
+  "pass": "decide-space",
+  "mode": "code",
+  "setup": {
+    "note": "A staged goal (Flights done, Stay active, Day trips todo). The new villa episode must file under Stay.",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active"
+    },
+    "chapters": [
+      {
+        "id": "ch_flights",
+        "label": "Flights",
+        "status": "done"
+      },
+      {
+        "id": "ch_stay",
+        "label": "Stay",
+        "status": "active"
+      },
+      {
+        "id": "ch_trips",
+        "label": "Day trips",
+        "status": "todo"
+      }
+    ],
+    "tasks": [],
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "contact:rohan",
+        "text": "villa sol confirmed for 18-21, advance paid"
+      },
+      {
+        "alias": "e2",
+        "actor": "self",
+        "text": "great, sending my share"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_villa",
+        "summary": "Villa Sol confirmed, advance paid",
+        "events": [
+          "e1",
+          "e2"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": "Dates locked, flights booked, villa confirmed with advance paid.",
+      "latest": "Villa Sol confirmed.",
+      "plan": [
+        "collect shares",
+        "cabs",
+        "packing list",
+        "web check-in"
+      ],
+      "milestones": [
+        {
+          "label": "Flights",
+          "state": "done"
+        },
+        {
+          "label": "Stay",
+          "state": "active",
+          "episodes": [
+            "ep_villa"
+          ]
+        },
+        {
+          "label": "Day trips",
+          "state": "todo"
+        }
+      ],
+      "tasks": [],
+      "closures": [],
+      "schedules": [],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
+  "input_events": [
+    "canned decide.v9 output for DEC-01 (setup.decide) applied by the real pass"
+  ],
+  "expected": {
+    "episode": "ep_villa",
+    "chapter": "Stay"
+  },
+  "wrong": [
+    {
+      "label": "misrouted",
+      "assert_absent": "the villa episode lands anywhere but sp_goa_dec › Stay"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 DEC-01 · new episode routes to the right milestone"
+  }
+}

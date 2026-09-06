@@ -26,6 +26,13 @@ import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { RISK_CLASSES } from "../prompts/decide.v1.js";
 import type { DecideFollowupV8, DecideScheduleV8 } from "../prompts/decide.v8.js";
+
+/**
+ * A schedule candidate as the appliers read it: the v8 shape plus the v9
+ * `window_opens_at` anchor (V6 P1 S3.7, TIM-04). Optional so v8 callers and
+ * the deferred replay keep compiling.
+ */
+export type ScheduleCandidate = DecideScheduleV8 & { window_opens_at?: string | null };
 import {
   evaluateSchedulePolicy,
   normalizePolling,
@@ -103,7 +110,7 @@ export interface ScheduleJson {
  */
 export function applyScheduleToTask(
   task: TaskRow,
-  sched: DecideScheduleV8,
+  sched: ScheduleCandidate,
   runId: string | null,
   counts: ScheduleApplyCounts,
   now: Date,
@@ -120,6 +127,8 @@ export function applyScheduleToTask(
     fireAt: sched.fire_at ?? null,
     recurrence: sched.recurrence ?? null,
     now,
+    windowOpensAt: sched.window_opens_at ?? null,
+    polling: sched.polling !== null && sched.polling !== undefined,
   });
   if (verdict.decision === "reject") {
     writeDecision({
@@ -180,7 +189,7 @@ export function applyScheduleToTask(
  */
 export function applySchedule(
   spaceId: string,
-  sched: DecideScheduleV8,
+  sched: ScheduleCandidate,
   runId: string | null,
   counts: ScheduleApplyCounts,
   now: Date,
@@ -199,6 +208,8 @@ export function applySchedule(
     fireAt: sched.fire_at ?? null,
     recurrence: sched.recurrence ?? null,
     now,
+    windowOpensAt: sched.window_opens_at ?? null,
+    polling: sched.polling !== null && sched.polling !== undefined,
   });
   if (probe.decision === "reject") {
     writeDecision({

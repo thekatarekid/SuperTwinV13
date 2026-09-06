@@ -1,5 +1,19 @@
 // ===========================================================================
-// DECIDE pass runner (build P1.4 → P3.1 full scope, spec §6.3 REDUCE + §8.4).
+// DECIDE pass runner (build P1.4 → P3.1 full scope, spec §6.3 REDUCE + §8.4;
+// V6 P1 S3.7 decide.v9 — Prompts_V6_Phase1 P-05, Product_V6_Phase1 §13).
+//
+// v9 (S3.7) adds, all applied in code:
+//   - the space CARD: summary (two lines) + latest (one line, with its
+//     instant) written on change (`spaces.summary/latest/latest_ts`).
+//   - MILESTONES only when the goal is staged: the model's milestones become
+//     chapters rows (done|active|todo); a lone milestone is not a stage and is
+//     dropped (DEC-06). Episodes route to their stage by chapter_id (DEC-01).
+//   - OWNERSHIP: another person's task is stored as theirs and the USER gets
+//     a monitoring follow-up (DEC-05) — never the action itself.
+//   - CHECK_AT: one-sided intent schedules a closure check (lookup first,
+//     brain/closure-check.ts); the task stays open (DEC-03).
+//   - TIM-04: every schedule carries `window_opens_at`; the policy gate
+//     (scheduler/v6/schedule-policy) never lets a fire_at precede it.
 //
 // Runs for ONE space over its newly-committed episodes. P3.1: EVERY section
 // of the output now acts — chapters, tasks, closures, plan, AND schedules +
@@ -33,10 +47,13 @@ import {
   type DecideTask,
 } from "../prompts/decide.v1.js";
 import {
-  DECIDE_V8_SYSTEM,
-  validateDecideV8Output,
-  type DecideOutputV8,
-} from "../prompts/decide.v8.js";
+  DECIDE_V9_SYSTEM,
+  validateDecideV9Output,
+  type DecideClosureV9,
+  type DecideOutputV9,
+  type DecideTaskV9,
+} from "../prompts/decide.v9.js";
+import { scheduleClosureCheck } from "./closure-check.js";
 import { applyFollowups, applySchedule, emptyScheduleCounts } from "./decide-apply.js";
 import { enqueueNextStep } from "./next-step.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
@@ -62,6 +79,14 @@ export interface DecideApplied {
   followupsSkipped: number;
   nextStepsEnqueued: number;
   planUpdated: boolean;
+  /** v9: summary/latest written on the space. */
+  cardUpdated: boolean;
+  /** v9: milestones the model emitted for an unstaged goal (dropped). */
+  milestonesDropped: number;
+  /** v9: another person's tasks turned into a monitor for the user. */
+  tasksMonitored: number;
+  /** v9: closure checks scheduled from check_at verdicts. */
+  checksScheduled: number;
 }
 
 export function emptyDecideApplied(): DecideApplied {
@@ -75,11 +100,15 @@ export function emptyDecideApplied(): DecideApplied {
     ...emptyScheduleCounts(),
     nextStepsEnqueued: 0,
     planUpdated: false,
+    cardUpdated: false,
+    milestonesDropped: 0,
+    tasksMonitored: 0,
+    checksScheduled: 0,
   };
 }
 
 export interface DecidePassResult {
-  status: JsonPassResult<DecideOutputV8>["status"];
+  status: JsonPassResult<DecideOutputV9>["status"];
   applied: DecideApplied;
   runIds: string[];
   error?: { code: string; message: string };
@@ -124,7 +153,9 @@ function applyChapter(
 ): string {
   const db = getDb();
   const existing = findChapter(spaceId, ref);
-  const status = ref.status === "done" || ref.status === "dropped" ? ref.status : "active";
+  // v9 milestones carry done|active|todo; the legacy vocabulary adds dropped.
+  const status =
+    ref.status === "done" || ref.status === "dropped" || ref.status === "todo" ? ref.status : "active";
   if (!existing) {
     const id = mintId("ch");
     db.prepare(
@@ -211,6 +242,67 @@ function suggestedToday(spaceId: string): number {
   return row.n;
 }
 
+/** The user, by any of the roster's spellings. */
+function isSelf(owner: string): boolean {
+  const o = owner.trim().toLowerCase();
+  return o === "" || o === "self" || o === "user" || o === "me" || o === "unknown";
+}
+
+/** Human-ish name for a roster ref ("contact:karan" → "Karan"). */
+function ownerName(owner: string): string {
+  const tail = owner.split(":").pop() ?? owner;
+  return tail.charAt(0).toUpperCase() + tail.slice(1);
+}
+
+/**
+ * DEC-05 / P-05 rule 3: another person's task becomes a monitor for the user.
+ * The action stays THEIRS (stored with their owner, never as the user's
+ * to-do); the user gets one monitoring follow-up naming the person.
+ */
+function applyMonitorFor(
+  spaceId: string,
+  task: DecideTask,
+  runId: string | null,
+  applied: DecideApplied,
+): void {
+  const db = getDb();
+  const who = ownerName(task.owner);
+  const title = `Follow up: ${who} — ${task.title}`;
+  const open = db
+    .prepare(
+      `SELECT id FROM tasks
+        WHERE space_id = ? AND LOWER(title) = LOWER(?)
+          AND status NOT IN ('done','cancelled','dismissed')`,
+    )
+    .get(spaceId, title) as { id: string } | undefined;
+  if (open) return;
+  const id = mintId("tsk");
+  db.prepare(
+    `INSERT INTO tasks (id, space_id, title, type, category, risk_class, owner, due,
+                        evidence_json, created_by, confidence)
+     VALUES (?, ?, ?, 'suggested', 'monitoring', 'advise-only', 'self', ?, ?, 'decide', ?)`,
+  ).run(
+    id,
+    spaceId,
+    title,
+    task.due ?? null,
+    JSON.stringify([{ event_ids: [], quote: `because: ${who}'s task — ${task.title}` }, ...task.evidence]),
+    task.confidence,
+  );
+  writeDecision({
+    runId,
+    pass: "decide",
+    targetKind: "task",
+    targetId: id,
+    action: "create_monitor",
+    old: null,
+    new: { spaceId, title, monitors: task.owner, riskClass: "advise-only", category: "monitoring" },
+    reason: `another person's task (${task.owner}) becomes a monitor for the user`,
+    confidence: task.confidence,
+  });
+  applied.tasksMonitored += 1;
+}
+
 function applyTask(
   spaceId: string,
   task: DecideTask,
@@ -219,6 +311,7 @@ function applyTask(
   applied: DecideApplied,
 ): void {
   const db = getDb();
+  const theirs = !isSelf(task.owner);
   const open = db
     .prepare(
       `SELECT id FROM tasks
@@ -243,6 +336,9 @@ function applyTask(
         .get(spaceId, task.chapter, task.chapter) as { id: string } | undefined)?.id ?? null);
   }
   const id = mintId("tsk");
+  // Another person's action is never something the twin may run for the
+  // user: it is stored as theirs, advise-only, and monitored (DEC-05).
+  const riskClass = theirs ? "advise-only" : task.risk_class;
   db.prepare(
     `INSERT INTO tasks (id, space_id, chapter_id, title, type, category, risk_class,
                         owner, due, evidence_json, created_by, confidence)
@@ -254,7 +350,7 @@ function applyTask(
     task.title,
     task.type,
     task.category,
-    task.risk_class,
+    riskClass,
     task.owner,
     task.due ?? null,
     JSON.stringify(task.evidence),
@@ -271,13 +367,15 @@ function applyTask(
       spaceId,
       title: task.title,
       type: task.type,
-      riskClass: task.risk_class,
+      riskClass,
       owner: task.owner,
       due: task.due ?? null,
+      ...((task as DecideTaskV9).steps?.length ? { steps: (task as DecideTaskV9).steps } : {}),
     },
     confidence: task.confidence,
   });
   applied.tasksCreated += 1;
+  if (theirs) applyMonitorFor(spaceId, task, runId, applied);
 }
 
 // ---------------------------------------------------------------------------
@@ -286,19 +384,39 @@ function applyTask(
 
 function applyClosure(
   spaceId: string,
-  closure: DecideClosure,
+  closure: DecideClosure | DecideClosureV9,
   runId: string | null,
   applied: DecideApplied,
+  now: Date,
 ): void {
   const db = getDb();
   const task = db
     .prepare(
-      `SELECT id, status FROM tasks
+      `SELECT id, title, status FROM tasks
         WHERE space_id = ? AND (id = ? OR LOWER(title) = LOWER(?))
           AND status NOT IN ('done','cancelled','dismissed')`,
     )
-    .get(spaceId, closure.task, closure.task) as { id: string; status: string } | undefined;
+    .get(spaceId, closure.task, closure.task) as { id: string; title: string; status: string } | undefined;
   if (!task) return; // already closed or never ours — nothing to do, idempotent
+  const checkAt = "check_at" in closure ? closure.check_at ?? null : null;
+  if (checkAt !== null) {
+    // P-05 rule 4 / DEC-03: one-sided intent → a check at the expected time,
+    // run as a lookup first. The task stays open; no card yet, no call.
+    if (
+      scheduleClosureCheck({
+        taskId: task.id,
+        spaceId,
+        taskTitle: task.title,
+        checkAt: checkAt === "" ? null : checkAt,
+        now,
+        runId,
+        reason: closure.reason ?? null,
+      })
+    ) {
+      applied.checksScheduled += 1;
+    }
+    return;
+  }
   const wantsClose = closure.verdict === "close" && closure.confidence >= CLOSE_CONFIDENCE_FLOOR;
   if (!wantsClose) {
     // A proposal, never a mutation. Cancellation intent still closes as
@@ -371,6 +489,67 @@ function applyPlan(spaceId: string, plan: unknown, runId: string | null, applied
 }
 
 // ---------------------------------------------------------------------------
+// Apply: the space card (v9 summary + latest)
+// ---------------------------------------------------------------------------
+
+function applyCard(
+  spaceId: string,
+  out: { summary: string | null; latest: string | null },
+  runId: string | null,
+  applied: DecideApplied,
+  now: Date,
+): void {
+  if (out.summary === null && out.latest === null) return;
+  const db = getDb();
+  const row = db.prepare(`SELECT summary, latest FROM spaces WHERE id = ?`).get(spaceId) as
+    | { summary: string | null; latest: string | null }
+    | undefined;
+  if (!row) return;
+  const summary = out.summary ?? row.summary;
+  const latest = out.latest ?? row.latest;
+  if (summary === row.summary && latest === row.latest) return; // nothing moved
+  db.prepare(
+    `UPDATE spaces SET summary = ?, latest = ?,
+            latest_ts = CASE WHEN ? THEN ? ELSE latest_ts END,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id = ?`,
+  ).run(summary, latest, latest !== row.latest ? 1 : 0, now.toISOString(), spaceId);
+  writeDecision({
+    runId,
+    pass: "decide",
+    targetKind: "space",
+    targetId: spaceId,
+    action: "update_card",
+    old: { summary: row.summary, latest: row.latest },
+    new: { summary, latest },
+  });
+  applied.cardUpdated = true;
+}
+
+/**
+ * P-05 rule 2 / DEC-06: milestones only if the goal has stages. A single
+ * milestone on a space with no chapters is a one-shot goal wearing a label —
+ * it is dropped (decision-rowed), never written.
+ */
+function stagedChapters(spaceId: string, out: DecideOutputV9, runId: string | null, applied: DecideApplied): DecideChapter[] {
+  if (out.milestones.length === 0) return out.chapters; // legacy chapters, or none
+  const existing = (getDb().prepare(`SELECT COUNT(*) AS n FROM chapters WHERE space_id = ?`).get(spaceId) as { n: number }).n;
+  if (out.milestones.length >= 2 || existing > 0) return out.chapters;
+  writeDecision({
+    runId,
+    pass: "decide",
+    targetKind: "space",
+    targetId: spaceId,
+    action: "skip_milestones",
+    old: null,
+    new: { milestones: out.milestones.map((m) => m.label) },
+    reason: "milestones only if the goal has stages — one stage is not staged (DEC-06)",
+  });
+  applied.milestonesDropped += out.milestones.length;
+  return [];
+}
+
+// ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
 
@@ -401,15 +580,15 @@ export async function runDecidePass(
     ...episodes.map((p) => p.text),
   ].join("\n\n");
 
-  const result = await runJsonPass<DecideOutputV8>(
+  const result = await runJsonPass<DecideOutputV9>(
     {
       pass: "decide",
-      system: DECIDE_V8_SYSTEM,
+      system: DECIDE_V9_SYSTEM,
       user,
       role: "decide",
       cohortId: null,
       unit: { kind: "decide_space", id: spaceId },
-      validate: validateDecideV8Output,
+      validate: validateDecideV9Output,
     },
     deps,
   );
@@ -425,14 +604,15 @@ export async function runDecidePass(
   const runId = result.runIds.length > 0 ? result.runIds[result.runIds.length - 1] : null;
   const out = result.output;
 
+  const now = deps.now?.() ?? new Date();
+  applyCard(spaceId, out, runId, applied, now);
   const chapterIdByLabel = new Map<string, string>();
-  for (const chapter of out.chapters) {
+  for (const chapter of stagedChapters(spaceId, out, runId, applied)) {
     const id = applyChapter(spaceId, chapter, runId, applied);
     chapterIdByLabel.set(chapter.label.toLowerCase(), id);
   }
-  const now = deps.now?.() ?? new Date();
   for (const task of out.tasks) applyTask(spaceId, task, chapterIdByLabel, runId, applied);
-  for (const closure of out.closures) applyClosure(spaceId, closure, runId, applied);
+  for (const closure of out.closures) applyClosure(spaceId, closure, runId, applied, now);
   // P3.1: schedules + follow-ups ACT — through the code-side policy gate.
   for (const schedule of out.schedules) applySchedule(spaceId, schedule, runId, applied, now);
   applyFollowups(spaceId, out.followups, runId, applied, now);

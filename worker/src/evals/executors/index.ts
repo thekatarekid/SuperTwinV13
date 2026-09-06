@@ -32,6 +32,7 @@ import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
 import { commitExecutor } from "./cmt.js";
 import { packExecutor } from "./pck.js";
+import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
 import {
   browserEvalExecutor,
@@ -134,6 +135,10 @@ export async function registerProductExecutors(): Promise<void> {
   // history, quoted always, budgeted truncation, thin context, T0 only) against
   // the real packer/pack.ts. Zero model calls.
   registerExecutor("pack", packExecutor);
+  // V6 P1 S3.7: DEC decide cases (stage routing, closures, check_at, ownership,
+  // milestones only if staged, TIM-04 window) — canned decide.v9 output through
+  // the real pass with a pinned clock. Zero model calls.
+  registerExecutor("decide-space", decideSpaceExecutor);
   // V6 P1 S3.6: FACT / TYP claim cases (supersede vs coexist, self-reported
   // beats observed, ads/jokes/third-party rails, typed columns exact) against
   // the real brain/extract-pass.ts with recorded extract.v6 outputs. Zero

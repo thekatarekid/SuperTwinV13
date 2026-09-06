@@ -13,6 +13,9 @@
 //   past fire time with no recurrence ⇒ reject — a backfilled deadline never
 //           schedules (SCH-06 time-traveler-schedule is a hard fail).
 //   downgrades only: confirm is never upgraded to auto by code.
+//   window (TIM-04, V6 P1 S3.7): a fire_at before the instant the EVIDENCE
+//           says the window opens is moved to that instant — with a poll plan
+//           it may lead the window by at most POLL_LEAD_MAX_MS. Never early.
 //
 // Everything is pure and clock-injected: `now` is a parameter, so the tests
 // are deterministic.
@@ -27,6 +30,12 @@ export const POLL_INTERVAL_MAX_MS = 3_600_000; // an "interval" above 1h is a re
 export const POLL_MAX_POLLS_CAP = 30;
 export const POLL_DEFAULT_MAX_POLLS = 20;
 export const POLL_DEFAULT_INTERVAL_MS = 180_000; // SCH-02's "every 2–3 min"
+
+/**
+ * TIM-04: the most a poll plan may start ahead of the window it waits for
+ * (SCH-01's "10am window → 09:55"). Without a poll plan the lead is zero.
+ */
+export const POLL_LEAD_MAX_MS = 10 * 60_000;
 
 /** How long past its fire time a missed schedule may still late-execute. */
 export const DEFAULT_LATE_WINDOW_MS = 6 * 3_600_000;
@@ -101,6 +110,46 @@ export function normalizePolling(raw: unknown): PollingSpec | null {
 }
 
 // ---------------------------------------------------------------------------
+// TIM-04: never fire before the evidence says the window opens
+// ---------------------------------------------------------------------------
+
+export interface WindowClamp {
+  /** The fire_at to use (ISO), possibly moved later. */
+  fireAt: string | null;
+  /** Set when the fire time was moved — the reason for the decisions row. */
+  moved: string | null;
+}
+
+/**
+ * Move an early fire_at up to the window the evidence names. No poll plan →
+ * fire exactly at the window open; poll plan → at most POLL_LEAD_MAX_MS
+ * before it. An unparsable or absent window leaves fire_at alone; a fire_at
+ * already at or after the window is untouched (this only ever delays).
+ */
+export function clampToWindow(
+  fireAtIso: string | null | undefined,
+  windowOpensAtIso: string | null | undefined,
+  polling: boolean,
+): WindowClamp {
+  const fireAt = fireAtIso ?? null;
+  if (fireAt === null || windowOpensAtIso === null || windowOpensAtIso === undefined) {
+    return { fireAt, moved: null };
+  }
+  const fireMs = Date.parse(fireAt);
+  const windowMs = Date.parse(windowOpensAtIso);
+  if (Number.isNaN(fireMs) || Number.isNaN(windowMs)) return { fireAt, moved: null };
+  const earliest = polling ? windowMs - POLL_LEAD_MAX_MS : windowMs;
+  if (fireMs >= earliest) return { fireAt, moved: null };
+  const target = new Date(earliest).toISOString();
+  return {
+    fireAt: target,
+    moved:
+      `fire_at ${fireAt} precedes the window open ${windowOpensAtIso}` +
+      (polling ? ` by more than the poll lead → moved to ${target}` : ` → moved to the window open (TIM-04: never fire early)`),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The auto-vs-confirm policy
 // ---------------------------------------------------------------------------
 
@@ -114,6 +163,14 @@ export interface SchedulePolicyInput {
   fireAt: string | null;
   recurrence: string | null;
   now: Date;
+  /**
+   * The instant the evidence says the window opens (v9 `window_opens_at`).
+   * A fire_at before it never stands (TIM-04): it moves to the window, or to
+   * POLL_LEAD_MAX_MS before it when `polling` is set.
+   */
+  windowOpensAt?: string | null;
+  /** True when the candidate carries a poll plan. */
+  polling?: boolean;
 }
 
 export interface SchedulePolicyVerdict {
@@ -130,7 +187,9 @@ export interface SchedulePolicyVerdict {
  */
 export function evaluateSchedulePolicy(input: SchedulePolicyInput): SchedulePolicyVerdict {
   const reasons: string[] = [];
-  const ft = computeFireTime(input.fireAt, input.now);
+  const clamped = clampToWindow(input.fireAt, input.windowOpensAt ?? null, input.polling === true);
+  if (clamped.moved) reasons.push(clamped.moved);
+  const ft = computeFireTime(clamped.fireAt, input.now);
   const recurring = input.recurrence !== null && input.recurrence.trim() !== "";
 
   if (ft.invalid) {

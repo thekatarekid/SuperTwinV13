@@ -1,0 +1,49 @@
+{
+  "id": "NUD-02",
+  "category": "NUD",
+  "title": "Mac idle → panel only, never withheld",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "The same artifact, with the last screen event 20 minutes old. The user is not at the Mac, so there is no card — and NOTHING else changes. The router has no hold state.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "last_screen_event": "2026-09-05T10:20:00.000Z",
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip" }],
+    "items": [
+      {
+        "id": "art_villas",
+        "kind": "help_now",
+        "space": "sp_goa_dec",
+        "intent": "comparing villas in Anjuna for 18-21 Dec",
+        "intent_confidence": 0.9,
+        "line": "villa comparison",
+        "peek": "Villa Sol ₹5.4k · pool · fits budget",
+        "ready_at": "2026-09-05T10:39:40.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "Last screen event 20 minutes ago.",
+    "One executor-lite artifact ready on sp_goa_dec."
+  ],
+  "expected": {
+    "presence": "away",
+    "surfaces": ["panel", "shelf", "space", "timeline"],
+    "current_card": null,
+    "withheld": 0,
+    "same_as_active_minus_card": true,
+    "note": "Routing the same set at the Mac and away from it differs by the card and by nothing else. router_withheld = 0."
+  },
+  "wrong": [
+    {
+      "label": "held-back",
+      "assert_absent": "an artifact that reaches no surface at all because the user is away"
+    },
+    {
+      "label": "quiet-hours",
+      "assert_absent": "a hold state, cooldown or quiet-hours suppression anywhere in the routing"
+    }
+  ],
+  "gates": ["router_withheld"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-02 · Mac idle → panel only, never withheld" }
+}

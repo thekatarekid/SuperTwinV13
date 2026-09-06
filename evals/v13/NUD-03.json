@@ -1,0 +1,54 @@
+{
+  "id": "NUD-03",
+  "category": "NUD",
+  "title": "auto-close",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "The card goes up and the user does nothing. At 60 s it closes itself; the unread counter carries it and the work is still in the panel, on the shelf, in its space and on the timeline. A glance is the most a card can cost.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "last_screen_event": "2026-09-05T10:39:30.000Z",
+    "card_duration_s": 60,
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip" }],
+    "items": [
+      {
+        "id": "art_villas",
+        "kind": "help_now",
+        "space": "sp_goa_dec",
+        "intent": "comparing villas in Anjuna for 18-21 Dec",
+        "intent_confidence": 0.9,
+        "line": "villa comparison",
+        "peek": "Villa Sol ₹5.4k · pool",
+        "ready_at": "2026-09-05T10:39:40.000Z"
+      }
+    ],
+    "script": [
+      { "at": "2026-09-05T10:40:00.000Z", "do": "show" },
+      { "at": "2026-09-05T10:41:00.000Z", "do": "auto_close" }
+    ]
+  },
+  "input_events": [
+    "One artifact ready, the user at the Mac.",
+    "Sixty seconds pass with no tap."
+  ],
+  "expected": {
+    "auto_close_after_s": 60,
+    "unread_after_close": 1,
+    "status_after_close": "new",
+    "still_on_surfaces": ["panel", "shelf", "space", "timeline"],
+    "cards_after_close": 0,
+    "note": "Closing loses nothing and the artifact never pops a second time."
+  },
+  "wrong": [
+    {
+      "label": "lost-on-close",
+      "assert_absent": "an artifact that is gone from the panel or the shelf after its card closed"
+    },
+    {
+      "label": "re-pop",
+      "assert_absent": "the same artifact showing a second card after it auto-closed"
+    }
+  ],
+  "gates": ["router_withheld"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-03 · auto-close" }
+}

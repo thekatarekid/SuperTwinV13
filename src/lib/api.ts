@@ -637,6 +637,8 @@ export interface PanelData {
   nudge: ArtifactRow | null;
   today: TodayRow[];
   capture_paused_until: string | null;
+  /** Cards shown but not opened (V6 P1 S4.3). Absent on an older worker. */
+  unread?: number;
 }
 
 export const fetchPanel = (): Promise<PanelData> => request("/api/assist/panel");
@@ -666,6 +668,63 @@ export const artifactSignal = (id: string, signal: string): Promise<{ weight: nu
 
 export const pauseCapture = (minutes: number | null): Promise<{ capture_paused_until: string | null }> =>
   request("/api/assist/pause", post(minutes == null ? { until: null } : { minutes }));
+
+// ---- The surface router (V6 P1 S4.3, Product_V6_Phase1 §18) ---------------
+//
+// `surface-router.v1` decides WHERE a finished artifact goes and in what
+// order, never whether. The nudge window polls one path for the one card,
+// the unread counter and the routed plan.
+
+export type NudgeSurface = "card" | "panel" | "shelf" | "space" | "timeline" | "understanding";
+
+export interface RoutedItemView {
+  id: string;
+  kind: string;
+  spaceId: string | null;
+  surfaces: NudgeSurface[];
+  rank: number;
+  mergedWith: string[];
+  reason: string;
+  blocked: boolean;
+  housekeeping: boolean;
+}
+
+/** The one card: intent line · what I did · artifact peek. */
+export interface NudgeCardView {
+  id: string;
+  kind: string;
+  title: string;
+  /** One line per merged item, joined by " · ". */
+  line: string;
+  peek: string | null;
+  intent: string;
+  spaceId: string | null;
+  mergedWith: string[];
+  autoCloseAtMs: number;
+}
+
+export interface NudgeView {
+  presence: "mac_active" | "away";
+  card: NudgeCardView | null;
+  unread: number;
+  /** 60 s by default; Settings › Assist › card duration. */
+  cardDurationMs: number;
+  routed: RoutedItemView[];
+}
+
+export const fetchSurfaceNudge = (): Promise<NudgeView> => request("/api/surfaces/nudge");
+
+const nudgeVerb = (id: string, verb: string): Promise<{ unread: number; dismissals?: number }> =>
+  request(`/api/surfaces/nudge/${encodeURIComponent(id)}/${verb}`, post());
+
+/** The card went up — it counts as unread from this moment. */
+export const nudgeShown = (id: string): Promise<{ unread: number }> => nudgeVerb(id, "shown");
+/** Open — the dot clears everywhere. */
+export const nudgeOpened = (id: string): Promise<{ unread: number }> => nudgeVerb(id, "opened");
+/** Not now — ranks that kind down; the work stays in Prepared. */
+export const nudgeNotNow = (id: string): Promise<{ unread: number; dismissals?: number }> => nudgeVerb(id, "not-now");
+/** The 60-second close (or the ✕). Nothing is lost. */
+export const nudgeAutoClose = (id: string): Promise<{ unread: number }> => nudgeVerb(id, "auto-close");
 
 // ---- People + circles (P4.2, spec §7.3 / §14.6) ----------------------------
 

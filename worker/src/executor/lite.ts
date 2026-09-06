@@ -558,6 +558,8 @@ export function askCombinedQuestion(
     reasoning: opts.note ?? "thin context: asking beats assuming",
     spaceId: prepared.spaceId,
     taskId: prepared.taskId,
+    // Same link the artifact carries — the router routes a question card too.
+    topicKey: `prepared:${prepared.id}`,
     contentKey: contentKeyFor({
       topicKey: `prepared:${prepared.id}`,
       intent: prepared.payload.intent,
@@ -973,6 +975,9 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
         reasoning: prepared.payload.reasoning,
         spaceId: prepared.spaceId,
         taskId: prepared.taskId,
+        // The surface router (S4.3) reads the nudge KIND off the prepared
+        // action behind the artifact; `topic_key` is that link.
+        topicKey: `prepared:${prepared.id}`,
         contentKey: contentKeyFor({
           topicKey: `prepared:${prepared.id}`,
           intent: prepared.payload.intent,

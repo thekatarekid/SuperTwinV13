@@ -1,0 +1,72 @@
+{
+  "id": "NUD-09",
+  "category": "NUD",
+  "title": "wrong goal is the only real failure",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "A Goa fare artifact whose card names sp_falcon — the Falcon-9 reading space. Naming the wrong goal is the one failure that would make the user stop reading cards at all, so the router refuses to render it and counts it against the precision gate. The second half of the case is the honest card, which passes.",
+    "now": "2026-09-05T11:00:00.000Z",
+    "last_screen_event": "2026-09-05T10:59:40.000Z",
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip"
+      },
+      {
+        "id": "sp_falcon",
+        "label": "Falcon 9 reading"
+      }
+    ],
+    "items": [
+      {
+        "id": "art_fare",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "fare on the Goa route dropped",
+        "intent_confidence": 0.9,
+        "line": "fare dropped",
+        "peek": null,
+        "ready_at": "2026-09-05T10:59:00.000Z",
+        "card_names_space": "sp_falcon"
+      }
+    ],
+    "honest": [
+      {
+        "id": "art_fare_ok",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "fare on the Goa route dropped",
+        "intent_confidence": 0.9,
+        "line": "fare dropped",
+        "peek": null,
+        "ready_at": "2026-09-05T10:59:00.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "A card naming sp_falcon for a Goa fare."
+  ],
+  "expected": {
+    "wrong_goal_cards": 1,
+    "honest_card_title": "Goa trip",
+    "honest_wrong_goal_cards": 0,
+    "note": "A card must name the goal the artifact is actually about. Anything else is noise, and noise is the only thing that would make the user stop reading cards.",
+    "wrong_goal_cards_caught": 1
+  },
+  "wrong": [
+    {
+      "label": "wrong-goal-card",
+      "assert_absent": "a card whose named space is not the space the artifact is about"
+    },
+    {
+      "label": "precision-not-counted",
+      "assert_absent": "a wrong-goal card that passes without feeding the precision gate"
+    }
+  ],
+  "gates": [],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.13 NUD-09 · wrong goal is the only real failure"
+  }
+}

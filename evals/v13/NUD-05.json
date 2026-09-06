@@ -1,0 +1,69 @@
+{
+  "id": "NUD-05",
+  "category": "NUD",
+  "title": "decay order",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "Three pending items on three different spaces, so nothing merges. Order is the order their value dies, not the order they arrived.",
+    "now": "2026-09-05T10:05:00.000Z",
+    "last_screen_event": "2026-09-05T10:04:30.000Z",
+    "spaces": [
+      { "id": "sp_goa_dec", "label": "Goa trip" },
+      { "id": "sp_clinic", "label": "Clinic appointment" },
+      { "id": "sp_kindle", "label": "Kindle order" }
+    ],
+    "items": [
+      {
+        "id": "art_done",
+        "kind": "done_for_you",
+        "space": "sp_kindle",
+        "intent": "checked the Kindle delivery in",
+        "intent_confidence": 0.9,
+        "line": "check-in done",
+        "peek": null,
+        "ready_at": "2026-09-05T10:00:00.000Z"
+      },
+      {
+        "id": "art_help",
+        "kind": "help_now",
+        "space": "sp_goa_dec",
+        "intent": "comparing villas in Anjuna",
+        "intent_confidence": 0.9,
+        "line": "villa comparison",
+        "peek": null,
+        "ready_at": "2026-09-05T10:02:00.000Z"
+      },
+      {
+        "id": "art_needs",
+        "kind": "needs_you",
+        "space": "sp_clinic",
+        "intent": "the clinic needs a time",
+        "intent_confidence": 0.9,
+        "line": "AC or sleeper?",
+        "peek": null,
+        "ready_at": "2026-09-05T09:58:00.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "Pending: done-for-you (10:00), help-with-now (10:02), needs-you (09:58)."
+  ],
+  "expected": {
+    "order": ["art_help", "art_needs", "art_done"],
+    "current_card": "art_help",
+    "note": "help with what you're doing → needs you to finish → something moved → done for you → done in advance → understanding. Newest first inside a kind."
+  },
+  "wrong": [
+    {
+      "label": "newest-first-across-kinds",
+      "assert_absent": "ordering by arrival time across kinds instead of by the decay order"
+    },
+    {
+      "label": "queued-behind-forever",
+      "assert_absent": "a pending item that reaches no durable surface while it waits its turn"
+    }
+  ],
+  "gates": ["router_withheld"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-05 · decay order" }
+}

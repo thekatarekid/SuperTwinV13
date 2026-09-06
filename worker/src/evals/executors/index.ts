@@ -38,6 +38,7 @@ import { claimsExecutor } from "./fact.js";
 import { settingsExecutor } from "./set.js";
 import { liveExecutor } from "./liv.js";
 import { liteExecutor } from "./exe.js";
+import { nudExecutor } from "./nud.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
 import { spacesExecutor } from "./spc.js";
@@ -60,6 +61,7 @@ export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
 export { liteExecutor } from "./exe.js";
+export { nudExecutor } from "./nud.js";
 export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
 export { barExecutor, fixExecutor } from "./bar.js";
 export {
@@ -182,6 +184,13 @@ export async function registerProductExecutors(): Promise<void> {
   // run) against the real executor/lite.ts with a scripted provider and a
   // scripted web. Zero model calls.
   registerExecutor("lite", liteExecutor);
+  // V6 P1 S4.3: NUD nudge/router cases (presence picks the card and nothing
+  // else, the merge window collapses one space into one glance, the decay
+  // order, the 60-second auto-close that loses nothing, housekeeping staying
+  // inside, dismissals that rank without muting, a reversible block, and the
+  // wrong-goal card the precision check catches) against the real
+  // surfaces/router.ts. Zero model calls.
+  registerExecutor("router", nudExecutor);
   // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.

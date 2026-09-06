@@ -156,6 +156,13 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // forward on an identifier, discriminating vs generic address terms, and the
   // priority order a quiet family group wins.
   { cat: "CRM", name: "People and the CRM (V6 P1)", n: 5, doc: "V2", pass: "crm", authored: true },
+  // GoldenEvals V6 Phase 1 §5.13 — nudges and the router (S4.3). Code against
+  // surfaces/router.ts: presence picks the card and nothing else, the merge
+  // window collapses one space into one glance, the decay order ranks, the
+  // 60-second auto-close costs nothing, housekeeping stays inside, dismissals
+  // rank without muting, "don't do this" blocks reversibly, and a card that
+  // names the wrong goal is the one real failure.
+  { cat: "NUD", name: "Nudges and the router (V6 P1)", n: 9, doc: "V2", pass: "router", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

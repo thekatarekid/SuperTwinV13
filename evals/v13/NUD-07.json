@@ -1,0 +1,82 @@
+{
+  "id": "NUD-07",
+  "category": "NUD",
+  "title": "dismissal ranks, does not mute",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "Two \"Not now\" taps on fare-alert cards (kind something_moved). The third fare alert still exists on every durable surface; it has simply sunk below the kinds the user still reads, and takes the card once nothing outranks it.",
+    "now": "2026-09-05T11:00:00.000Z",
+    "last_screen_event": "2026-09-05T10:59:40.000Z",
+    "spaces": [
+      { "id": "sp_goa_dec", "label": "Goa trip" },
+      { "id": "sp_kindle", "label": "Kindle order" }
+    ],
+    "dismiss": [
+      {
+        "id": "art_fare_1",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "fare on the watched route dropped",
+        "intent_confidence": 0.9,
+        "line": "fare dropped",
+        "ready_at": "2026-09-05T10:10:00.000Z"
+      },
+      {
+        "id": "art_fare_2",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "fare on the watched route dropped again",
+        "intent_confidence": 0.9,
+        "line": "fare dropped again",
+        "ready_at": "2026-09-05T10:30:00.000Z"
+      }
+    ],
+    "items": [
+      {
+        "id": "art_fare_3",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "fare on the watched route dropped once more",
+        "intent_confidence": 0.9,
+        "line": "fare dropped once more",
+        "peek": null,
+        "ready_at": "2026-09-05T10:59:00.000Z"
+      },
+      {
+        "id": "art_cart",
+        "kind": "done_for_you",
+        "space": "sp_kindle",
+        "intent": "weekly groceries carted",
+        "intent_confidence": 0.9,
+        "line": "cart built",
+        "peek": null,
+        "ready_at": "2026-09-05T10:58:00.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "Two \"Not now\" taps on fare-alert cards.",
+    "A third fare alert arrives alongside a done-for-you artifact."
+  ],
+  "expected": {
+    "dismissals_something_moved": 2,
+    "order": ["art_cart", "art_fare_3"],
+    "current_card": "art_cart",
+    "third_surfaces": ["panel", "shelf", "space", "timeline"],
+    "muted": false,
+    "note": "That kind's priority drops; the third still reaches the panel; it earns a card only after the kinds above it decay."
+  },
+  "wrong": [
+    {
+      "label": "dismissal-mutes",
+      "assert_absent": "a kind that stops reaching the panel because it was dismissed twice"
+    },
+    {
+      "label": "dismissal-ignored",
+      "assert_absent": "a twice-dismissed kind still outranking the kinds the user keeps reading"
+    }
+  ],
+  "gates": ["router_withheld"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-07 · dismissal ranks, does not mute" }
+}

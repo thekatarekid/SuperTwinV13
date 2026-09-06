@@ -1,0 +1,49 @@
+{
+  "id": "NUD-01",
+  "category": "NUD",
+  "title": "Mac active → card and panel",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "One finished comparison on the Goa space and a screen event 90 s ago. The user is at the Mac, so the card goes up ON TOP of every durable surface — never instead of them.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "last_screen_event": "2026-09-05T10:38:30.000Z",
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip" }],
+    "items": [
+      {
+        "id": "art_villas",
+        "kind": "help_now",
+        "space": "sp_goa_dec",
+        "intent": "comparing villas in Anjuna for 18-21 Dec",
+        "intent_confidence": 0.9,
+        "line": "villa comparison",
+        "peek": "Villa Sol ₹5.4k · pool · fits budget",
+        "ready_at": "2026-09-05T10:39:40.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "A screen event 90 seconds ago (the user is at the Mac).",
+    "One executor-lite artifact ready on sp_goa_dec."
+  ],
+  "expected": {
+    "presence": "mac_active",
+    "surfaces": ["card", "panel", "shelf", "space", "timeline"],
+    "current_card": "art_villas",
+    "card_title": "Goa trip",
+    "withheld": 0,
+    "note": "The card is an addition to the panel, the Prepared shelf, the space and the timeline, never a replacement for them."
+  },
+  "wrong": [
+    {
+      "label": "card-instead-of-panel",
+      "assert_absent": "a card that replaces the durable surfaces instead of adding to them"
+    },
+    {
+      "label": "second-card",
+      "assert_absent": "more than one card showing at a time"
+    }
+  ],
+  "gates": ["router_withheld"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-01 · Mac active → card and panel" }
+}

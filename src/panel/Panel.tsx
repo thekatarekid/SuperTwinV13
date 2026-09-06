@@ -69,10 +69,11 @@ export function trayStateFor(
     capture.sources.some((s) => s.consent === "paused") &&
     capture.admitted.length === 0;
   if (pausedByDeadline || allPaused) return { state: "paused", needsYou: 0 };
-  const needs =
-    data.needs_you.approvals.length +
-    data.needs_you.questions.length +
-    (data.nudge ? 1 : 0);
+  // V6 P1 S4.3: the icon carries the UNREAD counter — cards shown but not
+  // opened — plus whatever still needs a tap. An older worker has no counter,
+  // so the pinned nudge stands in for it.
+  const unread = typeof data.unread === "number" ? data.unread : data.nudge ? 1 : 0;
+  const needs = data.needs_you.approvals.length + data.needs_you.questions.length + unread;
   if (needs > 0) return { state: "needs_you", needsYou: needs };
   if (capture?.capturing) return { state: "recording", needsYou: 0 };
   return { state: "idle", needsYou: 0 };

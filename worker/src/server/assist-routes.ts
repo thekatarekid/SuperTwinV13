@@ -35,6 +35,7 @@ import {
   getCapturePausedUntil,
   setCapturePausedUntil,
 } from "../assist/settings.js";
+import { unreadCount } from "../surfaces/router.js";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -94,6 +95,8 @@ export function panelSnapshot(nowMs: number = Date.now()): Record<string, unknow
     nudge,
     today: todayRows,
     capture_paused_until: getCapturePausedUntil() || null,
+    // V6 P1 S4.3: cards shown but not opened — the menu-bar icon's counter.
+    unread: unreadCount(),
   };
 }
 

@@ -1,0 +1,68 @@
+{
+  "id": "NUD-04",
+  "category": "NUD",
+  "title": "merge per space",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "Three artifacts about the Goa space inside four minutes. Three helps, one glance: one card, one line each.",
+    "now": "2026-09-05T10:44:30.000Z",
+    "last_screen_event": "2026-09-05T10:44:00.000Z",
+    "merge_window_s": 240,
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip" }],
+    "items": [
+      {
+        "id": "art_villas",
+        "kind": "help_now",
+        "space": "sp_goa_dec",
+        "intent": "comparing villas in Anjuna",
+        "intent_confidence": 0.9,
+        "line": "villa comparison",
+        "peek": "Villa Sol ₹5.4k · pool",
+        "ready_at": "2026-09-05T10:40:00.000Z"
+      },
+      {
+        "id": "art_karan",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "Karan replied about the advance",
+        "intent_confidence": 0.9,
+        "line": "Karan replied",
+        "peek": null,
+        "ready_at": "2026-09-05T10:42:00.000Z"
+      },
+      {
+        "id": "art_fare",
+        "kind": "done_in_advance",
+        "space": "sp_goa_dec",
+        "intent": "fare on the watched route dropped",
+        "intent_confidence": 0.9,
+        "line": "fare dropped",
+        "peek": null,
+        "ready_at": "2026-09-05T10:44:00.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "Three artifacts on sp_goa_dec at 10:40, 10:42 and 10:44."
+  ],
+  "expected": {
+    "cards": 1,
+    "card_title": "Goa trip",
+    "card_line": "villa comparison · Karan replied · fare dropped",
+    "merged_with": ["art_karan", "art_fare"],
+    "note": "One card: \"Goa trip: villa comparison · Karan replied · fare dropped\"."
+  },
+  "wrong": [
+    {
+      "label": "three-cards",
+      "assert_absent": "one card per artifact when they are about the same space inside the merge window"
+    },
+    {
+      "label": "merged-across-spaces",
+      "assert_absent": "artifacts from two different spaces folded into one card"
+    }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-04 · merge per space" }
+}

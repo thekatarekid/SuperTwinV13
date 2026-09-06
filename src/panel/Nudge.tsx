@@ -1,115 +1,133 @@
 // ===========================================================================
-// Nudge window — build P2.3, spec §14.7 nudge anatomy. Transient top-right
-// card, ONE at a time, auto-minimizes into the panel's Prepared list.
+// Nudge card — V6 P1 S4.3 (Build §7.1; Product_V6_Phase1 §18.3;
+// Product_V6 §14.4.1). Top-right on the Mac, ONE at a time, and the same card
+// inside the overlay.
 //
-// Fixed anatomy: space/chapter chip → intent line ("Saw you…") → what I did →
-// artifact peek → [ Open ] [ Not now ] ✕. "Not now" = graded negative that
-// parks the artifact in Prepared; ✕ = stronger negative, still kept (nothing
-// vanishes). Never a question for auto-class work — the work is already done.
+// The anatomy is fixed and short, because the whole design rests on a card
+// costing at most a glance:
 //
-// This window's React polls /api/assist/nudge; when a NEW unseen artifact
-// appears it asks Rust to show the (non-focusing) window, and hides it again
-// on action or after the auto-minimize timer.
+//   space chip → INTENT LINE ("Saw you comparing Anjuna villas")
+//              → WHAT I DID (one line per merged item, " · " between them)
+//              → ARTIFACT PEEK
+//              → [ Open ] [ Not now ] ✕
+//
+// It AUTO-CLOSES after Settings › Assist › card duration (60 s) and has a
+// close button. Closing loses nothing: the artifact is already in the panel,
+// on the Prepared shelf, in its space and on the timeline, and the menu-bar
+// icon carries it as UNREAD until it is opened. That counter is what makes
+// closing free.
+//
+// This window does not decide WHETHER anything shows. It polls
+// /api/surfaces/nudge and renders whatever `surface-router.v1` put on the
+// card — presence, merging, the decay order, blocked kinds and the intent
+// floor are all the router's, in the worker, where they are tested.
 // ===========================================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import {
-  artifactDismiss,
-  artifactSeen,
-  artifactSignal,
-  fetchNudge,
-  type ArtifactRow,
+  fetchSurfaceNudge,
+  nudgeAutoClose,
+  nudgeNotNow,
+  nudgeOpened,
+  nudgeShown,
+  type NudgeCardView,
 } from "../lib/api";
 import { hideNudgeWindow, openMainWindow, showNudgeWindow } from "../lib/tauri";
 
 export const NUDGE_POLL_MS = 8_000;
-export const AUTO_MINIMIZE_MS = 15_000;
-
-/** First artifact-body section line, as the peek (best-effort). */
-export function peekOf(artifact: ArtifactRow): string | null {
-  try {
-    const body = JSON.parse(artifact.bodyJson ?? "null") as {
-      sections?: { tool: string; content: string }[];
-    } | null;
-    const draft = body?.sections?.find((s) => s.tool === "draft") ?? body?.sections?.[0];
-    if (!draft) return null;
-    const line = draft.content.split("\n").find((l) => l.trim() !== "");
-    return line ? line.slice(0, 90) : null;
-  } catch {
-    return null;
-  }
-}
+/** The doc's number; the worker's card_duration_s overrides it per poll. */
+export const CARD_DURATION_MS = 60_000;
 
 export function Nudge(): JSX.Element {
-  const [artifact, setArtifact] = useState<ArtifactRow | null>(null);
-  // Ids already shown: an artifact minimizes ONCE; it never pops again.
+  const [card, setCard] = useState<NudgeCardView | null>(null);
+  const [unread, setUnread] = useState(0);
+  // Ids already shown: a card goes up ONCE. It never pops again.
   const shown = useRef<Set<string>>(new Set());
-  const minimizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const minimize = useCallback(() => {
-    if (minimizeTimer.current) clearTimeout(minimizeTimer.current);
-    minimizeTimer.current = null;
-    setArtifact(null);
-    void hideNudgeWindow();
+  const clearTimer = useCallback(() => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
   }, []);
+
+  /** Take the card down. `keep` = the 60-second close / the ✕: nothing lost. */
+  const close = useCallback(
+    (id: string | null, keep: boolean) => {
+      clearTimer();
+      setCard(null);
+      void hideNudgeWindow();
+      if (id && keep) void nudgeAutoClose(id).then((r) => setUnread(r.unread)).catch(() => {});
+    },
+    [clearTimer],
+  );
 
   const poll = useCallback(async () => {
     try {
-      const { artifact: next } = await fetchNudge();
+      const view = await fetchSurfaceNudge();
+      setUnread(view.unread);
+      const next = view.card;
       if (!next || shown.current.has(next.id)) return;
       shown.current.add(next.id);
-      setArtifact(next);
+      setCard(next);
       await showNudgeWindow();
-      if (minimizeTimer.current) clearTimeout(minimizeTimer.current);
-      minimizeTimer.current = setTimeout(minimize, AUTO_MINIMIZE_MS);
+      // Unread from the moment it goes up — "shown but not opened".
+      await nudgeShown(next.id)
+        .then((r) => setUnread(r.unread))
+        .catch(() => {});
+      clearTimer();
+      closeTimer.current = setTimeout(() => close(next.id, true), view.cardDurationMs || CARD_DURATION_MS);
     } catch {
       // Worker offline: quietly try again next poll.
     }
-  }, [minimize]);
+  }, [clearTimer, close]);
 
   useEffect(() => {
     void poll();
     const timer = setInterval(() => void poll(), NUDGE_POLL_MS);
     return () => {
       clearInterval(timer);
-      if (minimizeTimer.current) clearTimeout(minimizeTimer.current);
+      if (closeTimer.current) clearTimeout(closeTimer.current);
     };
   }, [poll]);
 
-  if (!artifact) return <div className="nudge-empty" data-testid="nudge-empty" />;
-
-  const peek = peekOf(artifact);
+  if (!card) {
+    return (
+      <div className="nudge-empty" data-testid="nudge-empty" data-unread={unread}>
+        {unread > 0 ? <span className="nudge-unread">{unread}</span> : null}
+      </div>
+    );
+  }
 
   async function onOpen(): Promise<void> {
-    if (!artifact) return;
-    await artifactSeen(artifact.id).catch(() => {});
+    if (!card) return;
+    await nudgeOpened(card.id)
+      .then((r) => setUnread(r.unread))
+      .catch(() => {});
     await openMainWindow();
-    minimize();
+    close(null, false);
   }
 
   async function onNotNow(): Promise<void> {
-    if (!artifact) return;
-    // Graded negative: parks in Prepared as SEEN (kept, dot cleared).
-    await artifactSignal(artifact.id, "ignored").catch(() => {});
-    await artifactSeen(artifact.id).catch(() => {});
-    minimize();
+    if (!card) return;
+    // A graded negative: ranks this kind down, parks the work in Prepared.
+    await nudgeNotNow(card.id)
+      .then((r) => setUnread(r.unread))
+      .catch(() => {});
+    close(null, false);
   }
 
-  async function onDismiss(): Promise<void> {
-    if (!artifact) return;
-    // Stronger negative: dismissed, still kept in the "older" drawer.
-    await artifactDismiss(artifact.id).catch(() => {});
-    minimize();
-  }
+  const merged = card.mergedWith.length;
 
   return (
-    <div className="nudge" data-testid="nudge" role="alert">
+    <div className="nudge" data-testid="nudge" role="alert" data-kind={card.kind}>
       <div className="nudge-chip">
-        ◆ {artifact.spaceId ? artifact.spaceId : (artifact.kind || "prepared")}
+        ◆ {card.title}
+        {merged > 0 ? <span className="nudge-merged"> · {merged + 1} updates</span> : null}
       </div>
-      <div className="nudge-intent">{artifact.intent ?? artifact.title}</div>
-      {artifact.summary && <div className="nudge-did">{artifact.summary}</div>}
-      {peek && <div className="nudge-peek">{peek}</div>}
+      <div className="nudge-intent">{card.intent}</div>
+      <div className="nudge-did">{card.line}</div>
+      {card.peek && <div className="nudge-peek">{card.peek}</div>}
       <div className="nudge-actions">
         <button type="button" onClick={() => void onOpen()}>
           Open
@@ -117,7 +135,7 @@ export function Nudge(): JSX.Element {
         <button type="button" onClick={() => void onNotNow()}>
           Not now
         </button>
-        <button type="button" aria-label="dismiss" onClick={() => void onDismiss()}>
+        <button type="button" aria-label="close" onClick={() => close(card.id, true)}>
           ✕
         </button>
       </div>

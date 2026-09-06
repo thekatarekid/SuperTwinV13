@@ -130,6 +130,9 @@ import { handleSystemRoute, type SystemDeps } from "./system-routes.js";
 // V2 product surfaces (§3.2). Each owns its own prefix, takes no deps arg, and
 // returns false for a path it does not claim, exactly like handleOpsRoute.
 import { handleSurfacesRoute } from "./surfaces-routes.js";
+// V6 P1 S4.3: `surface-router.v1` — the nudge card, the unread counter and
+// where every finished artifact goes. Owns /api/surfaces/.
+import { handleNudgeRoute } from "./nudge-routes.js";
 // World-model reads (P1.1): people / spaces / claims / tone. Same contract —
 // returns false for a path it does not claim.
 import { handleWorldModelRoute } from "./worldmodel-routes.js";
@@ -810,6 +813,13 @@ async function handle(
   // Coverage strip — polled by every surface.
   if (path === "/api/coverage") {
     const handled = await handleSurfacesRoute(req, res);
+    if (handled) return;
+  }
+
+  // The surface router (V6 P1 S4.3): the one card, the unread counter, and
+  // the routed plan behind the panel's Prepared order.
+  if (path.startsWith("/api/surfaces/")) {
+    const handled = await handleNudgeRoute(req, res);
     if (handled) return;
   }
 

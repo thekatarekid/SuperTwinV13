@@ -1,0 +1,65 @@
+{
+  "id": "NUD-06",
+  "category": "NUD",
+  "title": "housekeeping stays inside",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "The twin's own bookkeeping: claims extracted, a cursor advanced, a retry. None of it is one of the six kinds, so none of it is a nudge. It lands on Home › Recent understanding and nowhere else.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "last_screen_event": "2026-09-05T10:39:50.000Z",
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip" }],
+    "items": [
+      {
+        "id": "art_claims",
+        "kind": "claims_extracted",
+        "space": "sp_goa_dec",
+        "intent": "4 claims extracted from the Goa thread",
+        "intent_confidence": 0.95,
+        "line": "4 claims extracted",
+        "peek": null,
+        "ready_at": "2026-09-05T10:39:00.000Z"
+      },
+      {
+        "id": "art_cursor",
+        "kind": "cursor_advanced",
+        "space": null,
+        "intent": "cursor advanced to event 5120",
+        "intent_confidence": 0.95,
+        "line": "cursor advanced",
+        "peek": null,
+        "ready_at": "2026-09-05T10:39:20.000Z"
+      },
+      {
+        "id": "art_retry",
+        "kind": "retry",
+        "space": null,
+        "intent": "one retry on a 429",
+        "intent_confidence": 0.95,
+        "line": "retried once",
+        "peek": null,
+        "ready_at": "2026-09-05T10:39:40.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "Claims extracted, a cursor advanced, and a retry."
+  ],
+  "expected": {
+    "cards": 0,
+    "surfaces_each": ["understanding"],
+    "note": "Recent understanding only. The boundary is user value versus housekeeping, not urgent versus not urgent."
+  },
+  "wrong": [
+    {
+      "label": "housekeeping-card",
+      "assert_absent": "a card for claims extracted, a cursor advanced or a retry"
+    },
+    {
+      "label": "housekeeping-on-the-panel",
+      "assert_absent": "bookkeeping in the Needs-you or Prepared lists"
+    }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-06 · housekeeping stays inside" }
+}

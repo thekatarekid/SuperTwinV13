@@ -1084,6 +1084,21 @@ body.aux-window {
   height: 100vh;
 }
 
+/* V6 P1 S4.3: how many items this one card is about, and the unread counter
+   that makes closing a card free. */
+
+.nudge-merged {
+  color: var(--ink-2);
+}
+
+.nudge-unread {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
 /* in-app nudge surfaces (spec §14.7.8) */
 
 .nudge-banner {

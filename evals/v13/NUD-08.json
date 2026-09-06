@@ -1,0 +1,53 @@
+{
+  "id": "NUD-08",
+  "category": "NUD",
+  "title": "\"don't do this\" blocks, reversibly",
+  "pass": "router",
+  "mode": "code",
+  "setup": {
+    "note": "The user said \"stop nudging me about fares\". The kind is written to Settings › Assist › blocked kinds. It never shows again — and unblocking it there restores it on the very next route.",
+    "now": "2026-09-05T11:00:00.000Z",
+    "last_screen_event": "2026-09-05T10:59:40.000Z",
+    "blocked_kinds": ["something_moved"],
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip" }],
+    "items": [
+      {
+        "id": "art_fare",
+        "kind": "something_moved",
+        "space": "sp_goa_dec",
+        "intent": "fare on the watched route dropped",
+        "intent_confidence": 0.9,
+        "line": "fare dropped",
+        "peek": null,
+        "ready_at": "2026-09-05T10:59:00.000Z"
+      }
+    ]
+  },
+  "input_events": [
+    "\"Don't do this again\" on a fare-alert card.",
+    "The same kind of artifact arrives again."
+  ],
+  "expected": {
+    "blocked_cards": 0,
+    "blocked_surfaces": ["space", "timeline"],
+    "visible_in_settings": ["something_moved"],
+    "after_unblock_card": "art_fare",
+    "note": "Blocked never shows as a nudge; it is still filed in its space and on the timeline, listed in Settings › Assist, and one removal restores it."
+  },
+  "wrong": [
+    {
+      "label": "blocked-still-shows",
+      "assert_absent": "a card or panel row for a blocked kind"
+    },
+    {
+      "label": "block-is-permanent",
+      "assert_absent": "a block that survives its removal from Settings › Assist"
+    },
+    {
+      "label": "blocked-is-deleted",
+      "assert_absent": "a blocked artifact that is dropped instead of filed in its space and the timeline"
+    }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 §5.13 NUD-08 · \"don't do this\" blocks, reversibly" }
+}

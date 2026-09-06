@@ -8,7 +8,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Panel, trayStateFor } from "./Panel";
-import { Nudge, peekOf } from "./Nudge";
 import { GroundedBar } from "../components/GroundedBar";
 import { Home } from "../screens/Home";
 import { homeFixture } from "../test-utils";
@@ -162,8 +161,15 @@ describe("Panel (spec §14.7 anatomy)", () => {
       needsYou: 0,
     });
     expect(trayStateFor(panelData())).toEqual({ state: "needs_you", needsYou: 3 });
+    // V6 P1 S4.3: the icon carries the UNREAD counter — cards shown but not
+    // opened — on top of what still needs a tap.
+    expect(trayStateFor(panelData({ unread: 4 }))).toEqual({ state: "needs_you", needsYou: 6 });
     const quiet = panelData({ needs_you: { approvals: [], questions: [] }, nudge: null });
     expect(trayStateFor(quiet)).toEqual({ state: "idle", needsYou: 0 });
+    expect(trayStateFor(panelData({ needs_you: { approvals: [], questions: [] }, nudge: null, unread: 2 }))).toEqual({
+      state: "needs_you",
+      needsYou: 2,
+    });
     // The glyph is the funnel's answer (T4-9): recording only when a source is
     // admitted and running; paused when a private moment or every-source pause holds.
     expect(trayStateFor(quiet, captureState())).toEqual({ state: "recording", needsYou: 0 });
@@ -232,56 +238,6 @@ describe("Panel (spec §14.7 anatomy)", () => {
     await waitFor(() => expect(calls.some((c) => c.path === "/api/capture/forget" && c.method === "POST")).toBe(true));
     await waitFor(() => expect(screen.queryByTestId("forget-preview")).toBeNull());
     expect(screen.getByRole("status").textContent).toContain("forgot 14 events");
-  });
-});
-
-describe("Nudge (spec §14.7 nudge anatomy)", () => {
-  it("renders intent → what I did → artifact peek → Open / Not now / ✕", async () => {
-    stubFetch({ "/api/assist/nudge": { artifact: artifact() } });
-    render(<Nudge />);
-    await waitFor(() => expect(screen.getByTestId("nudge")).toBeTruthy());
-    const card = screen.getByTestId("nudge");
-    expect(card.textContent).toContain("Saw you comparing Anjuna villas");
-    expect(card.textContent).toContain("compared 6 across 3 sites");
-    expect(card.textContent).toContain("Villa Sol ₹5.4k");
-    expect(screen.getByText("Open")).toBeTruthy();
-    expect(screen.getByText("Not now")).toBeTruthy();
-    expect(screen.getByLabelText("dismiss")).toBeTruthy();
-  });
-
-  it("'Not now' records a graded negative and parks the artifact as seen", async () => {
-    const calls = stubFetch({
-      "/api/assist/nudge": { artifact: artifact() },
-      "/api/artifacts/art_1/signal": { weight: -0.2 },
-      "/api/artifacts/art_1/seen": { artifact: artifact({ status: "seen" }) },
-    });
-    render(<Nudge />);
-    await waitFor(() => expect(screen.getByText("Not now")).toBeTruthy());
-    fireEvent.click(screen.getByText("Not now"));
-    await waitFor(() => {
-      expect(calls.some((c) => c.path === "/api/artifacts/art_1/signal")).toBe(true);
-      expect(calls.some((c) => c.path === "/api/artifacts/art_1/seen")).toBe(true);
-    });
-    // The card minimized.
-    expect(screen.queryByTestId("nudge")).toBeNull();
-  });
-
-  it("shows one artifact only once — a re-poll of the same id never re-pops", async () => {
-    vi.useFakeTimers();
-    stubFetch({ "/api/assist/nudge": { artifact: artifact() } });
-    render(<Nudge />);
-    await vi.waitFor(() => expect(screen.getByTestId("nudge")).toBeTruthy());
-    // Auto-minimize fires…
-    fireEvent.click(screen.getByText("Not now"));
-    await vi.waitFor(() => expect(screen.queryByTestId("nudge")).toBeNull());
-    // …and the next poll of the SAME artifact does not re-show it.
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(screen.queryByTestId("nudge")).toBeNull();
-  });
-
-  it("peekOf pulls the first draft line out of the body", () => {
-    expect(peekOf(artifact())).toContain("Villa Sol");
-    expect(peekOf(artifact({ bodyJson: null }))).toBeNull();
   });
 });
 

@@ -95,9 +95,20 @@ describe("version resolver", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("defaults to the frozen baseline: orient.v6 and critic.v4", () => {
-    expect(DEFAULT_ORIENT_VERSION).toBe("v6");
-    expect(DEFAULT_CRITIC_VERSION).toBe("v4");
+  // Flipped at the S6 graduation gate: the frozen pair measured 80% against
+  // its own 100% baseline on TOP and quarantined 5 of 12 history bundles on a
+  // fresh install, while v7/v5 measured 100% and quarantined none. See the
+  // block over DEFAULT_ORIENT_VERSION in versions.ts for the two measurements.
+  it("defaults to the measured pair: orient.v7 and critic.v5", () => {
+    expect(DEFAULT_ORIENT_VERSION).toBe("v7");
+    expect(DEFAULT_CRITIC_VERSION).toBe("v5");
+    expect(activeOrientPrompt().pass).toBe("orient.v7");
+    expect(activeCriticPrompt().pass).toBe("critic.v5");
+  });
+
+  it("v6 / v4 stay selectable, so the frozen baseline is still reproducible", () => {
+    process.env[PROMPT_VERSION_ENV.orient] = "v6";
+    process.env[PROMPT_VERSION_ENV.critic] = "v4";
     expect(activeOrientPrompt().pass).toBe("orient.v6");
     expect(activeCriticPrompt().pass).toBe("critic.v4");
   });
@@ -116,7 +127,7 @@ describe("version resolver", () => {
 
   it("refuses an unknown version rather than silently falling back", () => {
     expect(() => setPromptVersion("orient", "v3")).toThrow(/unknown orient prompt version/);
-    expect(activeOrientPrompt().pass).toBe("orient.v6");
+    expect(activeOrientPrompt().pass).toBe("orient.v7");
   });
 
   it("the model picker's family key governs a newer version until it has its own", () => {

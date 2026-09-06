@@ -82,3 +82,44 @@ describe("USR-06 — bar history is a real surface (code path)", () => {
     expect(n).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The rail behind the S6 gate's TRC-02 fix.
+//
+// `stableSystemPrompt` (brain/llm.ts) memoises ONE system block per pass id
+// and throws if a second caller renders a different one — the byte-identical
+// preamble spec §8 requires for prompt caching. TRC-02 makes a real `decide`
+// call, so its system block has to be the one the product sends. It was still
+// sending decide.v8 after S3.7 moved the pass to v9, which is invisible when
+// TRC runs alone and a hard throw the moment TRC shares a process with any
+// category that drives the real decide pass (SCH, CHP, USR).
+//
+// Zero model calls: this reads the source, it does not run it.
+// ---------------------------------------------------------------------------
+describe("the eval executors send the SHIPPED decide prompt", () => {
+  it("TRC-02 spends decide.v9 — the same block brain/decide-pass.ts sends", async () => {
+    const { readFileSync } = await import("node:fs");
+    const here = import.meta.dirname;
+    const executor = readFileSync(join(here, "p4.ts"), "utf8");
+    const product = readFileSync(join(here, "../../brain/decide-pass.ts"), "utf8");
+
+    // Both sides name the same constant...
+    expect(product).toContain("system: DECIDE_V9_SYSTEM");
+    expect(executor).toContain("system: DECIDE_V9_SYSTEM");
+    // ...and the retired one is gone from the executor entirely, so a future
+    // vN+1 bump cannot leave this file behind again without the import failing.
+    expect(executor).not.toContain("DECIDE_V8_SYSTEM");
+    expect(executor).not.toContain("validateDecideV8Output");
+  });
+
+  it("no pass id is spent with two different system blocks", async () => {
+    const { resetStableSystemPromptsForTests, stableSystemPrompt } = await import("../../brain/llm.js");
+    const { DECIDE_V9_SYSTEM } = await import("../../prompts/decide.v9.js");
+    const { DECIDE_V8_SYSTEM } = await import("../../prompts/decide.v8.js");
+    resetStableSystemPromptsForTests();
+    expect(stableSystemPrompt("decide", DECIDE_V9_SYSTEM)).toBe(DECIDE_V9_SYSTEM);
+    // This is the throw the full sweep hit — kept as the statement of WHY.
+    expect(() => stableSystemPrompt("decide", DECIDE_V8_SYSTEM)).toThrow(/not stable/);
+    resetStableSystemPromptsForTests();
+  });
+});

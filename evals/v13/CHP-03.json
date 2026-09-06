@@ -1,18 +1,18 @@
 {
   "id": "CHP-03",
   "category": "CHP",
-  "title": "Dated chapter = milestone",
+  "title": "A dated milestone IS the record of its own completion",
   "pass": "decide",
   "mode": "live",
-  "setup": "sp_goa_dec chapters Flights (target Aug 29), Stay (target Sep 10).",
+  "setup": "sp_goa_dec milestones Flights (target Aug 29), Stay (target Sep 10).",
   "input_events": [
     "Decide after flights book."
   ],
-  "expected": "Flights chapter marked complete ✓ (milestone semantics); space progress reflects it; no separate \"milestone\" object created.",
+  "expected": "the Flights milestone flips to state \"done\" and keeps the booking episode in its \"episodes\"; the space's summary/latest reflect the progress. The MILESTONE LIST is the only place that milestone's state lives — decide.v9 has no second structure for it.",
   "wrong": [
     {
       "label": "dual-bookkeeping",
-      "assert_absent": "milestones tracked apart from chapters"
+      "assert_absent": "the same milestone's state kept in a SECOND structure beside \"milestones\" — a parallel \"chapters\" array, or the same stage listed twice. (Closing the booking TASK in \"closures\" is a DIFFERENT object and is correct: a task closure is not a copy of a milestone.)"
     }
   ],
   "gates": [
@@ -20,6 +20,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "CHP-03 · Dated chapter = milestone"
+    "section": "GoldenEvals V6P1 §1.1 (carried) CHP-03 · Dated chapter = milestone — re-authored at the S6 gate onto the V6 vocabulary. V2 forbade \"milestones tracked apart from chapters\"; decide.v9 renamed chapters to milestones and emits nothing else, so the forbidden shape WAS the shipped shape and the case could only fail. Same assertion, named on the surviving object — and the exclusion says plainly that a task closure in \"closures\" is a separate object, because the first re-authoring did not and the judge read every closure as a duplicate."
   }
 }

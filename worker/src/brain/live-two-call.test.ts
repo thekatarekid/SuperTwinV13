@@ -157,10 +157,13 @@ describe("the live lane spends two calls over one pack", () => {
     expect(deps.sent).toHaveLength(3);
     const [first, critic, decide] = deps.sent;
 
-    // Call 1 IS the orient call: the frozen prompt, the bare pack — not
-    // live.v1, whose understanding half the S4 gate could not clear.
+    // Call 1 IS the orient call: the scored prompt, the bare pack — not
+    // live.v1, whose understanding half no golden run has ever measured. The
+    // literal moved with the S6 default flip (orient.v6 -> orient.v7); the
+    // line above is the invariant, this one is the statement of which pass
+    // that resolves to today.
     expect(first.pass).toBe(activeOrientPrompt().pass);
-    expect(first.pass).toBe("orient.v6");
+    expect(first.pass).toBe("orient.v7");
     expect(first.user.startsWith("MODE:")).toBe(false);
     // Call 2 is the critic (it is handed the tick's writes, not the pack).
     expect(critic.user).toContain("\n[DECISIONS]\n");

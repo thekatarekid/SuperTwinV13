@@ -50,7 +50,14 @@ import { handleLibraryRoute } from "../../server/library-routes.js";
 import { runExecutorTask } from "../../executor/index.js";
 import { riskyLeakCheck } from "./p3.js";
 import { runJsonPass } from "../../brain/llm.js";
-import { DECIDE_V8_SYSTEM, validateDecideV8Output } from "../../prompts/decide.v8.js";
+// TRC-02 makes a REAL traced Decide call, so it has to make the one the
+// product makes. S3.7 moved the `decide` pass to decide.v9; this executor kept
+// spending decide.v8 under the SAME pass id, and `stableSystemPrompt` (llm.ts)
+// throws the moment two different system blocks are memoised for one pass —
+// which is exactly what happens whenever TRC runs in the same process as a
+// category that drives the real decide pass (SCH, CHP, USR). Green in
+// isolation, red in a full sweep: the fixture was measuring its own staleness.
+import { DECIDE_V9_SYSTEM, validateDecideV9Output } from "../../prompts/decide.v9.js";
 import { circleOf, createEntity } from "../../entities/registry.js";
 import { claimHistory, claimsAbout, writeClaimVersion } from "../../claims/store.js";
 
@@ -824,17 +831,21 @@ async function trc02(): Promise<ExecutorResult> {
   try {
     // 1. A REAL traced Decide call — the packed context names the source event.
     const packed = [
+      // Shaped like the block brain/decide-pass.ts sends (space card, blank
+      // line, "NEW COMMITTED EPISODES", the episodes) so the fixture exercises
+      // the SHIPPED decide.v9 input, not a shape only this file uses.
       "[SPACE] Goa trip — villa decision made, booking still open.",
+      "",
+      "NEW COMMITTED EPISODES (all sources, time-ordered):",
       `[EVIDENCE] [evt ${seededEvents[0]}] rohan: villa vote closed — Casa Susegad it is, someone needs to book it`,
-      "Decide what tasks follow.",
     ].join("\n");
     const result = await runJsonPass({
       pass: "decide",
-      system: DECIDE_V8_SYSTEM,
+      system: DECIDE_V9_SYSTEM,
       user: packed,
       role: "decide",
       unit: { kind: "eval", id: "TRC-02" },
-      validate: validateDecideV8Output,
+      validate: validateDecideV9Output,
     });
     const runId = result.runIds[0] ?? null;
     if (!runId) violations.push({ label: "broken-chain", note: "the traced call produced no runs row" });

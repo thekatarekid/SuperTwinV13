@@ -28,13 +28,18 @@ import { writeDecision } from "../db/decisions.js";
 import { getSelectedModel } from "../db/settings.js";
 import { runJsonPass } from "../brain/llm.js";
 import { reasoningForPass } from "../brain/reasoning.js";
+// bar-action.v3 — v2 plus the worked example for the ambiguous-space case.
+// The S6 sweep found the model picking one of two equally plausible spaces
+// ("goa" matching both a December trip and a wedding), which is the hard
+// `guess_rate = 0` gate; v2 stated the rule but only ever showed the
+// unambiguous example. See the header of bar-action.v3.ts.
 import {
-  BAR_ACTION_V2_INSTRUCTIONS,
-  BAR_ACTION_V2_VERSION,
+  BAR_ACTION_V3_INSTRUCTIONS,
+  BAR_ACTION_V3_VERSION,
   packActionInput,
   parseActionOutput,
   type ParsedBarAction,
-} from "../prompts/bar-action.v2.js";
+} from "../prompts/bar-action.v3.js";
 import {
   BAR_ANSWER_INSTRUCTIONS,
   BAR_ANSWER_VERSION,
@@ -289,8 +294,8 @@ export interface BarActionOutcome {
  */
 export const actionViaModel: BarModelCall = async (user) => {
   const result = await runJsonPass<ParsedBarAction>({
-    pass: BAR_ACTION_V2_VERSION,
-    system: BAR_ACTION_V2_INSTRUCTIONS,
+    pass: BAR_ACTION_V3_VERSION,
+    system: BAR_ACTION_V3_INSTRUCTIONS,
     user,
     role: "classify",
     cohortId: null,

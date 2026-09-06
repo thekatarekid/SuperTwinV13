@@ -52,9 +52,31 @@ export const CRITIC_VERSIONS = {
 export type OrientVersion = keyof typeof ORIENT_VERSIONS;
 export type CriticVersion = keyof typeof CRITIC_VERSIONS;
 
-/** Frozen baseline (Build §2.1). The S4 gate flips these to v7 / v5. */
-export const DEFAULT_ORIENT_VERSION: OrientVersion = "v6";
-export const DEFAULT_CRITIC_VERSION: CriticVersion = "v4";
+/**
+ * FLIPPED AT THE S6 GRADUATION GATE (Build §9 items 1 and 2).
+ *
+ * Build §2.1 froze v6 / v4 "until the S4 gate". The S4 gate measured §7.3
+ * item 1 green under v7 / v5 (TOP 10/10) but did not land the flip, so the
+ * shipped default stayed on the frozen pair. The S6 full sweep measured what
+ * actually ships and found it below the frozen baseline, twice over:
+ *
+ *   TOP (the ORIENT golden) under v6 / v4 ....... 80% vs a frozen 100%
+ *   TOP under v7 / v5, re-measured here ......... 100%, COMPARE green
+ *
+ * and, on the same 26-event fresh install run twice (scripts/fresh-install.mjs):
+ *
+ *                              v6 / v4      v7 / v5
+ *     episodes committed          9           19
+ *     orient repair rounds       12            1
+ *     orient QUARANTINED          5            0
+ *     model calls               39+           14
+ *     cost vs the confirm card  BREACHED     HOLDS (-38.6% of ±40%)
+ *
+ * Half the understanding was being thrown away and paid for twice. v7 / v5 is
+ * the pair the golden set measures and the pair that ships.
+ */
+export const DEFAULT_ORIENT_VERSION: OrientVersion = "v7";
+export const DEFAULT_CRITIC_VERSION: CriticVersion = "v5";
 
 export const PROMPT_VERSION_ENV: Record<PromptFamily, string> = {
   orient: "SUPERTWIN_PROMPT_ORIENT",

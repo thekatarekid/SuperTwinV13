@@ -1,22 +1,22 @@
 {
   "id": "CHP-01",
   "category": "CHP",
-  "title": "Chapters form from mixed-source episodes",
+  "title": "Milestones form from mixed-source episodes",
   "pass": "decide",
   "mode": "live",
   "setup": "sp_goa_dec holds 5 episodes: flights chat (wa), flight-search browsing (browser), villa chat (wa), villa browsing (browser), packing chat (wa).",
   "input_events": [
     "Decide runs with all five."
   ],
-  "expected": "chapters ≈ Flights {flights chat + flight browsing}, Stay {villa chat + villa browsing}, Packing {packing chat}. Cross-stream grouping happens HERE, with all evidence present.",
+  "expected": "milestones ≈ Flights {flights chat + flight browsing}, Stay {villa chat + villa browsing}, Packing {packing chat} — each milestone's \"episodes\" naming the episodes that stage received. Cross-stream grouping happens HERE, with all evidence present.",
   "wrong": [
     {
-      "label": "stream-chapters",
-      "assert_absent": "chapters mirror streams: \"WhatsApp\", \"Browser\""
+      "label": "stream-milestones",
+      "assert_absent": "milestones mirror streams: \"WhatsApp\", \"Browser\""
     },
     {
-      "label": "chapter-per-episode",
-      "assert_absent": "the 'chapter-per-episode' failure mode"
+      "label": "milestone-per-episode",
+      "assert_absent": "the 'milestone-per-episode' failure mode"
     }
   ],
   "gates": [
@@ -24,6 +24,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "CHP-01 · Chapters form from mixed-source episodes"
+    "section": "GoldenEvals V6P1 §1.1 (carried) CHP-01 · Chapters form from mixed-source episodes — re-authored at the S6 gate onto the V6 vocabulary: decide.v9 (P-05) emits \"milestones\" ({label,state,episodes}, \"STAGES of the goal\") and has no \"chapters\" key at all, so the V2 wording asserted a field the shipped prompt cannot produce. The assertion is unchanged: cross-stream stages, not one per stream and not one per episode."
   }
 }

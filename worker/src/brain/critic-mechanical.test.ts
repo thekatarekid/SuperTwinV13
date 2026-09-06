@@ -211,6 +211,11 @@ async function tick(deps: JsonPassDeps) {
 
 describe("runCritic", () => {
   it("critic.v4 (baseline): the v4 input is unchanged, the mechanical report still rides on the run", async () => {
+    // v4 is no longer the default — S6 flipped it to v5 — so this case, which
+    // is ABOUT the v4 input shape, selects v4 explicitly rather than leaning on
+    // whatever the default happens to be. (The v5 case below already did.)
+    process.env[PROMPT_VERSION_ENV.orient] = "v6";
+    process.env[PROMPT_VERSION_ENV.critic] = "v4";
     const deps = stubDeps([orientAnswer, JSON.stringify({ verdicts: [{ item: 1, verdict: "commit" }] })]);
     const run = await tick(deps);
     expect(run.result.pass).toBe("critic.v4");

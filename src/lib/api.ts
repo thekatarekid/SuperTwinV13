@@ -803,6 +803,77 @@ export const splitPerson = (entityId: string): Promise<DragResult> =>
 export const undoPeopleDrag = (mutationId: string): Promise<{ ok: boolean; summary: string }> =>
   request("/api/people/undo", post({ mutation_id: mutationId }));
 
+// ---- "Who I am" and the follow-up radar (V6 P1 S5.4 → R2 surfaces) ---------
+
+/**
+ * One line of the "Who I am" card. Product_V6 §8.3.2: built by PROCESSING,
+ * never by a form — so every line carries the claim it reads from, its
+ * evidence and its confidence, and "edit" means a correction on that claim.
+ */
+export interface WhoIAmLine {
+  text: string;
+  confidence: number | null;
+  evidence: { event_ids: string[]; quote: string }[];
+  /** The claim a correction targets; null for a line derived from circles/tone. */
+  claimKey: string | null;
+  kind: string | null;
+  statedAt: string | null;
+  source: "processing" | "circles" | "tone";
+  editable: boolean;
+}
+
+export interface WhoIAmCardView {
+  selfId: string;
+  filledBy: "processing";
+  basics: WhoIAmLine[];
+  life: WhoIAmLine[];
+  narrative: WhoIAmLine[];
+  traits: WhoIAmLine[];
+  voice: WhoIAmLine[];
+  people: Record<string, { id: string; name: string | null }[]>;
+  counts: { claims: number; people: number };
+  empty: boolean;
+  /** Printed while nothing has landed — "there is no form". */
+  emptyNote: string | null;
+}
+
+export const fetchWhoIAm = (): Promise<WhoIAmCardView> => request("/api/people/who-i-am");
+
+/** Who owes a reply, and who the user owes (Product_V6 §11.8.3, CRM-01/02). */
+export interface RadarEntryView {
+  personId: string | null;
+  personName: string | null;
+  circle: Circle | null;
+  direction: "i_owe" | "they_owe";
+  streamKey: string;
+  streamId: string | null;
+  isGroup: boolean;
+  askedAt: string;
+  askText: string;
+  eventId: string;
+  /** The circle default, or what this person learned. */
+  leadDays: number;
+  /** askedAt + leadDays — when the twin starts acting. */
+  followUpAt: string;
+  ageDays: number;
+  overdue: boolean;
+}
+
+export const fetchRadar = (opts: { person?: string; now?: string } = {}): Promise<{ radar: RadarEntryView[] }> => {
+  const q = new URLSearchParams();
+  if (opts.person) q.set("person", opts.person);
+  if (opts.now) q.set("now", opts.now);
+  const qs = q.toString();
+  return request(`/api/people/radar${qs ? `?${qs}` : ""}`);
+};
+
+/** Learn a lead time for one person; null falls back to the circle default. */
+export const setRadarLead = (
+  personId: string,
+  days: number | null,
+): Promise<{ person: string; radar_lead_days: number | null }> =>
+  request(`/api/people/${encodeURIComponent(personId)}/radar-lead`, post({ days }));
+
 /** One claim version as the worker's claims store serializes it. */
 export interface ClaimVersionView {
   id: string;
@@ -952,11 +1023,68 @@ export interface BarCitationView {
   label: string;
 }
 
+/**
+ * The seven question classes route.v1 decides between (Product_V6_Phase1 §19.3).
+ * `general` is the one answered without the record, and it is labelled as such.
+ */
+export type BarClass =
+  | "lookup"
+  | "aggregate"
+  | "temporal"
+  | "relational"
+  | "multihop"
+  | "absence"
+  | "general"
+  | "action"
+  | "correction"
+  | "search";
+
+/** The coverage caveat: what the twin does NOT have over the asked range. */
+export interface BarCaveatView {
+  source: string;
+  kind: string;
+  /** One sentence, ready to print — "I only have WhatsApp back to Jan 2024". */
+  text: string;
+  floor: string | null;
+  gap?: { from: string; to: string; note: string | null };
+}
+
 export interface BarAnswerView {
   answer: string;
   citations: BarCitationView[];
   grounded: boolean;
   refused_uncited: boolean;
+  // ---- S5.5 fields the overlay renders (Product_V6_Phase1 §19.4/§19.5) ----
+  /** The class the answer was served under. */
+  class?: BarClass;
+  /** Which of the five methods the answer rests on (BAR-04: "structured"). */
+  method?: string;
+  /** Aggregates: the exact value, never counted off the top-k. */
+  value?: number | null;
+  by_currency?: { currency: string | null; value: number; rows: number }[];
+  /** Sufficiency, decided in code per class — not by the model. */
+  partial?: boolean;
+  /** What is missing, named. */
+  gaps?: string[];
+  coverage_caveat?: BarCaveatView | null;
+  /** A general answer: "not from your data". */
+  not_from_your_data?: boolean;
+  results?: { id: string; kind: string; quote: string; why: string }[];
+  scanned?: number;
+  methods_ran?: string[];
+}
+
+/** A quick chip on the locked object (Product_V6_Phase1 §21). */
+export interface BarChipView {
+  label: string;
+  structured: Record<string, unknown>;
+}
+
+/** What the thread locked to — what the bar just made, or what was open. */
+export interface BarLockView {
+  kind: TargetKind;
+  id: string;
+  label: string;
 }
 
 export interface BarActionView {
@@ -977,6 +1105,11 @@ export interface BarResponse {
   answer?: BarAnswerView;
   action?: BarActionView;
   summary?: string;
+  /** S5.5: the class, the thread's lock and the chips that ride with it. */
+  class?: BarClass;
+  lock?: BarLockView | null;
+  chips?: BarChipView[];
+  model_calls?: number;
 }
 
 export const postBar = (req: {
@@ -1285,10 +1418,18 @@ export interface FreshnessWindow {
 
 export interface AssistSettings {
   enabled: boolean;
-  thresholds: Record<string, number>;
-  cooldown_min: number;
-  quiet_hours: { start: string; end: string };
-  suppressed_contexts: { topic_key: string; suppressed_until: string }[];
+  /**
+   * The retired INPUT-side knobs of the P2.2 watcher (novelty thresholds,
+   * cooldown, quiet hours, per-context suppression). S4.4 moved the decision
+   * to the OUTPUT side (`nudgeVerdict`) and Product_V6_Phase1 §18.2 is
+   * explicit — "No quiet hours, no cap, no cooldown" — so the pane no longer
+   * offers them and they are optional here: a worker that has finished
+   * retiring `assist/` simply stops sending them.
+   */
+  thresholds?: Record<string, number>;
+  cooldown_min?: number;
+  quiet_hours?: { start: string; end: string };
+  suppressed_contexts?: { topic_key: string; suppressed_until: string }[];
   // ---- the P1 §25 Assist fields (S5.6) ----
   /** Freshness = the cold window. The dispatcher re-reads it on its next tick. */
   freshness?: string;

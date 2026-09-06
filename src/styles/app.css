@@ -1159,6 +1159,70 @@ body.aux-window {
   margin-left: 4px;
 }
 
+/* -- "Who I am" + the follow-up radar (V6 P1 R2, S5.4 surfaces) ------------- */
+
+.whoiam .whoiam-toggle,
+.radar .radar-count {
+  margin-left: var(--sp-2);
+  font-size: var(--text-sm);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.whoiam-title,
+.radar-title {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  margin: var(--sp-2) 0 4px;
+  font-weight: 500;
+}
+
+.whoiam-section + .whoiam-section,
+.radar-group + .radar-group {
+  margin-top: var(--sp-2);
+}
+
+.whoiam-line {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.whoiam-text {
+  flex: 0 1 auto;
+}
+
+.whoiam-line .chip.derived {
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+.whoiam-line .evidence-chip,
+.radar-row .radar-ask {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whoiam-counts {
+  margin-top: var(--sp-2);
+}
+
+.radar-row {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.radar-row.overdue .radar-who {
+  font-weight: 600;
+}
+
+.radar-row .radar-lead {
+  margin-left: auto;
+}
+
 /* -- Spaces: life-area groups, drag to re-file, the view (V6 P1 S5.1) ------ */
 
 .spaces-screen {
@@ -1412,6 +1476,39 @@ body.aux-window {
   display: flex;
   gap: var(--sp-2);
   padding: var(--sp-1) 0;
+}
+
+/* -- What the worker decided about an answer (V6 P1 R2, S5.5 fields) -------- */
+
+.answer-notes {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--sp-1) 0 0 var(--sp-3);
+  font-size: var(--text-xs);
+}
+
+/* A caveat and a "partial" are not errors — they are the honest half of an
+   answer, so they read as a note, not an alarm. */
+.answer-notes .chip.warn {
+  border-style: dashed;
+  color: var(--ink-2);
+}
+
+.bar-thread-lock {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  font-size: var(--text-xs);
+}
+
+.bar-thread-lock .bar-chips {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .webview-card {

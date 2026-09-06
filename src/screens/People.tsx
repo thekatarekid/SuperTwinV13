@@ -25,6 +25,13 @@
 //
 // Drag state lives in React (not dataTransfer) so the interaction — and its
 // tests — run identically under jsdom and the real webview.
+//
+// R2 adds the two S5.4 surfaces that were built worker-side and never
+// rendered, both above the circles because both are about the user rather
+// than about one contact: the "Who I am" card (people/WhoIAm.tsx — built by
+// processing, no form) and the follow-up radar (people/Radar.tsx — who owes a
+// reply, and when the twin starts acting). A claim correction from the card
+// rides the SAME dispatcher as a circle drag, so the undo chip serves both.
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
@@ -43,6 +50,8 @@ import {
   type PersonRow,
 } from "../lib/api";
 import { PersonModal, circleLabel } from "../modals/PersonModal";
+import { Radar } from "./people/Radar";
+import { WhoIAm } from "./people/WhoIAm";
 
 type CircleKey = Circle | "unassigned";
 
@@ -60,6 +69,10 @@ interface Undo {
 export function People(props: {
   /** Context-locks the grounded bar to a person ("Tell the twin"). */
   onTellTwin?: (personId: string, label: string) => void;
+  /** The same gesture on a "Who I am" line, which is a claim, not a person. */
+  onTellTwinClaim?: (claimKey: string, label: string) => void;
+  /** An evidence quote → the timeline at that event. */
+  onOpenEvent?: (eventId: string) => void;
 }): JSX.Element {
   const [people, setPeople] = useState<PersonRow[] | null>(null);
   const [questions, setQuestions] = useState<MergeQuestion[]>([]);
@@ -92,11 +105,14 @@ export function People(props: {
     void refresh();
   }, [refresh]);
 
-  /** One dispatcher for every person correction (drag, modal, chips). */
-  const correct = useCallback(
-    async (personId: string, structured: Record<string, unknown>) => {
+  /**
+   * One dispatcher for every correction this screen fires — a circle drag, the
+   * person modal, a "Who I am" claim chip. One pipeline, one undo chip.
+   */
+  const correctTarget = useCallback(
+    async (target: { kind: "person" | "claim"; id: string }, structured: Record<string, unknown>) => {
       try {
-        const result = await postCorrection({ target: { kind: "person", id: personId }, structured });
+        const result = await postCorrection({ target, structured });
         if (result.decision_id) {
           setUndo({ summary: result.summary, run: () => undoCorrection(result.correction_id) });
         }
@@ -106,6 +122,11 @@ export function People(props: {
       }
     },
     [refresh],
+  );
+
+  const correct = useCallback(
+    (personId: string, structured: Record<string, unknown>) => correctTarget({ kind: "person", id: personId }, structured),
+    [correctTarget],
   );
 
   /** Drop on a circle group: re-file a person, or split an alias out into it. */
@@ -164,9 +185,22 @@ export function People(props: {
     }
   }
 
+  /** The identity card and the radar, above the circles on every render. */
+  const heads = (
+    <>
+      <WhoIAm
+        onCorrection={(claimKey, structured) => void correctTarget({ kind: "claim", id: claimKey }, structured)}
+        {...(props.onTellTwinClaim ? { onTellTwin: props.onTellTwinClaim } : {})}
+        {...(props.onOpenEvent ? { onOpenEvent: props.onOpenEvent } : {})}
+      />
+      <Radar />
+    </>
+  );
+
   if (error) {
     return (
       <div className="people-screen">
+        {heads}
         <section className="card" aria-label="People">
           <h2>People</h2>
           <p>{error}</p>
@@ -181,6 +215,7 @@ export function People(props: {
 
   return (
     <div className="people-screen">
+      {heads}
       <section className="card people" aria-label="People">
         <h2>People</h2>
 

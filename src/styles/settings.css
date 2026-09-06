@@ -81,3 +81,17 @@
   margin: var(--sp-2) 0;
   font-size: var(--text-sm);
 }
+
+/* The Assist pane states the OUTPUT-side rule before it prints the numbers
+   that feed it (V6 P1 R2): three lines, each a verdict, indented off the
+   controls so the rule reads as prose and the fields as fields. */
+.assist-rule {
+  border-left: 2px solid var(--glass-border-color, rgba(255, 255, 255, 0.14));
+  padding: var(--sp-1) 0 var(--sp-1) var(--sp-3);
+  margin: var(--sp-2) 0;
+  font-size: var(--text-sm);
+}
+
+.assist-rule p {
+  margin: 4px 0;
+}

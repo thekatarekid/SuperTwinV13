@@ -272,7 +272,11 @@ export function App(): JSX.Element {
         {tab === "timeline" && <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />}
         {tab === "library" && <Library />}
         {tab === "people" && (
-          <People onTellTwin={(id, label) => lockTo("person", id, label)} />
+          <People
+            onTellTwin={(id, label) => lockTo("person", id, label)}
+            onTellTwinClaim={(claimKey, label) => lockTo("claim", claimKey, label)}
+            onOpenEvent={() => setTab("timeline")}
+          />
         )}
         {tab === "settings" && <Settings />}
       </main>
@@ -353,6 +357,9 @@ export function App(): JSX.Element {
         onOpenEvent={() => setTab("timeline")}
         onOpenSpace={openSpaceById}
         onOpenTask={(id) => void openTaskById(id)}
+        // A quick chip on the object the bar just made is a correction like any
+        // other: one dispatcher, one decisions row, one undo chip (§21).
+        onQuickChip={(target, structured) => void correct(target, structured)}
       />
     </div>
   );

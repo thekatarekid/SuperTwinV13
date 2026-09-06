@@ -34,11 +34,11 @@ import { DEFAULT_WORKER_PORT, ensureHomeLayout } from "./home.js";
 import { startTraceRetentionJob } from "./traces/index.js";
 import { startConsolidationJob } from "./consolidation/index.js";
 import { startDispatcher } from "./scheduler/v6/dispatch.js";
-import { startAssistLane } from "./assist/index.js";
 import { startTieringJob } from "./tiers/tiering.js";
 import { startCalendarJob } from "./calendar/job.js";
 import { startWakeupJob } from "./tasks/wakeups.js";
 import { startBriefJob } from "./brief/job.js";
+import { startPreparedQueueJob } from "./executor/queue-job.js";
 import {
   backfillBrowserStreamCategories,
   backfillChatCategories,
@@ -258,11 +258,21 @@ async function main(): Promise<void> {
   // second-look, unsorted review). Each duty is fenced inside the job.
   const consolidation = startConsolidationJob({ log: (line) => console.error(line) });
 
-  // ---- Assist lane (P2.2, spec §10): the proactive watcher over the event-
-  // log tail. Code trigger gate (novelty + cooldowns + suppression + quiet
-  // hours) -> one haiku evaluator -> executor-lite -> durable artifact +
-  // nudge. No capture path of its own; no risky tools in its table at all.
-  const assistLane = startAssistLane({ log: (line) => console.error(line) });
+  // ---- The assist lane is GONE (R1, build §2.3 / §7.3 step 3). Its watcher
+  // over the event-log tail — code trigger gate -> haiku evaluator ->
+  // executor-lite -> artifact — is replaced by the live lane: the dispatcher
+  // above bundles the same tail, ONE merged live.v1 call understands and
+  // decides over it, and what it prepares reaches the user through
+  // surfaces/router.ts. Nothing polls the tail on its own timer any more.
+
+  // ---- Prepared-action queue (V6 P1 R2, Build §7.1 S4.2 / Product P1 §17):
+  // the caller executor-lite was built without. Every two minutes, a LOOKUP —
+  // is anything in `deferred_outputs` waiting? Empty means zero calls and no
+  // log line. When something waits, at most two actions drain per tick, each
+  // under executor-lite's own cycle and money ceilings. "Stop all model
+  // activity" and the budget latch HOLD the queue instead of burning it (a run
+  // resolves its row whatever the outcome). Guarded inside the job.
+  const preparedQueue = startPreparedQueueJob({ log: (line) => console.error(line) });
 
   const port = Number(process.env.SUPERTWIN_WORKER_PORT ?? DEFAULT_WORKER_PORT);
   const server: ServerHandle = await startServer({ port, ingestion });
@@ -278,13 +288,13 @@ async function main(): Promise<void> {
       parentWatch.stop();
       dispatcher.stop();
       consolidation.stop();
-      assistLane.stop();
       spendHeartbeat.stop();
       traceRetention.stop();
       tiering.stop();
       calendarJob.stop();
       wakeups.stop();
       briefJob.stop();
+      preparedQueue.stop();
       // Every adapter the supervisor started (and the pairing daemon, if any).
       await supervisor.stopAll();
       setSourceSupervisor(null);

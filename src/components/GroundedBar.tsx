@@ -13,6 +13,24 @@
 //
 // Intent is inferred worker-side (traced Haiku router); Esc walks back one
 // state; threads survive in history because the worker stores them as events.
+//
+// V6 P1 R2 renders what S5.5 started returning and the overlay was dropping on
+// the floor (Product_V6_Phase1 §19.4–19.6, §21):
+//
+//   coverage caveat   what the twin does NOT have over the asked range, in the
+//                     worker's own sentence ("I only have WhatsApp back to
+//                     Jan 2024"). Never inferred here — the coverage index
+//                     decides, the bar prints.
+//   sufficiency       decided in CODE per class, so a partial answer says it
+//                     is partial and NAMES its gaps instead of reading like a
+//                     complete one. Insufficient is never silence.
+//   general label     an answer with no retrieval behind it is labelled "not
+//                     from your data" — the one answer that is not grounded
+//                     must be the one answer that says so.
+//   quick chips       the thread locks to the object the bar just made, and
+//                     the chips for that object type ride back with it. A chip
+//                     IS a correction: it goes down the same pipeline as a
+//                     drag, undo included.
 // ===========================================================================
 
 import { useEffect, useRef, useState } from "react";
@@ -22,7 +40,10 @@ import {
   postBar,
   type ArtifactRow,
   type BarActionView,
+  type BarAnswerView,
+  type BarChipView,
   type BarCitationView,
+  type BarLockView,
   type BarResponse,
   type BarThreadSummaryView,
   type TargetKind,
@@ -41,6 +62,8 @@ interface BarMessage {
   text: string;
   citations?: BarCitationView[];
   action?: BarActionView;
+  /** The whole answer, so the caveat / gaps / label render with their turn. */
+  answer?: BarAnswerView;
 }
 
 type BarView = "input" | "thread" | "history";
@@ -63,6 +86,43 @@ function WebviewCard(props: { url: string }): JSX.Element {
   );
 }
 
+/**
+ * What the worker decided ABOUT an answer, rendered under it (S5.5):
+ * the general-answer label, the partial mark with its named gaps, and the
+ * coverage caveat. All three are worker verdicts — nothing here re-decides.
+ */
+function AnswerNotes(props: { answer: BarAnswerView }): JSX.Element | null {
+  const a = props.answer;
+  const general = a.not_from_your_data === true || a.class === "general";
+  const gaps = a.gaps ?? [];
+  const caveat = a.coverage_caveat?.text ?? null;
+  if (!general && a.partial !== true && gaps.length === 0 && !caveat) return null;
+  return (
+    <div className="answer-notes" aria-label="answer notes">
+      {general && (
+        <span className="chip warn" data-testid="not-from-your-data">
+          not from your data
+        </span>
+      )}
+      {a.partial === true && (
+        <span className="chip warn" data-testid="partial-answer">
+          partial answer
+        </span>
+      )}
+      {gaps.length > 0 && (
+        <span className="meta gaps" aria-label="gaps">
+          missing: {gaps.join(" · ")}
+        </span>
+      )}
+      {caveat && (
+        <span className="meta caveat" aria-label="coverage caveat">
+          {caveat}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function GroundedBar(props: {
   lock: BarLock | null;
   onUnlock: () => void;
@@ -78,6 +138,11 @@ export function GroundedBar(props: {
   /** An action outcome's space / task → the normal modals. */
   onOpenSpace?: (spaceId: string) => void;
   onOpenTask?: (taskId: string) => void;
+  /**
+   * A quick chip on the object this thread locked to (§21). The chip IS the
+   * correction — the shell's one dispatcher applies it and shows the undo.
+   */
+  onQuickChip?: (target: { kind: TargetKind; id: string }, structured: Record<string, unknown>) => void;
 }): JSX.Element {
   const [text, setText] = useState("");
   const [reply, setReply] = useState<string | null>(null);
@@ -89,6 +154,10 @@ export function GroundedBar(props: {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<BarThreadSummaryView[]>([]);
   const [busy, setBusy] = useState(false);
+  // What the THREAD is locked to (the object the bar just made) and the chips
+  // that object type offers — both decided worker-side, both ride the response.
+  const [threadLock, setThreadLock] = useState<BarLockView | null>(null);
+  const [chips, setChips] = useState<BarChipView[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The idle chip: bar focused but EMPTY, no lock, a fresh nudge exists and
@@ -145,6 +214,11 @@ export function GroundedBar(props: {
             : undefined,
         })),
       );
+      // A reopened thread is still locked to whatever it made (USR-06): the
+      // worker stored the lock and the chips on the last twin message.
+      const last = [...msgs].reverse().find((m) => m.role === "twin" && m.meta);
+      setThreadLock((last?.meta?.lock as BarLockView | null | undefined) ?? null);
+      setChips(Array.isArray(last?.meta?.chips) ? (last!.meta!.chips as BarChipView[]) : []);
       setView("thread");
       inputRef.current?.focus();
     } catch {
@@ -162,6 +236,10 @@ export function GroundedBar(props: {
 
   function absorb(response: BarResponse, submitted: string): void {
     setThreadId(response.thread_id);
+    // The lock and its chips are the thread's, not the turn's: they survive
+    // until the worker sends different ones (BAR-09).
+    setThreadLock(response.lock ?? null);
+    setChips(response.chips ?? []);
     if (response.intent === "search" && response.search) {
       setLive(response.search);
       setView("input");
@@ -169,7 +247,7 @@ export function GroundedBar(props: {
     }
     const twin: BarMessage =
       response.intent === "question" && response.answer
-        ? { role: "twin", text: response.answer.answer, citations: response.answer.citations }
+        ? { role: "twin", text: response.answer.answer, citations: response.answer.citations, answer: response.answer }
         : response.intent === "action" && response.action
           ? {
               role: "twin",
@@ -331,6 +409,7 @@ export function GroundedBar(props: {
                     ))}
                   </span>
                 )}
+                {m.answer && <AnswerNotes answer={m.answer} />}
                 {m.action && m.action.progress.length > 0 && (
                   <div className="progress">
                     {m.action.progress.map((line, j) => (
@@ -340,6 +419,31 @@ export function GroundedBar(props: {
                 )}
               </div>
             ))}
+            {threadLock && (
+              <div className="bar-thread-lock" aria-label="thread lock">
+                <span className="chip accent">
+                  ⊙ {threadLock.kind}: {threadLock.label}
+                </span>
+                <span className="meta">a follow-up here corrects this, it never makes a second one</span>
+                {chips.length > 0 && (
+                  <span className="bar-chips" aria-label="quick chips">
+                    {chips.map((c) => (
+                      <button
+                        key={c.label}
+                        type="button"
+                        className="chip"
+                        aria-label={`${c.label} on ${threadLock.label}`}
+                        onClick={() =>
+                          props.onQuickChip?.({ kind: threadLock.kind, id: threadLock.id }, c.structured)
+                        }
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </div>
+            )}
             {answerUrl && <WebviewCard url={answerUrl} />}
             {lastAction?.status === "needs_input" && lastAction.options && (
               <div className="bar-options">

@@ -1,0 +1,159 @@
+{
+  "id": "LIV-07",
+  "category": "LIV",
+  "title": "no starvation — the live pass never queues behind history",
+  "pass": "live",
+  "mode": "code",
+  "setup": {
+    "note": "GATE-09's assertion re-homed onto the LIVE PASS (S4.4). 200 history day-bundles are queued in the log and the background lanes hold every slot they are allowed plus a full queue of waiters; then the same villa flush as LIV-01 runs the real tick. It must complete on the pool's reserved live lane — and it must do so while the lane is spending TWO calls per bundle, which is what Build §7.3's fallback costs. The parked history work is never released until after the live path is done, so a live call that waited on it could not finish at all.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "live",
+    "history_bundles": 200,
+    "llm": 4,
+    "parked_lanes": [
+      "understanding",
+      "understanding",
+      "enrichment"
+    ],
+    "queued_waiters": 12,
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "t_88",
+        "space": "sp_goa_dec",
+        "title": "pay villa advance ₹15,000",
+        "owner": "self",
+        "due": "2026-09-05",
+        "risk_class": "approve-first",
+        "type": "explicit"
+      }
+    ],
+    "history": [
+      {
+        "alias": "h1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "villa sol wale bol rahe advance aaj chahiye",
+        "minutes_ago": 39,
+        "episode": "ep_611"
+      },
+      {
+        "alias": "h2",
+        "stream": "S1",
+        "actor": "self",
+        "text": "main kar deta hoon, baad me collect",
+        "minutes_ago": 30,
+        "episode": "ep_611"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_611",
+        "space": "sp_goa_dec",
+        "summary": "advance discussion"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "S1",
+        "actor": "contact:rohan",
+        "text": "advance by 5 pm today or they release it",
+        "minutes_ago": 1
+      }
+    ],
+    "live": {
+      "understanding": {
+        "episodes": [
+          {
+            "action": "join",
+            "episode": "ep_611",
+            "stream": "S1",
+            "events": [
+              "e1"
+            ],
+            "summary": "Rohan says the Villa Sol advance must be paid by 5 pm today or the hold is released.",
+            "space": "sp_goa_dec",
+            "evidence": [
+              {
+                "event_ids": [
+                  "e1"
+                ],
+                "quote": "advance by 5 pm today or they release it"
+              }
+            ],
+            "confidence": 0.96
+          }
+        ],
+        "proposals": [],
+        "unsorted": [],
+        "questions": []
+      },
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "needs_you",
+            "intent": "Pay the Villa Sol advance before 5 pm",
+            "intent_confidence": 0.94,
+            "action": "question",
+            "space": "sp_goa_dec",
+            "urgency": "today",
+            "deadline_at": "2026-09-05T17:00:00+05:30",
+            "inputs": {
+              "task": "t_88",
+              "amount": "₹15,000",
+              "payee": "Villa Sol"
+            },
+            "grounded_in": [
+              "e1"
+            ],
+            "reasoning": "Open task t_88 now has a hard deadline from Rohan's message."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "200 backfill days queued and the background lanes saturated, then Rohan: \"advance by 5 pm today or they release it\" on a stream with an open episode"
+  ],
+  "expected": {
+    "live_call_completes_within_s": 30,
+    "reserved_lane": "live",
+    "prepared": 1,
+    "episode": "ep_611",
+    "calls": {
+      "understanding": 1,
+      "decide": 1,
+      "critic": 1
+    },
+    "note": "Two model calls per live bundle is the Build §7.3 fallback, engaged because the S4 ship gate's item 1 is red. Both run on the reserved live lane; neither waits on the parked understanding work."
+  },
+  "wrong": [
+    {
+      "label": "live-behind-history",
+      "assert_absent": "the live call waits behind a parked history call"
+    },
+    {
+      "label": "nudge-starved",
+      "assert_absent": "the tick completes but the decide half never runs, so the flush produces no prepared action"
+    }
+  ],
+  "gates": [
+    "assist_from_history",
+    "nudge_without_grounding"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.11 LIV-07 · no starvation (same assertion as §5.6 GATE-09)"
+  }
+}

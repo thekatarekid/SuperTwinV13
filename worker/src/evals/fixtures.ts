@@ -130,9 +130,10 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // two episodes, exactly one nudge citing both sources. CROSS-DAY lands with S6.
   { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 2, doc: "V2", pass: "commit", authored: true },
   // GoldenEvals V6 Phase 1 §5.11 — the live call (S4.1, live.v1). LIV-01..06 are code
-  // against brain/live.ts + the consumer with recorded live.v1 outputs; LIV-07..10 land
-  // with S4.2–S4.4 (executor-lite, nudge, assist retirement).
-  { cat: "LIV", name: "The live call (V6 P1)", n: 6, doc: "V2", pass: "live", authored: true },
+  // against brain/live.ts + the consumer with recorded live outputs; LIV-07 (S4.4) is
+  // GATE-09's no-starvation assertion re-homed onto the live pass, run against a
+  // saturated provider pool. LIV-08..10 land with S6.
+  { cat: "LIV", name: "The live call (V6 P1)", n: 7, doc: "V2", pass: "live", authored: true },
   // GoldenEvals V6 Phase 1 — the derived calendar (S5.3). Code-asserted against
   // calendar/{clocks,store,layers}.ts: tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable.

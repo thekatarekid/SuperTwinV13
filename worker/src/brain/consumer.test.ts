@@ -119,6 +119,15 @@ function undispatched(): number {
   ).n;
 }
 
+/**
+ * Model calls one LIVE tick spends: the understanding call and — while the S4
+ * ship gate's item 1 is red and the lane runs Build §7.3's two-call fallback —
+ * the decide call. These bundles produce nothing to grade, so the Critic never
+ * runs. BND-09/10 are about how many TICKS happen, not how many calls a tick
+ * costs, so they count in these units.
+ */
+const CALLS_PER_TICK = 2;
+
 describe("BND-09 · keyed in-flight", () => {
   it("the same bundle key submitted twice before the first settles → one Orient call", async () => {
     const bundle = seedBundle(["guys lets lock goa 18-21 dec", "did anyone pay the pool??"]);
@@ -139,8 +148,8 @@ describe("BND-09 · keyed in-flight", () => {
 
     deps.release();
     await consumer.drain();
-    // Exactly one model call for the ONE tick that ran; the twin cost nothing.
-    expect(deps.calls()).toBe(1);
+    // ONE tick ran; the twin cost nothing.
+    expect(deps.calls()).toBe(CALLS_PER_TICK);
     expect(undispatched()).toBe(0);
   });
 
@@ -155,7 +164,7 @@ describe("BND-09 · keyed in-flight", () => {
     consumer.onBundle(later);
     deps.release();
     await consumer.drain();
-    expect(deps.calls()).toBe(2); // one per distinct key
+    expect(deps.calls()).toBe(2 * CALLS_PER_TICK); // one tick per distinct key
   });
 
   it("a settled key is admitted again (the registry is in-flight, not forever)", async () => {
@@ -165,12 +174,12 @@ describe("BND-09 · keyed in-flight", () => {
     const consumer = startBrainConsumer(deps, () => {});
     consumer.onBundle(bundle);
     await consumer.drain();
-    expect(deps.calls()).toBe(1);
+    expect(deps.calls()).toBe(CALLS_PER_TICK);
     // Resubmitting after settle is not blocked by the registry — but the rows
     // are now dispatched, so revalidation (BND-10) makes it free.
     consumer.onBundle(bundle);
     await consumer.drain();
-    expect(deps.calls()).toBe(1);
+    expect(deps.calls()).toBe(CALLS_PER_TICK);
   });
 });
 
@@ -208,7 +217,7 @@ describe("BND-10 · revalidate at execution", () => {
     deps.release();
     const report = await runBrainTick(bundle, deps);
     expect(report.status).toBe("empty");
-    expect(deps.calls()).toBe(1);
+    expect(deps.calls()).toBe(CALLS_PER_TICK);
     expect(undispatched()).toBe(0);
   });
 });

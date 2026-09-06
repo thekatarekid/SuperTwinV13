@@ -31,9 +31,18 @@
 //   never ground an action; an action with nothing from this bundle is
 //   dropped (`nudge_without_grounding` = 0).
 //
-// INTENT FLOOR (LIV-06). Below `assist.intent_confidence_min` (0.7 by default,
-// assist/settings.ts) the action is still prepared — the work is worth having
-// — but its surface is "shelf": no card. The verdict travels with the row.
+// INTENT FLOOR (LIV-06). Below `assist.intent_confidence_min` (0.7 by default)
+// the action is still prepared — the work is worth having — but its surface is
+// "shelf": no card. The verdict travels with the row. S4.4 moved the threshold
+// itself to Settings › Assist and the judgement to the output-side
+// `nudgeVerdict()` (surfaces/nudge-verdict.ts), which the surface router reads
+// too: writer and router can no longer hold two different floors.
+//
+// TWO CALLS (Build §7.3, S4.4). The S4 ship gate's item 1 is red, so the live
+// lane does NOT run the merged call by default. `runLiveUnderstanding` +
+// `runLiveDecide` below are the fallback: ONE pack, the frozen orient prompt,
+// then live-decide.v1. Everything after parsing — grounding, the lane rule,
+// the floor, the commit — is the same code in both modes.
 //
 // Nothing here is a nudge: the surface router (S4.3) reads the rows this
 // module writes and decides WHERE, never whether.
@@ -46,9 +55,17 @@ import { writeDecision } from "../db/decisions.js";
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { packOrientContext, type PackedContext, type PackOptions } from "../packer/index.js";
 import { liveModeLine } from "../prompts/live.v1.js";
-import { activeLivePrompt, modelForVersionedPass, type VersionedPrompt } from "../prompts/versions.js";
+import { liveDecideModeLine } from "../prompts/live-decide.v1.js";
+import {
+  activeLiveDecidePrompt,
+  activeLivePrompt,
+  activeOrientPrompt,
+  modelForVersionedPass,
+  type LiveCallMode,
+  type VersionedPrompt,
+} from "../prompts/versions.js";
 import { validateDecideV9Output, type DecideOutputV9 } from "../prompts/decide.v9.js";
-import { assistIntentConfidenceMin } from "../assist/settings.js";
+import { nudgeThresholds, nudgeVerdict } from "../surfaces/nudge-verdict.js";
 import { applyDecideItems, emptyDecideApplied, type DecideApplied } from "./decide-pass.js";
 import { runJsonPass, type JsonPassDeps, type JsonPassResult } from "./llm.js";
 import { parseOrientOutput, resolveEventAliases, type OrientOutput, type OrientRun } from "./orient.js";
@@ -356,9 +373,18 @@ export type PreparedSurface = "card" | "shelf";
  * LIV-06: a card must name the right goal. Below the intent floor the action
  * is prepared and shelved (panel / Prepared shelf / space / timeline), never
  * a card. The router (S4.3) decides where among those; this decides the floor.
+ *
+ * S4.4: the judgement itself moved OUT of this module to the output-side
+ * `nudgeVerdict()` (surfaces/nudge-verdict.ts), which the router reads too, so
+ * the writer and the router can no longer disagree about the floor. This
+ * wrapper is the writer's view of that one verdict.
  */
-export function preparedSurface(p: Pick<LivePrepared, "intent_confidence">, floor: number): PreparedSurface {
-  return p.intent_confidence >= floor ? "card" : "shelf";
+export function preparedSurface(
+  p: Pick<LivePrepared, "intent_confidence"> & Partial<Pick<LivePrepared, "kind">>,
+  floor: number,
+  blockedKinds: readonly string[] = [],
+): PreparedSurface {
+  return nudgeVerdict({ kind: p.kind ?? "", intentConfidence: p.intent_confidence }, { intentFloor: floor, blockedKinds }).surface;
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +392,12 @@ export function preparedSurface(p: Pick<LivePrepared, "intent_confidence">, floo
 // ---------------------------------------------------------------------------
 
 export interface LiveRun extends OrientRun {
+  /**
+   * How many calls this bundle cost: "merged" is S4.1's one live.v1 call,
+   * "two-call" is the Build §7.3 fallback (orient, then live-decide.v1 over
+   * the same pack).
+   */
+  mode: LiveCallMode;
   /** The live prompt that ran (null: live pass switched off — orient ran instead). */
   prompt: VersionedPrompt | null;
   liveResult: JsonPassResult<LiveOutput>;
@@ -397,7 +429,7 @@ export async function runLive(
       usage: zero,
       error: { code: "thin_context_held", message: packed.thinReasons.join("; ") },
     };
-    return { bundle, packed, prompt, liveResult, result: orientShaped(liveResult, undefined) };
+    return { bundle, packed, mode: "merged", prompt, liveResult, result: orientShaped(liveResult, undefined) };
   }
   const insufficient = packed.thin && !packed.held;
   const liveResult = await runJsonPass<LiveOutput>(
@@ -418,12 +450,198 @@ export async function runLive(
   return {
     bundle,
     packed,
+    mode: "merged",
     prompt,
     liveResult,
     ...(live ? { live } : {}),
     result: orientShaped(liveResult, live?.understanding),
     ...(live?.understanding ? { output: live.understanding } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// The §7.3 fallback — the merged pack, two calls
+// ---------------------------------------------------------------------------
+//
+// CALL 1 is the orient call, byte for byte: the active orient prompt over the
+// pack, with nothing prepended. That matters — it is the pass the ORIENT
+// golden set measures, so under the fallback the live lane's understanding is
+// exactly what the gate scores, and no production filing rides on prompt text
+// item 1 could not clear. The validator is the live one only so an answer that
+// wraps itself in "understanding" is still usable; any decide half a
+// understanding-only call volunteers is dropped (call 2 owns that section).
+//
+// CALL 2 is live-decide.v1 over the SAME `packed.user` plus an [UNDERSTANDING]
+// block naming what call 1 just committed, so the decide half can attach to
+// real space and episode ids. It runs AFTER the commit — the consumer holds
+// the two halves apart — which is also why a bad decide can never cost the
+// understanding anything: by the time it is asked, the writing is done.
+
+/** The understanding half as a stand-alone call (call 1 of the fallback). */
+export async function runLiveUnderstanding(
+  bundle: DeltaBundle,
+  deps: JsonPassDeps = {},
+  packOpts: PackOptions = {},
+  prompt: VersionedPrompt = activeOrientPrompt(),
+): Promise<LiveRun> {
+  const packed: PackedContext = await packOrientContext(bundle, packOpts);
+  const zero = { inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 };
+  if (packed.held) {
+    const liveResult: JsonPassResult<LiveOutput> = {
+      pass: prompt.pass,
+      status: "failed",
+      responses: [],
+      runIds: [],
+      usage: zero,
+      error: { code: "thin_context_held", message: packed.thinReasons.join("; ") },
+    };
+    return { bundle, packed, mode: "two-call", prompt: null, liveResult, result: orientShaped(liveResult, undefined) };
+  }
+  const insufficient = packed.thin && !packed.held;
+  const liveResult = await runJsonPass<LiveOutput>(
+    {
+      pass: prompt.pass,
+      system: prompt.system,
+      model: modelForVersionedPass(prompt),
+      user: packed.user,
+      role: "orient",
+      unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },
+      lane: bundle.lane === "live" ? "live" : "understanding",
+      origin: bundle.lane === "live" ? "live" : "backfill",
+      validate: (parsed) => {
+        const out = parseLiveOutput(parsed, { lane: bundle.lane, insufficientContext: insufficient });
+        // An understanding-only call that produced no understanding is a
+        // failure worth the runner's one repair round.
+        if (!out.understanding) throw new Error(out.understandingError ?? "no understanding section");
+        const { decide: _d, decideError: _e, ...rest } = out;
+        return rest;
+      },
+    },
+    deps,
+  );
+  const live = liveResult.output;
+  return {
+    bundle,
+    packed,
+    mode: "two-call",
+    prompt: null,
+    liveResult,
+    ...(live ? { live } : {}),
+    result: orientShaped(liveResult, live?.understanding),
+    ...(live?.understanding ? { output: live.understanding } : {}),
+  };
+}
+
+/**
+ * Render what call 1 filed, for call 2's [UNDERSTANDING] block. Ids come from
+ * the commit (real rows) when there is one; otherwise the parsed summaries,
+ * which still tell the decide half what this flush was about.
+ */
+export function renderUnderstandingBlock(
+  understanding: OrientOutput | undefined,
+  commit?: Pick<CommitReport, "committedEpisodes"> | null,
+): string {
+  const lines: string[] = [];
+  const summaries = understanding?.episodes ?? [];
+  (commit?.committedEpisodes ?? []).forEach((ep, i) => {
+    const summary = summaries[i]?.summary ?? "";
+    lines.push(`episode ${ep.episodeId}${ep.spaceId ? ` · space ${ep.spaceId}` : " · no space"}${summary ? ` · ${summary}` : ""}`);
+  });
+  if (lines.length === 0) {
+    for (const ep of summaries) {
+      lines.push(`episode (uncommitted)${ep.space ? ` · space ${ep.space}` : ""} · ${ep.summary}`);
+    }
+  }
+  for (const p of understanding?.proposals ?? []) lines.push(`proposed space "${p.label}" · ${p.summary}`);
+  for (const u of understanding?.unsorted ?? []) lines.push(`unsorted · ${u.summary}`);
+  for (const q of understanding?.questions ?? []) lines.push(`question · ${q}`);
+  const body = lines.length > 0 ? lines.slice(0, 40).join("\n") : "nothing was filed from this bundle.";
+  return `[UNDERSTANDING]\n${body}`;
+}
+
+/**
+ * Parse call 2's answer. Never throws on a missing or broken decide section —
+ * "a bad decide never blocks a commit", and by call 2 the commit has already
+ * happened, so a repair round here would buy nothing. Only an answer that is
+ * not a JSON object at all earns the runner's repair round.
+ */
+export function parseLiveDecideAnswer(
+  parsed: unknown,
+  opts: ParseLiveOptions,
+): { decide?: LiveDecide; decideError?: string } {
+  const root = rec(parsed);
+  if (!root) throw new Error('expected one JSON object with a "decide" section');
+  // A present-but-broken "decide" is an ERROR, not an excuse to read the root:
+  // that is the LIV-04 contract, and it is what puts a `drop_decide` row in
+  // the ledger. Only a MISSING key falls back to a bare decide object.
+  let section: unknown;
+  if (root.decide !== undefined) section = root.decide;
+  else if (["tasks", "closures", "schedules", "prepared"].some((k) => Array.isArray(root[k]))) section = root;
+  else return { decideError: "decide is missing" };
+  const d = parseLiveDecide(section, opts.lane);
+  if (!d.decide) return { ...(d.error ? { decideError: d.error } : {}) };
+  if (opts.insufficientContext) {
+    // Rule 4 / LIV-10: an insufficient-context flush decides nothing.
+    return { decide: { ...d.decide, tasks: [], closures: [], schedules: [], prepared: [] } };
+  }
+  return { decide: d.decide };
+}
+
+export interface LiveDecideCallResult {
+  result: JsonPassResult<{ decide?: LiveDecide; decideError?: string }>;
+  /** The understanding half from call 1 with the decide half filled in. */
+  live: LiveOutput;
+}
+
+/** The decide half as a stand-alone call (call 2 of the fallback). */
+export async function runLiveDecide(
+  run: LiveRun,
+  deps: JsonPassDeps = {},
+  opts: { commit?: Pick<CommitReport, "committedEpisodes"> | null; prompt?: VersionedPrompt } = {},
+): Promise<LiveDecideCallResult> {
+  const prompt = opts.prompt ?? activeLiveDecidePrompt();
+  const bundle = run.bundle;
+  const base: LiveOutput = run.live ?? {
+    understandingRejected: [],
+    insufficientContext: run.packed.thin && !run.packed.held,
+    stripped: { episodes: 0, proposals: 0, tasks: 0, prepared: 0 },
+  };
+  const insufficient = base.insufficientContext;
+  const user = [
+    liveDecideModeLine(insufficient),
+    run.packed.user,
+    "",
+    renderUnderstandingBlock(base.understanding, opts.commit),
+  ].join("\n");
+  const result = await runJsonPass<{ decide?: LiveDecide; decideError?: string }>(
+    {
+      pass: prompt.pass,
+      system: prompt.system,
+      model: modelForVersionedPass(prompt),
+      user,
+      role: "orient",
+      unit: { kind: "bundle", id: `${bundle.streamId}:${bundle.part}` },
+      lane: bundle.lane === "live" ? "live" : "understanding",
+      origin: bundle.lane === "live" ? "live" : "backfill",
+      validate: (parsed) => parseLiveDecideAnswer(parsed, { lane: bundle.lane, insufficientContext: insufficient }),
+    },
+    deps,
+  );
+  const answer = result.output ?? {
+    decideError: result.error ? `${result.error.code}: ${result.error.message}` : "the decide call returned nothing",
+  };
+  const live: LiveOutput = {
+    ...base,
+    ...(answer.decide ? { decide: answer.decide } : {}),
+    ...(answer.decideError ? { decideError: answer.decideError } : {}),
+    stripped: {
+      ...base.stripped,
+      ...(insufficient && answer.decide
+        ? { tasks: base.stripped.tasks, prepared: base.stripped.prepared }
+        : {}),
+    },
+  };
+  return { result, live };
 }
 
 // ---------------------------------------------------------------------------
@@ -634,7 +852,10 @@ export function applyLiveDecide(input: ApplyLiveInput): LiveApplyReport {
       reason: "grounded_in names no event of this bundle — old context alone never grounds an action",
     });
   }
-  const floor = input.intentFloor ?? assistIntentConfidenceMin();
+  const thresholds = input.intentFloor === undefined
+    ? nudgeThresholds()
+    : { intentFloor: input.intentFloor, blockedKinds: nudgeThresholds().blockedKinds };
+  const floor = thresholds.intentFloor;
   const db = getDb();
   const insert = db.prepare(
     `INSERT INTO deferred_outputs (id, space_id, task_id, kind, payload_json, status, created_by, created_at)
@@ -654,7 +875,8 @@ export function applyLiveDecide(input: ApplyLiveInput): LiveApplyReport {
       report.prepared.deduped += 1;
       continue;
     }
-    const surface = preparedSurface(p, floor);
+    const verdict = nudgeVerdict({ kind: p.kind, intentConfidence: p.intent_confidence }, thresholds);
+    const surface = verdict.surface;
     const spaceId = spaceExists(p.space) ?? fallbackSpace;
     const taskRef = typeof p.inputs.task === "string" ? p.inputs.task : null;
     const taskId = taskRef
@@ -680,7 +902,7 @@ export function applyLiveDecide(input: ApplyLiveInput): LiveApplyReport {
       targetId: id,
       action: surface === "card" ? "prepare" : "prepare_shelved",
       new: { kind: p.kind, action: p.action, intent: p.intent, urgency: p.urgency, deadline_at: p.deadline_at, space: spaceId, grounded: p.groundedEventIds },
-      reason: surface === "card" ? p.reasoning : `intent confidence ${p.intent_confidence} below the floor ${floor} — shelved, no card`,
+      reason: surface === "card" ? p.reasoning : verdict.reason,
       confidence: p.intent_confidence,
     });
     report.prepared.persisted += 1;

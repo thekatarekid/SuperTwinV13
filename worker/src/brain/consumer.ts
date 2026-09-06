@@ -28,8 +28,16 @@ import { clearBundleAttempts, noteBundleAttempt } from "../db/v6core.js";
 import { ensureDigests, recordContextStats } from "../packer/index.js";
 import type { JsonPassDeps } from "./llm.js";
 import { runOrient, type OrientRun } from "./orient.js";
-import { applyLiveDecide, runLive, type LiveApplyReport, type LiveOutput, type LiveRun } from "./live.js";
-import { activeLivePrompt } from "../prompts/versions.js";
+import {
+  applyLiveDecide,
+  runLive,
+  runLiveDecide,
+  runLiveUnderstanding,
+  type LiveApplyReport,
+  type LiveOutput,
+  type LiveRun,
+} from "./live.js";
+import { activeLiveMode, activeLivePrompt, type LiveCallMode } from "../prompts/versions.js";
 import type { PackOptions } from "../packer/index.js";
 import { runCritic } from "./critic.js";
 import { commitTick, type CommitReport } from "./commit.js";
@@ -152,19 +160,37 @@ export async function runBrainTick(
     console.error("[brain] digest generation failed (continuing):", err);
   }
 
-  // V6 S4.1: a live bundle runs live.v1 — ONE call that understands and
-  // decides. History keeps orient (no decide section; any stray decide key is
-  // ignored by the orient parser). Off-switch: SUPERTWIN_PROMPT_LIVE=off.
-  const livePrompt = bundle.lane === "live" ? activeLivePrompt() : null;
+  // V6 S4.1 / S4.4: how a LIVE bundle is understood and decided.
+  //
+  //   "merged"    ONE live.v1 call — understanding and decide together.
+  //   "two-call"  Build §7.3's fallback, and the default while the S4 ship
+  //               gate's item 1 is red: the same merged pack, the frozen
+  //               orient prompt here, then live-decide.v1 AFTER the commit
+  //               (below) so the decide half can name real space ids.
+  //   "off"       Orient only — no decide half, no prepared actions.
+  //
+  // History always runs orient (no decide section; a stray decide key is
+  // ignored by the orient parser), so `assist_from_history` stays 0 by
+  // construction in every mode.
+  const mode: LiveCallMode = bundle.lane === "live" ? activeLiveMode() : "off";
+  const livePrompt = mode === "merged" ? activeLivePrompt() : null;
   const orientRun: OrientRun | LiveRun = livePrompt
     ? await runLive(bundle, deps, opts.packOpts ?? {}, livePrompt)
-    : await runOrient(bundle, deps, opts.packOpts ?? {});
-  const liveOut: LiveOutput | undefined = livePrompt ? (orientRun as LiveRun).live : undefined;
+    : mode === "two-call"
+      ? await runLiveUnderstanding(bundle, deps, opts.packOpts ?? {})
+      : await runOrient(bundle, deps, opts.packOpts ?? {});
+  const twoCall = mode === "two-call" && !orientRun.packed.held;
+  let liveOut: LiveOutput | undefined = livePrompt || twoCall ? (orientRun as LiveRun).live : undefined;
   if (!orientRun.output) {
     // Understanding quarantined — the runner parked the unit; the next tick
     // re-collects. A valid decide half still runs (LIV-05): its prepared
     // actions are grounded in this bundle's events and dedupe by content key,
-    // so the re-collected bundle cannot mint them twice.
+    // so the re-collected bundle cannot mint them twice. In two-call mode the
+    // decide call is still made here — "a bad understanding never blocks a
+    // nudge" is a property of the lane, not of one answer's shape.
+    if (twoCall) {
+      liveOut = (await runLiveDecide(orientRun as LiveRun, deps, { commit: null })).live;
+    }
     let live: LiveApplyReport | undefined;
     if (liveOut?.decide) {
       live = applyLiveDecide({
@@ -221,6 +247,18 @@ export async function runBrainTick(
   // V6 S4.1: the decide half — after the commit so tasks can land in the
   // space the understanding just touched. A bad decide never blocks the
   // commit above (it is logged inside applyLiveDecide and dropped).
+  //
+  // S4.4: in two-call mode the decide half is a SECOND CALL, made here — the
+  // commit has already happened, so the [UNDERSTANDING] block it reads names
+  // committed episodes and real space ids, and a decide that fails outright
+  // costs the tick nothing that was already written.
+  if (twoCall) {
+    try {
+      liveOut = (await runLiveDecide(orientRun as LiveRun, deps, { commit })).live;
+    } catch (err) {
+      console.error("[brain] live decide call failed (continuing):", err);
+    }
+  }
   let live: LiveApplyReport | undefined;
   if (liveOut) {
     try {

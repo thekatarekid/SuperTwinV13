@@ -22,10 +22,15 @@
 //   LIV-05  bad understanding JSON — items quarantined per item, the good one
 //           commits, the valid decide still runs
 //   LIV-06  intent floor — 0.55 against 0.7: prepared and shelved, no card
+//   LIV-07  no starvation (= GATE-09, re-homed onto the live PASS in S4.4) —
+//           200 history day-bundles queued and every background slot held,
+//           and the villa flush still completes on the pool's reserved live
+//           lane, BOTH of its §7.3 calls, with the nudge at the end of it
 // ===========================================================================
 
 import { getDb } from "../../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
+import { ResourcePool, type LlmLane } from "../../providers/pool.js";
 import { addEpisodeEvents, episodeMemberIds } from "../../db/v6core.js";
 import { runBrainTick, type TickReport } from "../../brain/consumer.js";
 import { listPreparedActions, PREPARED_ACTION_KIND, type PreparedActionRow } from "../../brain/live.js";
@@ -52,17 +57,31 @@ function list(v: unknown): Record<string, unknown>[] {
 }
 
 /**
- * The stub provider: the critic's input carries a "[DECISIONS]" block that the
- * pack never does, so the same provider can answer both calls of a tick.
+ * The stub provider. Every call of a tick is told apart by its user block, so
+ * the same canned answer serves the merged live.v1 call and both calls of the
+ * Build §7.3 two-call fallback:
+ *
+ *   critic          carries a "[DECISIONS]" block the pack never has
+ *   decide (call 2) carries the "[UNDERSTANDING]" block only live-decide.v1
+ *                   is sent (S4.4)
+ *   live            everything else — the merged call, or the fallback's
+ *                   understanding call
+ *
+ * `calls.live` therefore means the same thing in both modes (how many times
+ * the understanding half was asked), which is what LIV-01 and LIV-04 assert.
  */
-export function stubProvider(liveAnswer: string): Provider & { calls: { live: number; critic: number } } {
+export function stubProvider(
+  liveAnswer: string,
+): Provider & { calls: { live: number; critic: number; decide: number } } {
   const p = {
     id: "eval-live-stub",
-    calls: { live: 0, critic: 0 },
+    calls: { live: 0, critic: 0, decide: 0 },
     cancel: () => false,
     async send(opts: Parameters<Provider["send"]>[0]) {
       const critic = opts.message.includes("\n[DECISIONS]\n");
+      const decide = !critic && opts.message.includes("\n[UNDERSTANDING]\n");
       if (critic) p.calls.critic += 1;
+      else if (decide) p.calls.decide += 1;
       else p.calls.live += 1;
       opts.onEvent({ type: "delta", text: critic ? '{"verdicts":[]}' : liveAnswer });
       opts.onEvent({ type: "done", sessionId: "eval", usage: USAGE });
@@ -246,7 +265,11 @@ export function seedLiv(id: string, setup: Record<string, unknown>, nowMs: numbe
 }
 
 /** Remove the case's rows so the harness DB is clean for the next case. */
-export function cleanupLiv(s: LivSeeded, extraEpisodeIds: readonly string[] = []): void {
+export function cleanupLiv(
+  s: LivSeeded,
+  extraEpisodeIds: readonly string[] = [],
+  extraEventIds: readonly string[] = [],
+): void {
   const db = getDb();
   const epIds = [...new Set([...s.episodeIds, ...extraEpisodeIds])];
   db.transaction(() => {
@@ -269,9 +292,18 @@ export function cleanupLiv(s: LivSeeded, extraEpisodeIds: readonly string[] = []
       db.prepare(`DELETE FROM deferred_outputs WHERE kind = ? AND json_extract(payload_json, '$.bundleKey') LIKE ?`).run(PREPARED_ACTION_KIND, `${sid}:%`);
       db.prepare(`DELETE FROM bundle_attempts WHERE stream_id = ?`).run(sid);
     }
-    if (s.eventIds.length > 0) {
-      const ph = s.eventIds.map(() => "?").join(",");
-      db.prepare(`DELETE FROM events WHERE id IN (${ph})`).run(...s.eventIds);
+    const allEventIds = [...s.eventIds, ...extraEventIds];
+    if (allEventIds.length > 0) {
+      // Chunked: SQLite's variable limit is 999 and LIV-07 seeds 200+.
+      for (let i = 0; i < allEventIds.length; i += 500) {
+        const chunk = allEventIds.slice(i, i + 500);
+        db.prepare(`DELETE FROM events WHERE id IN (${chunk.map(() => "?").join(",")})`).run(...chunk);
+      }
+    }
+    if (extraEventIds.length > 0) {
+      db.prepare(`DELETE FROM streams WHERE id NOT IN (SELECT DISTINCT stream_id FROM events WHERE stream_id IS NOT NULL) AND external_key LIKE ?`).run(
+        `liv-%-h%@g.us`,
+      );
     }
     for (const sid of s.streamIds) db.prepare(`DELETE FROM streams WHERE id = ?`).run(sid);
   })();
@@ -280,7 +312,7 @@ export function cleanupLiv(s: LivSeeded, extraEpisodeIds: readonly string[] = []
 export interface LivRun {
   seeded: LivSeeded;
   report: TickReport;
-  calls: { live: number; critic: number };
+  calls: { live: number; critic: number; decide: number };
   prepared: PreparedActionRow[];
   tasks: { id: string; title: string; status: string; space_id: string | null; schedule_json: string | null }[];
   episodes: { id: string; space_id: string | null; members: string[] }[];
@@ -289,6 +321,80 @@ export interface LivRun {
   closureChecks: number;
   /** Spaces queued for the per-space decide pass — where a closure check is decided. */
   queuedSpaces: string[];
+  /** LIV-07 only: what the saturated pool looked like around the live tick. */
+  starvation?: StarvationRun;
+  /** Event ids seeded outside the bundle (LIV-07's history backlog). */
+  extraEventIds?: string[];
+}
+
+/** LIV-07: the pool under load, and how the live tick fared inside it. */
+export interface StarvationRun {
+  historyBundles: number;
+  /** Background calls holding a slot when the live flush started. */
+  inFlightBefore: number;
+  /** Background calls queued behind them when the live flush started. */
+  waitingBefore: number;
+  /** Wall-clock ms the whole live tick took, parked backlog and all. */
+  elapsedMs: number;
+  /** Parked background calls that finished before the live tick did. */
+  historyCompletedDuringLive: number;
+}
+
+/**
+ * LIV-07: queue `n` history day-bundles in the log (undispatched backfill rows
+ * on their own streams), then hold every background slot the pool allows and
+ * fill its waiter queue. Returns the backlog's event ids (for cleanup) and a
+ * `release` the caller MUST call — the parked work stays parked until then,
+ * which is the whole point: a live call that waited on it could never finish.
+ */
+function saturate(
+  id: string,
+  setup: Record<string, unknown>,
+  nowMs: number,
+): {
+  pool: ResourcePool;
+  eventIds: string[];
+  historyBundles: number;
+  release: () => void;
+  done: () => number;
+  settled: Promise<unknown>;
+} {
+  const historyBundles = Math.max(0, Math.floor(num(setup.history_bundles, 200)));
+  const envs: EventEnvelope[] = [];
+  for (let i = 0; i < historyBundles; i++) {
+    envs.push({
+      ts: new Date(Date.parse("2024-01-01T09:00:00.000Z") + i * 86_400_000).toISOString(),
+      source: "wa",
+      kind: "wa.message",
+      origin: "backfill",
+      streamKey: `liv-${id.toLowerCase()}-h${i}@g.us`,
+      actor: "contact:someone",
+      roles: { sender: "contact:someone", audience: ["self"], receiver: ["self"], mentions: [] },
+      payload: { text: `history day ${i}`, external_id: `${id}:h${i}` },
+    });
+  }
+  const eventIds = (envs.length > 0 ? appendEvents(envs, nowMs).ids : []).filter((x) => x !== "");
+
+  const pool = new ResourcePool({ limits: { llm: Math.max(1, Math.floor(num(setup.llm, 4))) }, warmFirst: false });
+  let release!: () => void;
+  const parked = new Promise<void>((r) => (release = r));
+  let done = 0;
+  const lanes = (Array.isArray(setup.parked_lanes) ? setup.parked_lanes : ["understanding", "understanding", "enrichment"])
+    .filter((l): l is LlmLane => l === "understanding" || l === "enrichment" || l === "live");
+  const running: Promise<unknown>[] = [];
+  const park = (lane: LlmLane): void => {
+    running.push(
+      pool
+        .run("llm", () => parked, { lane })
+        .then(() => {
+          done += 1;
+        })
+        .catch(() => undefined),
+    );
+  };
+  for (const lane of lanes) park(lane);
+  for (let i = 0; i < Math.max(0, Math.floor(num(setup.queued_waiters, 12))); i++) park("understanding");
+  return { pool, eventIds, historyBundles, release, done: () => done, settled: Promise.all(running) };
 }
 
 /** Seed, run the real tick with the stub provider, read back. */
@@ -297,6 +403,7 @@ export async function runLivCase(id: string, setup: unknown): Promise<LivRun> {
   const nowMs = Date.parse(str(s.now) ?? LIV_NOW_ISO);
   const seeded = seedLiv(id, s, nowMs);
   const provider = stubProvider(JSON.stringify(s.live ?? {}));
+  const load = s.history_bundles === undefined ? null : saturate(id, s, nowMs);
   const deps: JsonPassDeps = {
     provider,
     now: () => new Date(nowMs),
@@ -304,8 +411,20 @@ export async function runLivCase(id: string, setup: unknown): Promise<LivRun> {
     recordRun: () => `eval-${id}`,
     logExtractionRun: () => undefined,
     quarantine: () => undefined,
+    ...(load ? { pool: load.pool } : {}),
   };
+  // Let the parked background work reach the pool before the flush arrives.
+  if (load) for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r));
+  const inFlightBefore = load ? load.pool.inFlight("llm") : 0;
+  const waitingBefore = load ? load.pool.waiting("llm") : 0;
+  const startedAt = Date.now();
   const report = await runBrainTick(seeded.bundle, deps, { packOpts: { nowMs, thinPolicy: "off" } });
+  const elapsedMs = Date.now() - startedAt;
+  const historyCompletedDuringLive = load ? load.done() : 0;
+  if (load) {
+    load.release();
+    await load.settled;
+  }
   const db = getDb();
   const spaces = seeded.spaceIds;
   const ph = spaces.map(() => "?").join(",");
@@ -334,6 +453,18 @@ export async function runLivCase(id: string, setup: unknown): Promise<LivRun> {
     queuedSpaces: spaces.length > 0
       ? (db.prepare(`SELECT space_id FROM decide_queue WHERE space_id IN (${ph}) ORDER BY space_id`).all(...spaces) as { space_id: string }[]).map((r) => r.space_id)
       : [],
+    ...(load
+      ? {
+          starvation: {
+            historyBundles: load.historyBundles,
+            inFlightBefore,
+            waitingBefore,
+            elapsedMs,
+            historyCompletedDuringLive,
+          },
+          extraEventIds: load.eventIds,
+        }
+      : {}),
   };
 }
 
@@ -391,7 +522,12 @@ function assertCase(id: string, run: LivRun, expected: Record<string, unknown>):
     }
     case "LIV-04": {
       if (run.report.status !== "committed") v.push({ label: "decide-blocked-commit", note: `tick status ${run.report.status}` });
-      if (run.calls.live > 1) v.push({ label: "decide-blocked-commit", note: `${run.calls.live} live calls — a repair round was spent on the decide section` });
+      if (run.calls.live > 1 || run.calls.decide > 1) {
+        v.push({
+          label: "decide-blocked-commit",
+          note: `${run.calls.live} understanding call(s) + ${run.calls.decide} decide call(s) — a repair round was spent on the decide section`,
+        });
+      }
       if (!run.report.live?.decide || run.report.live.decide.tasksCreated > 0 || run.prepared.length > 0) {
         v.push({ label: "decide-applied", note: `tasks ${run.report.live?.decide.tasksCreated ?? "?"}, prepared ${run.prepared.length}` });
       }
@@ -411,6 +547,41 @@ function assertCase(id: string, run: LivRun, expected: Record<string, unknown>):
       if (!first) v.push({ label: "card-shown", note: "nothing prepared — the work below the floor is shelved, not dropped" });
       else if (first.payload.surface !== "shelf") v.push({ label: "card-shown", note: `surface ${first.payload.surface} at intent_confidence ${first.payload.intent_confidence}` });
       if ((run.report.live?.prepared.cards ?? 0) > 0) v.push({ label: "card-shown", note: `${run.report.live?.prepared.cards} card(s)` });
+      break;
+    }
+    case "LIV-07": {
+      const st = run.starvation;
+      if (!st) {
+        v.push({ label: "live-behind-history", note: "the pool was never saturated — the case proves nothing" });
+        break;
+      }
+      // The setup has to be real before the result means anything: background
+      // work must actually hold slots AND have a queue behind it.
+      if (st.inFlightBefore <= 0) v.push({ label: "live-behind-history", note: "no background call held a slot when the flush arrived" });
+      if (st.waitingBefore <= 0) v.push({ label: "live-behind-history", note: "nothing was queued behind the background work" });
+      const wantBundles = num(expected.history_bundles, 200);
+      if (st.historyBundles < wantBundles) v.push({ label: "live-behind-history", note: `${st.historyBundles} history bundles queued, expected ${wantBundles}` });
+      // The assertion itself (GATE-09): the flush completed, and it completed
+      // without any parked history call being released first.
+      const budgetMs = num(expected.live_call_completes_within_s, 30) * 1000;
+      if (st.elapsedMs >= budgetMs) v.push({ label: "live-behind-history", note: `the live tick took ${st.elapsedMs} ms, budget ${budgetMs} ms` });
+      if (st.historyCompletedDuringLive > 0) {
+        v.push({ label: "live-behind-history", note: `${st.historyCompletedDuringLive} parked history call(s) completed first` });
+      }
+      if (run.report.status !== "committed") v.push({ label: "live-behind-history", note: `tick status ${run.report.status}` });
+      // …and the flush produced the thing a live flush is for.
+      const wantCalls = rec(expected.calls);
+      if (run.calls.live !== num(wantCalls.understanding, 1) || run.calls.decide !== num(wantCalls.decide, 1)) {
+        v.push({
+          label: "nudge-starved",
+          note: `${run.calls.live} understanding + ${run.calls.decide} decide call(s) — the §7.3 fallback spends one of each`,
+        });
+      }
+      if (run.prepared.length !== num(expected.prepared, 1)) {
+        v.push({ label: "nudge-starved", note: `${run.prepared.length} prepared action(s), expected ${num(expected.prepared, 1)}` });
+      }
+      const ep = run.episodes.find((e) => e.id === (str(expected.episode) ?? "ep_611"));
+      if (!ep || !ep.members.includes("e1")) v.push({ label: "nudge-starved", note: "e1 did not join the open episode" });
       break;
     }
     default:
@@ -448,11 +619,13 @@ export const liveExecutor: Executor = async ({ fixture }) => {
         decisions: run.decisions.map((d) => d.action),
         closure_checks: run.closureChecks,
         decide_queued: run.queuedSpaces,
+        ...(run.starvation ? { starvation: run.starvation } : {}),
       },
       violations,
       metrics: {
         model_calls: 0,
         canned_live_answers: run.calls.live,
+        canned_decide_answers: run.calls.decide,
         canned_critic_answers: run.calls.critic,
         prepared_persisted: run.prepared.length,
         prepared_cards: run.report.live?.prepared.cards ?? 0,
@@ -466,10 +639,15 @@ export const liveExecutor: Executor = async ({ fixture }) => {
         { gateId: "assist_from_history", passed: !historyLane || run.prepared.length === 0, counted: true },
         { gateId: "nudge_without_grounding", passed: run.prepared.every((p) => p.payload.groundedEventIds.length > 0), counted: true },
       ],
-      notes: ["recorded live.v1 output through the real tick (pack → live.v1 → critic → commit → applyLiveDecide); clock pinned to the fixture's [NOW]; critic answered {\"verdicts\":[]}"],
+      notes: [
+        `recorded live output through the real tick (pack → ${run.calls.decide > 0 ? "orient + live-decide.v1 (§7.3 two-call)" : "live.v1"} → critic → commit → applyLiveDecide); clock pinned to the fixture's [NOW]; critic answered {"verdicts":[]}`,
+        ...(run.starvation
+          ? [`pool saturated: ${run.starvation.inFlightBefore} in flight, ${run.starvation.waitingBefore} queued, ${run.starvation.historyBundles} history bundles pending; live tick ${run.starvation.elapsedMs} ms`]
+          : []),
+      ],
     };
     return result;
   } finally {
-    cleanupLiv(run.seeded, run.report.commit?.committedEpisodes.map((e) => e.episodeId) ?? []);
+    cleanupLiv(run.seeded, run.report.commit?.committedEpisodes.map((e) => e.episodeId) ?? [], run.extraEventIds ?? []);
   }
 };

@@ -26,6 +26,7 @@ import { CRITIC_V5 } from "./critic.v5.js";
 import { ORIENT_V6 } from "./orient.v6.js";
 import { ORIENT_V7 } from "./orient.v7.js";
 import { LIVE_V1 } from "./live.v1.js";
+import { LIVE_DECIDE_V1 } from "./live-decide.v1.js";
 
 export type PromptFamily = "orient" | "critic";
 
@@ -137,30 +138,84 @@ export function modelForVersionedPass(prompt: VersionedPrompt): string {
 }
 
 // ---------------------------------------------------------------------------
-// The LIVE pass (V6 P1 S4.1, P-01). One version so far; the live lane runs it
-// by default. `SUPERTWIN_PROMPT_LIVE=off` (or app_state `prompt_version.live`
-// = "off") falls the live lane back to orient.v7-style understanding only —
-// the S4 §7.3 fallback ("keep the merged pack, make two calls").
+// The LIVE pass (V6 P1 S4.1, P-01) and how many calls it costs (S4.4).
+//
+// Three shapes, selected by `SUPERTWIN_PROMPT_LIVE` (env) → app_state
+// `prompt_version.live` → the default below:
+//
+//   "v1" | "merged"   ONE call: live.v1 understands AND decides (S4.1).
+//   "two-call"        The Build §7.3 FALLBACK: the same merged pack, two
+//                     calls — the frozen orient prompt for understanding,
+//                     then live-decide.v1 for the decide half.
+//   "off"             Understanding only. No decide half at all, so no
+//                     prepared actions, no cards. The kill switch, not the
+//                     fallback.
+//
+// THE DEFAULT IS THE FALLBACK. §7.3 gates the merged one-call pass on four
+// items; item 1 (ORIENT golden set ≥ baseline) measured 9/10 then 8/10 against
+// a frozen 100% at the S4 gate, so the merged call is NOT what production
+// runs. Flipping back is one constant here plus the checklist in
+// evals/ship-gate.test.ts.
 // ---------------------------------------------------------------------------
 
 export const LIVE_VERSIONS = {
   v1: { pass: LIVE_V1.pass, version: LIVE_V1.version, system: LIVE_V1.system, settingsKey: LIVE_V1.settingsKey },
 } as const satisfies Record<string, VersionedPrompt>;
 
+/** The decide-only prompt of the §7.3 two-call fallback (P-01's decide half). */
+export const LIVE_DECIDE_VERSIONS = {
+  v1: {
+    pass: LIVE_DECIDE_V1.pass,
+    version: LIVE_DECIDE_V1.version,
+    system: LIVE_DECIDE_V1.system,
+    settingsKey: LIVE_DECIDE_V1.settingsKey,
+  },
+} as const satisfies Record<string, VersionedPrompt>;
+
 export type LiveVersion = keyof typeof LIVE_VERSIONS;
+export type LiveDecideVersion = keyof typeof LIVE_DECIDE_VERSIONS;
 export const DEFAULT_LIVE_VERSION: LiveVersion = "v1";
+export const DEFAULT_LIVE_DECIDE_VERSION: LiveDecideVersion = "v1";
 export const LIVE_PROMPT_ENV = "SUPERTWIN_PROMPT_LIVE";
 export const LIVE_PROMPT_OFF = "off";
+export const LIVE_PROMPT_TWO_CALL = "two-call";
 
-/** app_state key holding the live pass selection ("v1" | "off"). */
+/** How many model calls the live lane spends on one bundle, and on what. */
+export type LiveCallMode = "merged" | "two-call" | "off";
+
+/**
+ * Build §7.3 fallback, engaged: item 1 of the S4 ship gate is red, so the
+ * live lane makes TWO calls over the merged pack. Set to "merged" in the same
+ * commit that records a green ORIENT golden re-measure.
+ */
+export const DEFAULT_LIVE_MODE: LiveCallMode = "two-call";
+
+/** app_state key holding the live pass selection ("v1" | "two-call" | "off"). */
 export function livePromptVersionKey(): string {
   return "prompt_version.live";
 }
 
 /**
- * The live prompt to run on the live lane, or null when it is switched off
- * (env → app_state → default v1). Off means the consumer runs the orient
- * prompt for live bundles too — understanding only, no prepared actions.
+ * The shape of the live call: env → app_state → `DEFAULT_LIVE_MODE`. An
+ * unknown tag is the default, never an error — a typo in Settings must not
+ * take the live lane down.
+ */
+export function activeLiveMode(): LiveCallMode {
+  for (const candidate of [normalise(process.env[LIVE_PROMPT_ENV]), normalise(stored(livePromptVersionKey()))]) {
+    if (!candidate) continue;
+    if (candidate === LIVE_PROMPT_OFF) return "off";
+    if (candidate === LIVE_PROMPT_TWO_CALL || candidate === "two" || candidate === "fallback") return "two-call";
+    if (candidate === "merged" || candidate in LIVE_VERSIONS) return "merged";
+  }
+  return DEFAULT_LIVE_MODE;
+}
+
+/**
+ * The MERGED live prompt (live.v1) — what runs when `activeLiveMode()` is
+ * "merged", and null when the live lane is switched off entirely. It is not
+ * the mode: under the §7.3 fallback this still names live.v1 (the prompt the
+ * gate is about) while the lane makes two calls instead. Ask `activeLiveMode`
+ * for what actually runs.
  */
 export function activeLivePrompt(): VersionedPrompt | null {
   for (const candidate of [normalise(process.env[LIVE_PROMPT_ENV]), normalise(stored(livePromptVersionKey()))]) {
@@ -168,4 +223,9 @@ export function activeLivePrompt(): VersionedPrompt | null {
     if (candidate && candidate in LIVE_VERSIONS) return LIVE_VERSIONS[candidate as LiveVersion];
   }
   return LIVE_VERSIONS[DEFAULT_LIVE_VERSION];
+}
+
+/** The decide-only prompt for the two-call fallback's second call. */
+export function activeLiveDecidePrompt(): VersionedPrompt {
+  return LIVE_DECIDE_VERSIONS[DEFAULT_LIVE_DECIDE_VERSION];
 }

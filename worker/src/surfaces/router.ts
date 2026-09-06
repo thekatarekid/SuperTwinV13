@@ -69,6 +69,7 @@ import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import { appStateGet, appStateSet } from "../db/ingest.js";
 import { assistP1Settings } from "../settings/p1-settings.js";
+import { nudgeThresholds, nudgeVerdict } from "./nudge-verdict.js";
 
 // ---------------------------------------------------------------------------
 // The surfaces
@@ -282,8 +283,15 @@ export function routeSurfaces(items: readonly RoutableItem[], ctx: RouterContext
   let cardTaken = false;
   scored.forEach((entry, rank) => {
     const { group } = entry;
-    const blocked = ctx.blockedKinds.includes(group.kind);
-    const aboveFloor = group.lead.intentConfidence >= ctx.intentFloor;
+    // S4.4: one verdict function, shared with the writer (brain/live.ts), so
+    // the floor the prepared row was stamped with is the floor the router
+    // reads back. `nudgeVerdict` is the only place either of them applies it.
+    const verdict = nudgeVerdict(
+      { kind: group.kind, intentConfidence: group.lead.intentConfidence },
+      { intentFloor: ctx.intentFloor, blockedKinds: ctx.blockedKinds },
+    );
+    const blocked = verdict.verdict === "blocked";
+    const aboveFloor = verdict.verdict === "card";
     // A blocked kind is the user's own "whether"; it is filed, never shown.
     if (blocked) {
       plans.push({
@@ -427,6 +435,7 @@ export function forgiveDismissal(kind: string): number {
 
 export function routerContext(nowMs: number = Date.now(), overrides: Partial<RouterContext> = {}): RouterContext {
   const s = assistP1Settings();
+  const t = nudgeThresholds();
   const labels: Record<string, string> = {};
   for (const row of getDb().prepare(`SELECT id, label FROM spaces`).all() as { id: string; label: string }[]) {
     labels[row.id] = row.label;
@@ -434,10 +443,10 @@ export function routerContext(nowMs: number = Date.now(), overrides: Partial<Rou
   return {
     nowMs,
     macActive: macActive(nowMs),
-    intentFloor: s.intent_floor,
+    intentFloor: t.intentFloor,
     mergeWindowMs: s.merge_window_s * 1000,
     cardDurationMs: s.card_duration_s * 1000,
-    blockedKinds: s.blocked_kinds,
+    blockedKinds: t.blockedKinds,
     dismissals: kindDismissals(),
     spaceLabels: labels,
     ...overrides,

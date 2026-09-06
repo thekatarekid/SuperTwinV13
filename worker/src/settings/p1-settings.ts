@@ -111,7 +111,13 @@ export const BEHAVIORAL_RULES_KEY = "assist.behavioral_rules";
 export const DEFAULT_CARD_DURATION_S = 60;
 /** Two nudges on one context inside this window merge into one card. */
 export const DEFAULT_MERGE_WINDOW_S = 120;
-export const DEFAULT_INTENT_FLOOR = 0.6;
+/**
+ * Spec §10.1, and the ONE default for this key (S4.4). It used to be 0.6 here
+ * while brain/live.ts read the same `assist.intent_confidence_min` row with a
+ * 0.7 default, so an action at 0.65 was shelved by the writer and carded by
+ * the router. Both now go through surfaces/nudge-verdict.ts.
+ */
+export const DEFAULT_INTENT_FLOOR = 0.7;
 
 export const FRESHNESS_PRESET_IDS = Object.keys(FRESHNESS_PRESETS) as FreshnessPreset[];
 

@@ -30,8 +30,19 @@
 // v7/v5 pair), so ITEM 1 DOES NOT HOLD and the §7.3 fallback applies: keep the
 // merged pack, do NOT flip the defaults, do NOT delete `assist/`. The tests
 // below assert that fallback state, so nothing downstream can proceed as if
-// the gate were green. When a re-measure clears the bar, these three
-// assertions are the checklist to flip.
+// the gate were green.
+//
+// S4.4 ENGAGED THE OTHER HALF of that fallback — "make two calls". The live
+// lane no longer runs the merged one-call `live.v1` by default: it packs once
+// (S3.2, unchanged) and spends the frozen orient prompt on understanding, then
+// `live-decide.v1` on the decide half. So the only understanding prompt
+// production runs is the one the ORIENT golden set measures, and nothing the
+// twin files rides on text item 1 could not clear.
+//
+// THE CHECKLIST TO FLIP, when a re-measure clears the bar:
+//   1. `DEFAULT_ORIENT_VERSION` / `DEFAULT_CRITIC_VERSION` → v7 / v5
+//   2. `DEFAULT_LIVE_MODE` → "merged"
+//   3. delete `assist/{watcher,evaluator,gate}.ts` and this file
 //
 // Zero model calls in this file.
 // ===========================================================================
@@ -45,19 +56,27 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { setConsentGateMode } from "../db/consent-gate.js";
 import { listPreparedActions } from "../brain/live.js";
 import { ORIENT_V7_PACK, ORIENT_V7_SCHEMA } from "../prompts/orient.v7.js";
-import { LIVE_V1 } from "../prompts/live.v1.js";
+import { LIVE_V1, LIVE_V1_DECIDE_SCHEMA } from "../prompts/live.v1.js";
+import { LIVE_DECIDE_V1 } from "../prompts/live-decide.v1.js";
 import {
   activeCriticPrompt,
+  activeLiveMode,
   activeLivePrompt,
   activeOrientPrompt,
   CRITIC_VERSIONS,
   DEFAULT_CRITIC_VERSION,
+  DEFAULT_LIVE_MODE,
+  DEFAULT_LIVE_VERSION,
   DEFAULT_ORIENT_VERSION,
   LIVE_PROMPT_ENV,
   LIVE_PROMPT_OFF,
+  LIVE_PROMPT_TWO_CALL,
+  LIVE_VERSIONS,
   ORIENT_VERSIONS,
   PROMPT_VERSION_ENV,
 } from "../prompts/versions.js";
+import { DEFAULT_INTENT_FLOOR } from "../settings/p1-settings.js";
+import { DEFAULT_NUDGE_INTENT_FLOOR, nudgeThresholds, nudgeVerdict } from "../surfaces/nudge-verdict.js";
 import { loadFixture } from "./fixtures.js";
 import { astParityGaps } from "./parity.js";
 import { cleanupLiv, runLivCase, type LivRun } from "./executors/liv.js";
@@ -90,25 +109,52 @@ describe("§7.3 item 1 — ORIENT golden set (measured red; the fallback holds)"
     expect(PROMPT_VERSION_ENV.critic).toBe("SUPERTWIN_PROMPT_CRITIC");
   });
 
-  it("the live lane's understanding half is orient.v7's own text, so a green re-measure would carry", () => {
+  it("the merged pass still embeds orient.v7's own text, so a green re-measure would carry", () => {
     // If live.v1 paraphrased orient.v7 instead of embedding it, a TOP score
-    // measured on the orient pass would say nothing about the live lane.
-    const live = activeLivePrompt();
-    expect(live).not.toBeNull();
-    expect(live!.pass).toBe("live.v1");
+    // measured on the orient pass would say nothing about the merged live
+    // lane we would be flipping back to. It does not paraphrase — and while
+    // the gate is red the lane does not run it at all (see the fallback
+    // block below).
+    const live = LIVE_VERSIONS[DEFAULT_LIVE_VERSION];
+    expect(live.pass).toBe("live.v1");
     expect(LIVE_V1.system).toContain(ORIENT_V7_SCHEMA);
     expect(LIVE_V1.system).toContain(ORIENT_V7_PACK);
   });
 });
 
 describe("§7.3 fallback — one of the four is red, so the retirement is blocked", () => {
-  it("the merged pack stays, and \"make two calls\" stays reachable as a switch", () => {
+  it("the fallback is ENGAGED: the merged pack stays and the live lane makes TWO calls", () => {
+    // "Keep the merged pack, make two calls, do not delete assist/." Not a
+    // switch someone could forget to throw — the default itself.
+    expect(DEFAULT_LIVE_MODE).toBe("two-call");
+    expect(activeLiveMode()).toBe("two-call");
+    // The merged pack is the S3.2 packer, and both calls read the same one:
+    // the decide prompt describes the very same blocks.
+    expect(LIVE_DECIDE_V1.system).toContain(ORIENT_V7_PACK);
+    // Call 1 is the FROZEN orient prompt, byte for byte — the pass the golden
+    // set scores. That is what makes the fallback worth anything.
+    expect(activeOrientPrompt().pass).toBe("orient.v6");
+    // Call 2 is P-01's decide half, sharing its schema verbatim with live.v1
+    // so both modes parse one shape.
+    expect(LIVE_DECIDE_V1.pass).toBe("live-decide.v1");
+    expect(LIVE_V1.system).toContain(LIVE_V1_DECIDE_SCHEMA);
+    expect(LIVE_DECIDE_V1.system).toContain(LIVE_V1_DECIDE_SCHEMA);
+  });
+
+  it("the merged one-call pass stays selectable, so flipping back is one env var", () => {
     expect(LIVE_PROMPT_ENV).toBe("SUPERTWIN_PROMPT_LIVE");
     expect(LIVE_PROMPT_OFF).toBe("off");
+    expect(LIVE_PROMPT_TWO_CALL).toBe("two-call");
     const saved = process.env[LIVE_PROMPT_ENV];
     try {
+      process.env[LIVE_PROMPT_ENV] = "v1";
+      expect(activeLiveMode()).toBe("merged");
+      expect(activeLivePrompt()!.pass).toBe("live.v1");
       process.env[LIVE_PROMPT_ENV] = LIVE_PROMPT_OFF;
+      expect(activeLiveMode()).toBe("off");
       expect(activeLivePrompt()).toBeNull();
+      process.env[LIVE_PROMPT_ENV] = "nonsense";
+      expect(activeLiveMode()).toBe(DEFAULT_LIVE_MODE); // a typo never takes the lane down
     } finally {
       if (saved === undefined) delete process.env[LIVE_PROMPT_ENV];
       else process.env[LIVE_PROMPT_ENV] = saved;
@@ -118,9 +164,25 @@ describe("§7.3 fallback — one of the four is red, so the retirement is blocke
   it("`assist/` is STILL IN THE TREE — §7.3 gates its deletion on all four", () => {
     // Delete this test in the same commit that deletes assist/, and only once
     // `npm run eval -- --cat TOP --compare-baseline` reports COMPARE: green.
+    // S4.4 could not do it: item 1 is red, so the input-side gate, its watcher
+    // and its evaluator stay where they are.
     for (const f of ["index.ts", "watcher.ts", "evaluator.ts", "gate.ts", "artifacts.ts"]) {
       expect(existsSync(join(import.meta.dirname, "../assist", f)), `assist/${f}`).toBe(true);
     }
+  });
+
+  it("the behavioural thresholds already moved — one floor, one reader, both sides", () => {
+    // S4.4's half of the retirement that does NOT need assist/ gone: the
+    // output-side verdict. brain/live.ts (the writer) and surfaces/router.ts
+    // (the reader) used to hold two different defaults for the same
+    // `assist.intent_confidence_min` row — 0.7 and 0.6 — so an action at 0.65
+    // was shelved by one and carded by the other. Now there is one function.
+    expect(DEFAULT_INTENT_FLOOR).toBe(DEFAULT_NUDGE_INTENT_FLOOR);
+    expect(nudgeThresholds().intentFloor).toBe(DEFAULT_NUDGE_INTENT_FLOOR);
+    const t = { intentFloor: 0.7, blockedKinds: ["something_moved"] };
+    expect(nudgeVerdict({ kind: "needs_you", intentConfidence: 0.65 }, t).surface).toBe("shelf");
+    expect(nudgeVerdict({ kind: "needs_you", intentConfidence: 0.7 }, t).surface).toBe("card");
+    expect(nudgeVerdict({ kind: "something_moved", intentConfidence: 0.99 }, t).verdict).toBe("blocked");
   });
 });
 

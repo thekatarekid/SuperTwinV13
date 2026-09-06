@@ -555,7 +555,9 @@ describe("runBrainTick · salvage through the consumer", () => {
       expect(plan.bundles[0].events.map((e) => e.id)).toEqual([e2]);
       const deps = stubDeps([badOnly, critic]);
       const report = await runBrainTick(plan.bundles[0], deps);
-      expect(deps.calls()).toBe(2);
+      // Understanding + Critic + the S4.4 decide call (Build §7.3's two-call
+      // fallback; the third answer falls off the script and decides nothing).
+      expect(deps.calls()).toBe(3);
       expect(report.commit?.rejected).toBe(1);
       left = db().prepare(`SELECT id FROM events WHERE dispatched_at IS NULL AND stream_key IS NOT NULL`).all() as { id: string }[];
       if (strike < 3) expect(left.map((x) => x.id)).toEqual([e2]);

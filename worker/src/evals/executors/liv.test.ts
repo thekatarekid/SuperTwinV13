@@ -1,7 +1,9 @@
 // ===========================================================================
-// LIV executor (V6 P1 S4.1): the six code cases run against the real
-// fixtures in evals/v13 through the real live tick — recorded live.v1
-// output, pinned clock, zero model calls, sandboxed DB.
+// LIV executor (V6 P1 S4.1 + S4.4): the seven code cases run against the real
+// fixtures in evals/v13 through the real live tick — recorded live output,
+// pinned clock, zero model calls, sandboxed DB. The live lane runs Build
+// §7.3's two-call fallback here as it does in production, so each case spends
+// one understanding call and one decide call on the same canned answer.
 // ===========================================================================
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,7 +58,7 @@ async function run(id: string) {
   return { r, out: r.output as Out };
 }
 
-describe("live executor (LIV-01..06)", () => {
+describe("live executor (LIV-01..07)", () => {
   it("LIV-01: the villa sentence — needs_you · today · 17:00+05:30 · e1 · t_88; e1 joins ep_611 in sp_goa_dec", async () => {
     const { r, out } = await run("LIV-01");
     expect(r.violations).toEqual([]);
@@ -127,5 +129,25 @@ describe("live executor (LIV-01..06)", () => {
     expect(out.prepared[0]).toMatchObject({ surface: "shelf", intent_confidence: 0.55 });
     expect(out.live?.prepared).toMatchObject({ persisted: 1, cards: 0, shelved: 1 });
     expect(out.decisions).toContain("prepare_shelved");
+  });
+
+  it("LIV-07: no starvation — 200 history bundles queued and every background slot held, and the live flush still lands", async () => {
+    const { r, out } = await run("LIV-07");
+    expect(r.violations).toEqual([]);
+    expect(out.tick.status).toBe("committed");
+    // Both §7.3 calls went through the reserved live lane while the
+    // background lanes were parked, and neither parked call was released
+    // first — the pool held the live slot back, as GATE-09 says it must.
+    expect(r.metrics).toMatchObject({ canned_live_answers: 1, canned_decide_answers: 1, canned_critic_answers: 1 });
+    const st = (r.output as { starvation: { inFlightBefore: number; waitingBefore: number; elapsedMs: number; historyCompletedDuringLive: number; historyBundles: number } }).starvation;
+    expect(st.historyBundles).toBe(200);
+    expect(st.inFlightBefore).toBeGreaterThan(0);
+    expect(st.waitingBefore).toBeGreaterThan(0);
+    expect(st.historyCompletedDuringLive).toBe(0);
+    expect(st.elapsedMs).toBeLessThan(30_000);
+    // The flush produced what a flush is for.
+    expect(out.prepared).toHaveLength(1);
+    expect(out.prepared[0]).toMatchObject({ kind: "needs_you", surface: "card", grounded: ["e1"] });
+    expect(out.episodes.find((e) => e.id === "ep_611")!.members).toContain("e1");
   });
 });

@@ -70,7 +70,19 @@ export {
   type AmbiguousResolver,
   type DomainStats,
 } from "./category.js";
-export { assignChains, CHAIN_GAP_MS, type ChainedVisit } from "./chains.js";
+export {
+  assignChains,
+  browserStreamKey,
+  CHAIN_GAP_MS,
+  docStreamKey,
+  parseStreamKey,
+  screenStreamKey,
+  utcDayOf,
+  waStreamKey,
+  type AssignChainsOptions,
+  type ChainedVisit,
+  type ParsedStreamKey,
+} from "./chains.js";
 export {
   chromeTimeToUnixMs,
   decodeChromeTransition,

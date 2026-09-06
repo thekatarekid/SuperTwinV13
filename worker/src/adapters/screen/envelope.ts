@@ -31,6 +31,7 @@ import type { EventEnvelope, EventIdentity } from "../../db/eventlog.js";
 import { blobAddress, getBlobText, putBlob } from "../../db/v6core.js";
 import { ageBandOf, SELF_ROLES } from "../browser/envelope.js";
 import type { SnapshotFrame } from "./frames.js";
+import { docPathOf, docStreamKey, screenStreamKey, sessionIdOf, type ScreenSessionTracker } from "../stream-keys.js";
 
 export const SCREEN_SOURCE_ID = "screen";
 
@@ -290,6 +291,32 @@ export function screenBlobAddress(text: string): string {
   return blobAddress(text);
 }
 
+// ---- Stream key (V6 S3.4) ------------------------------------------------------
+
+/**
+ * The stream a frame belongs to (adapters/stream-keys.ts):
+ *
+ *   doc:<path>                   — doc_key names a file (AXDocument path / file URL):
+ *                                  one document, whichever app shows it;
+ *   screen:<bundleId>:<session>  — otherwise: one app session, closed by the
+ *                                  30-minute idle gap the tracker enforces.
+ *
+ * The sidecar's own `bundleId¦docKey` stays the dedup / diff-anchor identity
+ * (ScreenTextStore, screenEventHash) — that is per document, this is per stream.
+ * Without a tracker every frame opens its own session (tests, one-off calls).
+ */
+export function screenStreamKeyFor(
+  frame: Pick<SnapshotFrame, "bundle_id" | "doc_key" | "ts">,
+  sessions?: ScreenSessionTracker,
+): string {
+  const path = docPathOf(frame.doc_key);
+  if (path) return docStreamKey(path);
+  const tsMs = Date.parse(frame.ts);
+  const at = Number.isFinite(tsMs) ? tsMs : Date.now();
+  const session = sessions ? sessions.sessionFor(frame.bundle_id, at) : sessionIdOf(at);
+  return screenStreamKey(frame.bundle_id, session);
+}
+
 // ---- The envelope ------------------------------------------------------------
 
 /**
@@ -301,6 +328,7 @@ export function toScreenEnvelope(
   frame: SnapshotFrame,
   nowMs: number = Date.now(),
   stored?: StoredScreenText | null,
+  streamKey: string = screenStreamKeyFor(frame),
 ): EventEnvelope {
   const payload: ScreenSnapshotPayload = {
     bundle_id: frame.bundle_id,
@@ -328,7 +356,7 @@ export function toScreenEnvelope(
     // The screen has no backfill: every capture is the live present.
     origin: "live",
     ageBand: ageBandOf(Date.parse(frame.ts) || nowMs, nowMs),
-    streamKey: frame.stream_key,
+    streamKey,
     actor: "self",
     roles: SELF_ROLES,
     identity: screenIdentity(frame),

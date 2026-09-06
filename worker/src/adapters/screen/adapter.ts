@@ -21,9 +21,11 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { getDb } from "../../db/connection.js";
 import { appStateGet, appStateSet } from "../../db/ingest.js";
 import type { ChildLike, SpawnFn } from "../whatsapp/adapter.js";
-import { ScreenTextStore, toScreenEnvelope, type BlobPut, type StoredScreenText } from "./envelope.js";
+import { ScreenTextStore, screenStreamKeyFor, toScreenEnvelope, type BlobPut, type StoredScreenText } from "./envelope.js";
+import { parseStreamKey, SCREEN_SESSION_GAP_MS, ScreenSessionTracker, type ScreenSessionSeed } from "../stream-keys.js";
 import {
   isSnapshotFrame,
   type ScreenDropFrame,
@@ -142,6 +144,32 @@ const dbPauseState: ScreenPauseState = {
   set: (key, value) => appStateSet(key, value),
 };
 
+/**
+ * Sessions still open on disk (V6 S3.4): the newest `screen:<bundleId>:<session>`
+ * frame per app inside one idle gap. Seeding the tracker with these keeps a
+ * restart on the same stream instead of opening a fresh session per boot.
+ */
+function dbSessionSeed(nowMs: number = Date.now()): ScreenSessionSeed[] {
+  const cutoff = new Date(nowMs - SCREEN_SESSION_GAP_MS).toISOString();
+  const rows = getDb()
+    .prepare(
+      `SELECT stream_key, MAX(ts) AS ts
+         FROM events
+        WHERE source_id = 'screen' AND stream_key LIKE 'screen:%' AND ts >= ?
+        GROUP BY stream_key`,
+    )
+    .all(cutoff) as { stream_key: string; ts: string }[];
+  const out: ScreenSessionSeed[] = [];
+  for (const r of rows) {
+    const k = parseStreamKey(r.stream_key);
+    const lastTsMs = Date.parse(r.ts);
+    if (k?.kind === "screen" && Number.isFinite(lastTsMs)) {
+      out.push({ bundleId: k.bundleId, session: k.session, lastTsMs });
+    }
+  }
+  return out;
+}
+
 function parsePausedApps(raw: string | null): string[] {
   if (!raw) return [];
   try {
@@ -174,6 +202,8 @@ export interface ScreenAdapterOptions {
   putBlob?: BlobPut;
   /** Pause persistence (default: app_state via db/ingest). */
   pauseState?: ScreenPauseState;
+  /** Open app sessions to resume (default: read from the events table; S3.4). */
+  sessionSeed?: () => readonly ScreenSessionSeed[];
   mock?: boolean;
   fixturePath?: string;
   backoffBaseMs?: number;
@@ -196,6 +226,8 @@ export class ScreenAdapter {
   private readonly log: (line: string) => void;
   private readonly textStore: ScreenTextStore;
   private readonly pauseState: ScreenPauseState;
+  /** App-session stream keys (S3.4): one session per bundle id, 30-min idle gap. */
+  private readonly sessions = new ScreenSessionTracker();
   private blobWarned = false;
   private pauseStateWarned = false;
 
@@ -232,6 +264,17 @@ export class ScreenAdapter {
     this.textStore = new ScreenTextStore(opts.putBlob ? { put: opts.putBlob } : {});
     this.pauseState = opts.pauseState ?? dbPauseState;
     this.seedPauseState();
+    this.seedSessions(opts.sessionSeed ?? dbSessionSeed);
+  }
+
+  /** Resume open app sessions so a restart does not split a stream (S3.4). */
+  private seedSessions(seed: () => readonly ScreenSessionSeed[]): void {
+    try {
+      for (const s of seed()) this.sessions.seed(s);
+    } catch (err) {
+      // No DB / no events table (bare tests): every app starts a fresh session.
+      this.log(`[screen] session seed unavailable (fresh sessions): ${(err as Error).message}`);
+    }
   }
 
   /** Seed paused / pausedApps from app_state (T4-8) — before any spawn. */
@@ -527,7 +570,9 @@ export class ScreenAdapter {
         this.log(`[screen] full-text blob write failed (event lands without refs): ${(err as Error).message}`);
       }
     }
-    this.sink.append([toScreenEnvelope(frame, Date.now(), stored)]);
+    // Stream key (S3.4): doc:<path> for a file, else screen:<bundleId>:<session>.
+    const streamKey = screenStreamKeyFor(frame, this.sessions);
+    this.sink.append([toScreenEnvelope(frame, Date.now(), stored, streamKey)]);
     for (const cb of this.snapshotCbs) cb(frame);
   }
 

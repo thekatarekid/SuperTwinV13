@@ -145,7 +145,8 @@ describe("ScreenAdapter", () => {
     expect(e.source).toBe("screen");
     expect(e.kind).toBe("screen.snapshot");
     expect(e.origin).toBe("live");
-    expect(e.streamKey).toBe("com.apple.TextEdit¦/Users/u/notes.txt");
+    // S3.4: a frame whose doc_key is a file path streams as doc:<path>.
+    expect(e.streamKey).toBe("doc:/Users/u/notes.txt");
     expect(e.actor).toBe("self");
     expect(e.roles.sender).toBe("self");
     const p = e.payload as ScreenSnapshotPayload;
@@ -185,14 +186,11 @@ describe("ScreenAdapter", () => {
 
     expect(sink.events).toHaveLength(4);
     const keys = sink.events.map((e) => e.streamKey);
-    expect(keys).toEqual([
-      "com.apple.TextEdit¦/a.txt",
-      "com.apple.TextEdit¦/b.txt",
-      "com.apple.TextEdit¦/a.txt",
-      "com.microsoft.VSCode¦/a.txt",
-    ]);
-    expect(new Set(keys).size).toBe(3);
-    // Same content in different apps = different append identity (stream in hash).
+    // S3.4: one document is one stream whichever app shows it (doc:<path>).
+    expect(keys).toEqual(["doc:/a.txt", "doc:/b.txt", "doc:/a.txt", "doc:/a.txt"]);
+    expect(new Set(keys).size).toBe(2);
+    // Same content in different apps = different append identity (the
+    // sidecar's bundleId¦docKey stays in the hash even though the stream is shared).
     expect(sink.events[0]!.contentHash).not.toBe(sink.events[3]!.contentHash);
   });
 
@@ -344,6 +342,81 @@ describe("ScreenAdapter", () => {
     child.line(snapshot());
     expect(sink.events).toHaveLength(1);
     expect(adapter.getStatus().state).toBe("capturing");
+  });
+});
+
+describe("ScreenAdapter — stream keys (V6 S3.4: screen:<bundleId>:<session> · doc:<path>)", () => {
+  const web = (ts: string, over: Partial<SnapshotFrame> = {}) =>
+    snapshot({
+      ts,
+      bundle_id: "com.google.Chrome",
+      app_name: "Chrome",
+      window_title: "Roadmap",
+      doc_key: "https://docs.example.com/roadmap",
+      stream_key: "com.google.Chrome¦https://docs.example.com/roadmap",
+      text: `page ${ts}`,
+      new_chars: `page ${ts}`,
+      content_hash: `web-${ts}`,
+      ...over,
+    });
+
+  it("a web page is an app session keyed by the first frame; frames inside the idle gap share it", async () => {
+    const { adapter, child, sink } = harness({ sessionSeed: () => [] });
+    await adapter.connect();
+    child.ready();
+    child.line(web("2026-08-28T10:00:00.000Z"));
+    child.line(web("2026-08-28T10:20:00.000Z", { doc_key: "https://issues.example.com/42", stream_key: "com.google.Chrome¦https://issues.example.com/42" }));
+    child.line(web("2026-08-28T10:49:00.000Z"));
+    // 31 minutes idle → a new session.
+    child.line(web("2026-08-28T11:20:00.000Z"));
+    const keys = sink.events.map((e) => e.streamKey);
+    expect(keys[0]).toBe("screen:com.google.Chrome:20260828T100000Z");
+    expect(keys[1]).toBe(keys[0]); // another tab, same app session
+    expect(keys[2]).toBe(keys[0]);
+    expect(keys[3]).toBe("screen:com.google.Chrome:20260828T112000Z");
+  });
+
+  it("sessions are per app; a file open in the same app is its own doc stream", async () => {
+    const { adapter, child, sink } = harness({ sessionSeed: () => [] });
+    await adapter.connect();
+    child.ready();
+    child.line(web("2026-08-28T10:00:00.000Z"));
+    child.line(snapshot({ ts: "2026-08-28T10:01:00.000Z", bundle_id: "com.apple.Mail", stream_key: "com.apple.Mail¦inbox", doc_key: "inbox", text: "mail", new_chars: "mail", content_hash: "m1" }));
+    child.line(snapshot({ ts: "2026-08-28T10:02:00.000Z", doc_key: "file:///Users/u/Plan%20A.md", stream_key: "com.apple.TextEdit¦file:///Users/u/Plan%20A.md", text: "plan", new_chars: "plan", content_hash: "p1" }));
+    expect(sink.events.map((e) => e.streamKey)).toEqual([
+      "screen:com.google.Chrome:20260828T100000Z",
+      "screen:com.apple.Mail:20260828T100100Z",
+      "doc:/Users/u/Plan A.md",
+    ]);
+  });
+
+  it("a restart resumes the session still open on disk instead of splitting it", async () => {
+    const { adapter, child, sink } = harness({
+      sessionSeed: () => [{ bundleId: "com.google.Chrome", session: "20260828T093000Z", lastTsMs: Date.parse("2026-08-28T09:50:00.000Z") }],
+    });
+    await adapter.connect();
+    child.ready();
+    child.line(web("2026-08-28T10:00:00.000Z")); // 10 min after the last frame on disk
+    child.line(web("2026-08-28T10:45:00.000Z")); // 45 min later → closed, new session
+    expect(sink.events.map((e) => e.streamKey)).toEqual([
+      "screen:com.google.Chrome:20260828T093000Z",
+      "screen:com.google.Chrome:20260828T104500Z",
+    ]);
+  });
+
+  it("a seed that throws (no events table) leaves the adapter running with fresh sessions", async () => {
+    const lines: string[] = [];
+    const { adapter, child, sink } = harness({
+      log: (l) => lines.push(l),
+      sessionSeed: () => {
+        throw new Error("no such table: events");
+      },
+    });
+    await adapter.connect();
+    child.ready();
+    child.line(web("2026-08-28T10:00:00.000Z"));
+    expect(sink.events[0]!.streamKey).toBe("screen:com.google.Chrome:20260828T100000Z");
+    expect(lines.some((l) => l.includes("session seed unavailable"))).toBe(true);
   });
 });
 

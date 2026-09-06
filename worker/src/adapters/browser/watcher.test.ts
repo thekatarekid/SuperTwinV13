@@ -83,7 +83,9 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
       category: "cat1",
       browser: "chrome",
     });
-    // Chain: second visit shares the stream key and carries the referrer URL.
+    // S3.4: stream = browser:<browser>:<profile>:<domain>:<day>; the second
+    // visit (same domain, same day) shares it and carries the referrer URL.
+    expect(v0.stream_key).toBe(`browser:chrome:default:goibibo.com:${new Date(NOW - 40 * MIN).toISOString().slice(0, 10)}`);
     expect(visits[1]!.stream_key).toBe(v0.stream_key);
     expect((visits[1]!.payload as BrowserVisitPayload).referrer).toBe("https://goibibo.com/");
 
@@ -95,7 +97,10 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
       category: "cat1",
       domain: "news.ycombinator.com",
     });
-    expect(bookmarks[0]!.stream_key).toBe("browser:chrome:bookmarks");
+    // A bookmark joins the domain-day stream of the URL it saves (S3.4).
+    expect(bookmarks[0]!.stream_key).toBe(
+      `browser:chrome:default:news.ycombinator.com:${new Date(NOW - 2 * DAY).toISOString().slice(0, 10)}`,
+    );
   });
 
   it("polls are idempotent: cursor + content_hash yield no duplicates", () => {
@@ -142,7 +147,8 @@ describe("BrowserWatcher end-to-end (fixture profiles)", () => {
     });
     expect(w.poll()).toBe(2);
     expect(sink.events.every((e) => (e.payload as BrowserVisitPayload).browser === "safari")).toBe(true);
-    expect(sink.events[0]!.stream_key).toBe(sink.events[1]!.stream_key); // redirect_source chains them
+    expect(sink.events[0]!.stream_key).toBe(sink.events[1]!.stream_key); // same domain, same day
+    expect(sink.events[0]!.stream_key).toMatch(/^browser:safari:safari:[^:]+:\d{4}-\d{2}-\d{2}$/);
   });
 
   it("guards gracefully: missing profiles, corrupt files — no crash, zero events", () => {

@@ -34,7 +34,7 @@ import {
   type V13Event,
 } from "./envelope.js";
 import { readChromiumBookmarks, type RawBookmark } from "./bookmarks.js";
-import { assignChains, type ChainedVisit } from "./chains.js";
+import { assignChains, browserStreamKey, utcDayOf, type ChainedVisit } from "./chains.js";
 import { aggregateDomains, DomainCategorizer, type AmbiguousResolver } from "./category.js";
 import { readChromiumHistory, readSafariHistory, type RawVisit } from "./history-db.js";
 import type { V13EventSink } from "./sink.js";
@@ -266,7 +266,7 @@ export class BrowserWatcher {
 
     const events = [
       ...this.visitEvents(visits, bookmarkedDomains, profile.profile),
-      ...this.bookmarkEvents(bookmarks, profile.browser),
+      ...this.bookmarkEvents(bookmarks, profile.browser, profile.profile),
     ];
     return events.length === 0 ? 0 : this.sink.append(events);
   }
@@ -275,7 +275,8 @@ export class BrowserWatcher {
 
   /** Build `browser.visit` envelopes from raw visits. Exposed for tests. */
   visitEvents(visits: readonly RawVisit[], bookmarkedDomains: ReadonlySet<string>, profile?: string): V13Event[] {
-    const chained = assignChains(visits);
+    // S3.4: stream = one domain on one day, per browser profile (chains.ts).
+    const chained = assignChains(visits, { profile });
     const stats = aggregateDomains(
       chained.map((v) => ({ url: v.url, typed: v.typed, redirect: v.redirect, dwellMs: v.inferredDwellMs })),
       bookmarkedDomains,
@@ -353,8 +354,12 @@ export class BrowserWatcher {
     return fresh;
   }
 
-  /** Build `browser.bookmark` envelopes. Exposed for tests. */
-  bookmarkEvents(bookmarks: readonly RawBookmark[], browser: BrowserId): V13Event[] {
+  /**
+   * Build `browser.bookmark` envelopes. Exposed for tests. A bookmark lands in
+   * the domain-day stream of the URL it saves (S3.4) — the same stream the
+   * visits it is a Cat-1 signal for.
+   */
+  bookmarkEvents(bookmarks: readonly RawBookmark[], browser: BrowserId, profile?: string): V13Event[] {
     const nowMs = this.now();
     return bookmarks.map((b) => {
       const domain = domainOf(b.url);
@@ -370,7 +375,7 @@ export class BrowserWatcher {
         kind: "browser.bookmark",
         origin: nowMs - tsMs <= 10 * 60 * 1000 ? "live" : "backfill",
         age_band: ageBandOf(tsMs, nowMs),
-        stream_key: `browser:${browser}:bookmarks`,
+        stream_key: browserStreamKey(browser, profile, domain, utcDayOf(tsMs)),
         actor: "self",
         roles: { ...SELF_ROLES, audience: [...SELF_ROLES.audience], receiver: [...SELF_ROLES.receiver], mentions: [] },
         text: b.title ? `${b.title} ${b.url}` : b.url,

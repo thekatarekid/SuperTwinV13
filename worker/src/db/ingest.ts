@@ -153,6 +153,11 @@ export interface InsertEventRow {
     payloadJson: string;
     contentHash: string;
     blobRefsJson: string;
+    /**
+     * Canonical stream key (V6 S3.4, adapters/stream-keys.ts — `wa:<jid>`).
+     * When absent the row's stream_key falls back to the stream's external_key.
+     */
+    streamKey?: string | null;
   };
 }
 
@@ -767,7 +772,7 @@ function statements(): IngestStatements {
          @mediaMime, @mediaFilename, @mediaSize, @mediaSha256, @mediaThumbPath, @mediaSeconds, @mediaMetaJson, @mediaDescStatus, @isForwarded,
          @linkUrl, @linkTitle, @linkDescription, @linkThumbPath, @linkPreviewType, @linkScrapeStatus,
          @isHistorical, @transcriptStatus,
-         (SELECT external_key FROM streams WHERE id = @streamId),
+         COALESCE(@streamKey, (SELECT external_key FROM streams WHERE id = @streamId)),
          @capturedAt, @origin, @ageBand, @actor, @rolesJson, @payloadJson, @contentHash, @blobRefsJson,
          @consentId, @dispatchedAt)
       ON CONFLICT(source_id, external_id) DO NOTHING
@@ -1374,6 +1379,8 @@ export function insertEvent(row: InsertEventRow): InsertEventResult {
   // V13 envelope stamp. The adapter's full envelope (P0.6: roster audience,
   // structural mentions, reply markers) wins; the legacy bridge in
   // db/eventlog.ts derives a minimal one for writers that have none yet.
+  // S3.4: the adapter's canonical stream key (`wa:<jid>`); null → external_key.
+  const envStreamKey = row.envelope?.streamKey ?? null;
   const envelope =
     row.envelope ??
     legacyEnvelopeFields({
@@ -1428,6 +1435,7 @@ export function insertEvent(row: InsertEventRow): InsertEventResult {
   const write = s.db.transaction((): boolean => {
     const info = s.insertEvent.run({
       ...envelope,
+      streamKey: envStreamKey,
       origin: gate.origin,
       consentId: gate.consentId,
       dispatchedAt: gate.dispatchedAt,
@@ -1465,10 +1473,11 @@ export function insertEvent(row: InsertEventRow): InsertEventResult {
     if (info.changes === 0) return false;
     // Layer 1 (T5-1): the narrow archive row rides in the same transaction.
     const streamKey =
-      row.streamId === null
+      envStreamKey ??
+      (row.streamId === null
         ? null
         : ((s.streamKeyOf.get(row.streamId) as { external_key: string } | undefined)
-            ?.external_key ?? null);
+            ?.external_key ?? null));
     let payload: unknown = null;
     try {
       payload = JSON.parse(envelope.payloadJson) as unknown;

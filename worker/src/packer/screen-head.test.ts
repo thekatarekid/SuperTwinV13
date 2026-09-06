@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { toScreenEnvelope } from "../adapters/screen/envelope.js";
+import { screenStreamKeyFor, toScreenEnvelope } from "../adapters/screen/envelope.js";
 import type { SnapshotFrame } from "../adapters/screen/frames.js";
 import { bundleEventSource } from "../brain/consumer.js";
 import { closeDb, runMigrations } from "../db/connection.js";
@@ -63,6 +63,10 @@ function screenFrame(over: Partial<SnapshotFrame> = {}): SnapshotFrame {
   };
 }
 
+/** S3.4: the envelope's stream is the app session, not the sidecar's bundleId¦docKey. */
+const SCREEN_KEY = screenStreamKeyFor(screenFrame());
+const BROWSER_KEY = "browser:chrome:default:airbnb.com:2026-08-28";
+
 function waMessage(i: number, text: string, actor = "contact:rohan"): EventEnvelope {
   return {
     ts: new Date(T0 + i * 60_000).toISOString(),
@@ -82,7 +86,7 @@ function browserVisit(): EventEnvelope {
     source: "browser",
     kind: "browser.visit",
     origin: "live",
-    streamKey: "browser:chrome:default:chain:abc",
+    streamKey: BROWSER_KEY,
     actor: "self",
     roles: { sender: "self", audience: ["self"], receiver: [], mentions: [] },
     payload: {
@@ -115,7 +119,8 @@ function bundleLines(user: string): string[] {
 describe("SRC-03 — screen head carries identity", () => {
   it("the packed line for a screen snapshot contains app, window title and doc key", async () => {
     appendEvents([toScreenEnvelope(screenFrame(), T0 + 1_000)], T0 + 1_000);
-    const bundle = bundleFor("com.google.Chrome¦https://docs.example.com/roadmap");
+    expect(SCREEN_KEY).toBe("screen:com.google.Chrome:20260828T100000Z");
+    const bundle = bundleFor(SCREEN_KEY);
     expect(bundle.events[0]!.sourceId).toBe("screen");
 
     const packed = await packOrientContext(bundle, { nowMs: T0 + 3_600_000 });
@@ -136,19 +141,15 @@ describe("SRC-03 — screen head carries identity", () => {
       T0 + 1_000,
     );
     const lines = new Map<string, string>();
-    for (const key of [
-      "goa-gang@g.us",
-      "browser:chrome:default:chain:abc",
-      "com.google.Chrome¦https://docs.example.com/roadmap",
-    ]) {
+    for (const key of ["goa-gang@g.us", BROWSER_KEY, SCREEN_KEY]) {
       const bundle = bundleFor(key);
       const packed = await packOrientContext(bundle, { nowMs: T0 + 3_600_000 });
       const [line] = bundleLines(packed.user);
       lines.set(key, line!);
     }
     const wa = lines.get("goa-gang@g.us")!;
-    const br = lines.get("browser:chrome:default:chain:abc")!;
-    const sc = lines.get("com.google.Chrome¦https://docs.example.com/roadmap")!;
+    const br = lines.get(BROWSER_KEY)!;
+    const sc = lines.get(SCREEN_KEY)!;
 
     // Kind in every head; identity only where the source has one. The chat
     // and screen heads are this task's (S1.6); a browser visit renders

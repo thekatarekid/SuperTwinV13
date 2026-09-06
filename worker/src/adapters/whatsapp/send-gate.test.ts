@@ -255,7 +255,7 @@ describe("v13 envelope emission (spec §6.1)", () => {
       text: "goa?",
       actor: "rohan@s.whatsapp.net",
     });
-    expect(second.stream_key).toBe("g@g.us");
+    expect(second.stream_key).toBe("wa:g@g.us"); // S3.4: wa:<jid>
     expect(second.kind).toBe("wa.message");
 
     // The envelope is STAMPED onto the ingested rows' v13 columns
@@ -270,7 +270,7 @@ describe("v13 envelope emission (spec §6.1)", () => {
     expect(rows[0].external_id).toBe("g@g.us/M1");
     expect(rows[0].origin).toBe("live");
     expect(rows[0].age_band).toBe("A");
-    expect(rows[0].stream_key).toBe("g@g.us");
+    expect(rows[0].stream_key).toBe("wa:g@g.us");
     const storedRoles = JSON.parse(rows[1].roles_json) as {
       sender: string;
       audience: string[];

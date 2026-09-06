@@ -71,7 +71,7 @@ describe("buildWhatsAppEnvelope", () => {
     expect(env.kind).toBe("wa.message");
     expect(env.origin).toBe("live");
     expect(env.age_band).toBe("A");
-    expect(env.stream_key).toBe("1602@g.us");
+    expect(env.stream_key).toBe("wa:1602@g.us"); // S3.4: wa:<jid>
     expect(env.actor).toBe("rohan@s.whatsapp.net");
     expect(env.roles.sender).toBe("rohan@s.whatsapp.net");
     expect(env.roles.audience).toEqual([

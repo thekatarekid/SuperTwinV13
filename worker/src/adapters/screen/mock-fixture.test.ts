@@ -63,11 +63,10 @@ describe.skipIf(!available)("screenwatch --mock e2e", () => {
 
     expect(sink.events).toHaveLength(3);
     const keys = sink.events.map((e) => e.streamKey);
-    expect(keys).toEqual([
-      "com.apple.TextEdit¦/Users/u/notes.txt",
-      "com.google.Chrome¦https://docs.example.com/roadmap",
-      "com.apple.TextEdit¦/Users/u/notes.txt",
-    ]);
+    // S3.4: a file is doc:<path>; a web page in Chrome is an app session.
+    expect(keys[0]).toBe("doc:/Users/u/notes.txt");
+    expect(keys[1]).toMatch(/^screen:com\.google\.Chrome:\d{8}T\d{6}Z$/);
+    expect(keys[2]).toBe("doc:/Users/u/notes.txt");
 
     // Diff on the second TextEdit snapshot, not the full text again.
     const third = sink.events[2]!.payload as ScreenSnapshotPayload;

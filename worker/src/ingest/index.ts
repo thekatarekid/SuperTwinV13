@@ -701,6 +701,7 @@ export class Ingestion {
               payloadJson: JSON.stringify(e.envelope.payload),
               contentHash: e.envelope.content_hash,
               blobRefsJson: JSON.stringify(e.envelope.blob_refs),
+              streamKey: e.envelope.stream_key,
             },
           }
         : {}),

@@ -1,30 +1,141 @@
 {
   "id": "SCH-01",
   "category": "SCH",
-  "title": "Auto-schedule: computed check-in window",
-  "pass": "schedule",
-  "mode": "live",
-  "setup": "flight CCU-GOI 18 Dec 07:00 booked (confirmation episode).",
+  "title": "wait-until",
+  "pass": "tasks",
+  "mode": "code",
+  "setup": {
+    "note": "\"bookings open 10 am tomorrow\" said on Sat 2026-08-29 09:00 IST. The step is a wait-until: it starts at 09:55 IST (2026-08-30T04:25Z — the poll lead the policy allows, never earlier), polls, and stops (11:00 IST, or 20 polls, or the task leaving 'scheduled').",
+    "space": {
+      "id": "sp_concert",
+      "label": "Concert tickets with Rohan",
+      "goal": "4 tickets the moment the window opens",
+      "status": "active"
+    },
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "contact:rohan",
+        "text": "bookmyshow window for the concert opens 10am tomorrow, tickets will be gone in minutes"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_window",
+        "summary": "Rohan: the booking window opens 10am tomorrow",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": "Concert tickets: the booking window opens 10:00 IST on 30 Aug.",
+      "latest": "Rohan says the window opens 10am tomorrow.",
+      "plan": [
+        "watch the window",
+        "grab 4 tickets"
+      ],
+      "milestones": [],
+      "tasks": [
+        {
+          "title": "Watch the BookMyShow window",
+          "type": "monitoring",
+          "owner": "self",
+          "space": "sp_concert",
+          "due": null,
+          "origin": "implicit",
+          "category": "research",
+          "risk_class": "auto",
+          "steps": [
+            "wait-until the window opens",
+            "poll the listing",
+            "report the moment tickets are live"
+          ],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "window for the concert opens 10am tomorrow"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "closures": [],
+      "schedules": [
+        {
+          "task": "Watch the BookMyShow window",
+          "fire_at": "2026-08-30T09:55+05:30",
+          "window_opens_at": "2026-08-30T10:00+05:30",
+          "mode": "auto",
+          "polling": {
+            "interval_min": 3,
+            "until": "2026-08-30T11:00+05:30",
+            "max": 20
+          },
+          "reason": "start 5 min before the 10:00 IST window, poll every 3 min, stop at 11:00 IST or 20 polls",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "opens 10am tomorrow"
+            }
+          ]
+        }
+      ],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
   "input_events": [
-    "Decide."
+    "canned decide.v9 output for SCH-01 (setup.decide) applied by the real pass"
   ],
-  "expected": "schedule {fire 16 Dec 07:00, mode auto} — action (do check-in prep) is auto-class, intent certain, time-bound; announcement \"Scheduled: web check-in Wed 7:00am — tap to change\"; filed in sp_goa_dec › Flights.",
+  "expected": {
+    "fire_at": "2026-08-30T04:25:00.000Z",
+    "window_opens_at": "2026-08-30T04:30:00.000Z",
+    "step": "wait-until",
+    "stop_condition": "polling.until 11:00 IST / 20 polls / the task leaving 'scheduled'",
+    "mode": "auto"
+  },
   "wrong": [
     {
-      "label": "silent-schedule",
-      "assert_absent": "no announcement"
+      "label": "no-step",
+      "assert_absent": "the wait-until stored as a bare reminder with no step and no poll plan"
+    },
+    {
+      "label": "wrong-time",
+      "assert_absent": "a fire time that is not 09:55 IST"
+    },
+    {
+      "label": "early-fire",
+      "assert_absent": "a fire more than the poll lead before the window the evidence names"
+    },
+    {
+      "label": "single-shot",
+      "assert_absent": "one attempt at 10:00 with no polling"
+    },
+    {
+      "label": "no-stop",
+      "assert_absent": "a poll plan that never stops"
     },
     {
       "label": "ask-for-obvious",
-      "assert_absent": "confirm-mode for a pure time-bound check"
+      "assert_absent": "confirm-mode for a pure read-only check"
+    },
+    {
+      "label": "pass-failed",
+      "assert_absent": "the decide pass failing on a well-formed output"
     }
   ],
   "gates": [
     "schedule_policy",
-    "schedule_math"
+    "schedule_math",
+    "auto_schedule_policy_violation"
   ],
   "source": {
     "doc": "V2",
-    "section": "SCH-01 · Auto-schedule: computed check-in window"
+    "section": "GoldenEvals V6P1 §5.17 SCH-01 · wait-until"
   }
 }

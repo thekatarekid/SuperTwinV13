@@ -44,6 +44,8 @@ export interface TimerFire {
   title: string;
   /** True when this fire executes past its window start (SCH-08 "late" flag). */
   late: boolean;
+  /** How far past fire_at this fire executed, ms (0 when on time) — SCH-03 "delay shown". */
+  delayMs: number;
   /** 1-based poll count for polling schedules; null for a one-shot fire. */
   poll: number | null;
   /** The schedule's own derivation note, for the executor's context. */
@@ -184,11 +186,13 @@ export function tickTimers(now: Date, sink: TimerSink = defaultExecutorSink): Ti
       .run(rearm ? "scheduled" : "executing", JSON.stringify(nextSched), row.id);
     if (claimed.changes === 0) continue;
 
+    const delayMs = late ? Math.max(0, now.getTime() - fireMs) : 0;
     const fire: TimerFire = {
       taskId: row.id,
       spaceId: row.space_id,
       title: row.title,
       late,
+      delayMs,
       poll: isPoll ? pollsDone + 1 : null,
       reason: sched.reason ?? null,
       firedAt: now.toISOString(),
@@ -202,7 +206,7 @@ export function tickTimers(now: Date, sink: TimerSink = defaultExecutorSink): Ti
       old: { status: "scheduled", fireAt: sched.fire_at },
       new: { status: rearm ? "scheduled" : "executing", fire },
       reason: late
-        ? `late fire: due ${sched.fire_at}, executed ${now.toISOString()} (still inside the window)`
+        ? `late fire: due ${sched.fire_at}, executed ${now.toISOString()} — ${Math.round(delayMs / 60_000)} min late (still inside the window)`
         : null,
     });
     sink(fire);

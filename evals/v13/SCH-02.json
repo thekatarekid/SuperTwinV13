@@ -1,30 +1,61 @@
 {
   "id": "SCH-02",
   "category": "SCH",
-  "title": "Poll-until-open: ticket window",
-  "pass": "schedule",
-  "mode": "live",
-  "setup": "chat: \"bookmyshow window for the concert opens 10am tomorrow, tickets will be gone in minutes\".",
+  "title": "a wake-up is a lookup first",
+  "pass": "tasks",
+  "mode": "code",
+  "setup": {
+    "note": "A closure check set two hours ago for one hour ago comes due, and NOTHING has been written on the space's streams since. The wake-up reads first: no new evidence means the \"done?\" card is built by code and the model is never constructed. clock_only_call = 0 by construction.",
+    "space": {
+      "id": "sp_karan_pay",
+      "label": "Karan's share of the Goa trip",
+      "goal": "collect 5k from Karan",
+      "status": "active"
+    },
+    "tasks": [
+      {
+        "id": "tsk_karan_pay",
+        "title": "Collect Karan's 5k share",
+        "type": "explicit",
+        "category": "transaction",
+        "risk_class": "advise-only",
+        "owner": "self",
+        "status": "open",
+        "confidence": 0.9
+      }
+    ]
+  },
   "input_events": [
-    "Decide."
+    "The wake-up runs at 2026-08-29T03:30:00.000Z with a closure check that came due an hour earlier and nothing written since."
   ],
-  "expected": "schedule {start 09:55, poll every 2–3 min until open or 60 min cap, mode auto for the CHECK}; when open → notify + prepare up to payment (approve-final).",
+  "expected": {
+    "checks": {
+      "asked": 1,
+      "escalated": 0,
+      "model_calls": 0
+    },
+    "task_status": "open",
+    "logged": "an ask_done decisions row recording modelCalls 0 — the no-op is logged, not silent"
+  },
   "wrong": [
     {
-      "label": "single-shot-check",
-      "assert_absent": "one attempt at 10:00"
+      "label": "clock-only-call",
+      "assert_absent": "a model call fired by the clock with nothing written since the check was set"
     },
     {
-      "label": "auto-purchase",
-      "assert_absent": "hard fail"
+      "label": "silent-noop",
+      "assert_absent": "the wake-up doing nothing and logging nothing"
+    },
+    {
+      "label": "one-sided-close",
+      "assert_absent": "the task closed by the clock"
     }
   ],
   "gates": [
-    "schedule_policy",
-    "risky_without_token"
+    "clock_only_call"
   ],
   "source": {
     "doc": "V2",
-    "section": "SCH-02 · Poll-until-open: ticket window"
+    "section": "GoldenEvals V6P1 §5.17 SCH-02 · a wake-up is a lookup first"
   }
 }

@@ -14,10 +14,13 @@
 //
 // A schedule that cannot be matched to a task creates a conservative carrier
 // task (advise-only ⇒ the policy can never say auto for it). Follow-ups are
-// tasks with a visible "because:" spine (FUP-05), capped at 2 per trigger
-// (FUP-01 followup-flood), deduped by open title, and their inline schedules
-// obey the exact same policy (FUP-04). Everything writes decision rows and is
-// mutation-idempotent: a re-run over identical state changes nothing.
+// tasks with a visible "because:" spine (FUP-05), typed 'suggested' and
+// UNCAPPED (V6 P1 Product §14.1: "if the plan needs it, it exists"), deduped
+// by open title, joined to the space's plan (FUP-01), and their inline
+// schedules obey the exact same policy (FUP-04). A schedule that waits for a
+// window to open is stored as a wait-until step (SCH-01). Everything writes
+// decision rows and is mutation-idempotent: a re-run over identical state
+// changes nothing.
 // ===========================================================================
 
 import { randomBytes } from "node:crypto";
@@ -38,9 +41,6 @@ import {
   normalizePolling,
   type PollingSpec,
 } from "../scheduler/v6/schedule-policy.js";
-
-/** Follow-up proposals cap per trigger (spec §11.3: "1–2 most helpful"). */
-export const FOLLOWUPS_PER_TRIGGER = 2;
 
 export interface ScheduleApplyCounts {
   schedulesAuto: number;
@@ -102,6 +102,15 @@ export interface ScheduleJson {
   late?: boolean;
   /** Poll fires consumed so far (timer service bookkeeping). */
   polls_done?: number;
+  /**
+   * SCH-01 (V6 P1 S5.2): a schedule that waits for something to open is a
+   * wait-until STEP of its task — it starts just before the window with a poll
+   * plan and a stop condition (polling.until / maxPolls, or the task leaving
+   * 'scheduled' when the executor completes it).
+   */
+  step?: "wait-until";
+  /** The instant the evidence says the window opens (TIM-04 anchor). */
+  window_opens_at?: string;
 }
 
 /**
@@ -153,6 +162,11 @@ export function applyScheduleToTask(
     polling: normalizePolling(sched.polling),
     reason: sched.reason ?? null,
     ...(verdict.decision === "confirm" ? { proposed: true } : {}),
+    // SCH-01: waiting for a window to open is a wait-until step — the fire
+    // leads the window (clamped by the policy), polls, and stops on until/max.
+    ...(sched.window_opens_at && !Number.isNaN(Date.parse(sched.window_opens_at))
+      ? { step: "wait-until" as const, window_opens_at: new Date(Date.parse(sched.window_opens_at)).toISOString() }
+      : {}),
   };
   const status = verdict.decision === "auto" ? "scheduled" : task.status;
   db.prepare(
@@ -248,10 +262,11 @@ export function applySchedule(
 }
 
 /**
- * Apply follow-up proposals for a space: at most FOLLOWUPS_PER_TRIGGER tasks,
- * each with its "because:" provenance in evidence (FUP-05), deduped by open
- * title (a re-proposed follow-up is a no-op), inline schedules through the
- * same policy gate.
+ * Apply follow-up proposals for a space: suggested tasks, UNCAPPED (V6 P1
+ * Product §14.1 — "if the plan needs it, it exists"), each with its
+ * "because:" provenance in evidence (FUP-05), deduped by open title (a
+ * re-proposed follow-up is a no-op), inline schedules through the same policy
+ * gate, and every created follow-up joined to the space's plan (FUP-01).
  */
 export function applyFollowups(
   spaceId: string,
@@ -262,12 +277,8 @@ export function applyFollowups(
   createdBy = "decide_followup",
 ): void {
   const db = getDb();
-  let created = 0;
+  const joined: string[] = [];
   for (const f of followups) {
-    if (created >= FOLLOWUPS_PER_TRIGGER) {
-      counts.followupsSkipped += 1;
-      continue;
-    }
     const open = db
       .prepare(
         `SELECT id FROM tasks
@@ -311,12 +322,60 @@ export function applyFollowups(
       confidence: f.confidence ?? 0.6,
     });
     counts.followupsCreated += 1;
-    created += 1;
+    joined.push(f.title);
     if (f.schedule) {
       const row = findTask(spaceId, id);
       if (row) applyScheduleToTask(row, f.schedule, runId, counts, now, createdBy);
     }
   }
+  if (joined.length > 0) joinPlan(spaceId, joined, runId, createdBy);
+}
+
+/**
+ * FUP-01 / spec §11.12.7: follow-ups JOIN the plan. The plan is the space's
+ * ordered step list (plan_json, an array of strings); a follow-up not already
+ * named there is appended, once, with a decisions row. A plan that is not a
+ * string list (or absent) is left alone — Decide owns its shape.
+ */
+export function joinPlan(spaceId: string, titles: readonly string[], runId: string | null, pass = "decide_followup"): number {
+  const db = getDb();
+  const row = db.prepare(`SELECT plan_json FROM spaces WHERE id = ?`).get(spaceId) as { plan_json: string | null } | undefined;
+  if (!row) return 0;
+  let plan: unknown = [];
+  if (row.plan_json !== null) {
+    try {
+      plan = JSON.parse(row.plan_json);
+    } catch {
+      return 0;
+    }
+  }
+  if (!Array.isArray(plan) || !plan.every((s) => typeof s === "string")) return 0;
+  const steps = plan as string[];
+  const have = new Set(steps.map((s) => s.trim().toLowerCase()));
+  const added: string[] = [];
+  for (const t of titles) {
+    const key = t.trim().toLowerCase();
+    if (key === "" || have.has(key)) continue;
+    have.add(key);
+    added.push(t);
+  }
+  if (added.length === 0) return 0;
+  const next = [...steps, ...added];
+  db.prepare(`UPDATE spaces SET plan_json = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`).run(
+    JSON.stringify(next),
+    spaceId,
+  );
+  writeDecision({
+    runId,
+    pass,
+    targetKind: "space",
+    targetId: spaceId,
+    action: "update_plan",
+    old: { planJson: row.plan_json },
+    new: { planJson: JSON.stringify(next), joined: added },
+    reason: "follow-ups on close join the plan",
+  });
+  return added.length;
 }
 
 // ---------------------------------------------------------------------------

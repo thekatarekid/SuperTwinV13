@@ -304,10 +304,10 @@ describe("decide pass", () => {
     }).toEqual(snapshot);
   });
 
-  it("enforces the suggested-task budget (≤2/day/space) in code", async () => {
+  it("suggested tasks are marked and UNCAPPED (V6 P1 §14.1 / TSK-02) — dedupe by open title is the only filter", async () => {
     seedSpace();
     const answer = JSON.stringify({
-      tasks: [1, 2, 3].map((n) => ({
+      tasks: [1, 2, 3, 4].map((n) => ({
         title: `Suggested thing ${n}`,
         type: "suggested",
         risk_class: "advise-only",
@@ -321,8 +321,11 @@ describe("decide pass", () => {
       plan: null,
     });
     const result = await runDecidePass("sp_goa", ["ep_412"], deps(stubProvider([answer])));
-    expect(result.applied.tasksCreated).toBe(2);
-    expect(result.applied.tasksSkipped).toBe(1);
+    expect(result.applied.tasksCreated).toBe(4);
+    expect(result.applied.tasksSkipped).toBe(0);
+    const types = getDb().prepare(`SELECT type FROM tasks WHERE title LIKE 'Suggested thing %'`).all() as { type: string }[];
+    expect(types).toHaveLength(4);
+    for (const t of types) expect(t.type).toBe("suggested");
   });
 });
 

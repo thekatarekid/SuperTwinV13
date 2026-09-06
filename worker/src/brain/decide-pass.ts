@@ -53,6 +53,7 @@ import {
   type DecideOutputV9,
   type DecideTaskV9,
 } from "../prompts/decide.v9.js";
+import { isEntityId, resolveEntityId } from "../entities/registry.js";
 import { scheduleClosureCheck } from "./closure-check.js";
 import { applyFollowups, applySchedule, emptyScheduleCounts } from "./decide-apply.js";
 import { enqueueNextStep } from "./next-step.js";
@@ -61,8 +62,9 @@ import { packEpisodes, packSpaceState } from "./thin-pack.js";
 
 /** Hard floor for an auto-applied closure (spec §8.4.4; false_auto_close = 0). */
 export const CLOSE_CONFIDENCE_FLOOR = 0.85;
-/** Suggested-task budget (spec §8.4.2): ≤ 2 per day per space. */
-export const SUGGESTED_PER_DAY = 2;
+// Suggested tasks carry NO budget (V6 P1 Product §14.1, TSK-02): "marked as
+// suggested. No cap. If the plan needs it, it exists." The V13 ≤2/day cap
+// (SUGGESTED_PER_DAY) was removed in S5.2; dedupe by open title remains.
 
 export interface DecideApplied {
   chaptersCreated: number;
@@ -230,16 +232,18 @@ function attachChapterEpisodes(
 // Apply: tasks
 // ---------------------------------------------------------------------------
 
-function suggestedToday(spaceId: string): number {
-  const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS n FROM tasks
-        WHERE space_id = ? AND type = 'suggested'
-          AND created_by = 'decide'
-          AND created_at >= strftime('%Y-%m-%dT00:00:00Z','now')`,
-    )
-    .get(spaceId) as { n: number };
-  return row.n;
+/**
+ * Owner from roles (§11.12.8): when the roster ref IS an entity id (or a
+ * merged alias of one), the task points at the person row too. A roster
+ * spelling that is not an entity stays in `owner` as text — never guessed.
+ */
+function ownerEntityId(owner: string): string | null {
+  if (!isEntityId(owner)) return null;
+  try {
+    return resolveEntityId(owner);
+  } catch {
+    return null;
+  }
 }
 
 /** The user, by any of the roster's spellings. */
@@ -323,10 +327,6 @@ function applyTask(
     applied.tasksSkipped += 1;
     return;
   }
-  if (task.type === "suggested" && suggestedToday(spaceId) >= SUGGESTED_PER_DAY) {
-    applied.tasksSkipped += 1;
-    return;
-  }
   let chapterId: string | null = null;
   if (task.chapter != null) {
     chapterId =
@@ -341,8 +341,8 @@ function applyTask(
   const riskClass = theirs ? "advise-only" : task.risk_class;
   db.prepare(
     `INSERT INTO tasks (id, space_id, chapter_id, title, type, category, risk_class,
-                        owner, due, evidence_json, created_by, confidence)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'decide', ?)`,
+                        owner, owner_entity_id, due, evidence_json, created_by, confidence)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'decide', ?)`,
   ).run(
     id,
     spaceId,
@@ -352,6 +352,7 @@ function applyTask(
     task.category,
     riskClass,
     task.owner,
+    theirs ? ownerEntityId(task.owner) : null,
     task.due ?? null,
     JSON.stringify(task.evidence),
     task.confidence,

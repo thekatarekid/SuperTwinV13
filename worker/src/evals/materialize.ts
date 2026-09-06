@@ -205,6 +205,26 @@ export interface MaterializeResult {
   written: string[];
 }
 
+/**
+ * True when the fixture file on disk is a case of the GoldenEvals V6 P1 SEED
+ * GOLD SET (§5) written by hand at an id the V1/V2 docs also define — kept,
+ * never regenerated. Today that is exactly TSK-01/02, SCH-01..03 and FUP-01
+ * (§5.17, build S5.2): every other §5 category is `authored: true` in
+ * `CATEGORIES` and so never reaches the doc parser at all.
+ *
+ * The §5 anchor matters: carried V2 cases (ROL, CIR) carry a
+ * "GoldenEvals V6P1 §1.1 (carried)" section and must keep regenerating.
+ */
+export function isV6P1Authored(path: string): boolean {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { source?: { section?: unknown } };
+    const section = parsed.source?.section;
+    return typeof section === "string" && /^GoldenEvals V6 ?P1 §5\b/i.test(section);
+  } catch {
+    return false; // missing or unreadable → regenerate as before
+  }
+}
+
 export function materializeDocs(v1Markdown: string, v2Markdown: string): Fixture[] {
   const example = extractHeaderExample(v2Markdown);
   const raws = [...parseDoc(v1Markdown, "V1"), ...parseDoc(v2Markdown, "V2")];
@@ -231,6 +251,9 @@ export function materialize(repoRoot: string): MaterializeResult {
   const written: string[] = [];
   for (const fixture of fixtures) {
     const path = join(dir, `${fixture.id}.json`);
+    // A V1/V2 id re-authored by GoldenEvals V6 P1 §5 (TSK-01/02, SCH-01..03,
+    // FUP-01 — S5.2) is hand-written code; the doc parser must not clobber it.
+    if (isV6P1Authored(path)) continue;
     writeFileSync(path, `${JSON.stringify(fixture, null, 2)}\n`);
     written.push(path);
   }

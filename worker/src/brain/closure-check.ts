@@ -162,6 +162,8 @@ export function runClosureChecks(now: Date): ClosureCheckReport {
           ORDER BY e.ts LIMIT 200`,
       )
       .all(row.space_id, payload.sinceTs) as { id: string }[];
+    // SCH-03: a check slept through fires on wake, with the delay shown.
+    const lateByMs = Math.max(0, now.getTime() - Date.parse(payload.checkAt));
     if (fresh.length === 0) {
       writeDecision({
         runId: null,
@@ -170,7 +172,14 @@ export function runClosureChecks(now: Date): ClosureCheckReport {
         targetId: task.id,
         action: "ask_done",
         old: { status: task.status },
-        new: { card: "done?", task: task.title, checkAt: payload.checkAt, modelCalls: 0 },
+        new: {
+          card: "done?",
+          task: task.title,
+          checkAt: payload.checkAt,
+          askedAt: now.toISOString(),
+          lateByMs,
+          modelCalls: 0,
+        },
         reason: "closure check fired with nothing new — asking the user, no model call",
       });
       resolve(db, row.id, "activated");
@@ -200,7 +209,7 @@ export function runClosureChecks(now: Date): ClosureCheckReport {
       targetId: task.id,
       action: "escalate_check",
       old: { status: task.status },
-      new: { episodes: episodes.map((e) => e.episode_id), events: fresh.length },
+      new: { episodes: episodes.map((e) => e.episode_id), events: fresh.length, lateByMs },
       reason: "closure check found new evidence — Decide re-runs on the episodes, not on the clock",
     });
     resolve(db, row.id, "activated");

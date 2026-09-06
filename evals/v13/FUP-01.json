@@ -1,22 +1,105 @@
 {
   "id": "FUP-01",
   "category": "FUP",
-  "title": "After executor completion",
-  "pass": "decide",
-  "mode": "live",
-  "setup": "executor booked flights (user approved payment).",
+  "title": "completion spawns follow-ups into the plan",
+  "pass": "tasks",
+  "mode": "code",
+  "setup": {
+    "note": "The villa is booked. The next-step pass proposes the advance reminder, the packing list and web check-in; code stores each as a suggested task with its visible \"because\" and appends every one to the space's plan.",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active",
+      "plan": [
+        "book flights",
+        "lock the villa"
+      ]
+    },
+    "tasks": [
+      {
+        "id": "tsk_villa",
+        "title": "Book the Anjuna villa",
+        "type": "explicit",
+        "category": "transaction",
+        "risk_class": "approve-final",
+        "owner": "self",
+        "status": "done",
+        "closed_at": "2026-08-29T03:00:00.000Z",
+        "confidence": 0.95
+      }
+    ],
+    "followup": {
+      "followups": [
+        {
+          "title": "Advance payment reminder for Casa Anjuna",
+          "because": "villa booked ✓ — 30% advance due within 7 days",
+          "category": "transaction",
+          "risk_class": "advise-only",
+          "due": "2026-09-05",
+          "confidence": 0.8
+        },
+        {
+          "title": "Draft the packing list",
+          "because": "villa booked ✓ — 4 nights, pool, December",
+          "category": "creation",
+          "risk_class": "auto",
+          "due": null,
+          "confidence": 0.6
+        },
+        {
+          "title": "Web check-in CCU-GOI",
+          "because": "villa booked ✓ — the trip is committed",
+          "category": "scheduling",
+          "risk_class": "auto",
+          "due": "2026-12-16",
+          "confidence": 0.75
+        }
+      ]
+    }
+  },
   "input_events": [
-    "next-step pass."
+    "canned followup.v1 output for FUP-01 (setup.followup) applied by the real next-step pass"
   ],
-  "expected": "proposes check-in schedule (auto) + cab task (confirm) + nudges Karan-status monitoring; each carries \"because: flights booked ✓\".",
+  "expected": {
+    "followups": [
+      "advance",
+      "packing list",
+      "check-in"
+    ],
+    "typed": "suggested",
+    "plan_after": [
+      "book flights",
+      "lock the villa",
+      "Advance payment reminder for Casa Anjuna",
+      "Draft the packing list",
+      "Web check-in CCU-GOI"
+    ]
+  },
   "wrong": [
     {
       "label": "dead-end",
-      "assert_absent": "nothing follows"
+      "assert_absent": "nothing follows the booking"
     },
     {
-      "label": "followup-flood",
-      "assert_absent": ">2 proposals"
+      "label": "not-in-plan",
+      "assert_absent": "a follow-up created beside the plan instead of joining it"
+    },
+    {
+      "label": "unmarked",
+      "assert_absent": "a follow-up stored as explicit instead of suggested"
+    },
+    {
+      "label": "random-tasks-feel",
+      "assert_absent": "a follow-up with no visible \"because\""
+    },
+    {
+      "label": "capped",
+      "assert_absent": "the third follow-up silently dropped by a per-trigger budget"
+    },
+    {
+      "label": "pass-failed",
+      "assert_absent": "the next-step pass failing on a well-formed output"
     }
   ],
   "gates": [
@@ -25,6 +108,6 @@
   ],
   "source": {
     "doc": "V2",
-    "section": "FUP-01 · After executor completion"
+    "section": "GoldenEvals V6P1 §5.17 FUP-01 · completion spawns follow-ups into the plan"
   }
 }

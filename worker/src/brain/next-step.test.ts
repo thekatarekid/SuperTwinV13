@@ -177,8 +177,9 @@ describe("applySchedule (P3.1 — the policy gate in action)", () => {
 });
 
 describe("applyFollowups", () => {
-  it("caps at 2 per trigger (FUP-01 followup-flood) and keeps the because spine (FUP-05)", () => {
+  it("is uncapped (V6 P1 §14.1: suggested, marked, no cap), keeps the because spine (FUP-05) and joins the plan (FUP-01)", () => {
     seedSpace();
+    getDb().prepare(`UPDATE spaces SET plan_json = ? WHERE id = 'sp_goa'`).run(JSON.stringify(["Book flights", "Fly to Goa"]));
     const counts = emptyScheduleCounts();
     applyFollowups(
       "sp_goa",
@@ -191,13 +192,20 @@ describe("applyFollowups", () => {
       counts,
       NOW,
     );
-    expect(counts.followupsCreated).toBe(2);
-    expect(counts.followupsSkipped).toBe(1);
+    expect(counts.followupsCreated).toBe(3);
+    expect(counts.followupsSkipped).toBe(0);
     const rows = getDb()
-      .prepare(`SELECT evidence_json FROM tasks ORDER BY title`)
-      .all() as { evidence_json: string }[];
-    expect(rows).toHaveLength(2);
-    for (const r of rows) expect(r.evidence_json).toContain("because: flights booked ✓");
+      .prepare(`SELECT type, evidence_json FROM tasks ORDER BY title`)
+      .all() as { type: string; evidence_json: string }[];
+    expect(rows).toHaveLength(3);
+    for (const r of rows) {
+      expect(r.type).toBe("suggested");
+      expect(r.evidence_json).toContain("because: flights booked ✓");
+    }
+    const plan = JSON.parse(
+      (getDb().prepare(`SELECT plan_json FROM spaces WHERE id = 'sp_goa'`).get() as { plan_json: string }).plan_json,
+    ) as string[];
+    expect(plan).toEqual(["Book flights", "Fly to Goa", "Web check-in", "Book airport cab", "Pack bags"]);
   });
 
   it("FUP-04: an inline recurring schedule confirms even on a clean parent closure", () => {

@@ -35,7 +35,7 @@ import { FOLLOWUP_V1_SYSTEM, validateFollowupOutput, type FollowupOutput } from 
 import { BRIEF_V1_SYSTEM, validateBriefOutput, type BriefOutput } from "../../prompts/brief.v1.js";
 import { evaluateSchedulePolicy, type SchedulePolicyVerdict } from "../../scheduler/v6/schedule-policy.js";
 import { tickTimers, type TimerFire } from "../../scheduler/v6/timers.js";
-import { applyFollowups, emptyScheduleCounts, FOLLOWUPS_PER_TRIGGER } from "../../brain/decide-apply.js";
+import { applyFollowups, emptyScheduleCounts } from "../../brain/decide-apply.js";
 import { dueLabel } from "../../library/due-label.js";
 import { runExecutorTask, type ExecutorRunResult } from "../../executor/index.js";
 import { getDb } from "../../db/connection.js";
@@ -373,12 +373,11 @@ async function nextStepLive(fixture: Fixture): Promise<ExecutorResult> {
     return { ok: false, output: { error: result.error, responses: result.responses }, seededContext: seed?.state };
   }
   const violations: Violation[] = [];
-  const kept = out.followups.slice(0, FOLLOWUPS_PER_TRIGGER);
+  // V6 P1 S5.2: suggested follow-ups are uncapped ("if the plan needs it, it
+  // exists") — the flood check is gone; FUP-03's chain-mania still bites.
+  const kept = out.followups;
   if (fixture.id === "FUP-03" && out.followups.length > 0) {
     violations.push({ label: "chain-mania", note: `${out.followups.length} follow-up(s) for a trivial closure` });
-  }
-  if (out.followups.length > FOLLOWUPS_PER_TRIGGER) {
-    violations.push({ label: "followup-flood", note: `${out.followups.length} proposals; the cap is ${FOLLOWUPS_PER_TRIGGER}` });
   }
   const { rows, violations: policyViolations } = schedulePolicyView(fixture.id, { followups: kept }, FIXTURE_NOW);
   if (fixture.id === "FUP-04") {
@@ -394,7 +393,7 @@ async function nextStepLive(fixture: Fixture): Promise<ExecutorResult> {
     output: {
       followups: kept,
       applied_by_schedule_policy: rows,
-      cap: `at most ${FOLLOWUPS_PER_TRIGGER} follow-ups per trigger (code)`,
+      cap: "none — suggested follow-ups are uncapped and marked (V6 P1 §14.1); dedupe by open title is the only filter",
     },
     seededContext: seed?.state,
     violations,

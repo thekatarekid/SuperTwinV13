@@ -1,25 +1,172 @@
 {
   "id": "TSK-02",
   "category": "TSK",
-  "title": "Implicit task from entailment",
-  "pass": "decide",
-  "mode": "live",
-  "setup": "`sp_goa_dec`; flight booked 18 Dec 07:00 CCU.",
+  "title": "suggested is marked and uncapped",
+  "pass": "tasks",
+  "mode": "code",
+  "setup": {
+    "note": "The villa is locked; the plan still has four gaps and decide.v9 names all four. Every one is stored as a task typed 'suggested' — no budget silently drops the fourth (Product_V6 §11.12.3: no cap, if the plan needs it, it exists).",
+    "space": {
+      "id": "sp_goa_dec",
+      "label": "Goa trip with Rohan in December",
+      "goal": "4 people, 18-21 Dec, under 20k pp",
+      "status": "active",
+      "plan": [
+        "book flights",
+        "lock the villa"
+      ]
+    },
+    "events": [
+      {
+        "alias": "e1",
+        "actor": "self",
+        "text": "villa locked — Casa Anjuna, 4 nights from 18 Dec, 22k total"
+      }
+    ],
+    "episodes": [
+      {
+        "id": "ep_villa",
+        "summary": "Villa locked: Casa Anjuna, 18-21 Dec",
+        "events": [
+          "e1"
+        ]
+      }
+    ],
+    "decide": {
+      "summary": "Dates 18-21 Dec locked, flights booked, villa locked.",
+      "latest": "Villa locked — Casa Anjuna, 22k for 4 nights.",
+      "plan": [
+        "collect shares",
+        "airport cabs",
+        "packing list",
+        "web check-in"
+      ],
+      "milestones": [],
+      "tasks": [
+        {
+          "title": "Collect everyone's share of the villa",
+          "type": "collection",
+          "owner": "self",
+          "space": "sp_goa_dec",
+          "due": null,
+          "origin": "suggested",
+          "category": "transaction",
+          "risk_class": "advise-only",
+          "steps": [
+            "split 22k four ways",
+            "message the group"
+          ],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "22k total"
+            }
+          ],
+          "confidence": 0.7
+        },
+        {
+          "title": "Book airport cabs for 18 Dec",
+          "type": "cab",
+          "owner": "self",
+          "space": "sp_goa_dec",
+          "due": "2026-12-18T04:30+05:30",
+          "origin": "suggested",
+          "category": "scheduling",
+          "risk_class": "approve-final",
+          "steps": [
+            "compare quotes",
+            "book"
+          ],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "4 nights from 18 Dec"
+            }
+          ],
+          "confidence": 0.65
+        },
+        {
+          "title": "Draft the packing list",
+          "type": "list",
+          "owner": "self",
+          "space": "sp_goa_dec",
+          "due": null,
+          "origin": "suggested",
+          "category": "creation",
+          "risk_class": "auto",
+          "steps": [
+            "draft",
+            "share with the group"
+          ],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "4 nights from 18 Dec"
+            }
+          ],
+          "confidence": 0.6
+        },
+        {
+          "title": "Web check-in CCU-GOI",
+          "type": "check-in",
+          "owner": "self",
+          "space": "sp_goa_dec",
+          "due": "2026-12-16",
+          "origin": "suggested",
+          "category": "scheduling",
+          "risk_class": "auto",
+          "steps": [
+            "open airline check-in at T-48h"
+          ],
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "18 Dec"
+            }
+          ],
+          "confidence": 0.7
+        }
+      ],
+      "closures": [],
+      "schedules": [],
+      "follow_ups": [],
+      "questions": []
+    }
+  },
   "input_events": [
-    "booking confirmation episode."
+    "canned decide.v9 output for TSK-02 (setup.decide) applied by the real pass"
   ],
-  "expected": "implicit task \"arrange ~4:30am airport cab for 18 Dec\", category scheduling, risk `approve-final` (booking) or `auto` (research options), marked implicit.",
+  "expected": {
+    "suggested": 4,
+    "marked": "every one typed 'suggested'"
+  },
   "wrong": [
     {
-      "label": "literalist",
-      "assert_absent": "no task because nobody said \"book a cab\""
+      "label": "capped",
+      "assert_absent": "fewer suggested tasks stored than the plan named — a budget dropping the fourth gap"
+    },
+    {
+      "label": "unmarked",
+      "assert_absent": "a plan-gap task stored as explicit or implicit instead of suggested"
+    },
+    {
+      "label": "pass-failed",
+      "assert_absent": "the decide pass failing on a well-formed output"
     }
   ],
   "gates": [
-    "implicit_recall"
+    "suggestion_rate"
   ],
   "source": {
-    "doc": "V1",
-    "section": "TSK-02 · Implicit task from entailment"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.17 TSK-02 · suggested is marked and uncapped"
   }
 }

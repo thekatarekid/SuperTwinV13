@@ -134,6 +134,9 @@ import { handleSurfacesRoute } from "./surfaces-routes.js";
 // returns false for a path it does not claim.
 import { handleWorldModelRoute } from "./worldmodel-routes.js";
 import { handleCalendarRoute } from "./calendar-routes.js";
+// V6 P1 S5.2: the ONE prioritized task list and the one-tap closure answers —
+// claims GET /api/tasks and /api/tasks/:id/(done|cancel|not-yet) only.
+import { handleTasksRoute } from "./tasks-routes.js";
 // Review queue + drill-down (P1.7): home, proposals approve/reject, decisions
 // ("why?"), trace reads, dev seed. Same contract.
 import { handleReviewRoute } from "./review-routes.js";
@@ -851,6 +854,14 @@ async function handle(
   // hard-stop, connect-your-accounts, session health.
   if (path.startsWith("/api/browser/")) {
     const handled = await handleBrowserRoute(req, res);
+    if (handled) return;
+  }
+
+  // The one prioritized list and the one-tap closure answers (V6 P1 S5.2,
+  // spec §11.13): GET /api/tasks, POST /api/tasks/:id/(done|cancel|not-yet).
+  // Before the executor block, which owns the other /api/tasks/:id verbs.
+  if (path === "/api/tasks" || path.startsWith("/api/tasks/")) {
+    const handled = await handleTasksRoute(req, res);
     if (handled) return;
   }
 

@@ -37,6 +37,7 @@ import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
 import { liveExecutor } from "./liv.js";
 import { calendarExecutor } from "./cal.js";
+import { tskExecutor } from "./tsk.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -51,6 +52,7 @@ export { criticExecutor, orientExecutor } from "./orient.js";
 export { criExecutor } from "./cri.js";
 export { conExecutor } from "./con.js";
 export { calendarExecutor, timCode } from "./cal.js";
+export { tskExecutor } from "./tsk.js";
 export {
   backfillExecutor,
   consolidateExecutor,
@@ -167,4 +169,11 @@ export async function registerProductExecutors(): Promise<void> {
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.
   registerExecutor("calendar", calendarExecutor);
+  // V6 P1 S5.2: TSK / SCH / FUP task cases (prioritized sections with an
+  // explained score, suggested marked and uncapped, the wait-until step, a
+  // wake-up that reads before it calls, a slept-through fire executing with
+  // its delay shown, follow-ups joining the plan) — against tasks/priority.ts,
+  // tasks/closure-rules.ts, tasks/wakeups.ts and the real decide / next-step
+  // passes on canned output. Zero model calls.
+  registerExecutor("tasks", tskExecutor);
 }

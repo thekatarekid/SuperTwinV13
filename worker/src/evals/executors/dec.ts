@@ -34,7 +34,7 @@ function list(v: unknown): Record<string, unknown>[] {
 }
 
 /** A provider that answers every call with the fixture's canned JSON. */
-function cannedProvider(text: string): Provider & { calls: number } {
+export function cannedProvider(text: string): Provider & { calls: number } {
   const p = {
     id: "eval-canned",
     calls: 0,
@@ -62,7 +62,7 @@ interface TaskRow {
   chapter_id: string | null;
 }
 
-interface Seeded {
+export interface Seeded {
   spaceId: string;
   eventIds: string[];
   episodeIds: string[];
@@ -152,7 +152,7 @@ function seed(id: string, setup: Record<string, unknown>): Seeded {
   return { spaceId, eventIds, episodeIds, alias };
 }
 
-function cleanup(s: Seeded): void {
+export function cleanup(s: Seeded): void {
   const db = getDb();
   db.transaction(() => {
     db.prepare(`DELETE FROM deferred_outputs WHERE space_id = ?`).run(s.spaceId);

@@ -1,30 +1,86 @@
 {
   "id": "SCH-03",
   "category": "SCH",
-  "title": "Lead-time computation: traffic before flight",
-  "pass": "schedule",
-  "mode": "live",
-  "setup": "flight 6pm from CCU; home→airport typically 75 min; user prefers 2h buffer (claim).",
+  "title": "missed wake-ups",
+  "pass": "tasks",
+  "mode": "code",
+  "setup": {
+    "note": "The machine slept through both a scheduled step (due 2h ago, still inside its window) and a closure check (due 90 min ago). Both execute on wake, each showing how late it is; the next tick fires nothing again.",
+    "space": {
+      "id": "sp_sleepy",
+      "label": "Concert tickets and Priya's Sunday",
+      "goal": "nothing is lost while the Mac sleeps",
+      "status": "active"
+    },
+    "tasks": [
+      {
+        "id": "tsk_window_watch",
+        "title": "Check the concert booking window",
+        "type": "implicit",
+        "category": "research",
+        "risk_class": "auto",
+        "owner": "self",
+        "status": "scheduled",
+        "confidence": 0.9,
+        "schedule": {
+          "fire_at": "2026-08-29T01:30:00.000Z",
+          "recurrence": null,
+          "mode": "auto",
+          "source": "inferred",
+          "step": "wait-until",
+          "window_opens_at": "2026-08-29T01:30:00.000Z",
+          "reason": "the window opened at 07:00 IST"
+        }
+      },
+      {
+        "id": "tsk_priya_reply",
+        "title": "Reply to Priya about Sunday",
+        "type": "explicit",
+        "category": "communication",
+        "risk_class": "advise-only",
+        "owner": "self",
+        "status": "open",
+        "confidence": 0.8
+      }
+    ]
+  },
   "input_events": [
-    "Decide."
+    "The Mac wakes at 2026-08-29T03:30:00.000Z after sleeping through a 01:30Z fire and a 02:00Z closure check."
   ],
-  "expected": "traffic-check task ~1:30–2pm (derived arithmetic shown in justification), then cab preparation sized to live traffic; mode auto for the check, approve-final for booking.",
+  "expected": {
+    "fire_delay_ms": 7200000,
+    "check_late_ms": 5400000,
+    "on_wake": "the missed step fires late (2h shown), the missed check asks by code (90m shown)",
+    "next_tick": "nothing fires again"
+  },
   "wrong": [
     {
-      "label": "magic-numbers",
-      "assert_absent": "fire time with no derivation"
+      "label": "lost-fire",
+      "assert_absent": "a fire slept through and never executed"
     },
     {
-      "label": "check-too-late",
-      "assert_absent": "the 'check-too-late' failure mode"
+      "label": "delay-hidden",
+      "assert_absent": "a late fire presented as on time, with no delay anywhere"
+    },
+    {
+      "label": "double-fire",
+      "assert_absent": "the same schedule firing twice across two ticks"
+    },
+    {
+      "label": "clock-only-call",
+      "assert_absent": "a model call made by the wake-up itself"
+    },
+    {
+      "label": "bad-seed",
+      "assert_absent": "the fixture seeding no scheduled task"
     }
   ],
   "gates": [
-    "schedule_math",
+    "clock_only_call",
     "schedule_policy"
   ],
   "source": {
     "doc": "V2",
-    "section": "SCH-03 · Lead-time computation: traffic before flight"
+    "section": "GoldenEvals V6P1 §5.17 SCH-03 · missed wake-ups"
   }
 }

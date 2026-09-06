@@ -36,6 +36,7 @@ import { startDispatcher } from "./scheduler/v6/dispatch.js";
 import { startAssistLane } from "./assist/index.js";
 import { startTieringJob } from "./tiers/tiering.js";
 import { startCalendarJob } from "./calendar/job.js";
+import { startWakeupJob } from "./tasks/wakeups.js";
 import {
   backfillBrowserStreamCategories,
   backfillChatCategories,
@@ -194,6 +195,14 @@ async function main(): Promise<void> {
   // calls; guarded inside the job.
   const calendarJob = startCalendarJob({ log: (line) => console.error(line) });
 
+  // ---- Wake-ups (V6 P1 S5.2, Product_V6 §11.12.6/11-13): the ONE clock-driven
+  // job of the task layer — due scheduled steps fire (a fire slept through
+  // executes on wake with its delay shown), due closure checks and past-due
+  // tasks are LOOKUPS that ask "done?" by code with zero model calls, and the
+  // next-step pass runs only when a closure actually wrote a trigger row.
+  // Boot replays the deferred pen first. Guarded inside the job.
+  const wakeups = startWakeupJob({ log: (line) => console.error(line) });
+
   // ---- Category backfill (P1.6, spec §5.1): chat streams get their Cat-1/2
   // by code (user-reply + the cached business tier split); browser streams
   // sync from the P0.8 per-domain verdicts. Zero model calls; every change
@@ -257,6 +266,7 @@ async function main(): Promise<void> {
       traceRetention.stop();
       tiering.stop();
       calendarJob.stop();
+      wakeups.stop();
       // Every adapter the supervisor started (and the pairing daemon, if any).
       await supervisor.stopAll();
       setSourceSupervisor(null);

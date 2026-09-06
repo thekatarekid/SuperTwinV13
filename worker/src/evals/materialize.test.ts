@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { repoRoot } from "./cli.js";
 import { CATEGORIES, MATERIALIZED_CASES } from "./fixtures.js";
-import { isCodeCase, materializeDocs, parseDoc, parseGates, parseWrong, toFixture } from "./materialize.js";
+import { isCodeCase, isV6P1Authored, materializeDocs, parseDoc, parseGates, parseWrong, toFixture } from "./materialize.js";
 
 const v1 = readFileSync(join(repoRoot(), "SuperTwinV13_GoldenEvals_V1.md"), "utf8");
 const v2 = readFileSync(join(repoRoot(), "SuperTwinV13_GoldenEvals_V2.md"), "utf8");
@@ -109,5 +109,21 @@ describe("materializeDocs", () => {
     expect(() =>
       toFixture({ id: "ROL-01", title: "t", doc: "V2", fields: { Setup: "s", Input: "i" } }),
     ).toThrow(/missing Expected, Wrong, Gates/);
+  });
+});
+
+describe("isV6P1Authored (V6 P1 S5.2)", () => {
+  it("protects the V1/V2 ids the V6 P1 doc re-authored from being regenerated", () => {
+    const dir = join(repoRoot(), "evals", "v13");
+    // TSK-01/02, SCH-01..03 and FUP-01 are hand-written code cases now
+    // (GoldenEvals V6P1 §5.17); --materialize must leave them alone.
+    for (const id of ["TSK-01", "TSK-02", "SCH-01", "SCH-02", "SCH-03", "FUP-01"]) {
+      expect(isV6P1Authored(join(dir, `${id}.json`))).toBe(true);
+    }
+    // The carried V1/V2 cases in the same categories still regenerate.
+    for (const id of ["TSK-03", "SCH-04", "SCH-08", "FUP-02", "FUP-05", "ROL-01"]) {
+      expect(isV6P1Authored(join(dir, `${id}.json`))).toBe(false);
+    }
+    expect(isV6P1Authored(join(dir, "NOPE-99.json"))).toBe(false);
   });
 });

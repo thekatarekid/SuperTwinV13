@@ -194,6 +194,12 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // message is checked against the world model before the tool runs, and the
   // bar stays the one channel that instructs.
   { cat: "INJ", name: "Injection surfacing (V6 P1)", n: 4, doc: "V2", pass: "injection", authored: true },
+  // Build V6 P1 S6e · E2 — existing-home recovery. Code against
+  // recovery/space-repair.ts: the preview is free, a birth the pre-fix commit
+  // order discarded is restored at the propose-only status with no invented
+  // evidence, a refusal on the merits is never replayed, the repair is
+  // idempotent (hard gate), and membership stays the S5.1 sweep's job.
+  { cat: "REC", name: "Existing-home recovery (V6 P1)", n: 5, doc: "V2", pass: "repair", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

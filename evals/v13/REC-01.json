@@ -1,0 +1,26 @@
+{
+  "id": "REC-01",
+  "category": "REC",
+  "title": "the recovery preview is free",
+  "pass": "repair",
+  "mode": "code",
+  "setup": {
+    "note": "A pre-fix home: two episodes that committed spaceless and sit in unsorted, and the `(unproposed)` rejection row the old commit path wrote instead of the space they belong to."
+  },
+  "input_events": [
+    "GET the repair preview on a home whose space proposal died as `already_placed`."
+  ],
+  "expected": {
+    "model_calls": 0,
+    "rows_written": 0,
+    "items": 1,
+    "action": "revive",
+    "related_orphans_at_least": 2,
+    "note": "The plan prices the sweep that follows — one call per space, and only once a space is active — before anything is written."
+  },
+  "wrong": [
+    { "label": "preview-writes", "assert_absent": "a space, decision or any other row written by a preview" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "Build V6 P1 S6e · E2 — existing-home recovery" }
+}

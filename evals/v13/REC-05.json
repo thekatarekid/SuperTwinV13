@@ -1,0 +1,25 @@
+{
+  "id": "REC-05",
+  "category": "REC",
+  "title": "membership stays the activation sweep's job",
+  "pass": "repair",
+  "mode": "code",
+  "setup": {
+    "note": "The dead proposal names its founding events by PACK ALIAS ('e45') — a table that lived for one call and is not on disk. Guessing which episode it meant would be a second attachment path; the S5.1 sweep already answers this question from unsorted plus FTS over the log."
+  },
+  "input_events": [
+    "Restore the space, then ask the sweep's own candidate query what it would be offered."
+  ],
+  "expected": {
+    "episodes_attached_by_repair": 0,
+    "attach_decisions_by_repair": 0,
+    "sweep_offers_the_orphan": true,
+    "sweep_eligible_once_active": 1,
+    "model_calls": 0
+  },
+  "wrong": [
+    { "label": "second-attach-path", "assert_absent": "an episode filed into a space by the repair rather than by the sweep" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "Build V6 P1 S6e · E2 — existing-home recovery" }
+}

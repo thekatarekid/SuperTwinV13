@@ -58,6 +58,8 @@ import {
 } from "./categories/index.js";
 import { enforceHomeGuard } from "./home-guard.js";
 import { startSpendHeartbeat } from "./providers/spend-heartbeat.js";
+import { reportHaltOnBoot } from "./recovery/halt-report.js";
+import { repairOnBoot } from "./recovery/space-repair.js";
 import {
   installCrashKill,
   releasePidFile,
@@ -218,6 +220,22 @@ async function main(): Promise<void> {
   // ---- Spend heartbeat (S0.8, T0-13; SPD-06): `[spend] 60s: …` once a
   // minute in this log, counted at the single spawn site's completion.
   const spendHeartbeat = optionalStep("spend heartbeat", () => startSpendHeartbeat({ log }), { log });
+
+  // ---- The halt says so at BOOT (V6 P1 S6e · E2). The budget latch survives
+  // restart by design, so a latched home comes back up latched; the heartbeat
+  // does not speak for sixty seconds and a held lane not until its first tick.
+  // One line, before anything can ask to spend, naming the switch and the way
+  // out. The in-app half is `HaltBanner` on every tab (FIX-C3).
+  optionalStep("halt report", () => void reportHaltOnBoot(), { log });
+
+  // ---- Existing-home recovery (V6 P1 S6e · E2). Until the commit-order fix,
+  // a space proposal founded on events an episode of the same tick had already
+  // committed died as `already_placed` and no space was born. The fix helps new
+  // bundles only; this replays the discarded births from the decisions ledger
+  // so the understanding already paid for is not lost. ZERO model calls, every
+  // write a reversible decision, idempotent (a repaired refusal is reversed),
+  // and a no-op on every home installed after the fix.
+  optionalStep("space repair", () => void repairOnBoot(), { log });
 
   // ---- Sources: START what consent already allows (nothing, on a fresh home).
   await optionalStepAsync("source supervisor", async () => {

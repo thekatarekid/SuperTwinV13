@@ -40,6 +40,7 @@ import { liveExecutor } from "./liv.js";
 import { liteExecutor } from "./exe.js";
 import { nudExecutor } from "./nud.js";
 import { injectionExecutor } from "./inj.js";
+import { recoveryExecutor } from "./rec.js";
 import { sendGateExecutor } from "./gatea.js";
 import { brfExecutor } from "./brf.js";
 import { calendarExecutor } from "./cal.js";
@@ -67,6 +68,7 @@ export { spacesExecutor } from "./spc.js";
 export { liteExecutor } from "./exe.js";
 export { nudExecutor } from "./nud.js";
 export { injectionExecutor } from "./inj.js";
+export { recoveryExecutor } from "./rec.js";
 export { sendGateExecutor } from "./gatea.js";
 export { brfExecutor } from "./brf.js";
 export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
@@ -222,6 +224,12 @@ export async function registerProductExecutors(): Promise<void> {
   // safety/{injection,tool-args}.ts through the real ingest funnel, the real
   // commit and the real executor-lite. Zero model calls.
   registerExecutor("injection", injectionExecutor);
+  // V6 P1 S6e · E2: REC existing-home recovery (the preview is free, a birth
+  // the pre-fix commit order discarded is restored, a refusal on the merits is
+  // never replayed, the repair is idempotent, membership stays the sweep's
+  // job) against recovery/space-repair.ts. Zero model calls by construction —
+  // the repair is a replay of the decisions ledger.
+  registerExecutor("repair", recoveryExecutor);
   // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.

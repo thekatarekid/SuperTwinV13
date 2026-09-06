@@ -1,0 +1,28 @@
+{
+  "id": "REC-02",
+  "category": "REC",
+  "title": "a birth the commit-order defect discarded is restored",
+  "pass": "repair",
+  "mode": "code",
+  "setup": {
+    "note": "One orphaned episode and the rejection row that stood in for its space: `already_placed: every founding event was committed by an earlier item` — the exact string the pre-fix brain/commit.ts wrote."
+  },
+  "input_events": [
+    "Run the repair once."
+  ],
+  "expected": {
+    "model_calls": 0,
+    "status": "the status spaceCreationStatus() answers — 'proposed' under propose-only, never the model's",
+    "created_by": "repair",
+    "born_via": "inferred",
+    "birth_evidence": [],
+    "rejection_reversed_by_the_repair_decision": true,
+    "note": "birth_evidence stays EMPTY: the dead payload recorded the label and the summary, never the evidence array, and a card never shows a quote this product cannot prove."
+  },
+  "wrong": [
+    { "label": "smuggled-active", "assert_absent": "a repaired space born 'active' while the install is propose-only" },
+    { "label": "invented-evidence", "assert_absent": "a birth quote the ledger never recorded" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "Build V6 P1 S6e · E2 — existing-home recovery" }
+}

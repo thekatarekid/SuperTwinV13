@@ -34,7 +34,7 @@
 //     more (the bar included).
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   describeWorkerError,
@@ -46,6 +46,18 @@ import {
 
 /** How often the banner re-asks. Cheap read; the halt can start any minute. */
 export const HALT_POLL_MS = 30_000;
+/**
+ * How fast it re-asks BEFORE the first answer (V6 P1 S6e · E2).
+ *
+ * The budget latch survives restart by design, so the moment a latched home is
+ * most likely to be looked at is the relaunch — and that is exactly when the
+ * worker may not be listening yet. A first read that fails leaves `spend` at
+ * `unknown`, which correctly renders nothing; on the 30-second poll that means
+ * a hard-stopped app looks healthy for half a minute after launch, which is
+ * the same silence this banner exists to end. So until an answer arrives the
+ * banner re-asks quickly, and only then settles into the poll.
+ */
+export const HALT_FIRST_ANSWER_RETRY_MS = 3_000;
 
 /**
  * A timestamp in the reader's own clock. The worker stores UTC; the user who
@@ -122,21 +134,34 @@ export function HaltBanner(): JSX.Element | null {
   const [spend, setSpend] = useState<SpendStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
-
-  const read = useCallback(async () => {
-    try {
-      setSpend(await fetchSpend());
-    } catch {
-      // A read that did not answer is not evidence the halt ended. Keep the
-      // last known state rather than clearing a warning we cannot re-confirm.
-    }
-  }, []);
+  /** Has the worker answered at all yet? Decides the re-ask interval. */
+  const answered = useRef(false);
 
   useEffect(() => {
-    void read();
-    const t = setInterval(() => void read(), HALT_POLL_MS);
-    return () => clearInterval(t);
-  }, [read]);
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async (): Promise<void> => {
+      try {
+        const next = await fetchSpend();
+        if (!live) return;
+        answered.current = true;
+        setSpend(next);
+      } catch {
+        // A read that did not answer is not evidence the halt ended. Keep the
+        // last known state rather than clearing a warning we cannot re-confirm.
+      }
+      if (!live) return;
+      timer = setTimeout(
+        () => void tick(),
+        answered.current ? HALT_POLL_MS : HALT_FIRST_ANSWER_RETRY_MS,
+      );
+    };
+    void tick();
+    return () => {
+      live = false;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, []);
 
   const halt = haltOf(spend);
   if (!halt) return null;

@@ -31,6 +31,20 @@ export const ATTACH_FLOOR = 0.75;
 export const SECOND_LOOK_FLOOR = 0.6;
 /** Candidate cap per sweep — one review call, bounded input. */
 export const SWEEP_CANDIDATE_CAP = 40;
+/**
+ * Seats inside that cap that the LOG half may always claim (V6 P1 S6e · E2).
+ *
+ * Both halves used to compete for the same 40, with unsorted taking its LIMIT
+ * first — so on any home with 40 or more open unsorted rows the label-matched
+ * FTS hits were appended to a list that was already full and then sliced away.
+ * On a fresh install that never shows: there is nothing in unsorted yet. On
+ * the user's install there are 395, and every one of them is newer than the
+ * episodes a restored space was founded on — so the sweep for that space would
+ * have been offered forty promotional messages and NOT the two episodes whose
+ * text names it. The half that answers "does this belong to THIS space" cannot
+ * be the half that gets crowded out.
+ */
+export const SWEEP_LOG_RESERVE = 16;
 
 export interface SweepReport {
   spaceId: string;
@@ -70,28 +84,27 @@ function ftsQueryFor(label: string, goal: string | null): string | null {
  * over spaceless episodes.
  */
 export function sweepCandidates(spaceId: string): string[] {
-  const db = getDb();
-  const space = db.prepare(`SELECT label, goal FROM spaces WHERE id = ?`).get(spaceId) as
+  const space = getDb().prepare(`SELECT label, goal FROM spaces WHERE id = ?`).get(spaceId) as
     | { label: string; goal: string | null }
     | undefined;
   if (!space) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const unsorted = db
-    .prepare(
-      `SELECT u.episode_id FROM unsorted u
-        JOIN episodes e ON e.id = u.episode_id
-        WHERE u.status IN ('open','archived') AND e.space_id IS NULL
-        ORDER BY (u.status = 'open') DESC, u.created_at DESC LIMIT ?`,
-    )
-    .all(SWEEP_CANDIDATE_CAP) as { episode_id: string }[];
-  for (const r of unsorted) {
-    if (!seen.has(r.episode_id)) {
-      seen.add(r.episode_id);
-      out.push(r.episode_id);
-    }
-  }
-  const match = ftsQueryFor(space.label, space.goal);
+  return sweepCandidatesFor(space.label, space.goal);
+}
+
+/**
+ * The same retrieval, addressed by label + goal instead of by a space row, so
+ * a caller can price a sweep for a space that does not exist yet (V6 P1 S6e ·
+ * E2: the existing-home repair previews what restoring a discarded proposal
+ * would offer, before it writes anything). One query set, one answer — the
+ * repair must never grow a second idea of what "related" means.
+ */
+export function sweepCandidatesFor(label: string, goal: string | null): string[] {
+  const db = getDb();
+  // The LOG half first, so the seats it needs are known before unsorted asks
+  // for the rest. Nothing about the ORDER of the returned list changes —
+  // unsorted still leads — only how the cap is shared.
+  const matched: string[] = [];
+  const match = ftsQueryFor(label, goal);
   if (match !== null) {
     try {
       const hits = db
@@ -106,15 +119,32 @@ export function sweepCandidates(spaceId: string): string[] {
             WHERE events_fts MATCH ?
             LIMIT ?`,
         )
-        .all(match, SWEEP_CANDIDATE_CAP) as { episode_id: string }[];
-      for (const r of hits) {
-        if (!seen.has(r.episode_id)) {
-          seen.add(r.episode_id);
-          out.push(r.episode_id);
-        }
-      }
+        .all(match, SWEEP_LOG_RESERVE) as { episode_id: string }[];
+      for (const r of hits) matched.push(r.episode_id);
     } catch {
       // A pathological FTS query must not kill the sweep; unsorted still runs.
+    }
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const unsorted = db
+    .prepare(
+      `SELECT u.episode_id FROM unsorted u
+        JOIN episodes e ON e.id = u.episode_id
+        WHERE u.status IN ('open','archived') AND e.space_id IS NULL
+        ORDER BY (u.status = 'open') DESC, u.created_at DESC LIMIT ?`,
+    )
+    .all(SWEEP_CANDIDATE_CAP - matched.length) as { episode_id: string }[];
+  for (const r of unsorted) {
+    if (!seen.has(r.episode_id)) {
+      seen.add(r.episode_id);
+      out.push(r.episode_id);
+    }
+  }
+  for (const id of matched) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
     }
   }
   return out.slice(0, SWEEP_CANDIDATE_CAP);

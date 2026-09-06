@@ -205,9 +205,19 @@ describe("CNS-01 — nothing before yes (60 s real boot on a scratch home)", () 
       // (seen at the V6P1S6d gate: "75755 pmset -g batt"), and — the half that
       // matters — a bare `claude` child would have slipped past the assertion
       // that this boot spends nothing.
+      //
+      // Third form, V6P1S6e: PARENTHESES. `ps` prints a process that has exited
+      // and not yet been reaped as "(command)", so the very same permitted idle
+      // probe reads "24193 (pmset)" if the 60-second sample lands in the gap
+      // between the probe's exit and its wait(). That failed the filter three
+      // runs out of three under whole-suite load while passing every time the
+      // file ran alone — a flake in the boundary, not in the boot. And the half
+      // that matters again: a dying `(claude)` would have slipped past line 209
+      // and let a spending boot read as green. Both patterns admit `(` before
+      // and `)` after.
       const all = children(wp);
-      expect(all.some((k) => /whatsapp-go|screenwatch|(^|[\s/])claude(\s|$)/.test(k)), all.join("\n")).toBe(false);
-      const kids = all.filter((k) => !/(^|[\s/])(esbuild|pmset|ioreg)(\s|$)/.test(k));
+      expect(all.some((k) => /whatsapp-go|screenwatch|(^|[\s/(])claude(\s|\)|$)/.test(k)), all.join("\n")).toBe(false);
+      const kids = all.filter((k) => !/(^|[\s/(])(esbuild|pmset|ioreg)(\s|\)|$)/.test(k));
       expect(kids, `worker ${wp} spawned children:\n${kids.join("\n")}`).toEqual([]);
       expect(stderr).not.toMatch(/\[whatsapp-go\]/);
       expect(stderr).not.toMatch(/\[screenwatch/);

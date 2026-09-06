@@ -1,0 +1,25 @@
+{
+  "id": "REC-04",
+  "category": "REC",
+  "title": "the repair is idempotent",
+  "pass": "repair",
+  "mode": "code",
+  "setup": {
+    "note": "One restorable birth. The repair runs at every boot, so 'twice' is the test everyone writes and 'forever' is the property that matters."
+  },
+  "input_events": [
+    "Run the repair three times."
+  ],
+  "expected": {
+    "first_revived_at_least": 1,
+    "second_scanned": 0,
+    "third_scanned": 0,
+    "writes_after_first": 0,
+    "model_calls": 0
+  },
+  "wrong": [
+    { "label": "double-apply", "assert_absent": "any row written by a repeat run" }
+  ],
+  "gates": ["idempotency"],
+  "source": { "doc": "V2", "section": "Build V6 P1 S6e · E2 — existing-home recovery" }
+}

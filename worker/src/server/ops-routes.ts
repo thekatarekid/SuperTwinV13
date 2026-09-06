@@ -18,6 +18,9 @@
 //   GET  /api/ops/spend                  budget windows, latch, kill switch
 //   POST /api/ops/model-activity         { paused } "Stop all model activity"
 //   POST /api/ops/budget/reset           clear the budget latch (operator)
+//   GET  /api/ops/repair                 PREVIEW: the orphan census + the space
+//                                        births the pre-fix commit discarded
+//   POST /api/ops/repair                 restore them (0 model calls, idempotent)
 //   GET  /api/ops/runs/:id/undo          PREVIEW: what an undo would revert
 //   POST /api/ops/runs/:id/undo          reverse-replay one run's mutations
 //
@@ -53,6 +56,7 @@ import {
   replayQuarantined,
 } from "../db/work-queue.js";
 import { listDeadLetters } from "../db/v6core.js";
+import { applySpaceRepair, previewSpaceRepair } from "../recovery/space-repair.js";
 
 /** The lanes the ops surface may pause. Anything else is a 400, not a crash. */
 export const OPS_LANES = [
@@ -357,6 +361,23 @@ export async function handleOpsRoute(req: IncomingMessage, res: ServerResponse):
       if (lane.startsWith("llm")) resourcePool.resumeLane(lane);
     }
     sendJson(res, 200, budgetStatus());
+    return true;
+  }
+
+  // ---- GET/POST /api/ops/repair -------------------------------------------
+  //
+  // Existing-home recovery (V6 P1 S6e · E2). GET is the PREVIEW — the orphan
+  // census, the space births the pre-fix commit path discarded, and what the
+  // S5.1 sweep would then be offered — with zero model calls and zero writes.
+  // POST applies it: also zero model calls, idempotent (each repaired refusal
+  // is reversed by the decision that replaced it), and every write reversible.
+  // The upgrade step at boot calls the same two functions.
+  if (method === "GET" && path === "/api/ops/repair") {
+    sendJson(res, 200, previewSpaceRepair());
+    return true;
+  }
+  if (method === "POST" && path === "/api/ops/repair") {
+    sendJson(res, 200, applySpaceRepair());
     return true;
   }
 

@@ -1,0 +1,26 @@
+{
+  "id": "REC-03",
+  "category": "REC",
+  "title": "a refusal on the merits is never replayed",
+  "pass": "repair",
+  "mode": "code",
+  "setup": {
+    "note": "Two rejections the repair must leave alone: a `critic:` duplicate of a live space, and an `evidence_not_verbatim:` proposal whose quote was not in the events it cited. Both shapes are on the user's own disk."
+  },
+  "input_events": [
+    "Run the repair on a home holding both."
+  ],
+  "expected": {
+    "offered_for_repair": 0,
+    "critic_replayed": false,
+    "no_quote_replayed": false,
+    "duplicate_spaces": 1,
+    "unverifiable_spaces": 0
+  },
+  "wrong": [
+    { "label": "revived-without-evidence", "assert_absent": "a space minted from a proposal with no verifiable quote" },
+    { "label": "second-copy", "assert_absent": "a second copy of a space the critic already said was a duplicate" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "Build V6 P1 S6e · E2 — existing-home recovery" }
+}

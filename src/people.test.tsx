@@ -13,6 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { resetLoadCache } from "./components/LoadState";
 import { People } from "./screens/People";
 import { ClaimModal } from "./modals/ClaimModal";
 import { ArtifactModal, artifactResult } from "./modals/ArtifactModal";
@@ -77,6 +78,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // FIX-C4: "Who I am" and the radar cache their answers.
+  resetLoadCache();
 });
 
 describe("People view (spec §7.3 / §14.4.1)", () => {

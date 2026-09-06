@@ -19,10 +19,25 @@
 // day each instant falls on are computed per request against the viewer's
 // zone, and nothing relative is stored (TIM-02). This screen therefore paints
 // exactly what it was given and re-fetches when the range changes.
+//
+// ---------------------------------------------------------------------------
+// FIX-C4 — "NOTHING DATED IN THIS WINDOW", SAID BEFORE ASKING.
+//
+// `shown` is derived from `view?.items ?? []`, and the empty line was gated on
+// `shown.length === 0` alone — so a pending read painted the verdict, and the
+// four layer chips painted `0` next to it (`view?.counts?.[l] ?? 0`). On the
+// user's own worker /api/calendar answered with items after ~15 s while an
+// import held the database; the screen said the window was empty for all of
+// it, with four confident zeroes.
+//
+// `view === null` is now NO ANSWER YET: skeleton, no empty line, and the layer
+// chips show a dash rather than a count they do not have. The answered view is
+// kept per range in the pane cache (components/LoadState.tsx), so returning to
+// the tab repaints instantly and re-reads underneath.
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
-import { LoadFailure } from "../components/LoadState";
+import { LoadFailure, PanelSkeleton, RefreshingHint, useCachedRead } from "../components/LoadState";
 import {
   CALENDAR_LAYERS,
   cancelCalendarEvent,
@@ -91,7 +106,10 @@ export function Calendar(props: {
     twin_tasks: true,
     people: true,
   });
-  const [view, setView] = useState<CalendarViewResponse | null>(null);
+  // One cached answer per range — flipping week/month/quarter and back is a
+  // re-visit, not a reason to make a busy worker re-run the derivation.
+  const cache = useCachedRead<CalendarViewResponse>(`calendar.${range}`);
+  const [view, setView] = useState<CalendarViewResponse | null>(cache.seed);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -102,18 +120,34 @@ export function Calendar(props: {
     const from = localToday();
     const days = RANGES.find((r) => r.id === range)?.days ?? 30;
     setLoading(true);
+    const token = cache.begin();
     try {
       // Ask for every layer: the counts chip must show what a layer HOLDS,
       // not what is currently toggled on. Filtering is local and instant.
       const r = await fetchCalendar({ from, to: addDays(from, days) });
+      // A reply from an older read never overwrites a newer answer (L2).
+      if (!cache.accept(token)) return;
       setView(r);
       setError(null);
+      cache.publish(token, r);
     } catch (err) {
+      if (!cache.accept(token)) return;
       setError(describeWorkerError(err));
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [range, cache]);
+
+  // A new range is a new question: re-seed from THAT range's cached answer
+  // (usually nothing) instead of leaving the previous range's items on screen
+  // under the new heading. Same shape as useLoad's key change.
+  const [seededRange, setSeededRange] = useState(range);
+  if (range !== seededRange) {
+    setSeededRange(range);
+    setView(cache.seed);
+    setError(null);
+    setLoading(true);
+  }
 
   useEffect(() => {
     void load();
@@ -161,7 +195,9 @@ export function Calendar(props: {
               onClick={() => setOn((prev) => ({ ...prev, [l]: !prev[l] }))}
             >
               {LAYER_LABEL[l]}
-              <span className="layer-count"> {view?.counts?.[l] ?? 0}</span>
+              {/* A count of 0 is a claim about the layer. Until the read has
+                  answered there is no count, so the chip says so. */}
+              <span className="layer-count"> {view === null ? "–" : view.counts?.[l] ?? 0}</span>
             </button>
           ))}
         </div>
@@ -196,7 +232,13 @@ export function Calendar(props: {
           {note}
         </p>
       )}
-      {!error && shown.length === 0 && <p className="empty">nothing dated in this window</p>}
+      {/* Unknown is not empty (FIX-C4): the skeleton until the derivation has
+          answered, and only then the window's verdict. */}
+      {!error && view === null && <PanelSkeleton what="the calendar" rows={4} />}
+      {!error && view !== null && shown.length === 0 && (
+        <p className="empty">nothing dated in this window</p>
+      )}
+      {view !== null && <RefreshingHint active={loading} what="the calendar" />}
 
       {grouped.map((group) => (
         <section key={group.day} aria-label={group.day}>

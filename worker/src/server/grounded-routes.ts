@@ -281,12 +281,69 @@ export function timelinePage(opts: {
   return { rows, next_before };
 }
 
-/** Per-day counts for the scrubber + the distinct sources for the filter. */
-export function timelineDays(days = 90): {
+export interface TimelineDaysView {
   days: { day: string; count: number }[];
   sources: string[];
-} {
+}
+
+/**
+ * How long a day-scrubber answer stands (FIX-C4).
+ *
+ * The scrubber is per-day COUNTS. Nothing about it is worth a full scan of the
+ * event log every time the Timeline tab is opened, and a count that is thirty
+ * seconds behind a live import is indistinguishable on screen from one that is
+ * current: the day is already there, the number ticks.
+ */
+const DAYS_SNAPSHOT_MS = 30_000;
+
+interface DaysSnapshot {
+  /** The connection it was measured on — a swapped database is a new answer. */
+  db: unknown;
+  key: number;
+  at: number;
+  view: TimelineDaysView;
+}
+
+let daysSnapshot: DaysSnapshot | null = null;
+
+/** Drop the cached scrubber answer. Tests and a wiped log call this. */
+export function resetTimelineDaysCache(): void {
+  daysSnapshot = null;
+}
+
+/**
+ * Per-day counts for the scrubber + the distinct sources for the filter.
+ *
+ * FIX-C4 — THIS WAS THE TIMELINE TAB'S FULL SCAN. `GROUP BY substr(ts,1,10)`
+ * cannot be answered by any index: SQLite reads every row of the log and
+ * builds a temporary b-tree for the grouping, every single time the tab is
+ * mounted. Measured at 266 ms over a 160,200-event corpus with a warm page
+ * cache — and this ran on a worker whose event loop was already being held by
+ * a WhatsApp import writing 5,000-message batches, on a 1 GB database with an
+ * 801 MB WAL beside it.
+ *
+ * So the answer is kept for `DAYS_SNAPSHOT_MS` and reused. A second visit to
+ * the Timeline within that window costs one `MAX(rowid)` probe — O(1) on the
+ * rowid index — instead of a second full scan, and an idle log is never
+ * re-counted at all: the snapshot only expires when the log has actually
+ * grown.
+ */
+export function timelineDays(days = 90, now: number = Date.now()): TimelineDaysView {
   const db = getDb();
+  // O(1). `key` moving is the only thing that can change the answer; a log
+  // that has not been written to serves the same counts for ever.
+  const head =
+    ((db.prepare(`SELECT MAX(rowid) AS n FROM events`).get() as { n: number | null }).n ?? 0);
+  // A head that MOVED BACK means rows were deleted — a source disconnected, a
+  // stream forgotten, "delete everything". A deletion is never served stale:
+  // the whole point of those verbs is that the surface stops showing it.
+  const fresh =
+    daysSnapshot !== null &&
+    daysSnapshot.db === db &&
+    (daysSnapshot.key === head ||
+      (head > daysSnapshot.key && now - daysSnapshot.at < DAYS_SNAPSHOT_MS));
+  if (daysSnapshot && fresh) return daysSnapshot.view;
+
   const dayRows = db
     .prepare(
       `SELECT substr(ts, 1, 10) AS day, COUNT(*) AS count
@@ -300,7 +357,9 @@ export function timelineDays(days = 90): {
         WHERE source_type IS NOT NULL ORDER BY source_type`,
     )
     .all() as { source_type: string }[];
-  return { days: dayRows, sources: sourceRows.map((r) => r.source_type) };
+  const view = { days: dayRows, sources: sourceRows.map((r) => r.source_type) };
+  daysSnapshot = { db, key: head, at: now, view };
+  return view;
 }
 
 // ---------------------------------------------------------------------------

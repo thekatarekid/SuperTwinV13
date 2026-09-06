@@ -52,6 +52,7 @@ import {
   searchEventHits,
   type Citation,
 } from "../server/chat-grounding.js";
+import { bornAsked } from "../spaces/birth.js";
 
 // ---------------------------------------------------------------------------
 // Shared plumbing
@@ -63,8 +64,6 @@ export type BarModelCall = (user: string) => Promise<string>;
 function mintId(prefix: string): string {
   return `${prefix}_${randomBytes(9).toString("hex")}`;
 }
-
-const NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
 
 // ---------------------------------------------------------------------------
 // search — retrieval, no model (spec §14.8 state ②'s live results)
@@ -333,7 +332,22 @@ function resolveSpace(hint: string): { id: string; label: string } | null {
  * here: it becomes a task whose risk class routes it through the executor's
  * approval gate — risky_without_token stays 0 by construction.
  */
-export function applyAction(action: ParsedBarAction, sweep: readonly BarSearchHit[]): BarActionOutcome {
+/** What the bar knows about the utterance itself — the evidence a birth cites. */
+export interface BarActionContext {
+  /** The sentence the user typed; stored verbatim as an asked-for space's birth evidence (SPC-05). */
+  utterance?: string;
+  /** The bar thread it lives in — "why?" on the space reopens it. */
+  threadId?: string | null;
+}
+
+/** The dedupe answer that means "start a new one anyway" (SPC-03's second tap). */
+export const NEW_SPACE_ANYWAY = "__new_space__";
+
+export function applyAction(
+  action: ParsedBarAction,
+  sweep: readonly BarSearchHit[],
+  ctx: BarActionContext = {},
+): BarActionOutcome {
   const db = getDb();
   const progress: string[] = [];
 
@@ -362,27 +376,77 @@ export function applyAction(action: ParsedBarAction, sweep: readonly BarSearchHi
 
   switch (action.verb) {
     case "create_space": {
-      // USR-01: user-created skips the proposal queue — ACTIVE immediately,
-      // created_by 'user', with the sweep attached and the plan drafted.
-      const spaceId = mintId("sp");
+      // USR-01 / SPC-02: user-created skips the proposal queue — ACTIVE
+      // immediately, created_by 'user', born_via 'asked', the utterance as
+      // its birth evidence, the sweep attached and the plan drafted.
+      // SPC-03: deduped first — a live near-match ASKS (attach, or start a
+      // new one anyway); it never mints a second space with the same goal.
       const exemplars = sweep.slice(0, 3).map((h) => ({
         summary: h.snippet,
         event_ids: [h.id],
       }));
-      db.prepare(
-        `INSERT INTO spaces (id, label, goal, status, created_by, exemplars_json, updated_at)
-         VALUES (?, ?, ?, 'active', 'user', ?, ${NOW})`,
-      ).run(spaceId, action.title, action.goal ?? null, JSON.stringify(exemplars));
-      writeDecision({
-        pass: "user",
-        targetKind: "space",
-        targetId: spaceId,
-        action: "create",
-        new: { label: action.title, status: "active", created_by: "user" },
-        reason: "user-created via grounded bar (skips proposal)",
+      const forceNew = action.space_hint === NEW_SPACE_ANYWAY;
+      if (action.space_hint && !forceNew) {
+        // The user tapped "add to <existing>": file the first tasks there.
+        const target = resolveSpace(action.space_hint);
+        if (target) {
+          for (const title of action.first_tasks ?? []) {
+            const taskId = mintId("t");
+            db.prepare(
+              `INSERT INTO tasks (id, space_id, title, type, risk_class, owner, created_by, status)
+               VALUES (?, ?, ?, 'explicit', 'advise-only', 'self', 'user', 'open')`,
+            ).run(taskId, target.id, title);
+            writeDecision({
+              pass: "user",
+              targetKind: "task",
+              targetId: taskId,
+              action: "create",
+              new: { title, space_id: target.id },
+              reason: `filed into "${target.label}" instead of a duplicate space`,
+            });
+          }
+          writeDecision({
+            pass: "user",
+            targetKind: "space",
+            targetId: target.id,
+            action: "dedupe_birth",
+            new: { proposedLabel: action.title, via: "user_answer", utterance: ctx.utterance ?? null },
+            reason: `user chose to add "${action.title}" to the existing space`,
+          });
+          progress.push(`adding to "${target.label}" ✓`);
+          return {
+            status: "done",
+            summary: `added to "${target.label}"`,
+            space_id: target.id,
+            progress,
+          };
+        }
+      }
+      const born = bornAsked({
+        label: action.title,
+        goal: action.goal ?? null,
+        utterance: ctx.utterance ?? action.title,
+        threadId: ctx.threadId ?? null,
+        exemplars,
+        forceNew,
       });
+      if (born.outcome === "ask") {
+        return {
+          status: "needs_input",
+          summary: `you already have "${born.duplicate.label}"`,
+          question: `You already have "${born.duplicate.label}" — add "${action.title}" to it, or start a new space?`,
+          options: [
+            { id: born.duplicate.spaceId, label: `Add to "${born.duplicate.label}"` },
+            { id: NEW_SPACE_ANYWAY, label: "Start a new space anyway" },
+          ],
+          pending: action,
+          progress,
+        };
+      }
+      const spaceId = born.spaceId;
       progress.push("creating space ✓");
-      if (sweep.length > 0) progress.push(`sweeping ${sweep.length} related item(s) ✓`);
+      if (born.preview.count > 0) progress.push(`sweeping: ${born.preview.line} ✓`);
+      else if (sweep.length > 0) progress.push(`sweeping ${sweep.length} related item(s) ✓`);
       for (const chapter of action.chapters ?? []) {
         db.prepare(`INSERT INTO chapters (id, space_id, label) VALUES (?, ?, ?)`).run(
           mintId("ch"),
@@ -466,6 +530,7 @@ export async function handleAction(
   text: string,
   actionCall: BarModelCall = actionViaModel,
   now: Date = new Date(),
+  ctx: BarActionContext = {},
 ): Promise<BarActionOutcome> {
   // Sweep first (USR-01): the parse sees what already exists, so its plan
   // builds on the user's history instead of an empty shell.
@@ -486,10 +551,14 @@ export async function handleAction(
   if (!parsed) {
     return { status: "failed", summary: "couldn't work out what to do with that", progress: [] };
   }
-  return applyAction(parsed, sweep);
+  return applyAction(parsed, sweep, { utterance: text, threadId: ctx.threadId ?? null });
 }
 
 /** The ask-once answer path: the user tapped a space — apply the held parse. */
-export function applyPendingAction(pending: ParsedBarAction, spaceId: string): BarActionOutcome {
-  return applyAction({ ...pending, space_hint: spaceId, space_candidates: undefined }, []);
+export function applyPendingAction(
+  pending: ParsedBarAction,
+  spaceId: string,
+  ctx: BarActionContext = {},
+): BarActionOutcome {
+  return applyAction({ ...pending, space_hint: spaceId, space_candidates: undefined }, [], ctx);
 }

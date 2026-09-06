@@ -25,15 +25,27 @@ async function waitFor(cond: () => boolean, timeoutMs = 30_000): Promise<void> {
   }
 }
 
-/** Count live `claude` processes (excludes this test's grep/node itself). */
-function countClaudeProcs(): number {
+/**
+ * Count live `claude` processes THIS process spawned — i.e. our own children.
+ *
+ * A machine-wide `pgrep -f claude` cannot answer the orphan question: the
+ * Claude desktop app, other agent sessions and their short-lived helpers all
+ * match, and they start and exit while the batch below is running, so a
+ * before/after delta measures their churn rather than the adapter's reaping.
+ *
+ * The adapter `spawn()`s the CLI directly, so every process it fails to reap
+ * stays a live child of this node process for as long as it survives. Scoping
+ * the count to `ppid == process.pid` therefore names exactly the orphans this
+ * test is about, and nothing else on the machine can perturb it.
+ */
+function countOwnClaudeChildren(): number {
   try {
     const out = execFileSync(
       "bash",
-      ["-c", "pgrep -f '(^|/)claude( |$)' | wc -l"],
+      ["-c", `ps -Ao ppid=,comm= | awk -v p=${process.pid} '$1 == p && $2 ~ /claude/'`],
       { encoding: "utf8" },
     );
-    return parseInt(out.trim(), 10) || 0;
+    return out.split("\n").filter((l) => l.trim() !== "").length;
   } catch {
     return 0;
   }
@@ -218,7 +230,6 @@ describe.skipIf(skipWithoutRealCli)("claude-local adapter (real CLI)", () => {
   it(
     "leaves 0 orphaned claude processes after a batch of runs",
     async () => {
-      const before = countClaudeProcs();
       for (let i = 0; i < 4; i++) {
         await claudeLocalProvider.send({
           runId: `it-batch-${i}`,
@@ -228,10 +239,9 @@ describe.skipIf(skipWithoutRealCli)("claude-local adapter (real CLI)", () => {
       }
       // Give SIGTERM/close handlers a beat to reap.
       await new Promise((r) => setTimeout(r, 500));
-      const after = countClaudeProcs();
-      // Compare deltas: the parent Claude Code process (running this test) is
-      // counted in both, so the batch must not INCREASE the count.
-      expect(after).toBeLessThanOrEqual(before);
+      // Every child of this process is one the adapter spawned, so a survivor
+      // here IS an orphan. Zero, not a delta.
+      expect(countOwnClaudeChildren()).toBe(0);
     },
     TURN_TIMEOUT * 4,
   );

@@ -65,6 +65,7 @@ import { LoadFailure, PanelSkeleton, RefreshingHint, useLoad } from "../../compo
 import {
   IMPORT_RANGES,
   connectBrowserSource,
+  describeWorkerError,
   fetchBrowserDiscovery,
   fetchBrowserImport,
   fetchBrowserSourceStatus,
@@ -439,7 +440,9 @@ export function BrowserLibrary(props: { pollMs?: number } = {}): JSX.Element {
   // so it can be asked every couple of seconds while history lands; it stops
   // asking the moment the first pass is done.
   const settled = useRef(false);
-  const lastChainRefresh = useRef(0);
+  // Seeded at mount: the chain read has just run, so the first ledger tick
+  // must not immediately ask for it again.
+  const lastChainRefresh = useRef(Date.now());
   const lastWritten = useRef(-1);
   const refreshChains = dataLoad.retry;
   useEffect(() => {
@@ -518,7 +521,14 @@ export function BrowserLibrary(props: { pollMs?: number } = {}): JSX.Element {
     () => windows.filter((w) => clampUnderstandWindow(w, indexWindow) === w),
     [windows, indexWindow],
   );
-  const effectiveUnderstand = understandWindow === null ? null : clampUnderstandWindow(understandWindow, indexWindow);
+  // The pick, clamped to Index (CNS-03) and then to what the card can price —
+  // an option the card cannot show a measured count for is not offered, and a
+  // value not in the list would render a select with nothing selected.
+  const effectiveUnderstand = useMemo(() => {
+    if (understandWindow === null) return null;
+    const clamped = clampUnderstandWindow(understandWindow, indexWindow);
+    return understandOptions.includes(clamped) ? clamped : (understandOptions[understandOptions.length - 1] ?? null);
+  }, [understandWindow, indexWindow, understandOptions]);
 
   const connect = useCallback(async () => {
     setBusy(true);
@@ -551,7 +561,9 @@ export function BrowserLibrary(props: { pollMs?: number } = {}): JSX.Element {
       });
       if (!r.started) setNote("Consent recorded, but the watcher didn't start; check again.");
     } catch (err) {
-      setNote(`couldn't connect — ${(err as Error).message ?? "the worker refused or is unreachable"}`);
+      // The honest reason, not "the worker refused or is unreachable" for both:
+      // a 400 from the scoped-import check reads differently from a dead port.
+      setNote(`couldn't connect — ${describeWorkerError(err)}`);
     } finally {
       setBusy(false);
     }
@@ -579,7 +591,10 @@ export function BrowserLibrary(props: { pollMs?: number } = {}): JSX.Element {
   // ---- Not connected: the connect flow. Decided by consent, never by counts.
   if (status && !status.connected) {
     const readable = profiles.filter((p) => p.readable);
-    const nothingChosen = discovery !== null && chosen.length === 0;
+    // Consent is a PICK, so there is no Connect before the list to pick from.
+    // A discovery that failed leaves Connect off rather than quietly falling
+    // back to "every browser, all history" — the widening the card removed.
+    const nothingChosen = chosen.length === 0;
     return (
       <ConnectCard
         glyph="◇"
@@ -738,8 +753,11 @@ export function BrowserLibrary(props: { pollMs?: number } = {}): JSX.Element {
       />
 
       {/* L5: the first thing the panel shows after Connect — which profiles
-          were chosen and where the history import has got to. */}
-      {progress !== null && <ImportPanel progress={progress} />}
+          were chosen and where the history import has got to. It stays up
+          while history is landing, and while there is nothing else to show
+          (so "imported, but nothing in this window" is explained rather than
+          left as a bare empty line); a panel with chains lets them speak. */}
+      {progress !== null && (importing || (data?.chains.length ?? 0) === 0) && <ImportPanel progress={progress} />}
       {note && <p className="connect-note">{note}</p>}
 
       {(data?.domains_today.length ?? 0) > 0 && (

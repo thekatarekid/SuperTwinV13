@@ -15,7 +15,20 @@ import {
   type BrowserWatcherOptions,
 } from "./watcher.js";
 import { EventlogSink } from "./sink.js";
+import { armBrowserImportProgress, recordBrowserProgress } from "./progress.js";
 
+export {
+  UNKNOWN_IMPORT_PROGRESS,
+  armBrowserImportProgress,
+  disarmBrowserImportProgress,
+  getBrowserImportProgress,
+  recordBrowserProgress,
+  resetBrowserImportProgress,
+  type BrowserImportProgress,
+  type BrowserProgressEvent,
+  type ProfileImportProgress,
+  type ProfileImportState,
+} from "./progress.js";
 export {
   BrowserWatcher,
   CHROMIUM_ROOTS,
@@ -130,11 +143,16 @@ export type StartBrowserWatcherOptions = Partial<Omit<BrowserWatcherOptions, "si
  */
 export function startBrowserWatcher(opts: StartBrowserWatcherOptions): BrowserWatcher {
   const log = opts.log ?? ((line: string) => console.error(line));
+  const profiles = opts.profiles ?? discoverProfiles();
+  // S6d L5: the connect surface can name the chosen profiles the instant
+  // consent lands — they are all `pending` until the watcher reports on them.
+  armBrowserImportProgress(profiles);
   const watcher = new BrowserWatcher({
     sink: opts.sink ?? new EventlogSink(log),
-    profiles: opts.profiles ?? discoverProfiles(),
+    onProgress: recordBrowserProgress,
     log,
     ...opts,
+    profiles,
     sinceMs: requireSinceMs(opts.sinceMs),
   });
   watcher.start();

@@ -37,6 +37,7 @@ import { readChromiumBookmarks, type RawBookmark } from "./bookmarks.js";
 import { assignChains, browserStreamKey, utcDayOf, type ChainedVisit } from "./chains.js";
 import { aggregateDomains, DomainCategorizer, type AmbiguousResolver } from "./category.js";
 import { readChromiumHistory, readSafariHistory, type RawVisit } from "./history-db.js";
+import type { BrowserProgressEvent } from "./progress.js";
 import type { V13EventSink } from "./sink.js";
 import { urlTextForm } from "../../bridges/normalise.js";
 
@@ -162,6 +163,13 @@ export interface BrowserWatcherOptions {
   ambiguousResolver?: AmbiguousResolver | null;
   log?: (line: string) => void;
   now?: () => number;
+  /**
+   * Per-profile import reports (S6d L5). `startBrowserWatcher` wires this to
+   * the process-local ledger the connect surface reads, so the panel can say
+   * WHICH profile is being read instead of "reading your history" for minutes.
+   * A throwing sink must never break a poll, so every call is guarded.
+   */
+  onProgress?: (ev: BrowserProgressEvent) => void;
 }
 
 /**
@@ -187,12 +195,15 @@ export class BrowserWatcher {
   private readonly log: (line: string) => void;
   private readonly now: () => number;
   private readonly categorizer: DomainCategorizer;
+  private readonly onProgress: (ev: BrowserProgressEvent) => void;
 
   /** Per history-path high-water mark (unix ms of the newest visit seen). */
   private readonly cursors = new Map<string, number>();
   /** Per bookmarks-path mtimeMs at last read. */
   private readonly bookmarkMtimes = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** The deferred first poll (the history import). Cancelled by `stop()`. */
+  private firstPoll: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: BrowserWatcherOptions) {
     this.sink = opts.sink;
@@ -201,11 +212,33 @@ export class BrowserWatcher {
     this.log = opts.log ?? (() => {});
     this.now = opts.now ?? (() => Date.now());
     this.categorizer = new DomainCategorizer(opts.ambiguousResolver ?? null);
+    const report = opts.onProgress;
+    this.onProgress = report
+      ? (ev) => {
+          try {
+            report(ev);
+          } catch {
+            /* a progress sink must never break a poll */
+          }
+        }
+      : () => {};
     const floor = requireSinceMs(opts.sinceMs);
     for (const p of this.profiles) this.cursors.set(p.historyPath, floor);
   }
 
-  /** Begin polling. Idempotent. An immediate first poll runs asynchronously. */
+  /**
+   * Begin polling. Idempotent.
+   *
+   * The first poll is a MACROTASK, not a microtask (S6d L5). It used to be
+   * `queueMicrotask`, which meant the whole first history import — copy each
+   * profile's History file, read every visit since the floor, append the lot
+   * through the single writer — ran before the `await` in the caller resolved.
+   * The caller is `POST /api/sources/browser/connect`: the response could not
+   * be written until tens of thousands of visits had landed, so "Connect"
+   * looked dead for as long as the import took. A timer runs after the
+   * microtask queue drains, so the connect response goes out first and the
+   * import starts immediately afterwards.
+   */
   start(): void {
     if (this.timer) return;
     if (this.profiles.length === 0) {
@@ -213,12 +246,20 @@ export class BrowserWatcher {
     }
     this.timer = setInterval(() => this.pollSafe(), this.pollMs);
     this.timer.unref?.();
-    queueMicrotask(() => this.pollSafe());
+    // NOT unref'd: this one carries the history import, and a stop() before it
+    // fires cancels it (a disconnect must not leave an import in the queue).
+    this.firstPoll = setTimeout(() => {
+      this.firstPoll = null;
+      this.pollSafe();
+    }, 0);
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.firstPoll) clearTimeout(this.firstPoll);
+    this.firstPoll = null;
+    this.onProgress({ type: "stopped", at: this.now() });
   }
 
   private pollSafe(): void {
@@ -239,11 +280,16 @@ export class BrowserWatcher {
   }
 
   private pollProfile(profile: BrowserProfile): number {
+    // S6d L5: say which profile is being read BEFORE the read starts — the
+    // panel's "Chrome · Aditya — reading…" line is this event.
+    this.onProgress({ type: "profile-start", profile, at: this.now() });
+
     // ---- Bookmarks first: a fresh bookmark is a Cat-1 signal for the
     // visits read in the same poll.
     const bookmarks = this.readNewBookmarks(profile);
 
     let visits: RawVisit[] = [];
+    let readError: string | null = null;
     const since = this.cursors.get(profile.historyPath) ?? 0;
     try {
       visits =
@@ -251,7 +297,8 @@ export class BrowserWatcher {
           ? readSafariHistory(profile.historyPath, since)
           : readChromiumHistory(profile.historyPath, since, profile.browser);
     } catch (err) {
-      this.log(`[browser] ${profile.browser} history read failed (skipping poll): ${(err as Error).message}`);
+      readError = (err as Error).message;
+      this.log(`[browser] ${profile.browser} history read failed (skipping poll): ${readError}`);
       visits = [];
     }
     if (visits.length > 0) {
@@ -268,7 +315,16 @@ export class BrowserWatcher {
       ...this.visitEvents(visits, bookmarkedDomains, profile.profile),
       ...this.bookmarkEvents(bookmarks, profile.browser, profile.profile),
     ];
-    return events.length === 0 ? 0 : this.sink.append(events);
+    const written = events.length === 0 ? 0 : this.sink.append(events);
+    // Exactly one terminal report per profile per pass: a pass whose history
+    // read failed stays `failed`, it does not get overwritten by a `done` for
+    // the zero visits that failure produced.
+    this.onProgress(
+      readError === null
+        ? { type: "profile-done", profile, visitsRead: visits.length, eventsWritten: written, at: this.now() }
+        : { type: "profile-error", profile, message: readError, at: this.now() },
+    );
+    return written;
   }
 
   // ---- Visits → events -----------------------------------------------------

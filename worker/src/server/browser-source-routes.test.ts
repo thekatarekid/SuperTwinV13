@@ -16,6 +16,7 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { getConsent } from "../db/v6core.js";
 import { SourceSupervisor, setSourceSupervisor, type StartContext } from "../adapters/supervisor.js";
 import { discoverProfiles } from "../adapters/browser/watcher.js";
+import { armBrowserImportProgress, profilesForConsent, resetBrowserImportProgress } from "../adapters/browser/index.js";
 import { setHistoryScratchDir } from "../adapters/browser/history-db.js";
 import { makeChromeHistory, makeSafariHistory, tmpDir } from "../adapters/browser/test-fixtures.js";
 import { DEFAULT_UNDERSTAND_DAYS, handleBrowserSourceRoute, parseConnectBody } from "./browser-source-routes.js";
@@ -51,6 +52,7 @@ beforeEach(async () => {
   chmodSync(safariPath, 0o000); // no Full Disk Access
 
   starts = [];
+  resetBrowserImportProgress();
   setSourceSupervisor(
     new SourceSupervisor({
       drivers: { browser: { start: (ctx) => void starts.push(ctx), stop: () => {} } },
@@ -71,6 +73,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await new Promise<void>((r) => server.close(() => r()));
+  resetBrowserImportProgress();
   setSourceSupervisor(null);
   setHistoryScratchDir(null);
   closeDb();
@@ -181,6 +184,78 @@ describe("POST /api/sources/browser/connect", () => {
     expect(getConsent("browser")!.understandFrom).toBeNull();
   });
 
+  // ---- S6d L5: the scoped-import contract, end to end ----------------------
+
+  it("scopes the import to the chosen profiles and window, and records what the card said", async () => {
+    const chromeHistory = join(home, "Library/Application Support/Google/Chrome/Default/History");
+    const braveHistory = join(home, "Library/Application Support/BraveSoftware/Brave-Browser/Default/History");
+    const indexFrom = new Date(NOW - 90 * DAY).toISOString();
+    const { status, body } = await post("/api/sources/browser/connect", {
+      profiles: [chromeHistory],
+      index_from: indexFrom,
+      understand_from: new Date(NOW - 30 * DAY).toISOString(),
+      counts: { [chromeHistory]: 2, [braveHistory]: 99 },
+      card_text: "Index last 90 days: 2 visits from 1 browser profile (measured).",
+    });
+    expect(status).toBe(200);
+
+    const consent = getConsent("browser")!;
+    const scope = consent.scope as { profiles: string[]; counts: Record<string, number>; card_text: string };
+    // Only what was ticked — and the count for a profile that was NOT ticked
+    // never rides along as an expectation for an import that will not happen.
+    expect(scope.profiles).toEqual([chromeHistory]);
+    expect(scope.counts).toEqual({ [chromeHistory]: 2 });
+    expect(scope.card_text).toContain("Index last 90 days");
+    expect(consent.indexAll).toBe(false);
+    expect(consent.indexFrom).toBe(indexFrom);
+
+    // The watcher is started against exactly that scope and that floor…
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.sinceMs).toBe(Date.parse(indexFrom));
+    expect(profilesForConsent(starts[0]!.consent, () => discoverProfiles(home)).map((p) => p.historyPath)).toEqual([
+      chromeHistory,
+    ]);
+    // …and the connect response already carries the view the panel renders.
+    const view = body.consent as { profiles: string[]; counts: Record<string, number>; card_text: string };
+    expect(view.profiles).toEqual([chromeHistory]);
+    expect(view.counts).toEqual({ [chromeHistory]: 2 });
+    expect(view.card_text).toContain("Index last 90 days");
+  });
+
+  it("refuses a pick that names no profile on this Mac instead of widening to all", async () => {
+    const { status, body } = await post("/api/sources/browser/connect", { profiles: ["/nowhere/History"] });
+    expect(status).toBe(400);
+    expect(body.error).toBe("unknown-profiles");
+    expect(getConsent("browser")).toBeNull();
+    expect(starts).toHaveLength(0);
+  });
+
+  it("GET …/import answers from the watcher's ledger — never a count over the event log", async () => {
+    const before = await get("/api/sources/browser/import");
+    expect(before.status).toBe(200);
+    expect(before.body).toMatchObject({ source: "browser", connected: false, running: false });
+    expect((before.body.progress as { known: boolean }).known).toBe(false);
+
+    const chromeHistory = join(home, "Library/Application Support/Google/Chrome/Default/History");
+    armBrowserImportProgress(discoverProfiles(home).filter((p) => p.historyPath === chromeHistory));
+    await post("/api/sources/browser/connect", { profiles: [chromeHistory], counts: { [chromeHistory]: 2 } });
+
+    const after = await get("/api/sources/browser/import");
+    const progress = after.body.progress as {
+      known: boolean;
+      first_pass_done: boolean;
+      expected_visits: number | null;
+      profiles: Array<{ history_path: string; state: string; expected_visits: number | null }>;
+    };
+    expect(after.body.connected).toBe(true);
+    expect(progress.known).toBe(true);
+    expect(progress.first_pass_done).toBe(false);
+    // The expectation comes from the consent row's scope, measured by the card.
+    expect(progress.expected_visits).toBe(2);
+    expect(progress.profiles).toHaveLength(1);
+    expect(progress.profiles[0]).toMatchObject({ history_path: chromeHistory, state: "pending", expected_visits: 2 });
+  });
+
   it("status before connect: not connected, not running, zero events", async () => {
     const { body } = await get("/api/sources/browser/status");
     expect(body).toMatchObject({ source: "browser", connected: false, running: false, consent: null, event_count: 0 });
@@ -200,6 +275,8 @@ describe("parseConnectBody", () => {
       indexFrom: null,
       understandFrom: new Date(NOW - 30 * DAY).toISOString(),
       profiles: [],
+      counts: {},
+      cardText: null,
     });
   });
   it("index_from implies index_all=false unless index_all is stated", () => {
@@ -207,5 +284,23 @@ describe("parseConnectBody", () => {
     expect(parseConnectBody({ index_from: from }, NOW).indexAll).toBe(false);
     expect(parseConnectBody({ index_from: from, index_all: true }, NOW)).toMatchObject({ indexAll: true, indexFrom: null });
     expect(() => parseConnectBody({ profiles: "nope" }, NOW)).toThrow(/profiles/);
+  });
+
+  // S6d L5: the card's pick, its measured counts and its own words.
+  it("carries the profile pick, the per-profile counts and the card text", () => {
+    const b = parseConnectBody(
+      {
+        profiles: ["/a/History", "/b/History", "/a/History"],
+        counts: { "/a/History": 3400.7, "/b/History": 12 },
+        card_text: "Index everything: 3,412 visits.",
+      },
+      NOW,
+    );
+    expect(b.profiles).toEqual(["/a/History", "/b/History"]); // de-duped, order kept
+    expect(b.counts).toEqual({ "/a/History": 3400, "/b/History": 12 });
+    expect(b.cardText).toBe("Index everything: 3,412 visits.");
+    expect(() => parseConnectBody({ counts: [1, 2] }, NOW)).toThrow(/counts/);
+    expect(() => parseConnectBody({ counts: { "/a": -1 } }, NOW)).toThrow(/counts/);
+    expect(() => parseConnectBody({ card_text: 7 }, NOW)).toThrow(/card_text/);
   });
 });

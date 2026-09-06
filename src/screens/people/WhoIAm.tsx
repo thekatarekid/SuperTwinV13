@@ -16,11 +16,20 @@
 //
 // Empty is a state, not a failure: before the first hour is up the card prints
 // the worker's own note and offers nothing to fill in.
+//
+// FIX-C4 — and PENDING is not empty either. The card sat on a literal
+// `loading…` for as long as the read took, which on the user's own worker was
+// long enough that they reported this card and the radar beside it as "stuck
+// on loading". Same read, same worker, same cause as every other main tab: a
+// synchronous better-sqlite3 read queued behind a running import. The bare
+// word becomes the shared skeleton — the shape of the card, an indeterminate
+// bar, and after ~1 s the line that admits the worker is busy — and the
+// answer is kept in the pane cache so re-opening People repaints it at once.
 // ===========================================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { LoadFailure } from "../../components/LoadState";
+import { LoadFailure, PanelSkeleton, useCachedRead } from "../../components/LoadState";
 import { describeWorkerError, fetchWhoIAm, type WhoIAmCardView, type WhoIAmLine } from "../../lib/api";
 
 /** The five sections, in the order the card reads. */
@@ -103,7 +112,8 @@ export function WhoIAm(props: {
   onTellTwin?: (claimKey: string, label: string) => void;
   onOpenEvent?: (eventId: string) => void;
 }): JSX.Element {
-  const [card, setCard] = useState<WhoIAmCardView | null>(null);
+  const cache = useCachedRead<WhoIAmCardView>("people.whoiam");
+  const [card, setCard] = useState<WhoIAmCardView | null>(cache.seed);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -111,20 +121,25 @@ export function WhoIAm(props: {
 
   const load = useCallback(() => {
     setLoading(true);
+    const token = cache.begin();
     fetchWhoIAm()
       .then((c) => {
+        // A stale reply loses — to the pane and to the cache (L2).
+        if (!cache.accept(token)) return;
+        cache.publish(token, c);
         if (alive.current) {
           setCard(c);
           setError(null);
         }
       })
       .catch((err: unknown) => {
+        if (!cache.accept(token)) return;
         if (alive.current) setError(describeWorkerError(err));
       })
       .finally(() => {
         if (alive.current) setLoading(false);
       });
-  }, []);
+  }, [cache]);
 
   useEffect(() => {
     alive.current = true;
@@ -154,7 +169,7 @@ export function WhoIAm(props: {
       </p>
 
       {error && <LoadFailure what="the identity card" error={error} onRetry={load} retrying={loading} />}
-      {!error && card === null && <p className="empty">loading…</p>}
+      {!error && card === null && <PanelSkeleton what="your identity card" rows={4} className="inline" />}
 
       {open && card !== null && card.empty && (
         <p className="empty">{card.emptyNote ?? "nothing yet — this card fills from processing."}</p>

@@ -148,6 +148,9 @@ describe("0020_v2_core applies", () => {
       "0203_v6_space_card",
       // V6 P1 S5.3: the derived calendar — new tables only.
       "0204_v6_calendar",
+      // V6 P1 S5.1: how a space was born + the enrichment ledger — ADD COLUMNs
+      // on spaces and one new table.
+      "0205_v6_spaces",
     ]);
 
     expect(

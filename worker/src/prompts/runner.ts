@@ -536,6 +536,16 @@ export class PromptRunner {
         { code: call.errorCode, message: call.errorMessage },
         retriesSpent,
       );
+      if (decision.hardStop) {
+        // FIX-C1. The gate refused before a process was spawned — the budget
+        // latch or the kill switch. Nothing ran, the unit is not at fault and
+        // no wait clears it, so it is neither retried nor quarantined: the run
+        // is logged as the error it is and the lane's entry gate keeps the
+        // work until an operator resumes. Looping here is what turned a
+        // latched budget into hours of refused calls.
+        log(call, "error");
+        return call;
+      }
       if (decision.softStop) {
         // FIX-C2. The CLI stopped on its turn cap, not on a fault: the model's
         // own bytes are already in `call.text`. Hand it back UNLOGGED — only

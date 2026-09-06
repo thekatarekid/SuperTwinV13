@@ -492,6 +492,10 @@ async function dispatch<T>(
     // own bytes are in `call.text`, the caller salvages or runs its ONE repair
     // round (which asks narrowly, "JSON only, no preamble"), and the same
     // full-context call is never re-issued from in here.
+    // FIX-C1. A hard stop (budget latch / kill switch) is handed straight back
+    // too: nothing was spawned, nothing is owed, and no wait clears it. Never
+    // retried and never paused — the lane's entry gate keeps the work.
+    if (decision.hardStop) return call;
     if (decision.softStop) return call;
     if (decision.breakerTripped) return call;
     if (decision.action === "pause" && pauses < maxPauses) {

@@ -40,6 +40,22 @@
 //     model, prompt or transport that is failing every call and would otherwise
 //     quarantine the whole backlog one unit at a time while spending on each.
 //
+//     4b. HARD STOP (13.11.6, FIX-C1). A fourth shape sits beside the refusal
+//     and the soft stop: the budget latch and the "stop all model activity"
+//     switch refuse BEFORE the process is spawned, and by construction neither
+//     clears on its own — only a human clears them. Fed to the breaker as
+//     ordinary errors (what the 13.11.5 install did) ten of them in a row
+//     paused the lane for 30 minutes, it auto-resumed, was refused again and
+//     re-tripped: an unbounded spin against a permanent condition, spending a
+//     `runs` row and a retry ladder on every turn. So a hard stop is its own
+//     decision — `action: "hold"` — and it feeds NEITHER streak: the lane is
+//     not broken, the unit is not at fault, and there is nothing to retry
+//     until someone resumes. A hold is NOT a quarantine: the work is still
+//     good and is offered again after the reset, which is why the lane entry
+//     gates (scheduler/v6/dispatch, media/queue, executor/queue-job) ask
+//     providers/budget's `backgroundModelHold()` before building any work at
+//     all, and this decision only ever catches the race.
+//
 //  5. BOUNDED WAITERS (S0.7 / T0-12, BND-12). A class admits at most 4× its
 //     capacity of queued callers; the next `run()` is rejected with
 //     PoolOverflowError instead of joining a queue nobody can see. That turns a
@@ -256,7 +272,7 @@ export interface ProviderFailure {
   message?: string;
 }
 
-export type FailureAction = "pause" | "retry" | "quarantine" | "cancelled";
+export type FailureAction = "pause" | "retry" | "quarantine" | "cancelled" | "hold";
 
 export interface FailureDecision {
   action: FailureAction;
@@ -264,7 +280,7 @@ export interface FailureDecision {
   waitMs: number;
   /** A refusal must NEVER consume the unit's retry budget. */
   spendsRetryBudget: boolean;
-  reason: "refusal" | "error" | "cancelled";
+  reason: "refusal" | "error" | "cancelled" | "hard-stop";
   /**
    * Set on the failure that tripped the lane's breaker (SPD-07): the lane is
    * now paused for BREAKER_PAUSE_MS and a banner is up. The unit's own
@@ -280,6 +296,14 @@ export interface FailureDecision {
    * of parking the unit. Never counted towards the lane's breaker.
    */
   softStop?: boolean;
+  /**
+   * Set when the gate refused BEFORE spawn — the budget latch or the kill
+   * switch (FIX-C1). `action` is "hold": nothing ran, nothing is owed, and
+   * nothing about waiting fixes it. The caller must not retry, must not
+   * quarantine the unit and must not dead-letter its bundle; the lane's entry
+   * gate keeps the work until an operator resumes.
+   */
+  hardStop?: boolean;
 }
 
 /** One tripped breaker — the banner's payload (SPD-07). */
@@ -306,6 +330,16 @@ export interface BreakerTrip {
 export function isSoftStop(err: ProviderFailure): boolean {
   if (err.code === "MAX_TURNS") return true;
   return /reached maximum number of turns/i.test(err.message ?? "");
+}
+
+/**
+ * True for a HARD stop (FIX-C1): providers/budget.ts refused the call before a
+ * process was spawned — the spend/call ceiling latch or the "stop all model
+ * activity" switch. Nothing ran, the unit did nothing wrong, the lane is not
+ * failing, and no amount of waiting clears it because only a human does.
+ */
+export function isHardStop(err: ProviderFailure): boolean {
+  return err.code === "BUDGET_EXCEEDED" || err.code === "MODEL_ACTIVITY_PAUSED";
 }
 
 /** True for the outage-shaped failures: rate limit, quota, auth. */
@@ -338,6 +372,18 @@ export function classifyFailure(
       waitMs: 0,
       spendsRetryBudget: false,
       reason: "cancelled",
+    };
+  }
+  // Before every other test: a hard stop must never be read as an outage and
+  // given a backoff, nor as an error and given a retry ladder. There is no
+  // wait that clears it.
+  if (isHardStop(err)) {
+    return {
+      action: "hold",
+      waitMs: 0,
+      spendsRetryBudget: false,
+      reason: "hard-stop",
+      hardStop: true,
     };
   }
   if (isSoftStop(err)) {
@@ -624,6 +670,13 @@ export class ResourcePool {
   ): FailureDecision {
     if (err.code === "CANCELLED") {
       // A cancel is nobody's failure: neither streak moves.
+      return classifyFailure(err, retriesSpent, 0);
+    }
+    if (isHardStop(err)) {
+      // Nor is a hard stop (FIX-C1). Neither streak moves and the lane is NOT
+      // paused: a pause carries a deadline, and a deadline against a latch
+      // only a human clears is a timer that re-arms forever. The lane holds at
+      // its own entry gate instead, which is where the work is kept.
       return classifyFailure(err, retriesSpent, 0);
     }
     if (isSoftStop(err)) {

@@ -1,26 +1,85 @@
 {
   "id": "EXE-03",
   "category": "EXE",
-  "title": "Blocked → replan differently, informed by attempt log",
-  "pass": "executor",
-  "mode": "live",
-  "setup": "villa shortlist task; goibibo blocks scraping mid-run.",
+  "title": "artifact cites",
+  "pass": "lite",
+  "mode": "code",
+  "setup": {
+    "note": "Two claims carry the constraints — the budget (ev_budget) and the dates (ev_dates). The model world_reads them, fetches both listings and writes the comparison. It also cites one page it never opened; code drops that citation.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "budget": { "maxTurns": 6, "costUsd": 0.05 },
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip with Rohan in December", "goal": "4 people, 18-21 Dec, under 20k pp" }],
+    "claims": [
+      { "key": "goa.budget", "kind": "fact", "text": "villa budget is 6000 per night", "event_ids": ["ev_budget"], "quote": "6k a night max" },
+      { "key": "goa.dates", "kind": "fact", "text": "the trip is 18-21 Dec", "event_ids": ["ev_dates"], "quote": "lets lock goa 18-21 dec" }
+    ],
+    "prepared": {
+      "action": "compare",
+      "kind": "help_now",
+      "intent": "comparing villas in Anjuna for 18-21 Dec",
+      "intent_confidence": 0.9,
+      "space": "sp_goa_dec",
+      "inputs": {
+        "candidates": ["https://villas.example/sol", "https://villas.example/casa"],
+        "dates": "18-21 Dec",
+        "budget": "6000/night"
+      },
+      "grounded_event_ids": ["ev_1"]
+    },
+    "pages": {
+      "https://villas.example/sol": [[200, "Villa Sol — 5400 per night, pool, 6 beds, free cancellation till Dec 1"]],
+      "https://villas.example/casa": [[200, "Casa Anjuna — 6100 per night, no pool, 4 beds, non-refundable"]]
+    },
+    "script": {
+      "turns": [
+        { "tool": "world_read", "input": "villa budget trip dates" },
+        { "tool": "web_fetch", "input": "https://villas.example/sol" },
+        { "tool": "web_fetch", "input": "https://villas.example/casa" }
+      ],
+      "final": {
+        "status": "done",
+        "criteria": ["2 listings on price, pool, beds, cancellation", "budget 6k/night applied"],
+        "artifact": {
+          "type": "comparison",
+          "title": "Anjuna villas, 18-21 Dec, 4 people",
+          "body": "| villa | price | pool | cancel |\n|---|---|---|---|\n| Villa Sol | 5400 | yes | free till Dec 1 |\n| Casa Anjuna | 6100 | no | non-refundable |",
+          "rows": [
+            { "name": "Villa Sol", "price_night": 5400, "pool": true, "cancel": "free till Dec 1", "fit": "best" },
+            { "name": "Casa Anjuna", "price_night": 6100, "pool": false, "cancel": "non-refundable", "fit": "over budget" }
+          ],
+          "citations": [
+            { "url": "https://villas.example/sol", "event_ids": ["ev_budget"] },
+            { "url": "https://villas.example/casa", "event_ids": ["ev_dates"] },
+            { "url": "https://villas.example/never-opened", "event_ids": ["ev_invented"] }
+          ]
+        }
+      }
+    }
+  },
   "input_events": [
-    "failed attempt state."
+    "One prepared action of kind compare with the budget and the dates already claimed in the world model."
   ],
-  "expected": "attempt log records the failure; replan uses a different route (other sites, cached enrichment data); the failed approach is not retried unchanged.",
+  "expected": {
+    "status": "done",
+    "artifact_kind": "comparison",
+    "cited_urls": ["https://villas.example/sol", "https://villas.example/casa"],
+    "cited_event_ids": ["ev_budget", "ev_dates"],
+    "dropped_citations": 1,
+    "note": "The table lists the source URLs it actually fetched and the events that set budget and dates. A citation to a page the run never opened is dropped, not trusted."
+  },
   "wrong": [
     {
-      "label": "groundhog-executor",
-      "assert_absent": "same failing call repeated to budget death"
+      "label": "uncited-number",
+      "assert_absent": "an artifact with no citation at all presented as done"
+    },
+    {
+      "label": "fabricated-citation",
+      "assert_absent": "a citation naming a page the run never fetched or an event it never read"
     }
   ],
-  "gates": [
-    "replan_quality",
-    "budget_efficiency"
-  ],
+  "gates": ["unbounded_loop"],
   "source": {
-    "doc": "V1",
-    "section": "EXE-03 · Blocked → replan differently, informed by attempt log"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.12 EXE-03 · artifact cites"
   }
 }

@@ -37,6 +37,7 @@ import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
 import { settingsExecutor } from "./set.js";
 import { liveExecutor } from "./liv.js";
+import { liteExecutor } from "./exe.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
 import { spacesExecutor } from "./spc.js";
@@ -45,7 +46,6 @@ import { barExecutor, fixExecutor } from "./bar.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
-  exeExecutor,
   scheduleExecutor,
   timeExecutor,
 } from "./p3.js";
@@ -59,6 +59,7 @@ export { settingsExecutor } from "./set.js";
 export { calendarExecutor, timCode } from "./cal.js";
 export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
+export { liteExecutor } from "./exe.js";
 export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
 export { barExecutor, fixExecutor } from "./bar.js";
 export {
@@ -73,7 +74,6 @@ export { stubExecutor } from "./stub.js";
 export {
   browserEvalExecutor,
   decideDispatchExecutor,
-  exeExecutor,
   scheduleExecutor,
   timeExecutor,
 } from "./p3.js";
@@ -130,10 +130,11 @@ export async function registerProductExecutors(): Promise<void> {
   // drive the product code directly; evaluator cases run the live prompt.
   registerExecutor("assist", assistExecutor);
   // P3 integration + gates: schedules/time through Decide + the code policy
-  // gate, the real executor session, and the code-asserted browser harness.
+  // gate and the code-asserted browser harness. ("executor" is unregistered
+  // since S4.2: GoldenEvals V6 P1 §5.12 gives EXE to executor-lite, and the
+  // executor session keeps its coverage in executor/session.test.ts.)
   registerExecutor("schedule", scheduleExecutor);
   registerExecutor("time", timeExecutor);
-  registerExecutor("executor", exeExecutor);
   registerExecutor("browser", browserEvalExecutor);
   // P4 gates: the grounded bar (USR), the People-view circle edit (CIR-04),
   // the person-card relationship correction (FIX-03) and the end-to-end
@@ -175,6 +176,12 @@ export async function registerProductExecutors(): Promise<void> {
   // recorded live.v1 output through the real tick (pack → live.v1 → critic →
   // commit → applyLiveDecide) with a pinned clock. Zero model calls.
   registerExecutor("live", liveExecutor);
+  // V6 P1 S4.2: EXE executor-lite cases (the cycle and money ceilings as
+  // refusals with both in the trace, the thin stop that spends nothing, the
+  // citation check, retry-once-then-replan, and the login wall that stops the
+  // run) against the real executor/lite.ts with a scripted provider and a
+  // scripted web. Zero model calls.
+  registerExecutor("lite", liteExecutor);
   // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.

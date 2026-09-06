@@ -22,10 +22,11 @@ describe("V13 gate registry", () => {
       "clock_only_call",
       "assist_from_history",
       "nudge_without_grounding",
+      "unbounded_loop",
     ]) {
       expect(isHardGate(id), id).toBe(true);
     }
-    expect(HARD_GATES).toHaveLength(19);
+    expect(HARD_GATES).toHaveLength(20);
     expect(isHardGate("bundle_purity")).toBe(false);
   });
 

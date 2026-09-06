@@ -2,7 +2,8 @@
 // worker/src/assist — the assist lane (build P2.2, spec §10).
 //
 // Trigger gate IN CODE (gate.ts) -> one haiku evaluator (evaluator.ts) ->
-// executor-lite with a risk-free tool table (executor-lite.ts) -> durable
+// executor-lite with a risk-free tool table (moved to ../executor/lite.ts in
+// S4.2; this lane's half of it is deleted with assist/ in S4.4) -> durable
 // artifact + nudge (artifacts.ts). watcher.ts is the production loop over
 // the event-log tail; index.ts (worker boot) starts it.
 // ===========================================================================
@@ -35,7 +36,7 @@ export {
   runExecutorLite,
   urlsInAction,
   type ExecutorLiteResult,
-} from "./executor-lite.js";
+} from "../executor/lite.js";
 export {
   contentKeyFor,
   createArtifact,

@@ -39,7 +39,7 @@ import {
   ASSIST_TOOL_TABLE,
   RISKY_TOOL_NAME_PATTERNS,
   runExecutorLite,
-} from "../../assist/executor-lite.js";
+} from "../../executor/lite.js";
 import {
   contentKeyFor,
   createArtifact,

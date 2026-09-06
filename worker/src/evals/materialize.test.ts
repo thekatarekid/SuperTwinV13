@@ -51,9 +51,10 @@ describe("isCodeCase", () => {
 });
 
 describe("parseDoc against the real docs", () => {
-  it("V1 yields 78 cases and skips SEG (and CRI / CON, hand-authored since V6 P1 S3.5 / S3.9)", () => {
+  it("V1 yields 72 cases and skips SEG (and CRI / CON / EXE, hand-authored since V6 P1 S3.5 / S3.9 / S4.2)", () => {
     const cases = parseDoc(v1, "V1");
-    expect(cases).toHaveLength(78);
+    expect(cases).toHaveLength(72);
+    expect(cases.some((c) => c.id.startsWith("EXE"))).toBe(false);
     expect(cases.some((c) => c.id.startsWith("CRI"))).toBe(false);
     expect(cases.some((c) => c.id.startsWith("SEG"))).toBe(false);
     expect(cases.filter((c) => c.id.startsWith("TOP"))).toHaveLength(10);
@@ -69,9 +70,9 @@ describe("parseDoc against the real docs", () => {
 describe("materializeDocs", () => {
   const fixtures = materializeDocs(v1, v2);
 
-  it("produces the docs' full coverage — 153 validated fixtures (hand-authored V6 categories excluded)", () => {
+  it("produces the docs' full coverage — 147 validated fixtures (hand-authored V6 categories excluded)", () => {
     expect(fixtures).toHaveLength(MATERIALIZED_CASES);
-    expect(MATERIALIZED_CASES).toBe(153);
+    expect(MATERIALIZED_CASES).toBe(147);
     const perCat = new Map<string, number>();
     for (const f of fixtures) perCat.set(f.category, (perCat.get(f.category) ?? 0) + 1);
     // `authoredExtra` cases (FIX-07..09) are hand-written, so the doc owes

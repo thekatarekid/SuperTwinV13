@@ -63,7 +63,10 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "CLM", name: "Extract — claims", n: 13, doc: "V1", pass: "extract" },
   { cat: "TSK", name: "Decide — task extraction", n: 13, doc: "V1", pass: "decide" },
   { cat: "CLS", name: "Decide — closure detection", n: 8, doc: "V1", pass: "decide" },
-  { cat: "EXE", name: "Executor (agentic)", n: 6, doc: "V1", pass: "executor" },
+  // V6 P1 S4.2: EXE is re-authored against the V6 P1 doc (§5.12, 5 cases) —
+  // executor-lite's bounded loop, not the V1 agentic-executor prose cases.
+  // Code against executor/lite.ts with a scripted provider and a scripted web.
+  { cat: "EXE", name: "Executor-lite (V6 P1)", n: 5, doc: "V2", pass: "lite", authored: true },
   { cat: "AGE", name: "Age-band backfill policy", n: 4, doc: "V1", pass: "scheduler.backfill" },
   // -- GoldenEvals V2 --
   // V6 P1 S3.3: BND is re-authored against the V6 P1 doc (§5.5, 12 cases) — the

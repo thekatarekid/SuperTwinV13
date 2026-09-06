@@ -1,30 +1,68 @@
 {
   "id": "EXE-02",
   "category": "EXE",
-  "title": "Missing info → targeted question, then pause",
-  "pass": "executor",
-  "mode": "live",
-  "setup": "task \"Book cab to airport 18 Dec\"; pickup time derivable, pickup address unknown.",
+  "title": "thin context stops",
+  "pass": "lite",
+  "mode": "code",
+  "setup": {
+    "note": "The same compare, but the dates are not in the action's inputs and the budget arrived at 0.4 confidence. Nothing is fetched and no call is made: the run asks once, combined.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip with Rohan in December", "goal": "4 people, under 20k pp" }],
+    "prepared": {
+      "action": "compare",
+      "kind": "help_now",
+      "intent": "comparing villas in Anjuna",
+      "intent_confidence": 0.9,
+      "space": "sp_goa_dec",
+      "inputs": {
+        "candidates": ["https://villas.example/sol", "https://villas.example/casa"],
+        "budget": { "value": "6000/night", "confidence": 0.4 }
+      },
+      "grounded_event_ids": ["ev_1"]
+    },
+    "pages": {
+      "https://villas.example/sol": [[200, "Villa Sol — 5400 per night"]]
+    },
+    "script": {
+      "note": "A full compare script the run must never reach — the thin check fires first.",
+      "tool_calls_requested": 2,
+      "tool": "web_fetch",
+      "tool_input": "https://villas.example/sol",
+      "final": { "status": "done", "artifact": { "type": "comparison", "title": "Villas", "body": "guessed", "rows": [], "citations": [] } }
+    }
+  },
   "input_events": [
-    "task + context (no address on file)."
+    "One prepared action of kind compare whose dates are missing and whose budget is doubted."
   ],
-  "expected": "everything preparable is prepared; ONE precise question (\"Pickup from home or office?\") emitted; execution pauses at `needs_input`.",
+  "expected": {
+    "status": "question",
+    "model_calls": 0,
+    "fetches": 0,
+    "question_cards": 1,
+    "ask": "dates? budget?",
+    "gaps": [
+      { "field": "dates", "confirm": false },
+      { "field": "budget", "prefill": "6000/night", "confirm": true }
+    ],
+    "note": "ONE combined card naming every gap; the doubted value is prefilled and marked confirm?, never written as a value."
+  },
   "wrong": [
     {
-      "label": "guesser",
-      "assert_absent": "books from an assumed address"
+      "label": "assume-dates",
+      "assert_absent": "a comparison built on assumed dates or an assumed budget"
     },
     {
-      "label": "question-flood",
-      "assert_absent": "5 questions, 4 answerable from context"
+      "label": "question-per-gap",
+      "assert_absent": "more than one question card for one thin run"
+    },
+    {
+      "label": "thin-spend",
+      "assert_absent": "a model call or a fetch made by a run that cannot succeed"
     }
   ],
-  "gates": [
-    "question_quality",
-    "guess_rate"
-  ],
+  "gates": ["unbounded_loop", "guess_rate"],
   "source": {
-    "doc": "V1",
-    "section": "EXE-02 · Missing info → targeted question, then pause"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.12 EXE-02 · thin context stops"
   }
 }

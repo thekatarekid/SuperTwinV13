@@ -1,25 +1,69 @@
 {
   "id": "EXE-01",
   "category": "EXE",
-  "title": "Plan and acceptance criteria come first",
-  "pass": "executor",
-  "mode": "live",
-  "setup": "task \"Shortlist 3 villas near Anjuna under ₹6k/night for 18–21 Dec\".",
+  "title": "bounded",
+  "pass": "lite",
+  "mode": "code",
+  "setup": {
+    "note": "The prepared action \"compare villas\" with everything it needs. The model asks for 12 tool turns against a 4-turn cycle ceiling and a $0.05 money ceiling; the run is graded on what the CODE allowed, not on what the model asked for.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "budget": { "maxTurns": 4, "costUsd": 0.05 },
+    "spaces": [{ "id": "sp_goa_dec", "label": "Goa trip with Rohan in December", "goal": "4 people, 18-21 Dec, under 20k pp" }],
+    "prepared": {
+      "action": "compare",
+      "kind": "help_now",
+      "intent": "comparing villas in Anjuna for 18-21 Dec",
+      "intent_confidence": 0.9,
+      "space": "sp_goa_dec",
+      "inputs": {
+        "candidates": ["https://villas.example/sol", "https://villas.example/casa"],
+        "dates": "18-21 Dec",
+        "budget": "6000/night"
+      },
+      "grounded_event_ids": ["ev_1"]
+    },
+    "pages": {
+      "https://villas.example/sol": [[200, "Villa Sol — 5400 per night, pool, 6 beds, free cancellation till Dec 1"]],
+      "https://villas.example/casa": [[200, "Casa Anjuna — 6100 per night, no pool, 4 beds, non-refundable"]]
+    },
+    "script": {
+      "tool_calls_requested": 12,
+      "tool": "world_read",
+      "tool_input": "villa budget",
+      "cost_usd": 0.004,
+      "final": {
+        "status": "partial",
+        "criteria": ["2+ listings on price, pool, beds, cancellation"],
+        "questions": [],
+        "turns": 12
+      }
+    }
+  },
   "input_events": [
-    "task + space context."
+    "One prepared action of kind compare, persisted by the live pass as a deferred_outputs row.",
+    "A model that keeps asking for another tool turn — twelve of them."
   ],
-  "expected": "first output is a plan + checkable criteria (3 options, in budget, available for the dates, near Anjuna, group size fits) before any tool call.",
+  "expected": {
+    "turns_used_max": 4,
+    "doc_max_turns": 8,
+    "tools_executed": 3,
+    "cycle_refusals": 9,
+    "trace_records_ceilings": true,
+    "note": "Turns used never exceeds the cycle ceiling, which never exceeds the doc's 8; the trace row carries both the cycle and the money ceiling."
+  },
   "wrong": [
     {
-      "label": "headless-chicken",
-      "assert_absent": "starts browsing with no criteria"
+      "label": "unbounded-loop",
+      "assert_absent": "more tool turns executed than the cycle ceiling allows"
+    },
+    {
+      "label": "unrecorded-ceiling",
+      "assert_absent": "a run whose trace does not carry its cycle and money ceilings"
     }
   ],
-  "gates": [
-    "executor_discipline"
-  ],
+  "gates": ["unbounded_loop"],
   "source": {
-    "doc": "V1",
-    "section": "EXE-01 · Plan and acceptance criteria come first"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.12 EXE-01 · bounded"
   }
 }

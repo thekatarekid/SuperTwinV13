@@ -38,7 +38,7 @@ import {
   spendAccumulator,
   type TopicState,
 } from "./gate.js";
-import { runExecutorLite } from "./executor-lite.js";
+import { runExecutorLite } from "../executor/lite.js";
 import { getAssistEnabled, isCapturePaused } from "./settings.js";
 
 // ---------------------------------------------------------------------------

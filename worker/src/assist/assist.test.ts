@@ -30,7 +30,7 @@ import {
   RISKY_TOOL_NAME_PATTERNS,
   runExecutorLite,
   urlsInAction,
-} from "./executor-lite.js";
+} from "../executor/lite.js";
 import {
   isActionable,
   packAssistInput,

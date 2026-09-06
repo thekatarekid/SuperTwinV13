@@ -54,9 +54,12 @@ describe("0202_v6_fts_projection — schema", () => {
   it("applies once, after 0201, and re-running is a no-op", () => {
     const db = getDb();
     const ids = applied(db);
-    expect(ids.at(-1)).toBe("0202_v6_fts_projection");
+    // Directly after 0201; later V6 migrations (0203_v6_space_card, S3.7) follow it.
+    expect(ids).toContain("0202_v6_fts_projection");
     expect(ids.indexOf("0202_v6_fts_projection")).toBe(ids.indexOf("0201_v6_graph") + 1);
-    expect(MIGRATIONS.at(-1)?.id).toBe("0202_v6_fts_projection");
+    expect(MIGRATIONS.map((m) => m.id).indexOf("0202_v6_fts_projection")).toBe(
+      MIGRATIONS.map((m) => m.id).indexOf("0201_v6_graph") + 1,
+    );
     runMigrations();
     expect(applied(getDb()).filter((id) => id === "0202_v6_fts_projection")).toHaveLength(1);
   });

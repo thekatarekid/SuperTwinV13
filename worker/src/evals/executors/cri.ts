@@ -223,7 +223,9 @@ export function renderWriteLine(w: CriWrite, n: number): string {
         w.space ? ` → ${w.space}` : ""
       }${q} conf ${w.confidence}`;
     case "proposal":
-      return `${n} PROPOSAL "${w.label ?? ""}" ${w.stream ?? "S1"} ${w.events.join(",")}${w.summary ? ` "${w.summary}"` : ""}${q} conf ${w.confidence}`;
+      // "new space" spelled out: without it the model read a proposal beside a
+      // matching candidate as an attach to that space and committed (S3 gate).
+      return `${n} PROPOSAL new space "${w.label ?? ""}" ${w.stream ?? "S1"} ${w.events.join(",")}${w.summary ? ` "${w.summary}"` : ""}${q} conf ${w.confidence}`;
     case "unsorted":
       return `${n} UNSORTED ${w.stream ?? "S1"} ${w.events.join(",")} "${w.summary ?? ""}" conf ${w.confidence}`;
     case "edge":

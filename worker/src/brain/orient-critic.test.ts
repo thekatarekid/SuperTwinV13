@@ -301,7 +301,7 @@ describe("runBrainTick — full tick with stubbed provider", () => {
     expect((db.prepare(`SELECT COUNT(*) AS n FROM unsorted`).get() as { n: number }).n).toBe(1);
   });
 
-  it("critic reject drops the write; flag_overlap commits AND queues T2", async () => {
+  it("critic reject drops the write; flag_overlap files the proposal INTO the flagged space (S3.7 dedupe)", async () => {
     const bundle = seedBundle(["msg one", "msg two"]);
     getDb()
       .prepare(`INSERT INTO spaces (id, label, status) VALUES ('sp_other', 'Existing overlap space', 'active')`)
@@ -338,20 +338,20 @@ describe("runBrainTick — full tick with stubbed provider", () => {
     const report = await runBrainTick(bundle, deps);
 
     const db = getDb();
-    // The rejected episode never landed; the flagged proposal did.
-    const eps = db.prepare(`SELECT summary FROM episodes`).all() as { summary: string }[];
-    expect(eps.map((e) => e.summary)).toEqual(["overlaps sp_other"]);
+    // The rejected episode never landed; the flagged proposal did — as an
+    // episode filed into the space the critic named. No second space is born
+    // (Product §13.3 space-birth dedupe, S3.7): the overlap is resolved at
+    // commit time, not queued for a later merge.
+    const eps = db.prepare(`SELECT summary, space_id FROM episodes`).all() as { summary: string; space_id: string | null }[];
+    expect(eps).toEqual([{ summary: "overlaps sp_other", space_id: "sp_other" }]);
     expect(report.commit?.rejected).toBe(1);
-    // flag_overlap: committed at the born-status (active, under the default)
-    // AND queued for T2 review immediately — the overlap is resolved by the
-    // merge pass, reversibly, not by withholding the space from the user.
-    expect(
-      db.prepare(`SELECT status FROM spaces WHERE label = 'Duplicate looking space'`).get(),
-    ).toEqual({ status: "active" });
-    const t2 = db
-      .prepare(`SELECT kind, overlap_space_id, status FROM t2_review_queue`)
-      .all() as { kind: string; overlap_space_id: string | null; status: string }[];
-    expect(t2).toEqual([{ kind: "flag_overlap", overlap_space_id: "sp_other", status: "pending" }]);
+    expect(report.commit?.dedupedBirths).toBe(1);
+    expect(db.prepare(`SELECT status FROM spaces WHERE label = 'Duplicate looking space'`).get()).toBeUndefined();
+    const dedupe = db
+      .prepare(`SELECT target_id FROM decisions WHERE action = 'dedupe_birth'`)
+      .all() as { target_id: string }[];
+    expect(dedupe).toEqual([{ target_id: "sp_other" }]);
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM t2_review_queue`).get() as { n: number }).n).toBe(0);
   });
 
   it("a quarantined Orient leaves the bundle unmarked for the orphan scan", async () => {

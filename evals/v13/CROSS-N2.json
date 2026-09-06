@@ -1,0 +1,128 @@
+{
+  "id": "CROSS-N2",
+  "category": "CROSS",
+  "title": "two unrelated chats in one bundle",
+  "pass": "commit",
+  "mode": "code",
+  "setup": {
+    "note": "The S3 day-bundle shape: two unrelated WhatsApp chats (S1 Goa gang, S2 Ma) land in ONE bundle. Orient keeps them apart — one episode per thread, each tagged with its stream. The critic is silent.",
+    "orient": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1",
+            "e3"
+          ],
+          "summary": "Villa Sol advance: 5k each by Monday",
+          "evidence": [
+            {
+              "event_ids": [
+                "e3"
+              ],
+              "quote": "5k each, monday tak pakka"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S2",
+          "events": [
+            "e2",
+            "e4"
+          ],
+          "summary": "Pune ticket to be booked tonight",
+          "evidence": [
+            {
+              "event_ids": [
+                "e4"
+              ],
+              "quote": "haan aaj raat karta hoon"
+            }
+          ],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [],
+      "questions": []
+    },
+    "critic": {
+      "verdicts": []
+    }
+  },
+  "input_events": [
+    {
+      "stream": "S1",
+      "actor": "contact:rohan",
+      "text": "villa sol advance aaj chahiye"
+    },
+    {
+      "stream": "S2",
+      "actor": "contact:ma",
+      "text": "pune wali ticket kal tak book kar do"
+    },
+    {
+      "stream": "S1",
+      "actor": "contact:karan",
+      "text": "5k each, monday tak pakka"
+    },
+    {
+      "stream": "S2",
+      "actor": "self",
+      "text": "haan aaj raat karta hoon"
+    }
+  ],
+  "expected": {
+    "committed": 2,
+    "rejected": 0,
+    "membership": [
+      [
+        "e1",
+        "e3"
+      ],
+      [
+        "e2",
+        "e4"
+      ]
+    ],
+    "episode_streams": {
+      "e1": "S1",
+      "e3": "S1",
+      "e2": "S2",
+      "e4": "S2"
+    },
+    "held": [],
+    "stamped": [
+      "e1",
+      "e2",
+      "e3",
+      "e4"
+    ],
+    "uncovered": [],
+    "duplicated": []
+  },
+  "wrong": [
+    {
+      "label": "multi-stream-episode",
+      "assert_absent": "an invented cross-thread episode whose members come from both chats"
+    },
+    {
+      "label": "double-placement",
+      "assert_absent": "one event sitting in both episodes (the two threads merged)"
+    },
+    {
+      "label": "rowid-ranges",
+      "assert_absent": "an episode_events row without event_id, or whose start/end differ (a rowid range)"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.10 CROSS-N2 · two unrelated chats in one bundle"
+  }
+}

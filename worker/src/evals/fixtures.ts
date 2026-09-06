@@ -104,6 +104,10 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // commit path; the V1 CON-01..08 prose cases were replaced.
   { cat: "CON", name: "Consolidation on change (V6 P1)", n: 3, doc: "V2", pass: "consolidate", authored: true },
   { cat: "IDEM", name: "Idempotence (V6 P1)", n: 1, doc: "V2", pass: "consolidate", authored: true },
+  // GoldenEvals V6 Phase 1 §5.10 — cross-source batching (S3 gate). CROSS-N2 is code
+  // against brain/commit.ts (two unrelated chats in one bundle → two episodes, never
+  // merged); CROSS-N50 / CROSS-DAY are the S4 ship gate.
+  { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 1, doc: "V2", pass: "commit", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);
@@ -175,8 +179,12 @@ export class FixtureError extends Error {
   }
 }
 
-/** `ROL-01`, and the four-letter V6 P1 categories (`GATE-01`). */
-const ID_RE = /^[A-Z]{3,4}-\d{2}$/;
+/**
+ * `ROL-01`, the four-letter V6 P1 categories (`GATE-01`), and the CROSS
+ * fixtures the GoldenEvals V6P1 §5.10 names by shape (`CROSS-N2`, `CROSS-N50`,
+ * `CROSS-DAY`).
+ */
+const ID_RE = /^[A-Z]{3,5}-(\d{2}|N\d{1,3}|DAY)$/;
 const PASS_RE = /^[a-z][a-z0-9.+_-]*$/;
 const GATE_RE = /^[a-z][a-z0-9_]*$/;
 const LABEL_RE = /^[a-z0-9][a-z0-9-]*$/;

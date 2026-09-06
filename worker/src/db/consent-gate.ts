@@ -229,16 +229,34 @@ export function replayArchive(
          ORDER BY ts DESC
          LIMIT ?)`,
   );
-  let replayed = 0;
+  const { flipped: replayed, chunks } = flipInChunks(flip, [source, consent.understandFrom], { chunk, maxChunks });
+  return { replayed, pending: pendingReplayCount(source), chunks };
+}
+
+/**
+ * The replay loop itself, shared with tier promotion (tiers/promote.ts, S3.8):
+ * run a chunked UPDATE whose LAST bound parameter is the LIMIT until a chunk
+ * comes back short. The statement's own WHERE must be the resumable predicate
+ * (rows already flipped no longer match), which is what makes a kill between
+ * chunks lose nothing.
+ */
+export function flipInChunks(
+  stmt: { run(...args: unknown[]): { changes: number } },
+  args: readonly unknown[],
+  opts: { chunk?: number; maxChunks?: number } = {},
+): { flipped: number; chunks: number } {
+  const chunk = Math.max(1, Math.floor(opts.chunk ?? REPLAY_CHUNK));
+  const maxChunks = opts.maxChunks ?? Number.POSITIVE_INFINITY;
+  let flipped = 0;
   let chunks = 0;
   while (chunks < maxChunks) {
-    const n = flip.run(source, consent.understandFrom, chunk).changes;
+    const n = stmt.run(...args, chunk).changes;
     if (n === 0) break;
-    replayed += n;
+    flipped += n;
     chunks++;
     if (n < chunk) break;
   }
-  return { replayed, pending: pendingReplayCount(source), chunks };
+  return { flipped, chunks };
 }
 
 /** Continue a replay a kill interrupted. Same as replayArchive(source). */

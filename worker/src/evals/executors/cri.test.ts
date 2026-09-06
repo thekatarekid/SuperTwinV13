@@ -124,7 +124,7 @@ describe("live cases against a stubbed critic.v5", () => {
     expect(ok.violations).toEqual([]);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain("[PACK]");
-    expect(calls[0]).toContain('1 PROPOSAL "Goa December trip" S1 e1');
+    expect(calls[0]).toContain('1 PROPOSAL new space "Goa December trip" S1 e1');
     expect(ok.metrics?.verdict_accuracy).toBe(1);
 
     answers = [JSON.stringify({ verdicts: [{ item: 1, verdict: "flag_overlap", space_id: "sp_goa_dec" }] })];

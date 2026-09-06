@@ -140,7 +140,9 @@ export function packDigestV2User(input: DigestInputV2): PackedDigest {
   const head =
     `STREAM ${input.streamLabel ?? input.streamKey} (${input.streamKey}) · week of ${input.week}\n` +
     `${input.events.length} messages · ${first} → ${last}\n` +
-    `Refer to events by alias (e1, e2, …) in evidence.event_ids.`;
+    `Refer to events by alias (e1, e2, …) in evidence.event_ids. Every evidence entry is an object ` +
+    `{"event_ids":["e3"],"quote":"<text copied verbatim from that event>"} — a bare alias or a paraphrased quote ` +
+    `is dropped by code. A claim is the extract shape: {"subject","kind","text","provenance","fields","evidence","confidence","valid_from"}.`;
   return { text: `${head}\n<untrusted>\n${lines.join("\n")}\n</untrusted>`, aliases, textById };
 }
 

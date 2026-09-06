@@ -144,6 +144,8 @@ describe("0020_v2_core applies", () => {
       "0201_v6_graph",
       // V6 S2.3: events.app/window_title/doc_key, events_fts over ten columns, chunks_fts.
       "0202_v6_fts_projection",
+      // V6 P1 S3.7: the per-space card — ADD COLUMNs on spaces only.
+      "0203_v6_space_card",
     ]);
 
     expect(

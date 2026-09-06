@@ -262,24 +262,7 @@ const SEEDS: Record<string, FixtureSeed> = {
       'attach episode "packing list started" to sp_goa_dec — quote: "packing list bana raha hu" (e7), confidence 0.9.',
     ],
   },
-  "CRI-05": {
-    state: [
-      `CANDIDATES IN VIEW: ${GOA_CARD}`,
-      'SPACE CANDIDATE sp_goa_wedding — label "Nikhil\'s Goa wedding in December", life_area Social, ' +
-        'status active. Exemplar: ep_430 "wedding outfit shopping". Dates: 19 Dec 2026 (overlaps the trip).',
-    ].join("\n"),
-    items: [
-      'attach episode "flight + stay planning around the December Goa dates" to sp_goa_dec — evidence quote: ' +
-        '"19 ko wedding hai waise, flights usi hisab se" (e1), confidence 0.86. ' +
-        "(The episode fits sp_goa_dec; the wedding mention half-fits sp_goa_wedding.)",
-    ],
-  },
-  "CRI-06": {
-    state: "LABEL RULE in force (spec): a space label is 4–8 SPECIFIC words; single generic words are invalid.",
-    items: [
-      'space proposal — label "Travel", life_area Travel, goal unset, evidence quote: "socho kahin chalte hai" (e1), confidence 0.55.',
-    ],
-  },
+  // CRI-05..08 were retired in V6 P1 S3.5 (CRI re-authored as CRI-01..04).
 
   // ---- Extract: CLM --------------------------------------------------------
   "CLM-01": {

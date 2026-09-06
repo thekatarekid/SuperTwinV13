@@ -251,6 +251,13 @@ export function commitTick(input: CommitInput): CommitReport {
 
   // ---- Placement bookkeeping (coverage, dedupe, held/handled) --------------
   const placed = new Set<string>(); // committed members this tick
+  /**
+   * Which episode of THIS tick holds each placed event (verify: e2e, 13.11.6).
+   * A space proposal founded on events an episode of the same tick already
+   * committed is not a duplicate — it is the space that episode belongs in —
+   * and the proposal path below needs to know which episode to attach.
+   */
+  const placedIn = new Map<string, string>();
   const mentioned = new Set<string>(); // every event any item named
   const duplicated = new Set<string>();
   const heldCandidates = new Set<string>();
@@ -441,7 +448,10 @@ export function commitTick(input: CommitInput): CommitReport {
       rows.map((r) => r.id),
       "orient",
     );
-    for (const r of rows) placed.add(r.id);
+    for (const r of rows) {
+      placed.add(r.id);
+      if (!placedIn.has(r.id)) placedIn.set(r.id, episodeId);
+    }
   };
 
   const insertUnsorted = (episodeId: string, reason: string, confidence: number): void => {
@@ -451,6 +461,14 @@ export function commitTick(input: CommitInput): CommitReport {
     ).run(id, episodeId, reason, confidence);
     report.unsorted++;
     decide("unsorted", id, "create", { new: { episodeId, reason }, confidence });
+  };
+
+  /** Is this episode already filed in a space? */
+  const episodeHasSpace = (episodeId: string): boolean => {
+    const row = db.prepare(`SELECT space_id FROM episodes WHERE id = ?`).get(episodeId) as
+      | { space_id: string | null }
+      | undefined;
+    return Boolean(row?.space_id);
   };
 
   const attachEpisode = (
@@ -642,7 +660,13 @@ export function commitTick(input: CommitInput): CommitReport {
       const payload = { label: p.label, summary: p.summary, events: p.episode_events };
       const fail = (reason: RejectReason, detail: string): void =>
         reject(
-          { item, kind: "proposal", reason, detail, eventIds: rows.map((r) => r.id) },
+          {
+            item,
+            kind: "proposal",
+            reason,
+            detail,
+            eventIds: (rows.length > 0 ? rows : named).map((r) => r.id),
+          },
           { targetKind: "space", targetId: "(unproposed)", payload, confidence: p.confidence },
         );
 
@@ -652,11 +676,53 @@ export function commitTick(input: CommitInput): CommitReport {
         fail("no_events", `episode_events ${JSON.stringify(p.episode_events)} resolve to nothing`);
         continue;
       }
+
+      // ---- Founded on this tick's own episode (verify: e2e, 13.11.6) -----
+      //
+      // A proposal names the events its space is founded on. The model's
+      // natural — and correct — output files those events as an episode AND
+      // proposes the space that episode belongs in, so by the time the
+      // proposal is read every founding event is already `placed`. Before
+      // this, `fresh()` emptied the row list and the proposal died as
+      // `already_placed`: on a FRESH INSTALL, where there are no candidate
+      // spaces to attach to, every single proposal took that path and no
+      // space was ever born. Measured on a seeded 3-day corpus: 13 proposals,
+      // 13 rejections, 0 spaces, and every surface downstream — Home, Spaces,
+      // Calendar, People, Tasks — correctly rendered the nothing it was given.
+      //
+      // The events are not contested: one episode holds them, and it has no
+      // space. That is not a duplicate write, it is the missing half of one.
+      // So the space is born and THAT episode is attached to it, exactly as
+      // the dedupe path below files a duplicate into the space it duplicates.
+      // Nothing is committed twice: no second episode, no second membership.
+      //
+      // The bar is unchanged. A proposal that reaches here still passes the
+      // stream check, the evidence check and the critic — it just carries the
+      // episode it founded instead of a fresh row set.
+      const foundingEpisodes: string[] = [];
       if (rows.length === 0) {
-        fail("already_placed", "every founding event was committed by an earlier item");
-        continue;
+        const seen = new Set<string>();
+        for (const r of named) {
+          const epId = placedIn.get(r.id);
+          if (epId && !seen.has(epId)) {
+            seen.add(epId);
+            foundingEpisodes.push(epId);
+          }
+        }
+        const unspaced = foundingEpisodes.filter((epId) => !episodeHasSpace(epId));
+        if (unspaced.length === 0) {
+          fail(
+            "already_placed",
+            foundingEpisodes.length === 0
+              ? "every founding event was committed by an earlier item"
+              : "every founding episode is already filed in a space",
+          );
+          continue;
+        }
+        foundingEpisodes.length = 0;
+        foundingEpisodes.push(...unspaced);
       }
-      const stream = singleStream(rows, p.stream);
+      const stream = singleStream(rows.length > 0 ? rows : named, p.stream);
       if (!stream.ok) {
         fail(stream.reason, stream.detail);
         continue;
@@ -670,6 +736,42 @@ export function commitTick(input: CommitInput): CommitReport {
       // The birth record below remembers what SURVIVED, never a quote code
       // just told the operator it could not find (S5.1 birth_evidence_json).
       const keptEvidence = ev.kept;
+
+      /**
+       * The episode(s) this proposal founds, filed into `spaceId`.
+       *
+       * Fresh rows → one new episode, as before. No fresh rows → the tick's
+       * OWN episode(s) that already hold the founding events, attached rather
+       * than duplicated: the space is the half that was missing, not the
+       * episode.
+       */
+      const foundEpisodes = (
+        spaceId: string,
+        o: { attach: boolean; reason: string | null },
+      ): string[] => {
+        if (rows.length === 0) {
+          // The episodes already exist and already hold these events; the
+          // attach is the write, and attachEpisode logs its own decision.
+          for (const epId of foundingEpisodes) attachEpisode(epId, spaceId, p.confidence, o.reason);
+          return [...foundingEpisodes];
+        }
+        const episodeId = insertEpisode({
+          summary: p.summary,
+          streamId: stream.streamId,
+          rows,
+          confidence: p.confidence,
+          spaceId: o.attach ? null : spaceId,
+        });
+        decide("episode", episodeId, "create", {
+          new: { summary: p.summary, events: rows.map((r) => r.id), ...(o.attach ? {} : { spaceId }) },
+          confidence: p.confidence,
+        });
+        if (o.attach) attachEpisode(episodeId, spaceId, p.confidence, o.reason);
+        return [episodeId];
+      };
+      /** The founding events — fresh rows, else the ones the tick already filed. */
+      const foundingRows = rows.length > 0 ? rows : named;
+
       const verdict = verdictFor(critic, item);
       if (verdict.verdict === "reject") {
         fail("critic", verdict.reason ?? "critic reject");
@@ -678,6 +780,13 @@ export function commitTick(input: CommitInput): CommitReport {
 
       if (verdict.verdict === "downgrade_to_unsorted") {
         report.downgraded++;
+        if (rows.length === 0) {
+          // Nothing to downgrade: the founding episode was committed on its
+          // own merits by the episodes[] item and keeps its own verdict. Only
+          // the SPACE is refused — recorded, so the operator sees the refusal.
+          fail("critic", verdict.reason ?? "critic downgrade");
+          continue;
+        }
         const episodeId = insertEpisode({
           summary: p.summary,
           streamId: stream.streamId,
@@ -701,24 +810,19 @@ export function commitTick(input: CommitInput): CommitReport {
         (verdict.verdict === "flag_overlap" ? resolveCriticOverlap(verdict.space_id) : null) ??
         findBirthDuplicate(p.label, p.goal ?? null);
       if (dup) {
-        const episodeId = insertEpisode({
-          summary: p.summary,
-          streamId: stream.streamId,
-          rows,
-          confidence: p.confidence,
+        const episodeIds = foundEpisodes(dup.spaceId, {
+          attach: true,
+          reason: `space birth deduped into ${dup.spaceId} (${dup.via})`,
         });
-        decide("episode", episodeId, "create", {
-          new: { summary: p.summary, events: rows.map((r) => r.id) },
-          confidence: p.confidence,
-        });
-        attachEpisode(episodeId, dup.spaceId, p.confidence, `space birth deduped into ${dup.spaceId} (${dup.via})`);
         decide("space", dup.spaceId, "dedupe_birth", {
           new: { proposedLabel: p.label, goal: p.goal ?? null, via: dup.via, score: dup.score },
           reason: verdict.reason ?? `duplicate of "${dup.label}"`,
           confidence: p.confidence,
         });
         report.dedupedBirths++;
-        report.committedEpisodes.push({ episodeId, spaceId: dup.spaceId, streamId: stream.streamId });
+        for (const episodeId of episodeIds) {
+          report.committedEpisodes.push({ episodeId, spaceId: dup.spaceId, streamId: stream.streamId });
+        }
         continue;
       }
 
@@ -751,22 +855,17 @@ export function commitTick(input: CommitInput): CommitReport {
         confidence: p.confidence,
       });
 
-      const episodeId = insertEpisode({
-        summary: p.summary,
-        streamId: stream.streamId,
-        rows,
-        confidence: p.confidence,
-        spaceId,
-      });
-      decide("episode", episodeId, "create", {
-        new: { summary: p.summary, events: rows.map((r) => r.id), spaceId },
-        confidence: p.confidence,
+      const episodeIds = foundEpisodes(spaceId, {
+        attach: false,
+        reason: `founding episode of ${spaceId}`,
       });
       seedSpaceIndex(
         spaceId,
-        rows.map((r) => r.id),
+        foundingRows.map((r) => r.id),
       );
-      report.committedEpisodes.push({ episodeId, spaceId, streamId: stream.streamId });
+      for (const episodeId of episodeIds) {
+        report.committedEpisodes.push({ episodeId, spaceId, streamId: stream.streamId });
+      }
       if (verdict.verdict === "flag_overlap") {
         flagOverlap(null, spaceId, verdict.space_id ?? null, verdict.reason ?? null);
       }

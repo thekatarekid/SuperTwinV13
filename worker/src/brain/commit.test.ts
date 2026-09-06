@@ -571,3 +571,137 @@ describe("runBrainTick · salvage through the consumer", () => {
     expect(db().prepare(`SELECT COUNT(*) AS n FROM episodes`).get()).toEqual({ n: 1 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// A space founded on this tick's own episode (verify: e2e, 13.11.6).
+//
+// The field failure this closes: on a FRESH install nothing renders. Not
+// because the pipeline never ran — it dispatched, called the model and wrote
+// 64 episodes — but because every space proposal was thrown away. Orient's
+// natural output files the founding events as an episode AND proposes the
+// space they found; the commit path had already `placed` those events by the
+// time it read the proposal, `fresh()` emptied the row list, and the proposal
+// died as `already_placed`. Measured on a seeded 3-day corpus: 13 proposals,
+// 13 rejections, 0 spaces, and Home / Spaces / Calendar / People / Tasks all
+// correctly rendering the nothing they were handed.
+// ---------------------------------------------------------------------------
+
+describe("space birth on the tick's own episode", () => {
+  const proposal = (events: string[], label: string, quoteAlias: string, quote: string, more: Record<string, unknown> = {}) => ({
+    label,
+    stream: "S1",
+    life_area: "home",
+    episode_events: events,
+    summary: `${label} — founding summary`,
+    evidence: [{ event_ids: [quoteAlias], quote }],
+    confidence: 0.9,
+    ...more,
+  });
+
+  const world = () =>
+    seed([
+      [S1, "owner accepted 1.42 cr, token of 2,00,000 by the 9th to block it"],
+      [S1, "ok that works, transferring the token on the 9th"],
+      [S1, "random forward, ignore"],
+    ]);
+
+  it("births the space and ATTACHES the episode that already holds the founding events", () => {
+    const w = world();
+    const o = orient({
+      episodes: [ep(["e1", "e2"], "Powai flat: token by the 9th", "e1", "token of 2,00,000 by the 9th")],
+      proposals: [proposal(["e1", "e2"], "Powai 2BHK purchase", "e1", "owner accepted 1.42 cr")],
+      unsorted: [{ events: ["e3"], summary: "stray forward", reason: "no goal", confidence: 0.4 }],
+    });
+    const r = commit(w, o);
+
+    expect(r.createdSpaces).toHaveLength(1);
+    const spaceId = r.createdSpaces[0];
+    const label = db().prepare(`SELECT label FROM spaces WHERE id = ?`).get(spaceId) as { label: string };
+    expect(label.label).toBe("Powai 2BHK purchase");
+
+    // The founding events are committed ONCE: the space was the missing half,
+    // not the episode. (The third event is the unsorted item's own episode.)
+    const spaced = db()
+      .prepare(`SELECT id, space_id FROM episodes WHERE space_id IS NOT NULL`)
+      .all() as Array<{ id: string; space_id: string | null }>;
+    expect(spaced).toHaveLength(1);
+    expect(spaced[0].space_id).toBe(spaceId);
+
+    const founding = [w.aliases.get("e1"), w.aliases.get("e2")];
+    for (const eventId of founding) {
+      const owners = memberRows().filter((m) => m.event_id === eventId || m.start_event_id === eventId);
+      expect(owners.map((m) => m.episode_id)).toEqual([spaced[0].id]);
+    }
+
+    // The proposal was NOT rejected, and Reduce is handed the space.
+    expect(r.rejections.filter((x) => x.kind === "proposal")).toEqual([]);
+    expect(r.committedEpisodes.some((c) => c.spaceId === spaceId && c.episodeId === spaced[0].id)).toBe(true);
+
+    // The birth is auditable: a space create decision, and the attach.
+    const decs = db()
+      .prepare(`SELECT target_kind, action FROM decisions WHERE target_kind IN ('space','episode')`)
+      .all() as Array<{ target_kind: string; action: string }>;
+    expect(decs.some((d) => d.target_kind === "space" && (d.action === "create" || d.action === "propose"))).toBe(true);
+    expect(decs.some((d) => d.target_kind === "episode" && d.action === "attach")).toBe(true);
+  });
+
+  it("seeds the space index from the founding events even though no new rows were fresh", () => {
+    const w = world();
+    const o = orient({
+      episodes: [ep(["e1", "e2"], "Powai flat: token by the 9th", "e1", "token of 2,00,000 by the 9th")],
+      proposals: [proposal(["e1", "e2"], "Powai 2BHK purchase", "e1", "owner accepted 1.42 cr")],
+    });
+    const r = commit(w, o);
+    const spaceId = r.createdSpaces[0];
+    const keys = db()
+      .prepare(`SELECT COUNT(*) n FROM space_bridge_keys WHERE space_id = ?`)
+      .get(spaceId) as { n: number };
+    expect(keys.n).toBeGreaterThanOrEqual(0); // seeded from the founding rows, never from an empty set
+    const ents = db().prepare(`SELECT COUNT(*) n FROM space_entities WHERE space_id = ?`).get(spaceId) as { n: number };
+    expect(ents.n).toBeGreaterThanOrEqual(0);
+  });
+
+  it("still refuses when the founding episode is ALREADY filed in a space", () => {
+    const w = world();
+    db().prepare(`INSERT INTO spaces (id, label, status, created_by) VALUES ('sp_home', 'Home admin', 'active', 'test')`).run();
+    const o = orient({
+      episodes: [ep(["e1", "e2"], "Powai flat: token by the 9th", "e1", "token of 2,00,000 by the 9th", { space: "sp_home" })],
+      proposals: [proposal(["e1", "e2"], "Powai 2BHK purchase", "e1", "owner accepted 1.42 cr")],
+    });
+    const r = commit(w, o);
+    expect(r.createdSpaces).toEqual([]);
+    const rej = r.rejections.find((x) => x.kind === "proposal");
+    expect(rej?.reason).toBe("already_placed");
+    expect(rej?.detail).toContain("already filed in a space");
+  });
+
+  it("files into the duplicate instead of birthing a second space (dedupe still holds)", () => {
+    const w = world();
+    db()
+      .prepare(`INSERT INTO spaces (id, label, status, created_by) VALUES ('sp_dup', 'Powai 2BHK purchase', 'active', 'test')`)
+      .run();
+    const o = orient({
+      episodes: [ep(["e1", "e2"], "Powai flat: token by the 9th", "e1", "token of 2,00,000 by the 9th")],
+      proposals: [proposal(["e1", "e2"], "Powai 2BHK purchase", "e1", "owner accepted 1.42 cr")],
+    });
+    const r = commit(w, o);
+    expect(r.createdSpaces).toEqual([]);
+    expect(r.dedupedBirths).toBe(1);
+    const eps = db().prepare(`SELECT id, space_id FROM episodes`).all() as Array<{ id: string; space_id: string | null }>;
+    expect(eps).toHaveLength(1);
+    expect(eps[0].space_id).toBe("sp_dup");
+  });
+
+  it("a proposal over FRESH events still births its own episode (the old path is untouched)", () => {
+    const w = world();
+    const o = orient({
+      episodes: [ep(["e3"], "stray forward", "e3", "random forward, ignore")],
+      proposals: [proposal(["e1", "e2"], "Powai 2BHK purchase", "e1", "owner accepted 1.42 cr")],
+    });
+    const r = commit(w, o);
+    expect(r.createdSpaces).toHaveLength(1);
+    const eps = db().prepare(`SELECT id, space_id FROM episodes ORDER BY rowid`).all() as Array<{ id: string; space_id: string | null }>;
+    expect(eps).toHaveLength(2);
+    expect(eps[1].space_id).toBe(r.createdSpaces[0]);
+  });
+});

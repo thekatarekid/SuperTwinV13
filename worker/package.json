@@ -1,6 +1,6 @@
 {
   "name": "@supertwinv13/worker",
-  "version": "13.11.9",
+  "version": "13.11.10",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

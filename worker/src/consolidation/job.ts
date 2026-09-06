@@ -14,6 +14,8 @@
 //                    of the same reduce step — claims, people, tone, feelings.
 //                    A lookup first (empty queue → zero calls, no line), then
 //                    at most two batched calls, then code-only circles.
+//                    ON ITS OWN TIMER, not a slot at the end of the minute
+//                    tick — see EXTRACT STARVATION below.
 //   every hour     - the rolling T2 over what changed since the last roll:
 //                    merge questions / split suggestions / dormancy over
 //                    touched spaces, second-look processing, unsorted review.
@@ -23,6 +25,23 @@
 //                    (at most daily, machine idle and on power).
 //
 // Every duty is fenced: one failing tick logs and the next tick still runs.
+//
+// EXTRACT STARVATION (V6 P1 S6e Finish gate). The minute tick is serialised —
+// `if (running) return` — so a duty placed after the Decide drain waits for
+// every model call the Decide drain makes. Measured end to end on a seeded
+// corpus: run 1 reached Extract at ~75 s and drained; run 2, same corpus, same
+// ceiling, spent TWELVE MINUTES in one tick's Decide drain and the Extract
+// duty never ran at all — 66 episodes queued, `extract runs in the ledger: 0`,
+// claims 0. A clock inside a tick that returns early when the tick is busy is
+// not its own clock. So the duty now has its own interval and its own re-entry
+// guard, and `tick()` still calls it (both paths share `extractRunning`, so
+// they can never overlap). The ceiling is untouched: at most one drain per
+// EXTRACT_INTERVAL_MS, at most EXTRACT_CALLS_PER_TICK calls in it.
+//
+// The cadence clock also only advances on a drain that actually CLAIMED work.
+// An idle or held look is a lookup, not a spend; advancing on it burned five
+// minutes of the fresh-install window on an empty queue — which is exactly the
+// window in which the first episodes land.
 // ===========================================================================
 
 import { drainDecideQueue } from "../brain/reduce.js";
@@ -38,6 +57,11 @@ export interface ConsolidationJobHandle {
   stop(): void;
   /** One full cycle on demand (tests, and the boot warm-up call). */
   tick(): Promise<void>;
+  /**
+   * The Extract duty alone, on demand. Its own entry point because it is on
+   * its own timer: a `tick()` already in flight must not be able to hold it.
+   */
+  extractTick(): Promise<void>;
 }
 
 export interface ConsolidationJobOptions {
@@ -64,6 +88,30 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
   let lastRollAt = 0;
   let lastExtractAt = 0;
   let running = false;
+  let extractRunning = false;
+
+  /**
+   * The Extract duty. Shared by the minute tick and its own timer; the one
+   * `extractRunning` guard is what makes that safe. Free unless the cadence is
+   * due AND the queue has something, and the clock only advances on a drain
+   * that claimed work (see EXTRACT STARVATION at the top of this file).
+   */
+  const extractTick = async (): Promise<void> => {
+    if (opts.extract === false) return;
+    if (extractRunning) return;
+    if (Date.now() - lastExtractAt < extractMs) return;
+    extractRunning = true;
+    try {
+      const report = await extractDrainTick({ deps, log });
+      if (report.status === "drained") lastExtractAt = Date.now();
+      const line = extractDrainLogLine(report);
+      if (line !== null) log(line);
+    } catch (err) {
+      log(`[consolidation] extract drain failed: ${(err as Error).message}`);
+    } finally {
+      extractRunning = false;
+    }
+  };
 
   const tick = async (): Promise<void> => {
     if (running) return; // a slow LLM cycle must not stack a second one
@@ -114,22 +162,13 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
         log(`[consolidation] decide drain failed: ${(err as Error).message}`);
       }
 
-      // V6 P1 E1: the memory half of the reduce step. Paced on its own clock
-      // (default every 5 minutes) rather than the minute tick, because this
-      // duty is the one that spends per episode: two batched calls per drain
-      // is 24 an hour, ceiling included. Empty queue → zero calls, no line.
-      if (opts.extract !== false) {
-        try {
-          if (Date.now() - lastExtractAt >= extractMs) {
-            lastExtractAt = Date.now();
-            const report = await extractDrainTick({ deps, log });
-            const line = extractDrainLogLine(report);
-            if (line !== null) log(line);
-          }
-        } catch (err) {
-          log(`[consolidation] extract drain failed: ${(err as Error).message}`);
-        }
-      }
+      // V6 P1 E1: the memory half of the reduce step, paced on its own clock
+      // (default every 5 minutes), because this duty is the one that spends
+      // per episode: two batched calls per drain is 24 an hour, ceiling
+      // included. Empty queue → zero calls, no line. Called here AS WELL AS on
+      // its own timer, so `job.tick()` remains one full cycle; the shared
+      // `extractRunning` guard keeps the two entry points from overlapping.
+      await extractTick();
 
       // S5.1: the weekly unsorted review — a lookup before it is a call. Due
       // every seven days; an unchanged unsorted skips outright with zero
@@ -188,10 +227,21 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
   }, intervalMs);
   timer.unref?.();
 
+  // The Extract duty's OWN heartbeat. It polls on the minute tick's cadence
+  // (or faster, if the drain cadence itself is shorter) and spends only when
+  // `lastExtractAt` says it is due — so a Decide drain that runs for twelve
+  // minutes cannot hold the memory half of understanding behind it.
+  const extractTimer = setInterval(() => {
+    void extractTick();
+  }, Math.max(1_000, Math.min(extractMs, intervalMs)));
+  extractTimer.unref?.();
+
   return {
     stop() {
       clearInterval(timer);
+      clearInterval(extractTimer);
     },
     tick,
+    extractTick,
   };
 }

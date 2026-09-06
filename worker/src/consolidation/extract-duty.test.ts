@@ -137,3 +137,109 @@ describe("consolidation job — the Extract duty", () => {
     }
   });
 });
+
+// ===========================================================================
+// The two ways the duty could still never run (V6 P1 S6e Finish gate), both
+// MEASURED on the real end-to-end driver before they were fixed:
+//
+//   - STARVATION. The duty sat after the Decide drain inside the serialised
+//     minute tick. One run reached it at ~75 s; the next spent twelve minutes
+//     in a single tick's Decide drain and never reached it — 66 episodes
+//     queued, `extract runs in the ledger: 0`, claims 0, on a corpus whose
+//     every other surface filled.
+//   - A BURNT SLOT. The cadence clock advanced on the look, not on the drain,
+//     so the boot tick's empty queue cost five minutes of the fresh-install
+//     window — the window the first episodes land in.
+// ===========================================================================
+describe("consolidation job — the Extract duty cannot be starved or skipped", () => {
+  it("runs while a tick is still in flight — its own entry point, its own guard", async () => {
+    seedEpisode("ep_1", "wa:a@s.net");
+    // One space with pending Decide work. The Decide drain is the duty that
+    // sits immediately AHEAD of Extract in the tick, and it calls the model —
+    // which is precisely the twelve-minute drain that starved the queue.
+    seedEpisode("ep_decide", "wa:c@s.net");
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO spaces (id, label, status, created_at, updated_at)
+       VALUES ('sp_hold', 'held', 'active', '2026-09-05T00:00:00Z', '2026-09-05T00:00:00Z')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO decide_queue (space_id, pending_episode_ids, priority, status)
+       VALUES ('sp_hold', '["ep_decide"]', 'live', 'pending')`,
+    ).run();
+    let releaseSweep: () => void = () => {};
+    const sweepBlocked = new Promise<void>((resolve) => {
+      releaseSweep = resolve;
+    });
+    // A provider that hangs the FIRST call (the Decide drain's) and answers
+    // every later one: the shape of a long duty ahead of Extract in the tick.
+    let first = true;
+    const provider: Provider & { messages: string[] } = {
+      id: "stub",
+      messages: [],
+      cancel: () => false,
+      async send(opts) {
+        provider.messages.push(opts.message);
+        if (first) {
+          first = false;
+          await sweepBlocked;
+        }
+        opts.onEvent({ type: "delta", text: JSON.stringify({ claims: [], people: [], tone: [], feelings: [] }) });
+        opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
+        return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
+      },
+    };
+    const lines: string[] = [];
+    const job = startConsolidationJob({
+      deps: { provider },
+      log: (l) => lines.push(l),
+      intervalMs: 3_600_000,
+      t3: false,
+    });
+    try {
+      const inFlight = job.tick(); // enters, blocks inside the sweep
+      await new Promise((r) => setTimeout(r, 20));
+      expect(provider.messages).toHaveLength(1); // the Decide call, still open
+      // The tick is stuck before Extract. The duty still drains — the fix.
+      await job.extractTick();
+      expect(pendingExtractCount()).toBe(0);
+      expect(lines.join("\n")).toContain("[extract]");
+      releaseSweep();
+      await inFlight;
+    } finally {
+      job.stop();
+    }
+  });
+
+  it("an empty look does NOT burn the cadence: the drain right after an enqueue still spends", async () => {
+    const provider = stub({ claims: [], people: [], tone: [], feelings: [] });
+    const job = startConsolidationJob({ deps: { provider }, intervalMs: 3_600_000, t3: false });
+    try {
+      // Boot: nothing queued yet. Free, and it must not claim the next slot.
+      await job.extractTick();
+      expect(provider.messages).toEqual([]);
+
+      // The first episodes land a moment later — not five minutes later.
+      seedEpisode("ep_1", "wa:a@s.net");
+      await job.extractTick();
+      expect(provider.messages).toHaveLength(1);
+      expect(pendingExtractCount()).toBe(0);
+
+      // And the slot IS claimed once something was actually drained.
+      seedEpisode("ep_2", "wa:b@s.net");
+      await job.extractTick();
+      expect(provider.messages).toHaveLength(1);
+      expect(pendingExtractCount()).toBe(1);
+    } finally {
+      job.stop();
+    }
+  });
+
+  it("stop() clears the extract timer too", async () => {
+    const job = startConsolidationJob({ intervalMs: 3_600_000, t3: false, extractMs: 1_000 });
+    job.stop();
+    // Nothing to assert beyond "it does not throw and leaves no handle": an
+    // uncleared interval would keep this file's DB open past afterEach.
+    expect(typeof job.extractTick).toBe("function");
+  });
+});

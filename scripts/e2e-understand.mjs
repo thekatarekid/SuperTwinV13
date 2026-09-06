@@ -326,9 +326,12 @@ async function main() {
     check("MEMORY: claims were written (the extract pass)", claims > 0, `${claims} claims`);
     if (claims === 0) {
       const extractRuns = one(db, `SELECT COUNT(*) n FROM runs WHERE kind LIKE 'extract%'`).n;
-      console.log(`        extract runs in the ledger: ${extractRuns}. brain/reduce.runReduce — the only`);
-      console.log(`        function that calls runExtractPass — has no production caller;`);
-      console.log(`        consolidation/job.ts drains decide_queue and nothing drains extract.`);
+      const queued = one(db, `SELECT COUNT(*) n FROM extract_queue`).n;
+      console.log(`        extract runs in the ledger: ${extractRuns}; ${queued} episode(s) queued.`);
+      console.log(`        0 runs and a full queue = the duty never got a turn (starvation behind`);
+      console.log(`        the Decide drain, or the cadence clock burnt on an empty look).`);
+      console.log(`        Runs but no claims = the pass answered and every claim was stripped —`);
+      console.log(`        read traces/<day>.jsonl, pass "extract", and look at \`skipped\`.`);
     }
     check("AUDIT: decisions were logged", decisions > 0, `${decisions} decisions`);
     check("RAIL: the budget latch did NOT trip", !tripped || !tripped.value, tripped?.value ? `tripped at ${tripped.value}` : "clean");

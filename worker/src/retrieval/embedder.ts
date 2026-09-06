@@ -369,7 +369,7 @@ async function buildEmbedder(
   // Never true. Weights are bundled or downloaded, and both are verified.
   mod.env.allowRemoteModels = false;
   const pipe = await mod.pipeline("feature-extraction", spec.id, { dtype: spec.dtype });
-  return wrap(pipe, spec);
+  return wrapPipeline(pipe, spec);
 }
 
 /**
@@ -442,12 +442,12 @@ export function forgetEmbedder(): void {
 // rather than imported so the package stays out of the bundler's graph, which
 // is the whole point of loading it by specifier.
 
-interface FeatureTensor {
+export interface FeatureTensor {
   data: Float32Array | number[];
   dims: number[];
 }
 
-type FeaturePipeline = (
+export type FeaturePipeline = (
   input: readonly string[],
   options: { pooling: "mean"; normalize: boolean },
 ) => Promise<FeatureTensor>;
@@ -465,18 +465,109 @@ interface TransformersModule {
   };
 }
 
-function wrap(pipe: FeaturePipeline, spec: EmbeddingModelSpec): Embedder {
+/**
+ * How long ONE forward pass is allowed to hold the event loop, in ms.
+ *
+ * WHY THIS EXISTS. `onnxruntime-node`'s `run()` is not asynchronous in any
+ * useful sense — dist/backend.js is literally
+ *
+ *   async run(feeds, fetches, options) {
+ *     return new Promise((resolve, reject) => {
+ *       setImmediate(() => { resolve(session.run(feeds, fetches, options)) })
+ *     })
+ *   }
+ *
+ * a SYNCHRONOUS native call inside a `setImmediate`. The inference therefore
+ * runs on the Node main thread and the whole worker — every HTTP route, the
+ * scheduler, the dispatch lane — is frozen for its full duration. Confirmed on
+ * the user's own machine at the V6P1S6d gate with `sample(1)` on the shipped
+ * app: 5447 of 5447 main-thread samples inside
+ * `uv__run_check -> CheckImmediate -> InferenceSessionWrap::Run -> MlasGemmBatch`,
+ * while the process burned 460% CPU across the MLAS thread pool.
+ *
+ * With `DEFAULT_INDEX_BATCH` = 32 and EmbeddingGemma-300M selected, one pass is
+ * 20-30 SECONDS, and consecutive `/api/health` pings measured
+ * 10.4 / 21.2 / 31.5 / 26.3 s and then 0.0006 s — a loop that is either wholly
+ * blocked or wholly free. That is the "frozen screen with no indicator,
+ * sometimes a minute" the Library UX report opens with, and no amount of index
+ * work on the SQL side can reach it.
+ *
+ * So the batch the MODEL sees is decoupled from the batch the CALLER asks for,
+ * and it is chosen from measurement rather than pinned: after each pass the
+ * per-text cost is known, and the next sub-batch is sized to land near this
+ * budget, floor 1. A small fast model settles at the cap and pays nothing; a
+ * 300M model settles at 1 and blocks for ~1 s instead of ~30. One text is the
+ * floor of what this can do in-process — going below it needs the session on a
+ * worker thread, which is a bigger change than a release gate should make.
+ */
+const FORWARD_BUDGET_MS = numFromEnv("SUPERTWIN_EMBED_FORWARD_BUDGET_MS", 250, 1, 60_000);
+/** Never hand the model more than this at once, however fast it looks. */
+const FORWARD_BATCH_MAX = numFromEnv("SUPERTWIN_EMBED_FORWARD_BATCH_MAX", 32, 1, 512);
+/** What the first pass of a freshly loaded model tries, before it has a measurement. */
+const FORWARD_BATCH_START = 8;
+
+function numFromEnv(name: string, fallback: number, lo: number, hi: number): number {
+  const raw = (process.env[name] ?? "").trim();
+  if (raw.length === 0) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, Math.round(n)));
+}
+
+/**
+ * Give the event loop a turn. `setImmediate` runs in the check phase, which
+ * libuv reaches AFTER poll — so a request that arrived during the pass is
+ * answered here rather than after the whole batch.
+ */
+function yieldToLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Size the next sub-batch from the last one's measured cost. Exported for its
+ * own test: the arithmetic is the whole of the fix.
+ */
+export function nextForwardBatch(
+  taken: number,
+  elapsedMs: number,
+  budgetMs = FORWARD_BUDGET_MS,
+  max = FORWARD_BATCH_MAX,
+): number {
+  if (taken <= 0) return 1;
+  // A pass that measured 0 ms tells us nothing except "not slow": step up.
+  const perItem = elapsedMs / taken;
+  if (perItem <= 0) return Math.min(max, taken * 2);
+  return Math.min(max, Math.max(1, Math.round(budgetMs / perItem)));
+}
+
+/**
+ * Wrap a loaded pipeline as an `Embedder`, sub-batching every forward pass.
+ * Exported for `embed-forward.test.ts`: the sub-batching is the fix, and a
+ * test that cannot see it can only assert the arithmetic.
+ */
+export function wrapPipeline(pipe: FeaturePipeline, spec: EmbeddingModelSpec): Embedder {
+  let batch = FORWARD_BATCH_START;
   return {
     model: spec.id,
     dim: spec.dim,
     async embed(texts, role) {
       if (texts.length === 0) return [];
       const prefix = role === "query" ? spec.queryPrefix : spec.passagePrefix;
-      const out = await pipe(
-        texts.map((t) => `${prefix}${t}`),
-        { pooling: "mean", normalize: true },
-      );
-      return splitTensor(out, texts.length, spec.dim);
+      const prefixed = texts.map((t) => `${prefix}${t}`);
+      const out: Float32Array[] = [];
+      for (let i = 0; i < prefixed.length; ) {
+        const take = Math.min(Math.max(1, batch), prefixed.length - i);
+        const slice = prefixed.slice(i, i + take);
+        const started = Date.now();
+        const tensor = await pipe(slice, { pooling: "mean", normalize: true });
+        batch = nextForwardBatch(take, Date.now() - started);
+        // splitTensor is what refuses a shape that disagrees with the model's
+        // declared dimension; it must see each sub-batch, not the whole ask.
+        out.push(...splitTensor(tensor, slice.length, spec.dim));
+        i += take;
+        if (i < prefixed.length) await yieldToLoop();
+      }
+      return out;
     },
   };
 }

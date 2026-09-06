@@ -354,5 +354,9 @@ describe("extractDrainTick — batching over the real queue", () => {
     // every episode of every stream is named in the one pack
     for (let i = 0; i < 4; i++) expect(provider.messages[0]).toContain(`ep_${i}`);
     expect(claimExtractBatch(10)).toEqual([]);
+    // and the operator can read what it cost, in one line
+    expect(extractDrainLogLine(report)).toBe(
+      "[extract] 1 call(s) over 4 episode(s): claims=0 people=0 tone=0 feelings=0 | 0 pending",
+    );
   });
 });

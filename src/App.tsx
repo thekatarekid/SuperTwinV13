@@ -284,7 +284,13 @@ export function App(): JSX.Element {
             }
           />
         )}
-        {tab === "spaces" && <Spaces onTellTwin={(id, label) => lockTo("space", id, label)} />}
+        {tab === "spaces" && (
+          // FIX-C7: proposals live in Home's Review queue, never in the list.
+          <Spaces
+            onTellTwin={(id, label) => lockTo("space", id, label)}
+            onOpenReview={() => setTab("home")}
+          />
+        )}
         {tab === "calendar" && <Calendar onOpenSpace={openSpaceById} />}
         {tab === "timeline" && <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />}
         {tab === "library" && <Library />}

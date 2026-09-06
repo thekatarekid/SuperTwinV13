@@ -60,6 +60,15 @@ export interface SpacesList {
   areas: SpaceListArea[];
   /** Dormant spaces, collapsed by default in the UI. */
   dormant: SpaceListRow[];
+  /**
+   * FIX-C7. How many inferred spaces are sitting in the REVIEW QUEUE
+   * (`status='proposed'`). They are deliberately absent from `areas` and
+   * `dormant` — propose-only birth (Product_V6_Phase1 §13.3) exists to
+   * require the approval, and widening the list filter would bypass it — but
+   * the screen must not answer "no spaces yet" while five proposals wait.
+   * The count is what lets the empty state point at Review instead of lying.
+   */
+  proposed_count: number;
 }
 
 function parseJson<T>(json: string | null, fallback: T): T {
@@ -112,14 +121,25 @@ function decorate(row: SpaceRowFull): SpaceListRow {
   };
 }
 
-/** The list, grouped by life area; dormant spaces in their own bucket. */
+/**
+ * The list, grouped by life area; dormant spaces in their own bucket.
+ *
+ * `proposed` spaces stay OUT of both buckets on purpose: in propose-only mode
+ * (the fresh-install default) an inferred space is a question, not a space,
+ * and the Review queue is its only promotion path. What this read adds is the
+ * COUNT of them, so the screen can say how many are waiting (FIX-C7).
+ */
 export function spacesList(): SpacesList {
-  const rows = getDb()
+  const db = getDb();
+  const rows = db
     .prepare(
       `SELECT * FROM spaces WHERE status IN ('active','dormant')
         ORDER BY updated_at DESC, created_at DESC`,
     )
     .all() as SpaceRowFull[];
+  const proposedCount = (
+    db.prepare(`SELECT COUNT(*) AS n FROM spaces WHERE status = 'proposed'`).get() as { n: number }
+  ).n;
   const byArea = new Map<string, SpaceListRow[]>();
   const dormant: SpaceListRow[] = [];
   for (const r of rows) {
@@ -135,7 +155,7 @@ export function spacesList(): SpacesList {
   const areas = [...byArea.entries()]
     .sort((a, b) => lifeAreaRank(a[0]) - lifeAreaRank(b[0]))
     .map(([area, spaces]) => ({ area, spaces }));
-  return { areas, dormant };
+  return { areas, dormant, proposed_count: proposedCount };
 }
 
 export interface ViewTask {

@@ -77,6 +77,21 @@ describe("handleSpacesRoute", () => {
     expect(r.body.dormant.map((s: { id: string }) => s.id)).toEqual(["sp_c"]);
   });
 
+  // FIX-C7: five proposed spaces on the user's own install answered
+  // {"areas":[],"dormant":[]} — correct, and read by the screen as "no spaces
+  // yet". The filter stays (propose-only means approval is required); the
+  // count is what stops the empty state from lying.
+  it("keeps proposals out of the buckets but says how many are in Review", async () => {
+    mkSpace("sp_p1", "kitchen renovation", "Home", "proposed");
+    mkSpace("sp_p2", "ITR filing", "Money", "proposed");
+    mkSpace("sp_gone", "rejected thing", "Money", "rejected");
+    const r = await call("GET", "/api/spaces/list");
+    expect(r.status).toBe(200);
+    expect(r.body.areas).toEqual([]);
+    expect(r.body.dormant).toEqual([]);
+    expect(r.body.proposed_count).toBe(2);
+  });
+
   it("views a space and 404s a missing one", async () => {
     mkSpace("sp_a", "goa trip", "Travel");
     const r = await call("GET", "/api/spaces/sp_a/view");

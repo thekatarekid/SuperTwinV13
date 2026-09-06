@@ -2040,3 +2040,13 @@ body.aux-window {
   color: var(--ok, var(--accent));
   opacity: 1;
 }
+
+/* -- proposals waiting in Review (FIX-C7) ----------------------------------
+   Not an empty state: the twin HAS understood something, it is just sitting
+   in the Review queue that propose-only birth requires. Reads as a pointer,
+   not as the muted "nothing here" whisper. */
+.empty.proposals-waiting {
+  color: var(--ink-2);
+  border-left: 2px solid var(--accent);
+  padding-left: var(--sp-2);
+}

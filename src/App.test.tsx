@@ -81,6 +81,21 @@ describe("shell", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  // FIX-C7: the twin's five proposals were invisible on Spaces (filtered out
+  // by propose-only birth, correctly) AND unreachable from it. The pointer
+  // has to land on the queue that can actually promote them.
+  it("Spaces hands the waiting proposals over to Home's Review queue", async () => {
+    const stub = stubWorker();
+    stub.routes.set("/api/spaces/list", { areas: [], dormant: [], proposed_count: 1 });
+    render(<App />);
+    fireEvent.click(screen.getByText("◈ Spaces"));
+    const line = await screen.findByLabelText("proposals waiting in Review");
+    expect(line.textContent).toContain("1 space is waiting for you in Review");
+    fireEvent.click(within(line).getByText("open Review"));
+    const queue = screen.getByLabelText("Review queue");
+    expect(within(queue).getByText("New space: “Hampi trek in October”")).toBeTruthy();
+  });
+
   it("shows the worker-unreachable state without crashing", async () => {
     vi.stubGlobal(
       "fetch",

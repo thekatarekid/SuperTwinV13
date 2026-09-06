@@ -2446,6 +2446,13 @@ export interface SpacesList {
   areas: { area: string; spaces: SpaceListRow[] }[];
   /** Dormant spaces, collapsed by default. */
   dormant: SpaceListRow[];
+  /**
+   * FIX-C7: proposals waiting in the Review queue. They are NOT in `areas` —
+   * propose-only birth keeps them out until the user approves — so the list
+   * carries their count, and the screen points at Review instead of claiming
+   * there is nothing. Older workers omit the field; treat it as 0.
+   */
+  proposed_count?: number;
 }
 
 export interface SpaceBirthEvidence {

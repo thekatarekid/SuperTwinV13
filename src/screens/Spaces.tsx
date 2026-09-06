@@ -86,6 +86,13 @@ function birthLine(view: SpaceView): string {
 export function Spaces(props: {
   /** Context-locks the grounded bar to a space ("Tell the twin"). */
   onTellTwin?: (spaceId: string, label: string) => void;
+  /**
+   * FIX-C7: take the user to the Review queue (Home). Proposals never appear
+   * in this list — propose-only birth means an inferred space is a question
+   * until it is approved — so when any are waiting the screen names them and
+   * offers the one screen that can promote them, instead of "no spaces yet".
+   */
+  onOpenReview?: () => void;
 }): JSX.Element {
   const [list, setList] = useState<SpacesList | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -190,13 +197,31 @@ export function Spaces(props: {
     byArea.set(group.area, [...(byArea.get(group.area) ?? []), ...group.spaces]);
   }
   const total = (list?.areas ?? []).reduce((n, a) => n + a.spaces.length, 0);
+  // FIX-C7. Proposals are not in this list and must not be: propose-only
+  // birth (§13.3) makes an inferred space a question the user answers in the
+  // Review queue. But "no spaces yet" is FALSE while five of them wait — the
+  // twin's only understanding, invisible on both screens. Name them here and
+  // hand over the screen that can promote them.
+  const waiting = list?.proposed_count ?? 0;
+  const filed = total + (list?.dormant.length ?? 0);
 
   return (
     <div className="spaces-screen">
       <section className="card spaces" aria-label="Spaces">
         <h2>Spaces</h2>
-        {list !== null && total === 0 && (list?.dormant.length ?? 0) === 0 && (
+        {list !== null && filed === 0 && waiting === 0 && (
           <p className="empty">no spaces yet — ask for one in the bar, or wait for the twin to propose one</p>
+        )}
+        {list !== null && waiting > 0 && (
+          <p className="empty proposals-waiting" aria-label="proposals waiting in Review">
+            {waiting === 1 ? "1 space is" : `${waiting} spaces are`} waiting for you in Review
+            {filed === 0 ? " — nothing is filed here until you approve them" : ""}.{" "}
+            {props.onOpenReview && (
+              <button type="button" className="linklike" onClick={() => props.onOpenReview?.()}>
+                open Review
+              </button>
+            )}
+          </p>
         )}
 
         {AREAS.map((area) => {

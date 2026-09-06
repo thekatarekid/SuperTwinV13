@@ -241,9 +241,54 @@ describe("Spaces list (Product_V6_Phase1 §13.5)", () => {
   });
 
   it("says so when there is nothing yet", async () => {
-    stub.routes.set("/api/spaces/list", { areas: [], dormant: [] });
+    stub.routes.set("/api/spaces/list", { areas: [], dormant: [], proposed_count: 0 });
     render(<Spaces />);
     await waitFor(() => screen.getByText(/no spaces yet/));
+  });
+
+  // FIX-C7. On the user's install the twin's only five pieces of
+  // understanding were five PROPOSED spaces. The list filter is right to
+  // exclude them — propose-only birth means they wait for approval — but the
+  // screen answered "no spaces yet", which is false, and gave no way to find
+  // the Review queue that promotes them.
+  describe("proposals waiting in Review (FIX-C7)", () => {
+    it("counts them instead of claiming there is nothing, and hands over to Review", async () => {
+      stub.routes.set("/api/spaces/list", { areas: [], dormant: [], proposed_count: 5 });
+      const openReview = vi.fn();
+      render(<Spaces onOpenReview={openReview} />);
+      await waitFor(() => screen.getByLabelText("proposals waiting in Review"));
+      expect(screen.queryByText(/no spaces yet/)).toBeNull();
+      const line = screen.getByLabelText("proposals waiting in Review");
+      expect(line.textContent).toContain("5 spaces are waiting for you in Review");
+      expect(line.textContent).toContain("nothing is filed here until you approve them");
+      fireEvent.click(within(line).getByText("open Review"));
+      expect(openReview).toHaveBeenCalledTimes(1);
+    });
+
+    it("says it in the singular, and never files a proposal into a life area", async () => {
+      stub.routes.set("/api/spaces/list", { areas: [], dormant: [], proposed_count: 1 });
+      render(<Spaces onOpenReview={() => {}} />);
+      const line = await screen.findByLabelText("proposals waiting in Review");
+      expect(line.textContent).toContain("1 space is waiting for you in Review");
+      expect(screen.queryAllByLabelText(/^life area /)).toHaveLength(0);
+    });
+
+    it("still points at Review when the list is NOT empty — proposals are not in it", async () => {
+      stub.routes.set("/api/spaces/list", { ...list, proposed_count: 2 });
+      render(<Spaces onOpenReview={() => {}} />);
+      await waitFor(() => screen.getByLabelText("space Goa trip in December"));
+      const line = screen.getByLabelText("proposals waiting in Review");
+      expect(line.textContent).toContain("2 spaces are waiting for you in Review");
+      // The "nothing is filed here" half is only true on an empty list.
+      expect(line.textContent).not.toContain("nothing is filed here");
+    });
+
+    it("keeps the old empty state on a worker that does not send the count", async () => {
+      stub.routes.set("/api/spaces/list", { areas: [], dormant: [] });
+      render(<Spaces onOpenReview={() => {}} />);
+      await waitFor(() => screen.getByText(/no spaces yet/));
+      expect(screen.queryByLabelText("proposals waiting in Review")).toBeNull();
+    });
   });
 });
 

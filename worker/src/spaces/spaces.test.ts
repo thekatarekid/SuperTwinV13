@@ -409,6 +409,29 @@ describe("the Spaces list and view", () => {
     expect(list.areas.flatMap((a) => a.spaces).map((s) => s.id)).not.toContain("sp_gone");
   });
 
+  // FIX-C7. A proposed space is a QUESTION, not a space: propose-only birth
+  // (§13.3) is the fresh-install default and the Review queue is its only
+  // promotion path, so widening this filter would bypass the approval. What
+  // the list owes the screen is the count — on the user's install five
+  // proposals sat behind an honest {areas:[],dormant:[]} and the screen said
+  // "no spaces yet".
+  it("leaves proposed spaces out of both buckets and counts them for Review", () => {
+    mkSpace("sp_live", "goa trip", { area: "Travel" });
+    mkSpace("sp_p1", "kitchen renovation", { status: "proposed", area: "Home" });
+    mkSpace("sp_p2", "ITR filing", { status: "proposed", area: "Money" });
+    mkSpace("sp_no", "declined thing", { status: "rejected", area: "Money" });
+    const list = spacesList();
+    expect(list.areas.flatMap((a) => a.spaces).map((s) => s.id)).toEqual(["sp_live"]);
+    expect(list.dormant).toEqual([]);
+    expect(list.proposed_count).toBe(2);
+  });
+
+  it("counts no proposals on an install with nothing waiting", () => {
+    mkSpace("sp_live", "goa trip", { area: "Travel" });
+    mkSpace("sp_sleep", "old thing", { status: "dormant", area: "Travel" });
+    expect(spacesList().proposed_count).toBe(0);
+  });
+
   it("decorates a row with its open task count, next action, freshness and people", () => {
     mkSpace("sp_goa", "goa trip", { area: "Travel" });
     mkEpisode("ep_1", "flights on the 18th", { spaceId: "sp_goa", ts: "2026-08-22T09:00:00.000Z" });

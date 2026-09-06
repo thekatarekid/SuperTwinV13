@@ -34,5 +34,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Drops the pane cache before every test — see src/test-setup.ts.
+    setupFiles: ["src/test-setup.ts"],
   },
 });

@@ -16,16 +16,20 @@
 // use; the worker counts the log for a re-confirm.
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { LoadFailure } from "../../components/LoadState";
 import {
-  describeWorkerError,
+  LoadFailure,
+  PANE_FRESH_MS,
+  PanelSkeleton,
+  RefreshingHint,
+  useLoad,
+} from "../../components/LoadState";
+import {
   fetchLibraryStorage,
   saveDiskBudgets,
   type DiskBudgets,
   type SourceStorage,
-  type StorageOverview,
   type TierBar,
 } from "../../lib/api";
 import { ConfirmCard } from "./ConfirmCard";
@@ -161,48 +165,55 @@ function BudgetControl(props: {
 }
 
 export function StoragePanel(): JSX.Element {
-  const [data, setData] = useState<StorageOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The disk read is a sum over the whole event log; on the user's machine it
+  // measured 4 s while an import was running. Cached per pane so coming back to
+  // the Storage tab repaints the last answer in the same frame (L2).
+  const gate = useLoad(fetchLibraryStorage, [], {
+    cacheKey: "library.storage",
+    freshFor: PANE_FRESH_MS,
+  });
+  const data = gate.data;
+  const load = gate.retry;
   const [changing, setChanging] = useState<string | null>(null);
   const [retention, setRetention] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  /** A refused save is not a failed read — it keeps its own dismissible line. */
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const d = await fetchLibraryStorage();
-      setData(d);
-      setRetention(String(d.budgets.media_retention_days));
-      setError(null);
-    } catch (err) {
-      setError(describeWorkerError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // The retention field follows the worker's number, but never over a draft the
+  // user is typing: only a value we have not synced yet replaces it.
+  const serverRetention = data ? String(data.budgets.media_retention_days) : "";
+  const synced = useRef<string | null>(null);
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (serverRetention !== "" && synced.current !== serverRetention) {
+      synced.current = serverRetention;
+      setRetention(serverRetention);
+    }
+  }, [serverRetention]);
 
   async function save(patch: Partial<DiskBudgets>): Promise<void> {
     try {
       const { budgets } = await saveDiskBudgets(patch);
-      setData((d) => (d ? { ...d, budgets } : d));
-      setError(null);
+      if (data) gate.setData({ ...data, budgets });
+      setSaveError(null);
     } catch {
-      setError("that budget was not accepted (100 MB – 10 TB; retention 7 – 3650 days)");
+      setSaveError("that budget was not accepted (100 MB – 10 TB; retention 7 – 3650 days)");
     }
+  }
+
+  // Unknown is not empty: no claim about the disk until the worker answers one.
+  if (gate.unknown) {
+    return <PanelSkeleton what="the storage overview" rows={3} className="storage" />;
   }
 
   if (!data) {
     return (
       <section className="card storage" aria-label="Storage">
-        {error === null ? (
-          <p className="empty">reading the disk…</p>
-        ) : (
-          <LoadFailure what="the storage overview" error={error} onRetry={() => void load()} retrying={loading} />
-        )}
+        <LoadFailure
+          what="the storage overview"
+          error={gate.error ?? "the storage overview didn't load"}
+          onRetry={load}
+          retrying={gate.loading}
+        />
       </section>
     );
   }
@@ -216,7 +227,17 @@ export function StoragePanel(): JSX.Element {
           <strong>{formatBytes(used)}</strong> · {formatBytes(data.disk.free_bytes)} free
         </p>
         <p className="storage-copy">{data.copy.lead}</p>
+        <RefreshingHint active={gate.refreshing} what="disk use" />
       </header>
+
+      {gate.error !== null && (
+        <p className="meta" role="status">
+          showing the last reading — couldn't refresh: {gate.error}{" "}
+          <button type="button" className="linklike" onClick={load}>
+            try again
+          </button>
+        </p>
+      )}
 
       {data.sources.length === 0 ? (
         <p className="empty">No source is connected yet. Connect one from its tab and its two bars appear here.</p>
@@ -282,10 +303,10 @@ export function StoragePanel(): JSX.Element {
         </div>
       </div>
 
-      {error && (
+      {saveError && (
         <p className="error" role="alert">
-          {error}{" "}
-          <button type="button" className="linklike" onClick={() => setError(null)}>
+          {saveError}{" "}
+          <button type="button" className="linklike" onClick={() => setSaveError(null)}>
             dismiss
           </button>
         </p>

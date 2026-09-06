@@ -133,13 +133,16 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // brain/commit.ts (two unrelated chats in one bundle → two episodes, never merged),
   // the S3 gate; CROSS-N50 is the S4 ship gate (§7.3 item 3) and runs the whole live
   // tick on the `cross` pass — fifty events, six threads, three sources → one space,
-  // two episodes, exactly one nudge citing both sources. CROSS-DAY lands with S6.
-  { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 2, doc: "V2", pass: "commit", authored: true },
+  // two episodes, exactly one nudge citing both sources. CROSS-DAY (R3) is the
+  // other half of the same question: a 120-event HISTORY day over eight threads,
+  // where every section must land and coverage must read 100%.
+  { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 3, doc: "V2", pass: "commit", authored: true },
   // GoldenEvals V6 Phase 1 §5.11 — the live call (S4.1, live.v1). LIV-01..06 are code
   // against brain/live.ts + the consumer with recorded live outputs; LIV-07 (S4.4) is
   // GATE-09's no-starvation assertion re-homed onto the live pass, run against a
-  // saturated provider pool. LIV-08..10 land with S6.
-  { cat: "LIV", name: "The live call (V6 P1)", n: 7, doc: "V2", pass: "live", authored: true },
+  // saturated provider pool. LIV-08..10 (R3) are the several-actions bundle, the
+  // risk line through the real executor-lite, and the insufficient-context strip.
+  { cat: "LIV", name: "The live call (V6 P1)", n: 10, doc: "V2", pass: "live", authored: true },
   // GoldenEvals V6 Phase 1 — the derived calendar (S5.3). Code-asserted against
   // calendar/{clocks,store,layers}.ts: tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable.

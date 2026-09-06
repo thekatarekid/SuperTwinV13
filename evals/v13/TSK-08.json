@@ -1,25 +1,30 @@
 {
   "id": "TSK-08",
   "category": "TSK",
-  "title": "Duplicate task reinforces, never re-creates",
+  "title": "Duplicate task never re-creates — and a nudge is not a new task",
   "pass": "decide",
   "mode": "live",
-  "setup": "open task \"Book flights CCU-GOI\" exists.",
+  "setup": "open task tsk_flights_ccu \"Book flights CCU-GOI\" exists in sp_goa_dec, owner self, category transaction. Shipped rule (brain/decide-pass.ts applyTask, S5.2): a task whose title matches an OPEN task in the space is skipped outright and counted in tasksSkipped — dedupe by open title is the only filter there is.",
   "input_events": [
     "Tanvi next day: \"flights book hue kya??\"."
   ],
-  "expected": "no new task; existing task gets urgency bump + evidence appended; optional nudge.",
+  "expected": "The user's list still holds exactly ONE flights task. Repeating the open title is harmless — the writer skips it — but the useful answer puts Tanvi's nudge where it belongs: on the existing task, as evidence or a schedule, or as an open question. And nothing ELSE is created from it: a reply to a person is a prepared action on the live lane, never a task on the decide lane.",
   "wrong": [
     {
       "label": "task-mitosis",
-      "assert_absent": "the 8-loops-for-one-bill defect class"
+      "assert_absent": "a SECOND flights task in the user's list — the 8-loops-for-one-bill defect class"
+    },
+    {
+      "label": "invented-reply-task",
+      "assert_absent": "a new task manufactured from the nudge itself (\"respond to Tanvi\", \"reply about the flights\") for work the space already tracks"
     }
   ],
   "gates": [
-    "task_dedup"
+    "task_dedup",
+    "over_creation"
   ],
   "source": {
     "doc": "V1",
-    "section": "TSK-08 · Duplicate task reinforces, never re-creates"
+    "section": "TSK-08 · Duplicate task reinforces, never re-creates (re-authored V6 P1 R3 — the V1 rubric's \"urgency bump + evidence appended\" is not shipped: the applier SKIPS a repeat of an open title and writes nothing to the existing row. The \"no new task\" half is kept and made explicit, and the second half now names the over-creation the first live measurement actually found)"
   }
 }

@@ -1,30 +1,31 @@
 {
   "id": "TSK-03",
   "category": "TSK",
-  "title": "Suggested task from plan gap, capped and marked",
+  "title": "Suggested task from a plan gap — marked, and never a duplicate of what is open",
   "pass": "decide",
   "mode": "live",
-  "setup": "sp_goa_dec plan: milestone \"stay booked\" has no open task; suggestion budget 2/day, 1 used.",
+  "setup": "sp_goa_dec, trip 18-21 Dec, six weeks out. Plan: [\"book flights CCU-GOI\", \"lock the stay\", \"airport cab both ways\"]. Open tasks: exactly one — \"Book flights CCU-GOI\" (explicit, owner self). Nothing is open for the stay, and there has been no stay activity for four days; the three villas shortlisted last week are all still on free cancellation till Dec 1. The decide pass runs BECAUSE something changed (V6 P1 runs it on change, never on a clock): Rohan has just confirmed the flights are booked.",
   "input_events": [
-    "tick with no new stay activity for 4 days, trip 6 weeks out."
+    "Rohan, Goa gang group: \"flights ho gaye — 6E-334, 18 dec 7am CCU, PNR sabko bhej diya\""
   ],
-  "expected": "≤1 suggested task (\"resume villa shortlist — 3 options expire soon\"), clearly `type: suggested`, evidence = plan gap + date pressure.",
+  "expected": "The flights step is done, so the plan's next uncovered step is the stay — and a task exists for it (resume the villa shortlist), typed/origin `suggested`, carrying its evidence: the plan gap plus the date pressure. It is NOT capped: V6 P1 removed both suggested-task budgets, so if the cab step needs one too it exists as well. Every plan-gap task is marked `suggested`, never dressed as explicit or implicit. Nothing NEW is created for \"Book flights CCU-GOI\" — that title is already open, and the writer skips a repeat of an open title; the right move for it is a closure, not a second task.",
   "wrong": [
     {
-      "label": "suggestion-flood",
-      "assert_absent": ">cap"
+      "label": "unmarked-suggestion",
+      "assert_absent": "a plan-gap task typed explicit or implicit — a suggestion the user cannot tell apart from something they actually said"
     },
     {
-      "label": "unmarked-suggestion",
-      "assert_absent": "dressed as explicit"
+      "label": "no-suggestion",
+      "assert_absent": "the stay step left with nothing at all — the plan's only uncovered step and the pass says nothing about it"
+    },
+    {
+      "label": "evidence-free-suggestion",
+      "assert_absent": "a suggested task with no evidence — no plan gap named and no date pressure quoted"
     }
   ],
-  "gates": [
-    "suggestion_rate",
-    "suggestion_acceptance"
-  ],
+  "gates": ["over_creation", "task_dedup"],
   "source": {
     "doc": "V1",
-    "section": "TSK-03 · Suggested task from plan gap, capped and marked"
+    "section": "TSK-03 · Suggested task from plan gap (re-authored V6 P1 R3 — the V1 case asserted \"capped and marked\" on a 2/day suggestion budget that Product §11.12.3 removes and build S5.2 deleted, so its `wrong[]` could not be violated by any shipped behaviour; and its trigger was a quiet clock tick, which V6 P1 does not make a call on. The marking half is kept, the cap half is replaced by the dedupe that actually ships, and the trigger is the change that queues Decide)"
   }
 }

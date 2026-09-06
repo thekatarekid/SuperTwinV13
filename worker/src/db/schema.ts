@@ -35,6 +35,7 @@ import { V6_CALENDAR } from "./migrations/0204_v6_calendar.js";
 import { V6_SPACES } from "./migrations/0205_v6_spaces.js";
 import { V6_PEOPLE } from "./migrations/0206_v6_people.js";
 import { V6_BRIEF } from "./migrations/0207_v6_brief.js";
+import { V6_INJECTION } from "./migrations/0208_v6_injection.js";
 
 export interface Migration {
   id: string;
@@ -1007,4 +1008,9 @@ export const MIGRATIONS: Migration[] = [
   // row per fired set time, holding the ledger code composed and the prose
   // one brief.v2 call wrote. New table only; a skipped slot writes nothing.
   { id: "0207_v6_brief", sql: V6_BRIEF },
+  // V6 P1 S4.7 (Build §7.2 lane G, Product_V6_Phase1 §24.9): `injection_flags`
+  // — one row per (event, family) the detector flags. Authored at R3; the
+  // table used to be a module-scope CREATE TABLE inside safety/injection.ts.
+  // New table only.
+  { id: "0208_v6_injection", sql: V6_INJECTION },
 ];

@@ -318,14 +318,24 @@ const SEEDS: Record<string, FixtureSeed> = {
         "researching cab options is a read-only action.",
     ].join("\n"),
   },
+  // R3: the "SUGGESTION BUDGET: 2/day" line is gone with the budget itself
+  // (Product §11.12.3, build S5.2). What is left to measure is the marking and
+  // the ONE filter that ships — dedupe against an open task's title — so the
+  // seed now carries an open task the plan also names.
   "TSK-03": {
     state: [
       ROSTER,
       `SPACE UNDER DECIDE: ${GOA_CARD}`,
-      'PLAN STATE: milestone "stay booked" has NO open task. Three shortlisted villas from the last ' +
-        "session carry holds that expire soon. No stay activity for 4 days; the trip is 6 weeks out.",
-      "SUGGESTION BUDGET: 2/day for this space; 1 already used today.",
-      "Nobody asked for anything this tick — any task here would be system-initiated (a plan-gap filler).",
+      'PLAN: ["book flights CCU-GOI", "lock the stay", "airport cab both ways"]. The milestone "stay booked" ' +
+        "has NO open task; three villas shortlisted last week are still on free cancellation till Dec 1.",
+      'OPEN TASKS in this space: tsk_flights_ccu — title "Book flights CCU-GOI", status open, owner self, ' +
+        "category transaction. Nothing else is open.",
+      "No stay activity for 4 days; the trip is 6 weeks out. This tick runs because the flights just moved — " +
+        "V6 P1 queues Decide on CHANGE, never on a clock, so the plan gap is looked at when something happens.",
+      "NO SUGGESTION BUDGET: V6 P1 removed both suggested-task caps. Dedupe against an OPEN task's title is " +
+        "the only filter the task writer applies — if the plan needs a task, it exists.",
+      "Nobody asked for anything this tick — any task here would be system-initiated (a plan-gap filler), " +
+        "which is exactly what `suggested` means.",
     ].join("\n"),
   },
   "TSK-04": {

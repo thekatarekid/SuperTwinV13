@@ -157,3 +157,87 @@ describe("live executor (LIV-01..07)", () => {
     expect(out.episodes.find((e) => e.id === "ep_611")!.members).toContain("e1");
   });
 });
+
+// ===========================================================================
+// R3 — the three cases S4 left unauthored. Same harness: real fixtures, real
+// tick, recorded answers, zero model calls.
+// ===========================================================================
+
+type R3Out = Out & {
+  unsorted_episodes: number;
+  commit?: { unsorted: number; questions: string[]; coverage: { uncovered: string[]; duplicated: string[] } };
+  thin?: {
+    flagged: boolean;
+    held: boolean;
+    reasons: string[];
+    insufficient_context: boolean;
+    stripped_by_code: { episodes: number; proposals: number; tasks: number; prepared: number };
+  };
+  lite?: {
+    status: string;
+    artifact: { type: string; title: string } | null;
+    tools_available: string[];
+    tools_invoked: string[];
+    sending_tools: string[];
+    approval_tokens_minted: number;
+  };
+};
+
+describe("live executor (LIV-08..10, R3)", () => {
+  it("LIV-08: one bundle, two actions — each grounded separately, neither capped nor deduped away", async () => {
+    const { r, out } = await run("LIV-08");
+    expect(r.violations).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(out.tick).toEqual({ status: "committed", lane: "live" });
+    expect(out.prepared).toHaveLength(2);
+    const byAction = Object.fromEntries(out.prepared.map((p) => [p.action, p]));
+    expect(Object.keys(byAction).sort()).toEqual(["compare", "draft_reply"]);
+    // Each cites its OWN evidence, and the two sets are disjoint.
+    expect(byAction.draft_reply!.grounded).toEqual(["e1"]);
+    expect([...byAction.compare!.grounded].sort()).toEqual(["e2", "e3"]);
+    expect(out.prepared.every((p) => p.surface === "card")).toBe(true);
+    expect(out.live?.prepared).toMatchObject({ persisted: 2, cards: 2, droppedUngrounded: 0 });
+    expect(r.metrics).toMatchObject({ model_calls: 0, prepared_persisted: 2, prepared_cards: 2, nudge_without_grounding: 0 });
+  });
+
+  it("LIV-09: the risk line — the send is refused at the parse, and lite drafts without a send tool or a token", async () => {
+    const { r, out } = await run("LIV-09");
+    const o = out as R3Out;
+    expect(r.violations).toEqual([]);
+    expect(r.ok).toBe(true);
+    // The send never reaches the store; it is COUNTED as refused.
+    expect(out.prepared.map((p) => p.action)).toEqual(["draft_message"]);
+    expect(out.live?.prepared).toMatchObject({ persisted: 1 });
+    expect((out.live as unknown as { prepared: { droppedInvalid: number } }).prepared.droppedInvalid).toBe(1);
+    // …and the draft that survived went through the real executor-lite.
+    expect(o.lite).toBeDefined();
+    expect(o.lite!.status).toBe("done");
+    expect(o.lite!.artifact).toMatchObject({ type: "draft" });
+    expect(o.lite!.tools_available).toEqual(["web_fetch", "world_read", "world_write_draft"]);
+    expect(o.lite!.sending_tools).toEqual([]);
+    expect(o.lite!.approval_tokens_minted).toBe(0);
+    expect(r.gateObservations).toContainEqual({ gateId: "risky_without_token", passed: true, counted: true });
+    expect(r.metrics).toMatchObject({ model_calls: 0, risky_without_token: 0 });
+  });
+
+  it("LIV-10: insufficient context — episode, proposal, task and action stripped; unsorted and the question land", async () => {
+    const { r, out } = await run("LIV-10");
+    const o = out as R3Out;
+    expect(r.violations).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(o.thin).toBeDefined();
+    expect(o.thin!.flagged).toBe(true);
+    expect(o.thin!.held).toBe(false);
+    expect(o.thin!.insufficient_context).toBe(true);
+    expect(o.thin!.stripped_by_code).toEqual({ episodes: 1, proposals: 1, tasks: 1, prepared: 1 });
+    // Nothing the mode forbids reached the database…
+    expect(out.prepared).toEqual([]);
+    expect(o.unsorted_episodes).toBe(1);
+    expect(out.episodes).toHaveLength(1); // the unsorted pile, filed as an episode row
+    expect(out.live?.decide.tasksCreated).toBe(0);
+    // …and the two things it permits did.
+    expect(o.commit!.unsorted).toBe(1);
+    expect(o.commit!.questions).toHaveLength(1);
+    expect(r.gateObservations).toContainEqual({ gateId: "guess_rate", passed: true, counted: true });
+  });
+});

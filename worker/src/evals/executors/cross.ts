@@ -21,6 +21,13 @@
 //   citing both      its grounded_in resolves to events on two different
 //                    SOURCES (wa + browser), not two aliases of one thread
 //
+// CROSS-DAY (R3) is the third case and runs on the same seam: a 120-event
+// HISTORY day-bundle over eight threads and three sources. Where N50 asks
+// whether the batch keeps threads apart, the day asks whether anything falls
+// OUT of it — every section must yield an episode or an unsorted entry, every
+// alias must be placed exactly once, nothing may be held back, and a history
+// bundle still nudges nobody. `assessCrossDay` grades it.
+//
 // WHERE THE SCREEN THREAD GOES (spec reading, §5.10 says "screen joins via
 // bridge"). `events.source` is part of the stream identity (db/eventlog.ts
 // v13StreamId), so a screen capture of a page the browser is also on is its
@@ -329,13 +336,144 @@ export function assessCross(
   };
 }
 
+/**
+ * Grade CROSS-DAY. N50 asks whether the batch keeps threads APART; the day
+ * bundle asks the other half — whether anything falls OUT of it. Three things,
+ * all read off the database the real commit path wrote:
+ *
+ *   every section lands   each declared thread yields at least one episode or
+ *                         one unsorted entry; a section the answer never
+ *                         mentions is a silent drop, not a clean day
+ *   coverage 100%         every alias sits in exactly one committed item —
+ *                         `coverage.uncovered` and `coverage.duplicated` both
+ *                         empty — and nothing is held back for a later tick
+ *   nothing invented      no episode spans two threads, and a history bundle
+ *                         still prepares no action (assist_from_history)
+ */
+export function assessCrossDay(
+  run: LivRun,
+  facts: CrossFacts,
+  expected: Record<string, unknown>,
+  specs: readonly StreamSpec[],
+): CrossAssessment {
+  const violations: Violation[] = [];
+  const tagOf = (streamId: string | null): string => (streamId ? (facts.tagOfStream.get(streamId) ?? "?") : "?");
+  const unsortedIds = new Set(run.unsortedEpisodeIds);
+
+  // ---- 1. No episode may span two threads.
+  let multiStream = 0;
+  for (const ep of facts.episodes) {
+    const streams = [...new Set(ep.memberIds.map((id) => facts.streamOfEvent.get(id) ?? "?"))];
+    if (streams.length > 1) {
+      multiStream += 1;
+      violations.push({ label: "invented-cross-thread", note: `episode ${ep.id} spans ${streams.map(tagOf).join(", ")}` });
+    }
+  }
+
+  // ---- 2. Every section yields at least one episode or unsorted entry.
+  const perTag = new Map<string, { episodes: number; unsorted: number }>();
+  for (const s of specs) perTag.set(s.tag, { episodes: 0, unsorted: 0 });
+  for (const ep of facts.episodes) {
+    const tag = tagOf(ep.streamId);
+    const row = perTag.get(tag);
+    if (!row) continue;
+    if (unsortedIds.has(ep.id)) row.unsorted += 1;
+    else row.episodes += 1;
+  }
+  const silent = [...perTag].filter(([, c]) => c.episodes + c.unsorted === 0).map(([tag]) => tag);
+  for (const tag of silent) {
+    violations.push({ label: "silent-drop", note: `section ${tag} yielded neither an episode nor an unsorted entry` });
+  }
+
+  // ---- 3. Coverage: every alias placed exactly once, nothing held.
+  const commit = run.report.commit;
+  const uncovered = commit?.coverage.uncovered ?? [];
+  const duplicated = commit?.coverage.duplicated ?? [];
+  if (uncovered.length > 0) {
+    violations.push({ label: "silent-drop", note: `${uncovered.length} event(s) placed nowhere: ${uncovered.slice(0, 8).join(", ")}${uncovered.length > 8 ? " …" : ""}` });
+  }
+  if (duplicated.length > 0) {
+    violations.push({ label: "double-placement", note: `${duplicated.length} event(s) placed twice: ${duplicated.slice(0, 8).join(", ")}${duplicated.length > 8 ? " …" : ""}` });
+  }
+  const held = commit?.heldEventIds.length ?? 0;
+  if (held !== num(expected.held, 0)) {
+    violations.push({ label: "silent-drop", note: `${held} event(s) held back for a later tick, expected ${num(expected.held, 0)}` });
+  }
+
+  // ---- 4. The day is the size the fixture says it is (a shrunken bundle
+  //         would make "coverage 100%" mean nothing).
+  const events = run.seeded.bundle.events.length;
+  if (events !== num(expected.events, events)) {
+    violations.push({ label: "silent-drop", note: `${events} events in the bundle, the fixture declares ${num(expected.events, events)}` });
+  }
+  if (specs.length !== num(expected.sections, specs.length)) {
+    violations.push({ label: "silent-drop", note: `${specs.length} threads seeded, expected ${num(expected.sections, specs.length)}` });
+  }
+  const committedEpisodes = facts.episodes.filter((e) => !unsortedIds.has(e.id)).length;
+  const committedUnsorted = facts.episodes.filter((e) => unsortedIds.has(e.id)).length;
+  if (committedEpisodes !== num(expected.episodes_committed, committedEpisodes)) {
+    violations.push({ label: "silent-drop", note: `${committedEpisodes} episode(s) committed, expected ${num(expected.episodes_committed, committedEpisodes)}` });
+  }
+  if (committedUnsorted !== num(expected.unsorted_committed, committedUnsorted)) {
+    violations.push({ label: "silent-drop", note: `${committedUnsorted} unsorted entr(y/ies), expected ${num(expected.unsorted_committed, committedUnsorted)}` });
+  }
+
+  // ---- 5. A history day-bundle nudges nobody.
+  if (run.prepared.length !== num(expected.prepared, 0)) {
+    violations.push({ label: "history-nudge", note: `${run.prepared.length} prepared action(s) out of a history day-bundle` });
+  }
+
+  const placed = events - uncovered.length;
+  return {
+    violations,
+    metrics: {
+      model_calls: 0,
+      events,
+      threads: specs.length,
+      sources: new Set(specs.map((s) => s.source)).size,
+      episodes_committed: committedEpisodes,
+      unsorted_committed: committedUnsorted,
+      sections_with_nothing: silent.length,
+      multi_stream_episodes: multiStream,
+      uncovered: uncovered.length,
+      duplicated: duplicated.length,
+      held,
+      coverage: events > 0 ? placed / events : 1,
+      prepared_persisted: run.prepared.length,
+      assist_from_history: run.seeded.bundle.lane === "live" ? 0 : run.prepared.length,
+    },
+    detail: {
+      lane: run.seeded.bundle.lane,
+      coverage: `${placed}/${events} placed`,
+      per_section: [...perTag].map(([tag, c]) => ({
+        thread: tag,
+        source: specs.find((s) => s.tag === tag)?.source ?? "?",
+        episodes: c.episodes,
+        unsorted: c.unsorted,
+      })),
+      episodes: facts.episodes.map((e) => ({
+        id: e.id,
+        thread: tagOf(e.streamId),
+        space: e.spaceId,
+        events: e.memberIds.length,
+        filed_as: unsortedIds.has(e.id) ? "unsorted" : "episode",
+      })),
+      uncovered,
+      duplicated,
+    },
+  };
+}
+
 export const crossExecutor: Executor = async ({ fixture }) => {
   const setup = rec(fixture.setup);
   const specs = streamSpecs(setup);
   const run = await runLivCase(fixture.id, setup);
   try {
     const facts = readCrossFacts(run, specs);
-    const { violations, metrics, detail } = assessCross(run, facts, rec(fixture.expected), specs);
+    const { violations, metrics, detail } =
+      fixture.id === "CROSS-DAY"
+        ? assessCrossDay(run, facts, rec(fixture.expected), specs)
+        : assessCross(run, facts, rec(fixture.expected), specs);
     const result: ExecutorResult = {
       ok: violations.length === 0,
       output: {
@@ -351,11 +489,18 @@ export const crossExecutor: Executor = async ({ fixture }) => {
           passed: (metrics.multi_stream_episodes ?? 0) === 0,
           counted: true,
         },
-        {
-          gateId: "nudge_without_grounding",
-          passed: (metrics.nudge_without_grounding ?? 0) === 0,
-          counted: true,
-        },
+        // Only claimed when there was a prepared action to measure: a day
+        // bundle prepares nothing, and a gate with no measurement is "no
+        // data", never a free pass.
+        ...(run.prepared.length > 0
+          ? [
+              {
+                gateId: "nudge_without_grounding",
+                passed: (metrics.nudge_without_grounding ?? 0) === 0,
+                counted: true,
+              },
+            ]
+          : []),
         {
           gateId: "assist_from_history",
           passed: run.seeded.bundle.lane === "live" || run.prepared.length === 0,
@@ -363,8 +508,11 @@ export const crossExecutor: Executor = async ({ fixture }) => {
         },
       ],
       notes: [
-        "recorded live.v1 output through the real tick (pack → live.v1 → critic → commit → applyLiveDecide); " +
-          "six threads over three sources in one live bundle; clock pinned to the fixture's [NOW]",
+        fixture.id === "CROSS-DAY"
+          ? "recorded understanding through the real tick (pack → live.v1 → critic → commit); a 120-event HISTORY day-bundle " +
+            `over ${specs.length} threads and ${new Set(specs.map((s) => s.source)).size} sources; every section landed and coverage is read off brain/commit.ts`
+          : "recorded live.v1 output through the real tick (pack → live.v1 → critic → commit → applyLiveDecide); " +
+            "six threads over three sources in one live bundle; clock pinned to the fixture's [NOW]",
       ],
     };
     return result;

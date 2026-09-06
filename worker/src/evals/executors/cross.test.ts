@@ -124,3 +124,70 @@ describe("CROSS-N50 — the large-N cross-source batch", () => {
     expect(byId.get("assist_from_history")).toMatchObject({ passed: true, counted: true });
   });
 });
+
+// ===========================================================================
+// CROSS-DAY (R3): a 120-event HISTORY day over eight threads and three
+// sources. N50 asks whether the batch keeps threads apart; the day asks
+// whether anything falls out of it.
+// ===========================================================================
+
+interface DayOut {
+  lane: string;
+  coverage: string;
+  per_section: { thread: string; source: string; episodes: number; unsorted: number }[];
+  episodes: { id: string; thread: string; space: string | null; events: number; filed_as: string }[];
+  uncovered: string[];
+  duplicated: string[];
+}
+
+async function runDay() {
+  const fixture = loadFixture(join(FIX, "CROSS-DAY.json"));
+  expect(fixture.mode).toBe("code");
+  expect(fixture.pass).toBe("cross");
+  const r = await crossExecutor({ fixture });
+  expect(r.metrics!.model_calls).toBe(0);
+  expect((getDb().prepare(`SELECT COUNT(*) AS n FROM runs`).get() as { n: number }).n).toBe(0);
+  expect((getDb().prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n).toBe(0);
+  expect((getDb().prepare(`SELECT COUNT(*) AS n FROM deferred_outputs`).get() as { n: number }).n).toBe(0);
+  return { r, out: r.output as unknown as DayOut };
+}
+
+describe("CROSS-DAY — a full mixed day", () => {
+  it("passes with no violations", async () => {
+    const { r } = await runDay();
+    expect(r.violations).toEqual([]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("is the day the fixture says it is: 120 events, 8 threads, 3 sources, on the history lane", async () => {
+    const { r, out } = await runDay();
+    expect(r.metrics).toMatchObject({ events: 120, threads: 8, sources: 3 });
+    expect(out.lane).toBe("history");
+  });
+
+  it("every section yields at least one episode or unsorted entry", async () => {
+    const { r, out } = await runDay();
+    expect(r.metrics!.sections_with_nothing).toBe(0);
+    expect(out.per_section).toHaveLength(8);
+    for (const s of out.per_section) expect(s.episodes + s.unsorted).toBeGreaterThan(0);
+    expect(r.metrics).toMatchObject({ episodes_committed: 6, unsorted_committed: 4 });
+  });
+
+  it("coverage is 100% — nothing placed nowhere, nothing placed twice, nothing held back", async () => {
+    const { r, out } = await runDay();
+    expect(r.metrics).toMatchObject({ coverage: 1, uncovered: 0, duplicated: 0, held: 0 });
+    expect(out.uncovered).toEqual([]);
+    expect(out.duplicated).toEqual([]);
+    expect(out.coverage).toBe("120/120 placed");
+  });
+
+  it("no episode spans two threads, and a history day-bundle nudges nobody", async () => {
+    const { r } = await runDay();
+    expect(r.metrics).toMatchObject({ multi_stream_episodes: 0, prepared_persisted: 0, assist_from_history: 0 });
+    const byId = new Map(r.gateObservations!.map((g) => [g.gateId, g]));
+    expect(byId.get("episode_membership_explicit")).toMatchObject({ passed: true, counted: true });
+    expect(byId.get("assist_from_history")).toMatchObject({ passed: true, counted: true });
+    // Nothing prepared means nothing to measure: the gate is not claimed.
+    expect(byId.has("nudge_without_grounding")).toBe(false);
+  });
+});

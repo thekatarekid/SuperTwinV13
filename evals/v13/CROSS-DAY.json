@@ -1,0 +1,1232 @@
+{
+  "id": "CROSS-DAY",
+  "category": "CROSS",
+  "title": "a full mixed day — every section lands, nothing silently dropped",
+  "pass": "cross",
+  "mode": "code",
+  "setup": {
+    "note": "GoldenEvals V6 P1 §5.10 CROSS-DAY, authored at R3. One HISTORY day-bundle of 120 events over eight threads and three sources (WhatsApp · browser · screen) — the shape the S1.2 day-bundler produces on a real backfill day. CROSS-N50 measures whether the batch keeps threads apart; this case measures the other half: whether anything falls out of the batch. Every section of the pack must yield at least one episode or one unsorted entry, every alias must land in exactly one of them, and coverage must read 100% with nothing held. The recorded understanding does what a good day looks like — six episodes across two spaces plus four unsorted piles for the traffic that has no goal — and the assertions are read off the database the real commit path wrote. History lane: prepared actions are discarded by code (assist_from_history = 0), which is also asserted. Thread tags: `streams[].tag` (T1..T8) names the SEEDED threads; the recorded answer speaks the pack's own section tags (S1..S8, assigned in first-rowid order), exactly as CROSS-N50 does — the commit layer resolves a stream tag against the pack, and an answer naming a tag the pack never issued is rejected as `stream_tag_mismatch`.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "history",
+    "streams": [
+      {
+        "tag": "T1",
+        "key": "crossday-goa-gang@g.us",
+        "source": "wa",
+        "kind": "wa.message"
+      },
+      {
+        "tag": "T2",
+        "key": "crossday-ma@s.whatsapp.net",
+        "source": "wa",
+        "kind": "wa.message"
+      },
+      {
+        "tag": "T3",
+        "key": "crossday-falcon-build@g.us",
+        "source": "wa",
+        "kind": "wa.message"
+      },
+      {
+        "tag": "T4",
+        "key": "browser:chrome:default:goibibo.com:2026-09-05",
+        "source": "browser",
+        "kind": "browser.visit"
+      },
+      {
+        "tag": "T5",
+        "key": "browser:chrome:default:netflix.com:2026-09-05",
+        "source": "browser",
+        "kind": "browser.visit"
+      },
+      {
+        "tag": "T6",
+        "key": "screen:com.google.Chrome:crossday",
+        "source": "screen",
+        "kind": "screen.snapshot"
+      },
+      {
+        "tag": "T7",
+        "key": "screen:com.tinyspeck.slackmacgap:crossday",
+        "source": "screen",
+        "kind": "screen.snapshot"
+      },
+      {
+        "tag": "T8",
+        "key": "crossday-airtel@s.whatsapp.net",
+        "source": "wa",
+        "kind": "wa.message"
+      }
+    ],
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      },
+      {
+        "id": "sp_falcon",
+        "label": "Falcon build with Vikram",
+        "goal": "migration live, p95 under 400ms",
+        "status": "active"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "guys villa sol wale ne 5900 a night bola hai",
+        "minutes_ago": 840
+      },
+      {
+        "alias": "e2",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/ — Villa Sol Anjuna, 3BHK, 18-21 Dec",
+        "minutes_ago": 834
+      },
+      {
+        "alias": "e3",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — Villa Sol Anjuna 3BHK · 18-21 Dec · https://www.goibibo.com/hotels/villa-sol-anjuna/",
+        "minutes_ago": 828
+      },
+      {
+        "alias": "e4",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "beta doctor ne monday bulaya hai",
+        "minutes_ago": 822
+      },
+      {
+        "alias": "e5",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "falcon retainer invoice pending from your side",
+        "minutes_ago": 816
+      },
+      {
+        "alias": "e6",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · vikram: invoice pending from your side",
+        "minutes_ago": 810
+      },
+      {
+        "alias": "e7",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/browse — Home",
+        "minutes_ago": 804
+      },
+      {
+        "alias": "e8",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Your Airtel bill of ₹1,099 is due on 09 Sep",
+        "minutes_ago": 798
+      },
+      {
+        "alias": "e9",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "18-21 dec ke liye 4 raat, total 23600",
+        "minutes_ago": 792
+      },
+      {
+        "alias": "e10",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/casa-anjuna/ — Casa Anjuna, 2BHK, 18-21 Dec",
+        "minutes_ago": 786
+      },
+      {
+        "alias": "e11",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — Casa Anjuna 2BHK · 18-21 Dec · https://www.goibibo.com/hotels/casa-anjuna/",
+        "minutes_ago": 780
+      },
+      {
+        "alias": "e12",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "purani reports le jani hain",
+        "minutes_ago": 774
+      },
+      {
+        "alias": "e13",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "GST number bhi chahiye",
+        "minutes_ago": 768
+      },
+      {
+        "alias": "e14",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · staging creds posted",
+        "minutes_ago": 762
+      },
+      {
+        "alias": "e15",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/title/81234567 — Kohrra",
+        "minutes_ago": 756
+      },
+      {
+        "alias": "e16",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Pay now and get 5% cashback",
+        "minutes_ago": 750
+      },
+      {
+        "alias": "e17",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "advance 15k maang rahe hain",
+        "minutes_ago": 744
+      },
+      {
+        "alias": "e18",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/?rooms=2 — rate 5,900/night",
+        "minutes_ago": 738
+      },
+      {
+        "alias": "e19",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — rate card 5,900/night visible",
+        "minutes_ago": 732
+      },
+      {
+        "alias": "e20",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "tumhare papa ko bhi lekar jaungi",
+        "minutes_ago": 726
+      },
+      {
+        "alias": "e21",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "SOW scope call at 11 tomorrow",
+        "minutes_ago": 720
+      },
+      {
+        "alias": "e22",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · migration timeline thread",
+        "minutes_ago": 714
+      },
+      {
+        "alias": "e23",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/watch/81234567 — Kohrra S1E1",
+        "minutes_ago": 708
+      },
+      {
+        "alias": "e24",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Your Airtel Axis Credit Card is READY! Claim now!",
+        "minutes_ago": 702
+      },
+      {
+        "alias": "e25",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "main aaj shaam tak confirm kar deta hoon",
+        "minutes_ago": 696
+      },
+      {
+        "alias": "e26",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/casa-anjuna/?rooms=2 — rate 6,100/night",
+        "minutes_ago": 690
+      },
+      {
+        "alias": "e27",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — cancellation policy panel open",
+        "minutes_ago": 684
+      },
+      {
+        "alias": "e28",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "tum aa sakte ho kya",
+        "minutes_ago": 678
+      },
+      {
+        "alias": "e29",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "deck ready hai kya",
+        "minutes_ago": 672
+      },
+      {
+        "alias": "e30",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · p95 620ms on the orders endpoint",
+        "minutes_ago": 666
+      },
+      {
+        "alias": "e31",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/watch/81234568 — Kohrra S1E2",
+        "minutes_ago": 660
+      },
+      {
+        "alias": "e32",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Recharge your DTH before it expires",
+        "minutes_ago": 654
+      },
+      {
+        "alias": "e33",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "karan tu apna id proof bhej de",
+        "minutes_ago": 648
+      },
+      {
+        "alias": "e34",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/flights/air-CCU-GOI-20261218/ — from ₹4,300",
+        "minutes_ago": 642
+      },
+      {
+        "alias": "e35",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — amenities: pool, 6 beds",
+        "minutes_ago": 636
+      },
+      {
+        "alias": "e36",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "monday subah 11 baje ka time hai",
+        "minutes_ago": 630
+      },
+      {
+        "alias": "e37",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "half done, aaj raat tak",
+        "minutes_ago": 624
+      },
+      {
+        "alias": "e38",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · missing index on orders(created_at)",
+        "minutes_ago": 618
+      },
+      {
+        "alias": "e39",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/browse/genre/89844 — Thrillers",
+        "minutes_ago": 612
+      },
+      {
+        "alias": "e40",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Exclusive offer: 1.5GB/day at ₹299",
+        "minutes_ago": 606
+      },
+      {
+        "alias": "e41",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "tanvi ka id already hai",
+        "minutes_ago": 600
+      },
+      {
+        "alias": "e42",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/flights/air-GOI-CCU-20261221/ — from ₹4,650",
+        "minutes_ago": 594
+      },
+      {
+        "alias": "e43",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — reviews 4.4 / 212",
+        "minutes_ago": 588
+      },
+      {
+        "alias": "e44",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "sharma clinic wahi purana wala",
+        "minutes_ago": 582
+      },
+      {
+        "alias": "e45",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "client wants the migration timeline",
+        "minutes_ago": 576
+      },
+      {
+        "alias": "e46",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · load test scheduled friday",
+        "minutes_ago": 570
+      },
+      {
+        "alias": "e47",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/title/81998765 — Sector 36",
+        "minutes_ago": 564
+      },
+      {
+        "alias": "e48",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Your data usage crossed 80% this cycle",
+        "minutes_ago": 558
+      },
+      {
+        "alias": "e49",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "casa anjuna bhi dekh lo, 6100 hai par pool nahi",
+        "minutes_ago": 552
+      },
+      {
+        "alias": "e50",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/#cancellation — free till Dec 1",
+        "minutes_ago": 546
+      },
+      {
+        "alias": "e51",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — flights CCU → GOI 18 Dec from ₹4,300",
+        "minutes_ago": 540
+      },
+      {
+        "alias": "e52",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "haan ma main dekhta hoon",
+        "minutes_ago": 534
+      },
+      {
+        "alias": "e53",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "8 weeks realistic hai",
+        "minutes_ago": 528
+      },
+      {
+        "alias": "e54",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · SOW scope call 11:00",
+        "minutes_ago": 522
+      },
+      {
+        "alias": "e55",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/browse/my-list — My List",
+        "minutes_ago": 516
+      },
+      {
+        "alias": "e56",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Airtel Thanks: claim your free Amazon Prime",
+        "minutes_ago": 510
+      },
+      {
+        "alias": "e57",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "pool wala hi lete hain yaar",
+        "minutes_ago": 504
+      },
+      {
+        "alias": "e58",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/#amenities — pool, 6 beds",
+        "minutes_ago": 498
+      },
+      {
+        "alias": "e59",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — flights GOI → CCU 21 Dec from ₹4,650",
+        "minutes_ago": 492
+      },
+      {
+        "alias": "e60",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "goa jaa rahe ho na 18 ko",
+        "minutes_ago": 486
+      },
+      {
+        "alias": "e61",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "10 bol dete hain buffer ke saath",
+        "minutes_ago": 480
+      },
+      {
+        "alias": "e62",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · deck draft link",
+        "minutes_ago": 474
+      },
+      {
+        "alias": "e63",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/watch/81234569 — Kohrra S1E3",
+        "minutes_ago": 468
+      },
+      {
+        "alias": "e64",
+        "stream": "T8",
+        "actor": "business:airtel",
+        "text": "Your Airtel bill payment is pending",
+        "minutes_ago": 462
+      },
+      {
+        "alias": "e65",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "theek hai villa sol final",
+        "minutes_ago": 456
+      },
+      {
+        "alias": "e66",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/cabs/goa-airport-anjuna/ — ₹1,800 sedan",
+        "minutes_ago": 450
+      },
+      {
+        "alias": "e67",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — cab Goa airport → Anjuna ₹1,800",
+        "minutes_ago": 444
+      },
+      {
+        "alias": "e68",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "haan 18 se 21",
+        "minutes_ago": 438
+      },
+      {
+        "alias": "e69",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "staging cluster ka access mila",
+        "minutes_ago": 432
+      },
+      {
+        "alias": "e70",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · GST number requested",
+        "minutes_ago": 426
+      },
+      {
+        "alias": "e71",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/browse — Home",
+        "minutes_ago": 420
+      },
+      {
+        "alias": "e72",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "advance kaun bhej raha hai",
+        "minutes_ago": 414
+      },
+      {
+        "alias": "e73",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/reviews — 4.4 / 212 reviews",
+        "minutes_ago": 408
+      },
+      {
+        "alias": "e74",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — advance payment ₹15,000 screen",
+        "minutes_ago": 402
+      },
+      {
+        "alias": "e75",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "sambhal ke jaana",
+        "minutes_ago": 396
+      },
+      {
+        "alias": "e76",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "creds slack pe bheje hain",
+        "minutes_ago": 390
+      },
+      {
+        "alias": "e77",
+        "stream": "T7",
+        "actor": "self",
+        "text": "Slack — #falcon-build · invoice uploaded",
+        "minutes_ago": 384
+      },
+      {
+        "alias": "e78",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/title/80100399 — Delhi Crime",
+        "minutes_ago": 378
+      },
+      {
+        "alias": "e79",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "main bhej deta hoon, baaki collect kar lunga",
+        "minutes_ago": 372
+      },
+      {
+        "alias": "e80",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/casa-anjuna/reviews — 4.1 / 88 reviews",
+        "minutes_ago": 366
+      },
+      {
+        "alias": "e81",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — guest ID proof requirement",
+        "minutes_ago": 360
+      },
+      {
+        "alias": "e82",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "pune wali train ka kya socha",
+        "minutes_ago": 354
+      },
+      {
+        "alias": "e83",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "load test friday ko",
+        "minutes_ago": 348
+      },
+      {
+        "alias": "e84",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/watch/80100399 — Delhi Crime S1E1",
+        "minutes_ago": 342
+      },
+      {
+        "alias": "e85",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "5k each mujhe bhej dena sunday tak",
+        "minutes_ago": 336
+      },
+      {
+        "alias": "e86",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/flights/air-CCU-GOI-20261218/?airline=6E — IndiGo 6E-5232",
+        "minutes_ago": 330
+      },
+      {
+        "alias": "e87",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — 4 nights total ₹23,600",
+        "minutes_ago": 324
+      },
+      {
+        "alias": "e88",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "12 tarikh ko nikalna tha na",
+        "minutes_ago": 318
+      },
+      {
+        "alias": "e89",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "p95 under 400ms target",
+        "minutes_ago": 312
+      },
+      {
+        "alias": "e90",
+        "stream": "T5",
+        "actor": "self",
+        "text": "opened https://www.netflix.com/browse — Home",
+        "minutes_ago": 306
+      },
+      {
+        "alias": "e91",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "flights bhi dekh lo, CCU-GOI 18 ko",
+        "minutes_ago": 300
+      },
+      {
+        "alias": "e92",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/?checkin=18122026 — 4 nights ₹23,600",
+        "minutes_ago": 294
+      },
+      {
+        "alias": "e93",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — IndiGo 6E-5232 fare breakup",
+        "minutes_ago": 288
+      },
+      {
+        "alias": "e94",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "abhi book nahi ki",
+        "minutes_ago": 282
+      },
+      {
+        "alias": "e95",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "abhi 620 aa raha hai",
+        "minutes_ago": 276
+      },
+      {
+        "alias": "e96",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "4300 se shuru hai indigo pe",
+        "minutes_ago": 270
+      },
+      {
+        "alias": "e97",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/payments/advance/ — advance ₹15,000",
+        "minutes_ago": 264
+      },
+      {
+        "alias": "e98",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — listing photos carousel",
+        "minutes_ago": 258
+      },
+      {
+        "alias": "e99",
+        "stream": "T2",
+        "actor": "contact:ma",
+        "text": "kar lo warna seat nahi milegi",
+        "minutes_ago": 252
+      },
+      {
+        "alias": "e100",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "index missing hai orders pe",
+        "minutes_ago": 246
+      },
+      {
+        "alias": "e101",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "return 21 shaam ka rakhna",
+        "minutes_ago": 240
+      },
+      {
+        "alias": "e102",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/policy — ID proof for all guests",
+        "minutes_ago": 234
+      },
+      {
+        "alias": "e103",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — map view, Anjuna",
+        "minutes_ago": 228
+      },
+      {
+        "alias": "e104",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "add kar deta hoon",
+        "minutes_ago": 222
+      },
+      {
+        "alias": "e105",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "21 ko raat 9 baje ki flight theek hai",
+        "minutes_ago": 216
+      },
+      {
+        "alias": "e106",
+        "stream": "T4",
+        "actor": "self",
+        "text": "opened https://www.goibibo.com/hotels/villa-sol-anjuna/ — back to the listing",
+        "minutes_ago": 210
+      },
+      {
+        "alias": "e107",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — checkout step 1 of 3",
+        "minutes_ago": 204
+      },
+      {
+        "alias": "e108",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "invoice bhej diya, check kar lena",
+        "minutes_ago": 198
+      },
+      {
+        "alias": "e109",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "scuba ka kya socha",
+        "minutes_ago": 192
+      },
+      {
+        "alias": "e110",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — checkout step 2 of 3",
+        "minutes_ago": 186
+      },
+      {
+        "alias": "e111",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "netflix pe kya dekh rahe ho",
+        "minutes_ago": 180
+      },
+      {
+        "alias": "e112",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "wo waha jaake dekhte hain",
+        "minutes_ago": 174
+      },
+      {
+        "alias": "e113",
+        "stream": "T6",
+        "actor": "self",
+        "text": "Goibibo — checkout abandoned, back to listing",
+        "minutes_ago": 168
+      },
+      {
+        "alias": "e114",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "kuch nahi bas background me",
+        "minutes_ago": 162
+      },
+      {
+        "alias": "e115",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "cab airport se villa 1800 bola",
+        "minutes_ago": 156
+      },
+      {
+        "alias": "e116",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "focus karo yaar",
+        "minutes_ago": 150
+      },
+      {
+        "alias": "e117",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "pehle se book kar lete hain",
+        "minutes_ago": 144
+      },
+      {
+        "alias": "e118",
+        "stream": "T3",
+        "actor": "contact:vikram",
+        "text": "haan haan",
+        "minutes_ago": 138
+      },
+      {
+        "alias": "e119",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "haan kar do",
+        "minutes_ago": 132
+      },
+      {
+        "alias": "e120",
+        "stream": "T1",
+        "actor": "contact:rohan",
+        "text": "done, sab set hai",
+        "minutes_ago": 126
+      }
+    ],
+    "live": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e1",
+            "e9",
+            "e17",
+            "e25",
+            "e33",
+            "e41",
+            "e49",
+            "e57",
+            "e65",
+            "e72",
+            "e79",
+            "e85"
+          ],
+          "summary": "Goa gang settles on Villa Sol Anjuna at ₹5,900/night for 18-21 Dec and agrees the ₹15,000 advance goes from the user, ₹5,000 each back by Sunday.",
+          "space": "sp_goa_dec",
+          "evidence": [
+            {
+              "event_ids": [
+                "e79"
+              ],
+              "quote": "main bhej deta hoon, baaki collect kar lunga"
+            }
+          ],
+          "confidence": 0.93
+        },
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": [
+            "e91",
+            "e96",
+            "e101",
+            "e105",
+            "e109",
+            "e112",
+            "e115",
+            "e117",
+            "e119",
+            "e120"
+          ],
+          "summary": "Flights and the airport cab for the same trip: CCU–GOI on the 18th from ₹4,300, return the 21st evening, cab ₹1,800 booked ahead.",
+          "space": "sp_goa_dec",
+          "evidence": [
+            {
+              "event_ids": [
+                "e96"
+              ],
+              "quote": "4300 se shuru hai indigo pe"
+            }
+          ],
+          "confidence": 0.9
+        },
+        {
+          "action": "new",
+          "stream": "S4",
+          "events": [
+            "e4",
+            "e12",
+            "e20",
+            "e28",
+            "e36",
+            "e44",
+            "e52",
+            "e60",
+            "e68",
+            "e75",
+            "e82",
+            "e88",
+            "e94",
+            "e99"
+          ],
+          "summary": "Ma's Monday 11:00 appointment at Sharma clinic with the old reports, and the unbooked Pune train for the 12th.",
+          "evidence": [
+            {
+              "event_ids": [
+                "e36"
+              ],
+              "quote": "monday subah 11 baje ka time hai"
+            }
+          ],
+          "confidence": 0.88
+        },
+        {
+          "action": "new",
+          "stream": "S5",
+          "events": [
+            "e5",
+            "e13",
+            "e21",
+            "e29",
+            "e37",
+            "e45",
+            "e53",
+            "e61",
+            "e69",
+            "e76",
+            "e83",
+            "e89",
+            "e95",
+            "e100",
+            "e104",
+            "e108"
+          ],
+          "summary": "Falcon build: invoice and GST sent, SOW scope call at 11, migration quoted at 10 weeks, p95 620ms traced to a missing orders index.",
+          "space": "sp_falcon",
+          "evidence": [
+            {
+              "event_ids": [
+                "e100"
+              ],
+              "quote": "index missing hai orders pe"
+            }
+          ],
+          "confidence": 0.91
+        },
+        {
+          "action": "new",
+          "stream": "S2",
+          "events": [
+            "e2",
+            "e10",
+            "e18",
+            "e26",
+            "e34",
+            "e42",
+            "e50",
+            "e58",
+            "e66",
+            "e73",
+            "e80",
+            "e86",
+            "e92",
+            "e97",
+            "e102",
+            "e106"
+          ],
+          "summary": "Goibibo session comparing Villa Sol against Casa Anjuna on rate, pool, cancellation and reviews, then the CCU–GOI fares and the airport cab.",
+          "space": "sp_goa_dec",
+          "evidence": [
+            {
+              "event_ids": [
+                "e18"
+              ],
+              "quote": "rate 5,900/night"
+            }
+          ],
+          "confidence": 0.87
+        },
+        {
+          "action": "new",
+          "stream": "S6",
+          "events": [
+            "e6",
+            "e14",
+            "e22",
+            "e30",
+            "e38",
+            "e46",
+            "e54",
+            "e62",
+            "e70",
+            "e77"
+          ],
+          "summary": "Slack #falcon-build mirrors the same build thread: invoice, staging creds, the timeline and the p95 regression.",
+          "space": "sp_falcon",
+          "evidence": [
+            {
+              "event_ids": [
+                "e30"
+              ],
+              "quote": "p95 620ms on the orders endpoint"
+            }
+          ],
+          "confidence": 0.84
+        }
+      ],
+      "proposals": [],
+      "unsorted": [
+        {
+          "stream": "S5",
+          "events": [
+            "e111",
+            "e114",
+            "e116",
+            "e118"
+          ],
+          "summary": "Aside in the Falcon group about what is playing on Netflix in the background.",
+          "reason": "chit-chat inside a work thread — no goal of its own",
+          "confidence": 0.55
+        },
+        {
+          "stream": "S7",
+          "events": [
+            "e7",
+            "e15",
+            "e23",
+            "e31",
+            "e39",
+            "e47",
+            "e55",
+            "e63",
+            "e71",
+            "e78",
+            "e84",
+            "e90"
+          ],
+          "summary": "Netflix browsing and three Kohrra episodes.",
+          "reason": "no goal, no space",
+          "confidence": 0.5
+        },
+        {
+          "stream": "S3",
+          "events": [
+            "e3",
+            "e11",
+            "e19",
+            "e27",
+            "e35",
+            "e43",
+            "e51",
+            "e59",
+            "e67",
+            "e74",
+            "e81",
+            "e87",
+            "e93",
+            "e98",
+            "e103",
+            "e107",
+            "e110",
+            "e113"
+          ],
+          "summary": "Screen captures of the same Goibibo pages the browser section is on, ending in an abandoned checkout.",
+          "reason": "same pages as the browser section — joined by the URL bridge, not by a second episode in the space",
+          "confidence": 0.6
+        },
+        {
+          "stream": "S8",
+          "events": [
+            "e8",
+            "e16",
+            "e24",
+            "e32",
+            "e40",
+            "e48",
+            "e56",
+            "e64"
+          ],
+          "summary": "Airtel service and promotional messages: one real bill due 09 Sep, the rest offers.",
+          "reason": "tier-2 business stream — the bill is a claim, the offers are nothing",
+          "confidence": 0.62
+        }
+      ],
+      "questions": [],
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": []
+      }
+    }
+  },
+  "input_events": [
+    "A 120-event backfill day: the Goa gang, Ma, the Falcon build group, Goibibo tabs, Netflix tabs, Chrome screen captures, Slack screen captures and Airtel service messages — one day-bundle"
+  ],
+  "expected": {
+    "events": 120,
+    "sections": 8,
+    "sources": [
+      "wa",
+      "browser",
+      "screen"
+    ],
+    "coverage": 1.0,
+    "uncovered": 0,
+    "duplicated": 0,
+    "held": 0,
+    "episodes_committed": 6,
+    "unsorted_committed": 4,
+    "sections_with_nothing": 0,
+    "prepared": 0,
+    "note": "Every one of the eight sections yields at least one episode or unsorted entry, every alias is placed exactly once, and no event is held back. An episode may never span two threads."
+  },
+  "wrong": [
+    {
+      "label": "silent-drop",
+      "assert_absent": "an event of the day that lands in no episode and no unsorted entry, or a section the answer never mentions"
+    },
+    {
+      "label": "double-placement",
+      "assert_absent": "one event sitting in two committed items"
+    },
+    {
+      "label": "invented-cross-thread",
+      "assert_absent": "an episode whose members come from two different threads"
+    },
+    {
+      "label": "history-nudge",
+      "assert_absent": "a prepared action persisted from a history day-bundle"
+    }
+  ],
+  "gates": [
+    "episode_membership_explicit",
+    "assist_from_history"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6 P1 §5.10 CROSS-DAY · a full mixed day"
+  }
+}

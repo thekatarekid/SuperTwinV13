@@ -1,0 +1,145 @@
+{
+  "id": "LIV-08",
+  "category": "LIV",
+  "title": "one bundle, several actions — each grounded separately",
+  "pass": "live",
+  "mode": "code",
+  "setup": {
+    "note": "GoldenEvals V6 P1 §5.11 LIV-08, authored at R3. One live flush carries three unrelated-but-related things: Ma asks about the Pune train (S1, a DM), Rohan drops a CCU→GOI fare link (S2, a DM) and a Goibibo fare page is on screen (S3). The recorded live.v1 output prepares TWO actions — draft the reply to Ma, compare the fares — and the assertion is that BOTH survive and that each carries its OWN grounding: there is no one-nudge-per-bundle cap anywhere in the code, and a bundle that justifies two actions gets two. Everything downstream of the model is the real path (pack → live.v1 → critic → commit → applyLiveDecide), so what is graded is the code: grounding per action, no dedupe collapse, both above the intent floor and therefore both on the card surface.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "live",
+    "streams": [
+      { "tag": "S1", "key": "liv08-ma@s.whatsapp.net", "source": "wa", "kind": "wa.message" },
+      { "tag": "S2", "key": "liv08-rohan@s.whatsapp.net", "source": "wa", "kind": "wa.message" },
+      { "tag": "S3", "key": "screen:com.google.Chrome:liv08", "source": "screen", "kind": "screen.snapshot" }
+    ],
+    "spaces": [
+      {
+        "id": "sp_goa_dec",
+        "label": "Goa trip with Rohan in December",
+        "goal": "4 people, 18-21 Dec, under 20k pp",
+        "status": "active"
+      }
+    ],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "S1",
+        "actor": "contact:ma",
+        "text": "beta pune wali train ka kya socha? 12 tarikh ko nikalna hai na",
+        "minutes_ago": 6
+      },
+      {
+        "alias": "e2",
+        "stream": "S2",
+        "actor": "contact:rohan",
+        "text": "goa ka fare dekh — https://www.goibibo.com/flights/air-CCU-GOI-20261218/ 4300 se shuru hai abhi",
+        "minutes_ago": 4
+      },
+      {
+        "alias": "e3",
+        "stream": "S3",
+        "actor": "self",
+        "text": "Goibibo — Flights CCU → GOI · 18 Dec · from ₹4,300 · https://www.goibibo.com/flights/air-CCU-GOI-20261218/",
+        "minutes_ago": 2
+      }
+    ],
+    "live": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": ["e1"],
+          "summary": "Ma is asking what was decided about the Pune train for the 12th.",
+          "space": "sp_goa_dec",
+          "evidence": [{ "event_ids": ["e1"], "quote": "pune wali train ka kya socha?" }],
+          "confidence": 0.88
+        },
+        {
+          "action": "new",
+          "stream": "S2",
+          "events": ["e2"],
+          "summary": "Rohan sent a CCU→GOI fare from ₹4,300 for 18 Dec.",
+          "space": "sp_goa_dec",
+          "evidence": [{ "event_ids": ["e2"], "quote": "4300 se shuru hai abhi" }],
+          "confidence": 0.92
+        },
+        {
+          "action": "new",
+          "stream": "S3",
+          "events": ["e3"],
+          "summary": "The Goibibo CCU→GOI 18 Dec fare page is open on screen.",
+          "space": "sp_goa_dec",
+          "evidence": [{ "event_ids": ["e3"], "quote": "Flights CCU → GOI · 18 Dec · from ₹4,300" }],
+          "confidence": 0.9
+        }
+      ],
+      "proposals": [],
+      "unsorted": [],
+      "questions": [],
+      "decide": {
+        "tasks": [],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "help_now",
+            "intent": "Draft the reply to Ma about the Pune train on the 12th",
+            "intent_confidence": 0.86,
+            "action": "draft_reply",
+            "space": "sp_goa_dec",
+            "urgency": "today",
+            "deadline_at": null,
+            "inputs": { "recipient": "contact:ma", "about": "Pune train, 12th" },
+            "grounded_in": ["e1"],
+            "reasoning": "Ma asked a direct question an hour before she usually sleeps; a draft is the whole help."
+          },
+          {
+            "kind": "help_now",
+            "intent": "Compare CCU→GOI fares for 18 Dec against the 20k pp budget",
+            "intent_confidence": 0.91,
+            "action": "compare",
+            "space": "sp_goa_dec",
+            "urgency": "none",
+            "deadline_at": null,
+            "inputs": {
+              "candidates": ["https://www.goibibo.com/flights/air-CCU-GOI-20261218/"],
+              "dates": "18 Dec",
+              "budget": "20000 pp total"
+            },
+            "grounded_in": ["e2", "e3"],
+            "reasoning": "A fare link and the same fare page on screen inside two minutes — the comparison is the next step."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "Ma: \"pune wali train ka kya socha?\" · Rohan: a CCU→GOI fare link · the same Goibibo fare page on screen — one live flush"
+  ],
+  "expected": {
+    "prepared": 2,
+    "actions": ["draft_reply", "compare"],
+    "grounding": { "draft_reply": ["e1"], "compare": ["e2", "e3"] },
+    "surfaces": ["card", "card"],
+    "deduped": 0,
+    "dropped_invalid": 0,
+    "dropped_ungrounded": 0,
+    "note": "Two prepared actions out of one bundle, each citing only its own evidence. No cap collapses them and no dedupe merges them: their content keys differ because kind+action+intent+grounding differ."
+  },
+  "wrong": [
+    {
+      "label": "single-action-cap",
+      "assert_absent": "only one prepared action persisted out of a bundle whose evidence justifies two, or two actions merged into one"
+    },
+    {
+      "label": "shared-grounding",
+      "assert_absent": "the two actions grounded in the same events — the fare comparison citing Ma's train question, or the reply to Ma citing the Goibibo page"
+    }
+  ],
+  "gates": ["nudge_without_grounding", "assist_from_history"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6 P1 §5.11 LIV-08 · one bundle, several actions"
+  }
+}

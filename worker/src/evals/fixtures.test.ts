@@ -182,13 +182,16 @@ describe("coverage", () => {
     expect(CATEGORIES.find((c) => c.cat === "CON")?.authored).toBe(true);
     expect(CATEGORIES.find((c) => c.cat === "IDEM")?.n).toBe(1);
     // V6 P1 §7.3 — CROSS-N2 (S3 gate, commit) plus CROSS-N50 (the S4 ship gate,
-    // on its own `cross` pass); the category row keeps CROSS-N2's pass.
-    expect(CATEGORIES.find((c) => c.cat === "CROSS")).toMatchObject({ n: 2, pass: "commit", authored: true });
+    // on its own `cross` pass) plus CROSS-DAY (R3, the 120-event history day,
+    // also `cross`); the category row keeps CROSS-N2's pass.
+    expect(CATEGORIES.find((c) => c.cat === "CROSS")).toMatchObject({ n: 3, pass: "commit", authored: true });
     // V6 P1 S5.6 — Settings, three code cases on the `settings` pass.
     expect(CATEGORIES.find((c) => c.cat === "SET")).toMatchObject({ n: 3, pass: "settings", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "SPC")).toMatchObject({ n: 8, pass: "space", authored: true });
-    // V6 P1 S4.1 + S4.4 — LIV-01..06 (the live call) plus LIV-07 (no starvation).
-    expect(CATEGORIES.find((c) => c.cat === "LIV")).toMatchObject({ n: 7, pass: "live", authored: true });
+    // V6 P1 S4.1 + S4.4 — LIV-01..06 (the live call) plus LIV-07 (no
+    // starvation); R3 added LIV-08 (several actions), LIV-09 (the risk line)
+    // and LIV-10 (insufficient context).
+    expect(CATEGORIES.find((c) => c.cat === "LIV")).toMatchObject({ n: 10, pass: "live", authored: true });
     // V6 P1 S4.2 — EXE is executor-lite now: five code cases on the `lite` pass.
     expect(CATEGORIES.find((c) => c.cat === "EXE")).toMatchObject({ n: 5, doc: "V2", pass: "lite", authored: true });
     // V6 P1 S5.5 — the grounded bar (ten code cases) and the three new FIX cases.

@@ -1,0 +1,124 @@
+{
+  "id": "LIV-10",
+  "category": "LIV",
+  "title": "insufficient-context mode — only unsorted and questions survive",
+  "pass": "live",
+  "mode": "code",
+  "setup": {
+    "note": "GoldenEvals V6 P1 §5.11 LIV-10, authored at R3. A brand-new DM: no history on the stream, no open or recent episode, no candidate space from retrieval, a sender who resolves to no entity, and a bundle too small to be its own context — decideThin() says thin on all five signals. This is SECOND sight (thin_policy 'instruct'), so the pack carries the insufficient-context instruction instead of holding, and the model is asked anyway. The recorded answer then does the wrong thing on purpose: it files an episode, proposes a space, writes a task and prepares an action. Every one of those is stripped by CODE (parseLiveOutput, live.ts rule 5 / parseLiveDecideAnswer rule 4) before the commit path sees the answer, so the database gets the unsorted entry and the question and nothing else. The stripping is not a prompt promise — the instruction is in the pack too, and the fixture proves the code does not depend on the model reading it.",
+    "now": "2026-09-05T10:40:00.000Z",
+    "lane": "live",
+    "thin_policy": "instruct",
+    "streams": [
+      { "tag": "S1", "key": "liv10-unknown-9198@s.whatsapp.net", "source": "wa", "kind": "wa.message" }
+    ],
+    "spaces": [],
+    "events": [
+      {
+        "alias": "e1",
+        "stream": "S1",
+        "actor": "contact:unknown-9198",
+        "text": "hi, is this the right number for the plumber?",
+        "minutes_ago": 2
+      }
+    ],
+    "live": {
+      "episodes": [
+        {
+          "action": "new",
+          "stream": "S1",
+          "events": ["e1"],
+          "summary": "The user is arranging a plumber for the flat.",
+          "evidence": [{ "event_ids": ["e1"], "quote": "is this the right number for the plumber?" }],
+          "confidence": 0.71
+        }
+      ],
+      "proposals": [
+        {
+          "label": "Flat repairs",
+          "goal": "get the plumbing fixed",
+          "why": "a plumber is being arranged",
+          "events": ["e1"],
+          "evidence": [{ "event_ids": ["e1"], "quote": "the right number for the plumber" }],
+          "confidence": 0.6
+        }
+      ],
+      "unsorted": [
+        {
+          "stream": "S1",
+          "events": ["e1"],
+          "summary": "An unknown number asking whether this is the plumber's number.",
+          "reason": "no thread history, no episode, no candidate space, sender unresolved",
+          "confidence": 0.5
+        }
+      ],
+      "questions": [
+        {
+          "kind": "person",
+          "text": "Who is +91 ••••• 9198? This number has never written before.",
+          "event_ids": ["e1"]
+        }
+      ],
+      "decide": {
+        "tasks": [
+          {
+            "title": "Call the plumber back",
+            "origin": "implicit",
+            "owner": "self",
+            "category": "communication",
+            "risk_class": "advise-only",
+            "due": null,
+            "steps": [],
+            "evidence": [{ "event_ids": ["e1"], "quote": "is this the right number for the plumber?" }],
+            "confidence": 0.6
+          }
+        ],
+        "closures": [],
+        "schedules": [],
+        "prepared": [
+          {
+            "kind": "help_now",
+            "intent": "Draft a reply confirming the plumber's number",
+            "intent_confidence": 0.82,
+            "action": "draft_reply",
+            "space": null,
+            "urgency": "today",
+            "deadline_at": null,
+            "inputs": { "recipient": "contact:unknown-9198" },
+            "grounded_in": ["e1"],
+            "reasoning": "A one-line reply closes it."
+          }
+        ]
+      }
+    }
+  },
+  "input_events": [
+    "An unknown number, first message ever on the stream: \"hi, is this the right number for the plumber?\" — a thin pack on second sight"
+  ],
+  "expected": {
+    "thin": true,
+    "insufficient_context": true,
+    "stripped": { "episodes": 1, "proposals": 1, "tasks": 1, "prepared": 1 },
+    "committed_episodes_from_episodes_section": 0,
+    "unsorted": 1,
+    "questions": 1,
+    "prepared": 0,
+    "tasks_created": 0,
+    "note": "Permitted output is `unsorted` plus questions. Anything else the model returns is rejected by code — not demoted, not queued for review, removed from the answer before the commit layer runs."
+  },
+  "wrong": [
+    {
+      "label": "guess-anyway",
+      "assert_absent": "an episode, a space proposal, a task or a prepared action surviving a bundle the packer flagged as insufficient context"
+    },
+    {
+      "label": "silent-drop",
+      "assert_absent": "the whole answer thrown away — the unsorted entry and the question the mode DOES permit must land"
+    }
+  ],
+  "gates": ["guess_rate", "nudge_without_grounding"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6 P1 §5.11 LIV-10 · insufficient-context mode"
+  }
+}

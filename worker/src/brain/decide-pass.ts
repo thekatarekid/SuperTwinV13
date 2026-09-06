@@ -246,8 +246,12 @@ function ownerEntityId(owner: string): string | null {
   }
 }
 
-/** The user, by any of the roster's spellings. */
-function isSelf(owner: string): boolean {
+/**
+ * The user, by any of the roster's spellings. Exported so the eval harness's
+ * `applied_by_task_writer` view can mirror the owner rule exactly instead of
+ * re-implementing it (R3).
+ */
+export function isSelf(owner: string): boolean {
   const o = owner.trim().toLowerCase();
   return o === "" || o === "self" || o === "user" || o === "me" || o === "unknown";
 }

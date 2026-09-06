@@ -1,25 +1,30 @@
 {
   "id": "TSK-04",
   "category": "TSK",
-  "title": "Someone else's task is not yours",
+  "title": "Someone else's task is not yours — it is a monitor",
   "pass": "decide",
   "mode": "live",
-  "setup": "party model; sp_goa_dec.",
+  "setup": "party model; sp_goa_dec; the roster resolves \"karan\" to contact:karan. Shipped rule (decide.v9 rule 3 + brain/decide-pass.ts applyTask): a task whose owner is not the user is stored as THEIRS, forced to advise-only, and filed as a monitor for the user (`create_monitor`) — the user's own list gains nothing.",
   "input_events": [
     "\"karan book YOUR ticket, rest of us are done\"."
   ],
-  "expected": "no task for Aditya; optionally a monitoring item (\"Karan's ticket pending\") on the space.",
+  "expected": "No task lands in ADITYA's list. The ticket is Karan's: the answer may carry it with owner = the Karan roster ref, and the task writer then stores it as Karan's, forces advise-only and files the monitoring item (\"Karan's ticket pending\") on the space — that is the monitor the rubric asks for, and it is what `applied_by_task_writer` shows. What must never appear is a task the USER owns.",
   "wrong": [
     {
       "label": "task-theft",
-      "assert_absent": "Aditya's task list gets \"book Karan's ticket\""
+      "assert_absent": "a task owned by the user (self / user / me / no owner) telling Aditya to book Karan's ticket — the user's own list gaining an item that is not the user's"
+    },
+    {
+      "label": "silent-drop",
+      "assert_absent": "Karan's pending ticket dropped entirely — neither a task of his nor a monitor for the user"
     }
   ],
   "gates": [
-    "party_accuracy"
+    "party_accuracy",
+    "false_receiver_assignment"
   ],
   "source": {
     "doc": "V1",
-    "section": "TSK-04 · Someone else's task is not yours"
+    "section": "TSK-04 · Someone else's task is not yours (re-authored V6 P1 R3 — the V1 wording read as \"emit no task at all\", but the shipped shape is a task owned by the other person that the writer turns into a monitor for the user, which DEC-05 asserts as code; the assertion is unchanged, the vocabulary is the product's)"
   }
 }

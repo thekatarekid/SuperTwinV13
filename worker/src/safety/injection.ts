@@ -248,37 +248,27 @@ export interface InjectionFlag {
   createdAt: string;
 }
 
-let ensuredFor: Database.Database | null = null;
-
+/**
+ * The store's connection. `injection_flags` is declared by migration
+ * `0208_v6_injection` (R3), so there is nothing to ensure here: by the time
+ * any code path reaches this module the table already exists, on a fresh
+ * install and on an upgrade alike.
+ */
 function db(): Database.Database {
-  const conn = getDb();
-  if (ensuredFor !== conn) {
-    conn.exec(`
-      CREATE TABLE IF NOT EXISTS injection_flags (
-        id          TEXT PRIMARY KEY,
-        event_id    TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-        category    TEXT NOT NULL,
-        pattern     TEXT NOT NULL,
-        quote       TEXT NOT NULL,
-        source      TEXT,
-        stream_key  TEXT,
-        actor       TEXT,
-        artifact_id TEXT,
-        detected_by TEXT NOT NULL DEFAULT 'code:injection',
-        acted_at    TEXT,
-        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        UNIQUE (event_id, category)
-      );
-      CREATE INDEX IF NOT EXISTS idx_injection_flags_event ON injection_flags(event_id);
-    `);
-    ensuredFor = conn;
-  }
-  return conn;
+  return getDb();
 }
 
-/** Test seam: forget the ensure-cache when a suite swaps the database file. */
+/**
+ * Test seam, kept for its callers and now a no-op.
+ *
+ * It used to forget a per-connection "did I CREATE TABLE on this handle yet?"
+ * cache when a suite swapped the database file. The table is migration-owned
+ * since R3, so there is no cache to forget — a suite that swaps databases gets
+ * the table from the migration runner. Retained so the suites that call it
+ * keep compiling and so a future store-local cache has an obvious home.
+ */
 export function resetInjectionStore(): void {
-  ensuredFor = null;
+  /* no-op: injection_flags is created by migration 0208_v6_injection */
 }
 
 function hydrate(r: Record<string, unknown>): InjectionFlag {

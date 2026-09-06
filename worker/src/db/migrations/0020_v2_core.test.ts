@@ -155,6 +155,10 @@ describe("0020_v2_core applies", () => {
       "0206_v6_people",
       // V6 P1 S4.6: `briefs` — one row per fired set time. New table only.
       "0207_v6_brief",
+      // V6 P1 S4.7, authored at R3: `injection_flags` — one row per (event,
+      // family) the detector flags. New table only; it used to be a
+      // module-scope CREATE TABLE inside safety/injection.ts.
+      "0208_v6_injection",
     ]);
 
     expect(

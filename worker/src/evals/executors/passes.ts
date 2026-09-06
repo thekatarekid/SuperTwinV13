@@ -18,7 +18,7 @@ import { EXTRACT_V6_SYSTEM, validateExtractV6Output, type ExtractV6Output } from
 import { type DecideOutput } from "../../prompts/decide.v1.js";
 import { DECIDE_V9_SYSTEM, validateDecideV9Output } from "../../prompts/decide.v9.js";
 import { FIXTURE_NOW } from "./clock.js";
-import { CLOSE_CONFIDENCE_FLOOR } from "../../brain/decide-pass.js";
+import { CLOSE_CONFIDENCE_FLOOR, isSelf } from "../../brain/decide-pass.js";
 import { validateConsolidateOutput, type ConsolidateVerdict } from "../../prompts/consolidate.v1.js";
 import { CONSOLIDATE_V3_SYSTEM } from "../../prompts/consolidate.v3.js";
 import { calendarBlock, fixtureSeed } from "./seeds.js";
@@ -98,14 +98,49 @@ export const extractExecutor: Executor = async ({ fixture }) => {
 };
 
 /**
- * What brain/decide-pass.ts applyClosure does with the closures — a "close"
- * below CLOSE_CONFIDENCE_FLOOR is DEMOTED to a suggest_close proposal, and a
- * suggest_close never mutates. Computed from the output, mirroring the code.
+ * What brain/decide-pass.ts does with a decide answer, computed from the
+ * output and mirroring the code — the annotation the judge is told to treat as
+ * the shipped behaviour.
+ *
+ * CLOSURES: a "close" below CLOSE_CONFIDENCE_FLOOR is DEMOTED to a
+ * suggest_close proposal, and a suggest_close never mutates.
+ *
+ * TASKS (R3): two rules decided the failure of TSK-04 and TSK-08 when they
+ * were first measured, and neither was visible to the judge —
+ *   * OWNER. `applyTask` reads `isSelf(owner)`. Another person's task is
+ *     stored as THEIRS, forced to advise-only, and filed as a monitor for the
+ *     user (`create_monitor`, DEC-05). The user's own list gains nothing, so
+ *     a task the model emits with owner "contact:karan" is NOT task theft —
+ *     it is the shipped shape of "Karan's ticket is pending".
+ *   * DEDUPE. A title matching an OPEN task in the space is skipped outright
+ *     (`tasksSkipped`), and since S5.2 that is the ONLY filter: there is no
+ *     suggestion budget. The seed says which tasks are open; the note says
+ *     what the writer does with a repeat.
  */
 export function decideAppliedView(out: DecideOutput): Record<string, unknown> | undefined {
-  if (out.closures.length === 0) return undefined;
+  if (out.closures.length === 0 && out.tasks.length === 0) return undefined;
+  const tasks = out.tasks.map((t) => {
+    const mine = isSelf(t.owner ?? "");
+    return {
+      title: t.title,
+      owner: t.owner,
+      type: t.type,
+      applied_as: mine
+        ? "a task in the user's own list"
+        : `a MONITOR for the user — stored as ${t.owner}'s, forced to advise-only, never run for them; the user's list gains nothing`,
+      risk_class_applied: mine ? t.risk_class : "advise-only",
+    };
+  });
   return {
-    closures: out.closures.map((c) => {
+    ...(tasks.length > 0
+      ? {
+          tasks,
+          task_dedupe:
+            "a task whose title matches an OPEN task in this space is skipped by the writer and counted in tasksSkipped — " +
+            "dedupe by open title is the only filter, and there is no suggestion budget (V6 P1 removed both caps)",
+        }
+      : {}),
+    ...(out.closures.length === 0 ? {} : { closures: out.closures.map((c) => {
       const autoClose = c.verdict === "close" && c.confidence >= CLOSE_CONFIDENCE_FLOOR;
       return {
         task: c.task,
@@ -119,7 +154,7 @@ export function decideAppliedView(out: DecideOutput): Record<string, unknown> | 
                   : "a proposal, never a mutation — task stays open pending user confirmation",
             }),
       };
-    }),
+    }) }),
   };
 }
 

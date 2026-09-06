@@ -676,10 +676,17 @@ describe("People in the nav (spec §14.1.3)", () => {
     fireEvent.click(screen.getByText("◍ People"));
     await waitFor(() => expect(screen.getByLabelText("person Priya")).toBeTruthy());
 
-    fireEvent.keyDown(window, { key: "1", metaKey: true });
+    // Read each shortcut off the nav: this asserts that ⌘-number switches
+    // tabs, not what order the tabs happen to be in (lanes keep adding them).
+    const shortcutFor = (label: string): string => {
+      const buttons = within(screen.getByRole("navigation", { name: "primary" })).getAllByRole("button");
+      const i = buttons.findIndex((b) => (b.textContent ?? "").includes(label));
+      if (i < 0) throw new Error(`no "${label}" tab in the nav`);
+      return String(i + 1);
+    };
+    fireEvent.keyDown(window, { key: shortcutFor("Home"), metaKey: true });
     await waitFor(() => expect(screen.getByLabelText("Today")).toBeTruthy());
-    // People is ⌘5 since the Calendar tab took the second slot (V6 P1 S5.3).
-    fireEvent.keyDown(window, { key: "5", metaKey: true });
+    fireEvent.keyDown(window, { key: shortcutFor("People"), metaKey: true });
     await waitFor(() => expect(screen.getByLabelText("person Priya")).toBeTruthy());
   });
 

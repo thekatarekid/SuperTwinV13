@@ -2,11 +2,23 @@
 // P1.7 shell — nav, Home sections, modal open/Esc-dismiss. (spec §14.1/§14.2)
 // ===========================================================================
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { stubWorker } from "./test-utils";
+
+/**
+ * The ⌘-number of a tab, read off the nav. Asserting the SHORTCUT works must
+ * not also assert the tab ORDER — every lane that adds a tab would break it.
+ */
+function shortcutFor(label: string): string {
+  const nav = screen.getByRole("navigation", { name: "primary" });
+  const buttons = within(nav).getAllByRole("button");
+  const i = buttons.findIndex((b) => (b.textContent ?? "").includes(label));
+  if (i < 0) throw new Error(`no "${label}" tab in the nav`);
+  return String(i + 1);
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -45,14 +57,14 @@ describe("shell", () => {
     // The stub serves no /api/library/* routes, so the real Library screen
     // (P2.4) lands on its unreachable-worker state.
     await waitFor(() => expect(screen.getByText("worker unreachable")).toBeTruthy());
-    // ⌘2 is the Calendar tab (V6 P1 S5.3); ⌘3 the Timeline. Neither route is
-    // stubbed, so both land on their own unreachable-worker state.
-    fireEvent.keyDown(window, { key: "2", metaKey: true });
+    // The Calendar tab (V6 P1 S5.3) and the Timeline, by their own shortcut.
+    // Neither route is stubbed, so both land on their unreachable-worker state.
+    fireEvent.keyDown(window, { key: shortcutFor("Calendar"), metaKey: true });
     expect(screen.getByLabelText("Calendar")).toBeTruthy();
-    fireEvent.keyDown(window, { key: "3", metaKey: true });
+    fireEvent.keyDown(window, { key: shortcutFor("Timeline"), metaKey: true });
     // The real Timeline screen (P4.1); the stub serves no /api/timeline.
     expect(screen.getByLabelText("Timeline")).toBeTruthy();
-    fireEvent.keyDown(window, { key: "1", metaKey: true });
+    fireEvent.keyDown(window, { key: shortcutFor("Home"), metaKey: true });
     await waitFor(() => expect(screen.getByLabelText("Today")).toBeTruthy());
   });
 

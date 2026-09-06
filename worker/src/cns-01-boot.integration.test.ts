@@ -199,9 +199,15 @@ describe("CNS-01 — nothing before yes (60 s real boot on a scratch home)", () 
       // esbuild transpile service under the process it loads, and the
       // consolidation job's idle probe (consolidation/t3.ts) runs `pmset` /
       // `ioreg` for a few ms at its one-minute tick. Anything else fails.
+      // `children()` returns "<pid> <command> <args>", so every boundary here
+      // has to admit the SPACE after the pid as well as `^` and `/`. It did
+      // not, which cost twice: a bare `pmset` at the tick failed the filter
+      // (seen at the V6P1S6d gate: "75755 pmset -g batt"), and — the half that
+      // matters — a bare `claude` child would have slipped past the assertion
+      // that this boot spends nothing.
       const all = children(wp);
-      expect(all.some((k) => /whatsapp-go|screenwatch|(^|\/)claude(\s|$)/.test(k)), all.join("\n")).toBe(false);
-      const kids = all.filter((k) => !/(\/esbuild|(^|\/)pmset|(^|\/)ioreg)(\s|$)/.test(k));
+      expect(all.some((k) => /whatsapp-go|screenwatch|(^|[\s/])claude(\s|$)/.test(k)), all.join("\n")).toBe(false);
+      const kids = all.filter((k) => !/(^|[\s/])(esbuild|pmset|ioreg)(\s|$)/.test(k));
       expect(kids, `worker ${wp} spawned children:\n${kids.join("\n")}`).toEqual([]);
       expect(stderr).not.toMatch(/\[whatsapp-go\]/);
       expect(stderr).not.toMatch(/\[screenwatch/);

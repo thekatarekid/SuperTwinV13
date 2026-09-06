@@ -10,8 +10,13 @@
 //                    flag_overlap" — spec §15.2),
 //                  - drain the Decide work queue (spec §6.3.2: the REDUCE
 //                    step's spaces run parallel-across / serial-per space).
-//   every hour     - the rolling T2: merge/split/dormancy over touched spaces,
-//                    second-look processing, unsorted periodic review.
+//   every hour     - the rolling T2 over what changed since the last roll:
+//                    merge questions / split suggestions / dormancy over
+//                    touched spaces, second-look processing, unsorted review.
+//                    Nothing written since the last roll → no model call, the
+//                    roll is logged as a no-op (V6 S3.9, CON-01).
+//   when idle      - the T3 deep pass over items touched since the last one
+//                    (at most daily, machine idle and on power).
 //
 // Every duty is fenced: one failing tick logs and the next tick still runs.
 // ===========================================================================
@@ -70,6 +75,7 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
         const due = Date.now() - lastRollAt >= hourlyMs;
         const report = await runT2(deps, { flagsOnly: !due });
         if (due) lastRollAt = Date.now();
+        if (due && report.rollSkipped) log("[consolidation] t2 roll: nothing changed since the last roll — no-op, no call");
         if (
           report.flagsProcessed + report.merged + report.mergeSuggestions +
             report.splitSuggestions + report.dormant + report.secondLookConfirmed +

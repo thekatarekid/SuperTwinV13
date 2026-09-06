@@ -146,12 +146,14 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 220 cases (86 from V1 minus SEG/CRI, 75 from V2, 12 BND + 10 GATE + 6 SRC + 5 CMT + 7 PCK + 4 CRI + 6 FACT + 3 TYP from V6P1 + 6 DEC)", () => {
-    expect(TOTAL_CASES).toBe(220);
-    expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(86);
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(134);
+  it("the category table totals 216 cases (78 from V1 minus SEG/CRI/CON, 138 from V2 incl. the V6P1 authored categories)", () => {
+    expect(TOTAL_CASES).toBe(216);
+    expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(78);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(138);
     expect(CATEGORIES.some((c) => c.cat === "SEG")).toBe(false);
     expect(CATEGORIES.some((c) => c.cat === "BND")).toBe(true);
+    expect(CATEGORIES.find((c) => c.cat === "CON")?.authored).toBe(true);
+    expect(CATEGORIES.find((c) => c.cat === "IDEM")?.n).toBe(1);
   });
 
   it("coverageGaps ignores selftest fixtures and reports shortfalls", () => {

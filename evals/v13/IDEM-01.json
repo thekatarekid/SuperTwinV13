@@ -1,0 +1,43 @@
+{
+  "id": "IDEM-01",
+  "category": "IDEM",
+  "title": "rerun is byte-identical",
+  "pass": "consolidate",
+  "mode": "code",
+  "setup": {
+    "note": "Two same-label spaces, an open task, a claim with 5 versions. The batch: the four events below land as origin='eval' rows on one WhatsApp stream, the harness bundles them, a canned Orient output joins one episode to sp_goa, the handled events are stamped, then T2 (flags + roll) and T3 run. The whole batch runs twice.",
+    "spaces": [
+      { "id": "sp_goa", "label": "goa trip", "tasks": 1 },
+      { "id": "sp_goa_twin", "label": "goa trip" }
+    ],
+    "claim_versions": 5
+  },
+  "input_events": [
+    "guys lets lock goa 18-21 dec",
+    "villa sol wale bol rahe advance aaj chahiye",
+    "kitna?",
+    "15k total, 5k each"
+  ],
+  "expected": {
+    "first_run": { "episodes": 1, "merge_questions": 1, "versions_ended": 1 },
+    "second_run": { "episodes": 0, "stamped": 0, "new_rows": {} },
+    "byte_identical": true
+  },
+  "wrong": [
+    {
+      "label": "double-apply",
+      "assert_absent": "a new episode, claim, task, space or question on the second run"
+    },
+    {
+      "label": "drift",
+      "assert_absent": "a content-table digest that differs between the two runs"
+    }
+  ],
+  "gates": [
+    "idempotency"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 IDEM-01 · rerun is byte-identical"
+  }
+}

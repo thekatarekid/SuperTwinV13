@@ -469,55 +469,10 @@ const SEEDS: Record<string, FixtureSeed> = {
     ].join("\n"),
   },
 
-  // ---- Consolidate: CON ----------------------------------------------------
-  "CON-01": {
-    state: [
-      "CARD 1 — sp_goa_dec: label \"Goa trip with the gang in December\", life_area Travel, status active.",
-      '  episodes: ep_401 "flight price hunt" (events e11, e12) · ep_412 "villa shortlist + vote" (events e13).',
-      '  tasks: tsk_villa_adv "Pay villa advance ₹8k" (open).',
-      'CARD 2 — sp_goa_dup: label "Goa December vacation", life_area Travel, status active (escaped duplicate).',
-      '  episodes: ep_509 "same villa vote seen from another chat" (events e21).',
-      '  tasks: tsk_villa_adv2 "Villa advance payment" (open — duplicate of tsk_villa_adv).',
-    ].join("\n"),
-  },
-  "CON-03": {
-    state: [
-      "SINGLE CARD under review — sp_falcon: label \"Falcon project delivery at work\", life_area Work, status active.",
-      '  episodes: ep_w1 "sprint review notes" (events e31) · ep_w2 "client demo prep" (events e32) · ',
-      '  ep_c1 "sunday cricket plan" (events e41) · ep_c2 "cricket ground booking" (events e42) · ',
-      '  ep_c3 "team jersey banter" (events e43) · ep_c4 "match scorecard" (events e44).',
-      "  (ep_c1..ep_c4 landed here through a contamination bug; they are not about the Falcon project.)",
-    ].join("\n"),
-  },
-  "CON-05": {
-    state: [
-      "REVIEW TRIGGER: a Critic flag_overlap fired at 14:02 today, scoped to exactly this pair. " +
-        "It is now 14:05 — this scoped review is running because of that flag (3 minutes later). " +
-        "No other space was loaded.",
-      'CARD 1 — sp_goa_dec: label "Goa trip with the gang in December", life_area Travel. ' +
-        'Episodes: ep_401 "flight price hunt" (e11) · ep_412 "villa vote" (e13). Goal: the December trip itself.',
-      'CARD 2 — sp_goa_wedding: label "Nikhil\'s Goa wedding in December", life_area Social. ' +
-        'Episodes: ep_430 "wedding outfit shopping" (e51) · ep_431 "gift pooling" (e52). Goal: attending the wedding.',
-    ].join("\n"),
-  },
-  "CON-06": {
-    state: [
-      "TIER-3 COMPRESSION REVIEW of one claim's evidence chain:",
-      'CLAIM clm_rohan_flights: "Rohan tracks flight prices before any trip" (habit, subject contact:rohan).',
-      "  reinforcement events over 6 months (14): e61, e62, e63, e64, e65, e66, e67, e68, e69, e70, e71, e72, e73, e74.",
-      "  Each is a separate observation of the same habit (screenshots, chat mentions, browser sessions).",
-    ].join("\n"),
-  },
-  "CON-08": {
-    state: [
-      "SECOND RUN — Tier-2/Tier-3 re-run on IDENTICAL, already-clean state (all prior reviews applied):",
-      'CARD 1 — sp_goa_dec: label "Goa trip with the gang in December", life_area Travel, status active. ' +
-        'Episodes: ep_401 (e11, e12) · ep_412 (e13). Tasks: tsk_villa_adv (open).',
-      'CARD 2 — sp_falcon: label "Falcon project delivery at work", life_area Work, status active. ' +
-        "Episodes: ep_w1 (e31) · ep_w2 (e32). Tasks: none.",
-      "These two spaces were already judged distinct on the previous run; nothing changed since.",
-    ].join("\n"),
-  },
+  // ---- Consolidate: CON / IDEM ---------------------------------------------
+  // No seeds since V6 P1 S3.9: CON-01..03 and IDEM-01 are structured code
+  // fixtures run by executors/con.ts against the real consolidation code; the
+  // V1 prose CON cases (and their seeded cards) were retired with them.
 
   // ---- Backfill: AGE -------------------------------------------------------
   "AGE-04": {

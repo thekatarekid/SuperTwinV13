@@ -19,10 +19,11 @@ describe("V13 gate registry", () => {
       "trigger_gate",
       "trace_coverage",
       "idempotency",
+      "clock_only_call",
     ]) {
       expect(isHardGate(id), id).toBe(true);
     }
-    expect(HARD_GATES).toHaveLength(16);
+    expect(HARD_GATES).toHaveLength(17);
     expect(isHardGate("bundle_purity")).toBe(false);
   });
 

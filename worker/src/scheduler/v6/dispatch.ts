@@ -26,9 +26,12 @@
 // The live lane runs on the pool's reserved `live` lane (providers/pool.ts):
 // two hundred queued history bundles cannot delay a live flush (GATE-09).
 //
-// EVAL ISOLATION HOOK (S3.9): rows whose `origin` is in `ignoreOrigins` are
-// never gated, bundled or stamped by this dispatcher. S3.9 adds the 'eval'
-// origin and sets DEFAULT_IGNORED_ORIGINS = ["eval"]; nothing else changes.
+// EVAL ISOLATION (S3.9): rows whose `origin` is in `ignoreOrigins` are never
+// gated, bundled or stamped by this dispatcher. DEFAULT_IGNORED_ORIGINS is
+// ["eval"] — the origin the golden harness writes (db/eventlog.ts) — so a
+// fixture row in a running worker's database is invisible to every lane:
+// live (here), history (history.ts reads origin='backfill' only) and digest
+// (digest.ts skips it). T6-5 closes here.
 // ===========================================================================
 
 import { createHash } from "node:crypto";
@@ -61,11 +64,11 @@ import { attemptEligibility, recordFailedAttempt, recordSuccess, RETRY_DELAY_MS 
 // ---- Hooks and options -------------------------------------------------------
 
 /**
- * Origins this dispatcher never touches. Empty today; S3.9 (eval isolation)
- * sets it to ["eval"] so fixture events written by the harness are never
- * bundled by a running worker.
+ * Origins this dispatcher never touches: `eval` — fixture events written by
+ * the golden harness are never bundled by a running worker (S3.9, T6-5).
+ * Tests and executors that must dispatch such rows pass `ignoreOrigins: []`.
  */
-export const DEFAULT_IGNORED_ORIGINS: readonly string[] = [];
+export const DEFAULT_IGNORED_ORIGINS: readonly string[] = ["eval"];
 
 /** app_state key holding the Settings › Assist freshness preset. */
 export const FRESHNESS_KEY = "assist.freshness";
@@ -93,7 +96,7 @@ export interface DispatcherOptions {
   log?: (line: string) => void;
   /** Freshness preset; default reads app_state FRESHNESS_KEY. */
   preset?: () => FreshnessPreset | string | null;
-  /** S3.9 hook — see DEFAULT_IGNORED_ORIGINS. */
+  /** Origins never dispatched; default DEFAULT_IGNORED_ORIGINS (["eval"]). */
   ignoreOrigins?: readonly string[];
   /** Serve history bundles (default true). */
   history?: boolean;

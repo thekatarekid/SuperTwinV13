@@ -23,7 +23,6 @@ import { orientExecutor } from "./orient.js";
 import { criExecutor } from "./cri.js";
 import {
   backfillExecutor,
-  consolidateExecutor,
   digestExecutor,
   extractExecutor,
 } from "./passes.js";
@@ -32,6 +31,7 @@ import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
 import { commitExecutor } from "./cmt.js";
 import { packExecutor } from "./pck.js";
+import { conExecutor } from "./con.js";
 import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
 import {
@@ -46,6 +46,7 @@ export { bundleExecutor } from "./bnd.js";
 export { gateExecutor } from "./gate.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
 export { criExecutor } from "./cri.js";
+export { conExecutor } from "./con.js";
 export {
   backfillExecutor,
   consolidateExecutor,
@@ -105,7 +106,10 @@ export async function registerProductExecutors(): Promise<void> {
   // P3 integration: FUP cases run the real next-step pass (followup.v1);
   // everything else on "decide" is the DECIDE prompt as before.
   registerExecutor("decide", decideDispatchExecutor);
-  registerExecutor("consolidate", consolidateExecutor);
+  // V6 P1 S3.9: CON / IDEM — structured code fixtures run the real T2/T3
+  // consolidation with a stub judge (zero model calls); prose V1 fixtures fall
+  // through to the legacy live consolidate executor.
+  registerExecutor("consolidate", conExecutor);
   registerExecutor("digest", digestExecutor);
   registerExecutor("scheduler.backfill", backfillExecutor);
   // P2 integration: the assist lane (AST) — gate/suppression/risk-line cases

@@ -27,6 +27,7 @@ import {
   lastT3Report,
   COMPRESS_KEEP,
   EPHEMERAL_EXPIRY_DAYS,
+  T3_CLOSED_BY,
   T3_EVAL_DUE_KEY,
 } from "./t3.js";
 import {
@@ -127,8 +128,8 @@ describe("T3 deep pass", () => {
     expect(getDb().prepare(`SELECT COUNT(*) n FROM space_links`).get()).toEqual({ n: 1 });
   });
 
-  it("compresses old claim versions and preserves their evidence", async () => {
-    // 6 versions of one claim: active + 5 non-active; keep 3, compress 2.
+  it("compresses old claim versions by giving them an END DATE — nothing deleted (CON-03)", async () => {
+    // 6 versions of one claim: active + 5 non-active; keep 3 open-ended, end 2.
     for (let i = 1; i <= 6; i++) {
       writeClaim("ck_many", "ent_z", `2026-08-0${i}T00:00:00Z`, `version ${i}`);
     }
@@ -137,28 +138,40 @@ describe("T3 deep pass", () => {
     const report = await runT3({ evalHook: () => {} });
     expect(report.claimVersionsCompressed).toBe(6 - 1 - COMPRESS_KEEP);
 
+    // Every row is still there: the history is the same length.
     const left = claimHistory("ck_many");
-    expect(left).toHaveLength(1 + COMPRESS_KEEP);
-    // The newest (active) version survived.
+    expect(left).toHaveLength(6);
     expect(left.map((v) => v.text)).toContain("version 6");
+    // The two oldest non-active versions carry an end date and name the pass;
+    // the active version and the newest COMPRESS_KEEP non-active are untouched.
+    const rows = getDb()
+      .prepare(`SELECT text, valid_to, closed_by FROM claim_versions WHERE claim_key = 'ck_many' ORDER BY stated_at`)
+      .all() as { text: string; valid_to: string | null; closed_by: string | null }[];
+    expect(rows.filter((r) => r.closed_by === T3_CLOSED_BY).map((r) => r.text)).toEqual(["version 1", "version 2"]);
+    expect(rows[0]!.valid_to).toBe("2026-08-02T00:00:00Z"); // the successor's stated_at
+    expect(rows[1]!.valid_to).toBe("2026-08-03T00:00:00Z");
+    for (const r of rows.slice(2)) {
+      expect(r.closed_by).toBeNull();
+      expect(r.valid_to).toBeNull();
+    }
+    // Evidence preserved on the rows themselves — nothing had to be copied out.
+    for (const v of left) expect(String(v.evidence[0]?.event_ids?.[0] ?? "")).toContain("ev_ck_many");
 
-    // Evidence preserved: the compress decision's old_json carries the full
-    // deleted rows, evidence included.
+    // ONE decision per claim_key names the ended versions (the undo unit).
     const dec = getDb()
       .prepare(
-        `SELECT old_json FROM decisions WHERE target_kind = 'claim' AND action = 'compress'
+        `SELECT old_json, new_json FROM decisions WHERE target_kind = 'claim' AND action = 'compress'
           AND target_id = 'ck_many'`,
       )
-      .get() as { old_json: string };
-    const archived = JSON.parse(dec.old_json) as { versions: { evidence_json: string }[] };
-    expect(archived.versions).toHaveLength(2);
-    for (const v of archived.versions) {
-      expect(String(v.evidence_json)).toContain("ev_ck_many");
-    }
+      .all() as { old_json: string; new_json: string }[];
+    expect(dec).toHaveLength(1);
+    const ended = JSON.parse(dec[0]!.new_json) as { endedVersions: { id: string; valid_to: string }[] };
+    expect(ended.endedVersions).toHaveLength(2);
 
-    // Idempotent: nothing more to compress on a second run.
+    // Idempotent: nothing more to end on a second run.
     const again = await runT3({ evalHook: () => {} });
     expect(again.claimVersionsCompressed).toBe(0);
+    expect(claimHistory("ck_many")).toHaveLength(6);
   });
 
   it("archives idle ephemeral spaces reversibly and leaves the rest", async () => {

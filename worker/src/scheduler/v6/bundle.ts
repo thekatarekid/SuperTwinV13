@@ -157,7 +157,7 @@ export function toBundleEvent(r: PendingRow): BundleEvent {
     kind: r.kind,
     text: r.text,
     actor: r.actor,
-    origin: (r.origin === "backfill" ? "backfill" : r.origin === "archive" ? "archive" : "live") as EventOrigin,
+    origin: (r.origin === "backfill" || r.origin === "archive" || r.origin === "eval" ? r.origin : "live") as EventOrigin,
     ageBand: (r.age_band && r.age_band in BAND_ORDER ? r.age_band : "A") as AgeBand,
     rolesJson: r.roles_json,
     payloadJson: r.payload_json,

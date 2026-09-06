@@ -57,7 +57,6 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "CLM", name: "Extract — claims", n: 13, doc: "V1", pass: "extract" },
   { cat: "TSK", name: "Decide — task extraction", n: 13, doc: "V1", pass: "decide" },
   { cat: "CLS", name: "Decide — closure detection", n: 8, doc: "V1", pass: "decide" },
-  { cat: "CON", name: "Consolidation (Tier 2/3)", n: 8, doc: "V1", pass: "consolidate" },
   { cat: "EXE", name: "Executor (agentic)", n: 6, doc: "V1", pass: "executor" },
   { cat: "AGE", name: "Age-band backfill policy", n: 4, doc: "V1", pass: "scheduler.backfill" },
   // -- GoldenEvals V2 --
@@ -85,9 +84,6 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   { cat: "PCK", name: "The pack (V6 P1)", n: 7, doc: "V2", pass: "pack", authored: true },
   // GoldenEvals V6 Phase 1 §5.6 — the state gate (S3.3). Code-asserted against scheduler/v6.
   { cat: "GATE", name: "The state gate (V6 P1)", n: 10, doc: "V2", pass: "gate", authored: true },
-  // GoldenEvals V6 Phase 1 §5.17 — decide (S3.7, decide.v9). Code-asserted against
-  // brain/decide-pass.ts (+ decide-apply, schedule-policy, closure-check) with canned outputs.
-  { cat: "DEC", name: "Decide — one space (V6 P1)", n: 6, doc: "V2", pass: "decide-space", authored: true },
   // GoldenEvals V6 Phase 1 §5.9 — the critic (S3.5). Re-authored against critic.v5 +
   // the mechanical layer; the V1 CRI-01..08 prose cases were replaced.
   { cat: "CRI", name: "Critic (V6 P1)", n: 4, doc: "V2", pass: "critic", authored: true },
@@ -95,6 +91,14 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // against brain/extract-pass.ts with recorded model outputs.
   { cat: "FACT", name: "Claims — supersede, coexist, provenance (V6 P1)", n: 6, doc: "V2", pass: "claims", authored: true },
   { cat: "TYP", name: "Claims — typed fields (V6 P1)", n: 3, doc: "V2", pass: "claims", authored: true },
+  // GoldenEvals V6 Phase 1 §5.17 — decide (S3.7, decide.v9). Code-asserted against
+  // brain/decide-pass.ts (+ decide-apply, schedule-policy, closure-check) with canned outputs.
+  { cat: "DEC", name: "Decide — one space (V6 P1)", n: 6, doc: "V2", pass: "decide-space", authored: true },
+  // GoldenEvals V6 Phase 1 §5.18 — consolidation on change and idempotence (S3.9).
+  // Re-authored as code cases against consolidation/t2.ts + t3.ts and the harness
+  // commit path; the V1 CON-01..08 prose cases were replaced.
+  { cat: "CON", name: "Consolidation on change (V6 P1)", n: 3, doc: "V2", pass: "consolidate", authored: true },
+  { cat: "IDEM", name: "Idempotence (V6 P1)", n: 1, doc: "V2", pass: "consolidate", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

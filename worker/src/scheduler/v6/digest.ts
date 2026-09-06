@@ -52,6 +52,7 @@ export function planDigest(opts: DigestOptions = {}): DeltaBundle[] {
   ) as PendingRow[];
   const groups = new Map<string, { streamId: string; streamKey: string; week: string; rows: PendingRow[] }>();
   for (const r of rows) {
+    if (r.origin === "eval") continue; // harness rows are never digested (S3.9)
     if (tierOf(r) !== 3) continue;
     if (!r.ts) continue;
     const ms = Date.parse(r.ts);

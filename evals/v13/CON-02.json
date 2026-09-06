@@ -1,25 +1,42 @@
 {
   "id": "CON-02",
   "category": "CON",
-  "title": "Do NOT merge similar-but-distinct spaces",
+  "title": "near-duplicate spaces",
   "pass": "consolidate",
-  "mode": "live",
-  "setup": "`sp_goa_dec` (trip) and `sp_goa_wedding` (Sameer's wedding).",
+  "mode": "code",
+  "setup": {
+    "note": "`sp_goa_dec` and an escaped duplicate with the same label; the duplicate holds an episode and an open task. The Critic left a flag_overlap row for the pair. The pair judge answers merge at 0.95.",
+    "spaces": [
+      { "id": "sp_goa_dec", "label": "goa december vacation" },
+      { "id": "sp_goa_dup", "label": "goa december vacation", "episodes": 1, "tasks": 1 }
+    ],
+    "judge_confidence": 0.95
+  },
   "input_events": [
-    "Tier-2 rolling review."
+    "Flag-triggered T2 review of the pair."
   ],
-  "expected": "no merge; optionally a \"related\" link.",
+  "expected": {
+    "merged": 0,
+    "merge_questions": 1,
+    "question": { "kind": "merge", "status": "open", "options": ["merge", "keep"] },
+    "loser_status": "active",
+    "nothing_moved": true
+  },
   "wrong": [
     {
-      "label": "false-merge",
-      "assert_absent": "HARD FAIL (a wrong merge destroys"
+      "label": "silent-merge",
+      "assert_absent": "a merge applied by the machine at any confidence — the loser archived or its episodes/tasks moved"
+    },
+    {
+      "label": "no-question",
+      "assert_absent": "a merge verdict that raises no open question"
     }
   ],
   "gates": [
     "false_auto_merge"
   ],
   "source": {
-    "doc": "V1",
-    "section": "CON-02 · Do NOT merge similar-but-distinct spaces"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 CON-02 · near-duplicate spaces"
   }
 }

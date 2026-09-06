@@ -35,7 +35,12 @@ import { writeArchive } from "./v6core.js";
  * captured inside the INDEX window but outside UNDERSTAND — kept and
  * searchable, never dispatched to a model until the window is widened.
  */
-export type EventOrigin = "live" | "backfill" | "archive";
+/**
+ * `eval` (V6 S3.9): rows the golden harness seeds. The dispatcher, the history
+ * planner and the digest planner never gate, bundle or stamp them, so a
+ * fixture that ever reaches a running worker's database costs nothing.
+ */
+export type EventOrigin = "live" | "backfill" | "archive" | "eval";
 export type AgeBand = "A" | "B" | "C" | "D";
 
 /** roles {sender, audience[], receiver[], mentions[]} — receiver ⊆ audience. */

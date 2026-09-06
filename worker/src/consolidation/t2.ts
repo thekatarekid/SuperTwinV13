@@ -1,18 +1,28 @@
 // ===========================================================================
-// T2 consolidation (build P1.5, spec §15.2) — flag-triggered + hourly rolling.
+// T2 consolidation (build P1.5, spec §15.2; V6 P1 S3.9 — consolidation ON
+// CHANGE, Product_V6 §11.4 item 8 / §23.6 item 4, P1 §10).
 //
 // Runs within minutes of a `flag_overlap` (the Critic writes t2_review_queue
-// rows — 0102_content_economy); otherwise hourly over spaces touched since the
-// last roll. Scope: merge / split / dormancy, second-look processing, and the
-// periodic unsorted review.
+// rows — 0102_content_economy); otherwise hourly, and ONLY over what changed:
+// the roll first asks the database what was written since the last roll
+// (events, episodes, spaces, claims, tasks, decisions, review queues). Nothing
+// written → no model call, the roll is logged as a no-op (CON-01). Something
+// written → merge/split over the touched spaces, second look over the pending
+// rows. Dormancy and the unsorted review are clock work in code and never a
+// call, so they still run.
 //
 // HARD GATES in code, never in the prompt:
-//   false_auto_merge = 0   only a judge verdict "merge" with confidence ≥ 0.9
-//                          auto-applies; anything less is a suggest_merge
-//                          decision (a proposal — propose-only discipline).
+//   false_auto_merge = 0   a judge verdict "merge" is NEVER applied by the
+//                          machine. Every one becomes a merge QUESTION — a
+//                          suggest_merge decision plus a questions row the
+//                          review surface shows (CON-02: "a merge question,
+//                          never a silent merge"). mergeSpaces() is the
+//                          reversible apply path the user's answer takes.
 //   splits NEVER auto-apply in P1: always suggest_split.
-//   IDEMPOTENT (CON-08): every step checks current state first; a second run
-//                        on identical state changes nothing.
+//   NOTHING DELETED (CON-03): a merge archives the loser and moves its
+//                          objects; an old claim gets an end date (t3.ts).
+//   IDEMPOTENT (IDEM-01):  every step checks current state first; a second
+//                          run on identical state changes nothing.
 //   REVERSIBLE: every mutation is a decisions row carrying the old state; a
 //               merge's row lists every moved id.
 // ===========================================================================
@@ -35,8 +45,25 @@ import {
 } from "../prompts/sweep-review.v1.js";
 import { ATTACH_FLOOR } from "./sweep.js";
 
-/** false_auto_merge = 0: only this floor auto-applies a merge verdict. */
-export const AUTO_MERGE_FLOOR = 0.9;
+/**
+ * Tables whose writes make an hourly roll worth running, with the column
+ * that dates the write. A roll over a database with no row past the last
+ * roll's watermark in any of these is a no-op (CON-01).
+ */
+export const T2_CHANGE_SOURCES: readonly { table: string; column: string; where?: string }[] = [
+  { table: "events", column: "captured_at" },
+  { table: "episodes", column: "COALESCE(updated_at, created_at)" },
+  { table: "spaces", column: "COALESCE(updated_at, created_at)" },
+  // A version the deep pass ended (t3.ts) is bookkeeping, not new knowledge.
+  { table: "claim_versions", column: "COALESCE(updated_at, created_at)", where: "COALESCE(closed_by, '') != 'consolidate:t3'" },
+  { table: "tasks", column: "COALESCE(updated_at, created_at)" },
+  // Consolidation's own bookkeeping (dormancy, unsorted archive, T3) is not
+  // change — otherwise every roll would wake the next one.
+  { table: "decisions", column: "created_at", where: "COALESCE(pass, '') NOT IN ('consolidate', 'code:t3')" },
+  { table: "t2_review_queue", column: "created_at" },
+  { table: "second_look", column: "created_at" },
+  { table: "unsorted", column: "created_at" },
+];
 /** Days without activity before an active space goes dormant. */
 export const DORMANCY_DAYS = 30;
 /** Days an unsorted episode stays open before the periodic review archives it. */
@@ -48,6 +75,7 @@ const PAIR_CAP = 6;
 
 export interface T2Report {
   flagsProcessed: number;
+  /** Always 0 since S3.9 — the machine never applies a merge (kept for the ops surface). */
   merged: number;
   mergeSuggestions: number;
   splitSuggestions: number;
@@ -56,6 +84,12 @@ export interface T2Report {
   secondLookDetached: number;
   unsortedArchived: number;
   runIds: string[];
+  /** True when the hourly roll found nothing written since the last roll and made no call. */
+  rollSkipped: boolean;
+  /** Rows written since the last roll, per T2_CHANGE_SOURCES (0 on a flags-only run). */
+  changedRows: number;
+  /** Judge calls this run made (pair judge + second look). */
+  modelCalls: number;
 }
 
 function emptyReport(): T2Report {
@@ -69,7 +103,33 @@ function emptyReport(): T2Report {
     secondLookDetached: 0,
     unsortedArchived: 0,
     runIds: [],
+    rollSkipped: false,
+    changedRows: 0,
+    modelCalls: 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The lookup before the call (Product_V6 §23.6 item 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rows written since `sinceIso` across T2_CHANGE_SOURCES. Code only, a few
+ * indexed COUNTs — this is what makes the hourly roll skip outright when
+ * nothing changed instead of scanning and then calling.
+ */
+export function changedRowsSince(sinceIso: string): number {
+  const db = getDb();
+  let n = 0;
+  for (const src of T2_CHANGE_SOURCES) {
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM ${src.table} WHERE ${src.column} >= ?${src.where ? ` AND ${src.where}` : ""}`,
+      )
+      .get(sinceIso) as { n: number };
+    n += row.n;
+  }
+  return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +177,7 @@ async function judgePair(
     deps,
   );
   report.runIds.push(...result.runIds);
+  report.modelCalls += 1;
   return result.output;
 }
 
@@ -124,7 +185,12 @@ async function judgePair(
 // Merge — evidenced, reversible, every moved id in the decision row
 // ---------------------------------------------------------------------------
 
-/** Merge `loserId` into `survivorId`. Returns the decision id. */
+/**
+ * Merge `loserId` into `survivorId`. Returns the decision id. NOT called by
+ * the roll since S3.9 — this is the apply path for an ANSWERED merge question
+ * (and the reversal suite's subject). Nothing is deleted: the loser is
+ * archived, its episodes, chapters, tasks and claim refs move.
+ */
 export function mergeSpaces(survivorId: string, loserId: string, runId: string | null, reason: string | null, confidence: number | null): string | null {
   const db = getDb();
   const survivor = db.prepare(`SELECT id, status FROM spaces WHERE id = ?`).get(survivorId) as
@@ -180,6 +246,59 @@ export function mergeSpaces(survivorId: string, loserId: string, runId: string |
   });
 }
 
+/** Deterministic id: one open merge question per unordered pair. */
+export function mergeQuestionId(aId: string, bId: string): string {
+  return `q_merge_${[aId, bId].sort().join("~")}`.slice(0, 120);
+}
+
+/**
+ * Raise the merge question: a `suggest_merge` decision (the review queue's
+ * unit) plus an open `questions` row (the surface the user answers). Both
+ * idempotent — an open question for the pair is not asked twice. Returns true
+ * when a new question was raised.
+ */
+export function askMerge(
+  survivorId: string,
+  loserId: string,
+  runId: string | null,
+  reason: string | null,
+  confidence: number | null,
+): boolean {
+  const db = getDb();
+  const qid = mergeQuestionId(survivorId, loserId);
+  const open = db.prepare(`SELECT 1 FROM questions WHERE id = ? AND status = 'open'`).get(qid);
+  if (open) return false;
+  const labelOf = (id: string): string =>
+    (db.prepare(`SELECT label FROM spaces WHERE id = ?`).get(id) as { label: string } | undefined)?.label ?? id;
+  const ask = db.transaction(() => {
+    db.prepare(
+      `INSERT OR REPLACE INTO questions (id, kind, target_kind, target_id, question, options_json, status)
+       VALUES (?, 'merge', 'space', ?, ?, ?, 'open')`,
+    ).run(
+      qid,
+      loserId,
+      `Are "${labelOf(loserId)}" and "${labelOf(survivorId)}" the same thing? Merge them?`,
+      JSON.stringify([
+        { id: "merge", label: `Merge into "${labelOf(survivorId)}"`, survivor: survivorId, loser: loserId },
+        { id: "keep", label: "Keep both" },
+      ]),
+    );
+    writeDecision({
+      runId,
+      pass: "consolidate",
+      targetKind: "space",
+      targetId: loserId,
+      action: "suggest_merge",
+      old: null,
+      new: { mergeInto: survivorId, questionId: qid },
+      reason,
+      confidence,
+    });
+  });
+  ask();
+  return true;
+}
+
 async function reviewPair(
   aId: string,
   bId: string,
@@ -192,24 +311,8 @@ async function reviewPair(
   if (verdict.verdict === "merge") {
     const survivor = verdict.survivor === bId ? bId : aId;
     const loser = survivor === aId ? bId : aId;
-    if (verdict.confidence >= AUTO_MERGE_FLOOR) {
-      if (mergeSpaces(survivor, loser, runId, verdict.reason, verdict.confidence) !== null) {
-        report.merged += 1;
-      }
-    } else {
-      writeDecision({
-        runId,
-        pass: "consolidate",
-        targetKind: "space",
-        targetId: loser,
-        action: "suggest_merge",
-        old: null,
-        new: { mergeInto: survivor },
-        reason: verdict.reason,
-        confidence: verdict.confidence,
-      });
-      report.mergeSuggestions += 1;
-    }
+    // CON-02: a merge is a QUESTION, whatever the confidence. Never silent.
+    if (askMerge(survivor, loser, runId, verdict.reason, verdict.confidence)) report.mergeSuggestions += 1;
   } else if (verdict.verdict === "split") {
     const target = verdict.splitSpace === bId ? bId : aId;
     writeDecision({
@@ -461,6 +564,7 @@ async function processSecondLook(deps: JsonPassDeps, report: T2Report): Promise<
       deps,
     );
     report.runIds.push(...result.runIds);
+    report.modelCalls += 1;
     if (result.output === undefined) continue; // quarantined — rows stay pending
     const runId = result.runIds.length > 0 ? result.runIds[result.runIds.length - 1] : null;
     const verdictByEpisode = new Map(result.output.attachments.map((a) => [a.episode, a]));
@@ -522,7 +626,13 @@ export interface T2Options {
   now?: Date;
 }
 
-/** One T2 pass. Safe to re-run: identical state in, zero changes out. */
+/**
+ * One T2 pass. Safe to re-run: identical state in, zero changes out.
+ *
+ * The hourly roll is a lookup before it is a call: with no row written since
+ * the last roll it skips the judge entirely (`rollSkipped`, zero model calls)
+ * and only the clock-driven code steps (dormancy, unsorted review) run.
+ */
 export async function runT2(deps: JsonPassDeps = {}, opts: T2Options = {}): Promise<T2Report> {
   const report = emptyReport();
   const now = opts.now ?? new Date();
@@ -531,8 +641,13 @@ export async function runT2(deps: JsonPassDeps = {}, opts: T2Options = {}): Prom
 
   const since =
     appStateGet(T2_LAST_ROLL_KEY) ?? new Date(now.getTime() - 3_600_000).toISOString();
-  await rollingMergeScan(since, deps, report);
-  await processSecondLook(deps, report);
+  report.changedRows = changedRowsSince(since);
+  if (report.changedRows > 0) {
+    await rollingMergeScan(since, deps, report);
+    await processSecondLook(deps, report);
+  } else {
+    report.rollSkipped = true; // nothing written since the last roll — no call (CON-01)
+  }
   applyDormancy(now, report);
   reviewUnsorted(now, report);
   appStateSet(T2_LAST_ROLL_KEY, now.toISOString());

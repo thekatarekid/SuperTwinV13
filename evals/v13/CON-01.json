@@ -1,30 +1,39 @@
 {
   "id": "CON-01",
   "category": "CON",
-  "title": "Merge true duplicates, preserve everything",
+  "title": "consolidation skips when nothing changed",
   "pass": "consolidate",
-  "mode": "live",
-  "setup": "`sp_goa_dec` and \"Goa December vacation\" (escaped duplicate) each with episodes/tasks.",
+  "mode": "code",
+  "setup": {
+    "note": "Two active spaces with the same label (a pair the pair judge WOULD be asked about) and a closed episode. The last hourly roll happened after every write — an hour with no writes.",
+    "spaces": [
+      { "id": "sp_a", "label": "goa trip" },
+      { "id": "sp_b", "label": "goa trip" }
+    ]
+  },
   "input_events": [
-    "Tier-2 review (flagged)."
+    "The hourly roll fires with nothing written since the last roll.",
+    "Then one episode is written into sp_a and the roll fires again."
   ],
-  "expected": "single space; episodes, tasks, evidence unioned; dedup within; merge recorded as reversible decision.",
+  "expected": {
+    "unchanged": { "roll_skipped": true, "model_calls": 0 },
+    "changed": { "model_calls": 1, "merged": 0, "merge_questions": 1 }
+  },
   "wrong": [
     {
-      "label": "merge-loss",
-      "assert_absent": "any episode/task dropped"
+      "label": "clock-driven-call",
+      "assert_absent": "a pair-judge call made on a store with no row written since the last roll"
     },
     {
-      "label": "merge-blindness",
-      "assert_absent": "the 'merge-blindness' failure mode"
+      "label": "silent-merge",
+      "assert_absent": "a merge applied by the machine"
     }
   ],
   "gates": [
-    "merge_recall",
-    "reversibility"
+    "clock_only_call"
   ],
   "source": {
-    "doc": "V1",
-    "section": "CON-01 · Merge true duplicates, preserve everything"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 CON-01 · consolidation skips when nothing changed"
   }
 }

@@ -64,6 +64,8 @@ export const HARD_GATES: readonly Gate[] = [
   { id: "dispatch_over_cap", metric: "dispatch_over_cap = 0", kind: "zero_violations", threshold: null, doc: "V2" },
   // -- V6 P1 (GoldenEvals V6 P1 §3.1, FACT / TYP): contradictions never overwrite.
   { id: "overwrite", metric: "overwrite = 0 (a superseded claim keeps its row, text and history)", kind: "zero_violations", threshold: null, doc: "V2" },
+  // -- V6 P1 (GoldenEvals V6 P1 §3.1, CON / IDEM): a wake-up is a lookup before it is a call.
+  { id: "clock_only_call", metric: "clock_only_call = 0 (no model call on a store with nothing written since the last pass)", kind: "zero_violations", threshold: null, doc: "V2" },
 ];
 
 const HARD_BY_ID = new Map(HARD_GATES.map((g) => [g.id, g]));

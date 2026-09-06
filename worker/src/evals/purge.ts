@@ -24,6 +24,9 @@
 //                       sunrise-402-eval-<ms>@g.us (executors/passes.ts),
 //                       eval-p4@g.us / browser:eval-p4 / bar:eval-usr05
 //                       (executors/p4.ts).
+//   eval-origin         events.origin = 'eval' (V6 S3.9) — the origin only
+//                       the harness writes; every adapter emits live/backfill
+//                       and the consent gate emits archive.
 //
 // DELETION IS THE HONEST CASCADE. It hands the matched ids to
 // library/delete-cascade.ts — the same single-writer path the Library's
@@ -119,6 +122,11 @@ export const EVAL_SIGNATURES: readonly EvalSignature[] = [
     id: "eval-marked-key",
     why: "stream key names the harness (…-eval-…@g.us, browser:eval-p4, bar:eval-usr05)",
     sql: EVAL_MARKED_STREAM_SQL,
+  },
+  {
+    id: "eval-origin",
+    why: "origin = 'eval' — the origin only the golden harness writes (V6 S3.9); no adapter emits it",
+    sql: `(origin = 'eval')`,
   },
 ];
 

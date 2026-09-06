@@ -1,14 +1,22 @@
 // ===========================================================================
-// T3 deep consolidation — build P4.3 (spec §15.3). Opportunistic: runs only
-// when the machine is IDLE and ON POWER, at most once per day, and every step
-// is code — deterministic, idempotent, reversible via decisions rows:
+// T3 deep consolidation — build P4.3 (spec §15.3); V6 P1 S3.9: the deep pass
+// runs when idle, OVER ITEMS TOUCHED SINCE THE LAST DEEP PASS (Product_V6
+// §11.4 item 8), and NOTHING IS DELETED — old claims get an end date (CON-03).
+// Opportunistic: runs only when the machine is IDLE and ON POWER, at most once
+// per day, and every step is code — deterministic, idempotent, reversible via
+// decisions rows:
 //
-//   1. Cross-space linking     active spaces sharing ≥2 claim subjects get a
-//                              space_links row (0107) + a `link` decision.
-//   2. Claim compression       per claim_key, non-active versions beyond the
-//                              newest COMPRESS_KEEP are collapsed into ONE
-//                              decision row (old_json carries the full rows —
-//                              evidence preserved, restorable) and deleted.
+//   1. Cross-space linking     active spaces touched since the last pass that
+//                              share ≥2 claim subjects with another active
+//                              space get a space_links row (0107) + a `link`
+//                              decision.
+//   2. Claim compression       per claim_key touched since the last pass,
+//                              non-active versions beyond the newest
+//                              COMPRESS_KEEP get an END DATE (valid_to = the
+//                              successor's stated_at, closed_by 'consolidate:t3')
+//                              and ONE decision row lists them. The rows stay:
+//                              evidence, history and undo all intact. Nothing
+//                              is deleted.
 //   3. Summary refresh         active spaces whose last episode landed after
 //                              the space was last updated are re-queued for
 //                              Decide (the pass that owns space summaries).
@@ -54,7 +62,10 @@ export const IDLE_MIN_SEC = 300;
 
 export interface T3Report {
   ranAt: string;
+  /** The instant the pass scoped "touched since" from (null = first pass, everything). */
+  since?: string | null;
   crossLinks: number;
+  /** Old claim versions given an end date this run (none deleted — CON-03). */
   claimVersionsCompressed: number;
   summariesQueued: number;
   embedderWoken: boolean;
@@ -66,6 +77,8 @@ export interface T3Options {
   now?: Date;
   /** Called instead of marking the golden set due (production wires the harness). */
   evalHook?: () => void | Promise<void>;
+  /** Scope override: `null` = everything (the "run deep pass now" affordance); default = last run instant. */
+  since?: string | null;
 }
 
 // ---- idle + power detection ------------------------------------------------
@@ -95,8 +108,23 @@ export async function machineIdleAndOnPower(): Promise<boolean> {
 
 // ---- the pass --------------------------------------------------------------
 
-/** 1. Cross-space linking: shared claim subjects between active spaces. */
-function crossLink(db: ReturnType<typeof getDb>): number {
+/** Spaces written (or given an episode / claim ref) since `since`; null = all. */
+function touchedSpaceFilter(since: string | null): { sql: string; params: string[] } {
+  if (since === null) return { sql: "", params: [] };
+  return {
+    sql: ` AND (
+           COALESCE(sa.updated_at, sa.created_at) >= ? OR COALESCE(sb.updated_at, sb.created_at) >= ?
+        OR EXISTS (SELECT 1 FROM episodes e WHERE e.space_id IN (sa.id, sb.id) AND COALESCE(e.updated_at, e.created_at) >= ?)
+        OR EXISTS (SELECT 1 FROM claim_versions cv JOIN space_claims sc ON sc.claim_key = cv.claim_key
+                    WHERE sc.space_id IN (sa.id, sb.id) AND COALESCE(cv.updated_at, cv.created_at) >= ?)
+      )`,
+    params: [since, since, since, since],
+  };
+}
+
+/** 1. Cross-space linking: shared claim subjects between active spaces touched since the last pass. */
+function crossLink(db: ReturnType<typeof getDb>, since: string | null): number {
+  const touched = touchedSpaceFilter(since);
   const pairs = db
     .prepare(
       `SELECT a.space_id AS a_id, b.space_id AS b_id,
@@ -110,10 +138,11 @@ function crossLink(db: ReturnType<typeof getDb>): number {
                             AND b.space_id > a.space_id
          JOIN spaces sa ON sa.id = a.space_id AND sa.status = 'active'
          JOIN spaces sb ON sb.id = b.space_id AND sb.status = 'active'
+        WHERE 1 = 1${touched.sql}
         GROUP BY a.space_id, b.space_id
        HAVING shared >= ?`,
     )
-    .all(CROSS_LINK_MIN_SHARED) as { a_id: string; b_id: string; shared: number; subjects: string }[];
+    .all(...touched.params, CROSS_LINK_MIN_SHARED) as { a_id: string; b_id: string; shared: number; subjects: string }[];
 
   let created = 0;
   const insert = db.prepare(
@@ -137,48 +166,70 @@ function crossLink(db: ReturnType<typeof getDb>): number {
   return created;
 }
 
-/** 2. Claim compression: old superseded versions → one restorable decision. */
-function compressClaims(db: ReturnType<typeof getDb>): number {
+/** Who ends an old claim version in the deep pass. */
+export const T3_CLOSED_BY = "consolidate:t3";
+
+/**
+ * 2. Claim compression: old superseded versions get an END DATE. Nothing is
+ * deleted (CON-03) — the version row, its evidence and its place in the
+ * history all stay; `valid_to` becomes the successor's stated_at (or the
+ * pass instant when there is none), `closed_by` names this pass, and one
+ * decision row per claim_key lists the versions it ended. Scoped to claims
+ * touched since the last pass; a version already ended is never ended twice.
+ */
+function compressClaims(db: ReturnType<typeof getDb>, since: string | null, now: Date): number {
   const keys = db
     .prepare(
-      `SELECT claim_key, active_version_id FROM claims WHERE version_count > ?`,
+      `SELECT claim_key, active_version_id FROM claims
+        WHERE version_count > ?${since === null ? "" : " AND COALESCE(updated_at, created_at) >= ?"}`,
     )
-    .all(COMPRESS_KEEP + 1) as { claim_key: string; active_version_id: string | null }[];
+    .all(...(since === null ? [COMPRESS_KEEP + 1] : [COMPRESS_KEEP + 1, since])) as {
+    claim_key: string;
+    active_version_id: string | null;
+  }[];
 
-  let compressed = 0;
+  let ended = 0;
+  const end = db.prepare(
+    `UPDATE claim_versions
+        SET valid_to = COALESCE(valid_to, ?), closed_by = ?, closed_reason = ?,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id = ? AND closed_by IS NULL`,
+  );
   for (const k of keys) {
-    // Everything that is neither the active version nor among the newest
-    // COMPRESS_KEEP non-active versions.
-    const old = db
+    // Newest first, active excluded; the first COMPRESS_KEEP non-active stay
+    // open-ended, the rest get an end date if they do not have one yet.
+    const versions = db
       .prepare(
-        `SELECT * FROM claim_versions
+        `SELECT id, stated_at, valid_to, closed_by FROM claim_versions
           WHERE claim_key = ? AND id IS NOT ?
-          ORDER BY stated_at DESC, id DESC LIMIT -1 OFFSET ?`,
+          ORDER BY stated_at DESC, id DESC`,
       )
-      .all(k.claim_key, k.active_version_id, COMPRESS_KEEP) as Record<string, unknown>[];
+      .all(k.claim_key, k.active_version_id) as { id: string; stated_at: string; valid_to: string | null; closed_by: string | null }[];
+    const old = versions.slice(COMPRESS_KEEP).filter((v) => v.closed_by === null);
     if (old.length === 0) continue;
-
-    // ONE decision row per claim_key holds the full deleted rows (evidence
-    // included) — the undo payload, and the archive.
+    const endedIds: { id: string; valid_to: string }[] = [];
+    for (const v of old) {
+      // The successor is the newest version stated after this one.
+      const successor = versions.filter((x) => x.stated_at > v.stated_at).sort((a, b) => (a.stated_at < b.stated_at ? -1 : 1))[0];
+      const validTo = v.valid_to ?? successor?.stated_at ?? now.toISOString();
+      const res = end.run(validTo, T3_CLOSED_BY, `compressed: ${versions.length - COMPRESS_KEEP} older version(s) ended, none deleted`, v.id);
+      if (res.changes > 0) endedIds.push({ id: v.id, valid_to: validTo });
+    }
+    if (endedIds.length === 0) continue;
+    // ONE decision row per claim_key names the ended versions — the undo unit.
     writeDecision({
       pass: "code:t3",
       targetKind: "claim",
       targetId: k.claim_key,
       action: "compress",
-      old: { versions: old },
-      new: { archivedVersions: old.length },
-      reason: `compressed ${old.length} old version(s); evidence preserved in this row`,
+      old: { versions: endedIds.map((e) => ({ id: e.id, closed_by: null, valid_to: null })) },
+      new: { endedVersions: endedIds },
+      reason: `${endedIds.length} old version(s) given an end date; rows, evidence and history kept`,
     });
-    const del = db.prepare(`DELETE FROM claim_versions WHERE id = ?`);
-    for (const row of old) del.run(String(row.id));
-    // Keep the header honest.
-    db.prepare(
-      `UPDATE claims SET version_count = version_count - ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE claim_key = ?`,
-    ).run(old.length, k.claim_key);
-    compressed += old.length;
+    db.prepare(`UPDATE claims SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE claim_key = ?`).run(k.claim_key);
+    ended += endedIds.length;
   }
-  return compressed;
+  return ended;
 }
 
 /** 3. Summary refresh: spaces whose episodes outran their summary. */
@@ -236,9 +287,11 @@ function expireEphemeral(db: ReturnType<typeof getDb>, now: Date): number {
 export async function runT3(opts: T3Options = {}): Promise<T3Report> {
   const now = opts.now ?? new Date();
   const db = getDb();
+  // Items touched since the last deep pass; the first pass sees everything.
+  const since = opts.since === undefined ? lastT3RunAt() : opts.since;
 
-  const crossLinks = crossLink(db);
-  const claimVersionsCompressed = compressClaims(db);
+  const crossLinks = crossLink(db, since);
+  const claimVersionsCompressed = compressClaims(db, since, now);
   const summariesQueued = queueSummaryRefresh(db);
 
   let embedderWoken = false;
@@ -261,6 +314,7 @@ export async function runT3(opts: T3Options = {}): Promise<T3Report> {
 
   const report: T3Report = {
     ranAt: now.toISOString(),
+    since,
     crossLinks,
     claimVersionsCompressed,
     summariesQueued,

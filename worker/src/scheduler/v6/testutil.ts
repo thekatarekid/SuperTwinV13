@@ -41,7 +41,7 @@ export const streamIdOf = (source: string, streamKey: string): string => `${sour
 
 export interface MsgOptions {
   actor?: string;
-  origin?: "live" | "backfill";
+  origin?: "live" | "backfill" | "eval";
   source?: string;
   kind?: string;
   extra?: Record<string, unknown>;

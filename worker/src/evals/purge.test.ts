@@ -111,6 +111,20 @@ function seedLeak(): string[] {
       NOW,
     ).id,
   );
+  // V6 S3.9 — a row on a real-looking key, given away only by origin = 'eval'.
+  ids.push(
+    appendEvent(
+      ev({
+        source: "wa",
+        kind: "wa.message",
+        streamKey: "919876543210-1700@g.us",
+        actor: "contact:rohan",
+        origin: "eval",
+        payload: { text: "guys lets lock goa 18-21 dec" },
+      }),
+      NOW,
+    ).id,
+  );
   return ids;
 }
 
@@ -209,7 +223,7 @@ describe("surveyEvalData", () => {
     const survey = surveyEvalData();
     const ids = survey.by_signature.map((s) => s.id).sort();
     expect(ids).toEqual(
-      ["assist-fixture-key", "eval-marked-key", "example-tld-stream", "example-tld-url"].sort(),
+      ["assist-fixture-key", "eval-marked-key", "eval-origin", "example-tld-stream", "example-tld-url"].sort(),
     );
     for (const m of survey.matches) expect(m.signatures.length).toBeGreaterThan(0);
   });

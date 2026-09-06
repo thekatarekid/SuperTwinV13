@@ -4,9 +4,12 @@
 //   sweep:     activation sweep attaches by confidence band (≥0.75 attach,
 //              0.60–0.75 attach + second_look, else leave), claims unsorted,
 //              leaves a marker; a second activation changes nothing (CON-08).
-//   t2:        flag-triggered merge (auto ONLY ≥0.9 — false_auto_merge = 0),
-//              low-confidence = suggestion only; dormancy; unsorted archive;
-//              second-look confirm/detach with the attach decision REVERSED.
+//   t2:        a merge verdict is a merge QUESTION at any confidence (CON-02,
+//              false_auto_merge = 0) — the machine never merges; the answered
+//              question's apply path (mergeSpaces) moves everything and
+//              archives the loser; the hourly roll skips outright when nothing
+//              was written (CON-01); dormancy; unsorted archive; second-look
+//              confirm/detach with the attach decision REVERSED.
 //   reversal:  a merge decision's old_json restores every moved object.
 // ===========================================================================
 
@@ -20,7 +23,8 @@ import { decisionsFor, writeDecision } from "../db/decisions.js";
 import type { Provider, Usage } from "../providers/types.js";
 import type { JsonPassDeps } from "../brain/llm.js";
 import { attachEpisode, sweepSpaceOnActivation, unsweptActiveSpaces } from "./sweep.js";
-import { mergeSpaces, runT2, AUTO_MERGE_FLOOR } from "./t2.js";
+import { mergeSpaces, runT2, mergeQuestionId, T2_LAST_ROLL_KEY } from "./t2.js";
+import { appStateSet } from "../db/ingest.js";
 import { reverseDecision } from "./reversal.js";
 
 let tmpDir: string;
@@ -146,7 +150,7 @@ describe("activation sweep", () => {
 });
 
 describe("t2 consolidation", () => {
-  it("auto-merges a flagged pair ONLY at ≥0.9, moving everything and archiving the loser", async () => {
+  it("a 0.95 merge verdict on a flagged pair is a merge QUESTION, never a silent merge (CON-02)", async () => {
     const db = getDb();
     seedSpace("sp_a", "goa trip");
     seedSpace("sp_b", "goa trip");
@@ -162,34 +166,73 @@ describe("t2 consolidation", () => {
       confidence: 0.95,
       reason: "same trip tracked twice",
     });
-    const report = await runT2(deps(stubProvider([verdict])), { flagsOnly: true });
+    const provider = stubProvider([verdict]);
+    const report = await runT2(deps(provider), { flagsOnly: true });
     expect(report.flagsProcessed).toBe(1);
-    expect(report.merged).toBe(1);
+    expect(report.merged).toBe(0);
+    expect(report.mergeSuggestions).toBe(1);
+    expect(report.modelCalls).toBe(1);
 
-    expect((db.prepare(`SELECT space_id FROM episodes WHERE id = 'ep_b1'`).get() as { space_id: string }).space_id).toBe("sp_a");
-    expect((db.prepare(`SELECT space_id FROM tasks WHERE id = 'tsk_b1'`).get() as { space_id: string }).space_id).toBe("sp_a");
-    expect((db.prepare(`SELECT status FROM spaces WHERE id = 'sp_b'`).get() as { status: string }).status).toBe("archived");
+    // nothing moved, nothing archived
+    expect((db.prepare(`SELECT space_id FROM episodes WHERE id = 'ep_b1'`).get() as { space_id: string }).space_id).toBe("sp_b");
+    expect((db.prepare(`SELECT space_id FROM tasks WHERE id = 'tsk_b1'`).get() as { space_id: string }).space_id).toBe("sp_b");
+    expect((db.prepare(`SELECT status FROM spaces WHERE id = 'sp_b'`).get() as { status: string }).status).toBe("active");
     expect((db.prepare(`SELECT status FROM t2_review_queue WHERE id = 'flag_1'`).get() as { status: string }).status).toBe("done");
 
-    // idempotent: nothing pending, second run changes nothing (CON-08)
+    // the question: a suggest_merge decision AND an open questions row
+    expect(decisionsFor("space", "sp_b").some((d) => d.action === "suggest_merge")).toBe(true);
+    const q = db.prepare(`SELECT kind, target_id, status, question FROM questions WHERE id = ?`).get(mergeQuestionId("sp_a", "sp_b")) as {
+      kind: string; target_id: string; status: string; question: string;
+    };
+    expect(q.kind).toBe("merge");
+    expect(q.status).toBe("open");
+    expect(q.question).toContain("goa trip");
+
+    // idempotent: nothing pending, second run changes nothing (IDEM-01)
     const again = await runT2(deps(stubProvider([verdict])), { flagsOnly: true });
-    expect(again.flagsProcessed + again.merged).toBe(0);
+    expect(again.flagsProcessed + again.merged + again.mergeSuggestions).toBe(0);
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM questions`).get() as { n: number }).n).toBe(1);
   });
 
-  it("records a suggestion and mutates NOTHING below the auto-merge floor (false_auto_merge = 0)", async () => {
+  it("the answered question's apply path (mergeSpaces) moves everything, archives the loser, deletes nothing", () => {
     const db = getDb();
     seedSpace("sp_a", "goa trip");
     seedSpace("sp_b", "goa trip");
-    db.prepare(
-      `INSERT INTO t2_review_queue (id, kind, space_id, overlap_space_id) VALUES ('flag_1', 'flag_overlap', 'sp_a', 'sp_b')`,
-    ).run();
-    const verdict = JSON.stringify({ verdict: "merge", survivor: "sp_a", confidence: 0.7, reason: "maybe" });
-    const report = await runT2(deps(stubProvider([verdict])), { flagsOnly: true });
-    expect(AUTO_MERGE_FLOOR).toBe(0.9);
-    expect(report.merged).toBe(0);
-    expect(report.mergeSuggestions).toBe(1);
-    expect((db.prepare(`SELECT status FROM spaces WHERE id = 'sp_b'`).get() as { status: string }).status).toBe("active");
-    expect(decisionsFor("space", "sp_b").some((d) => d.action === "suggest_merge")).toBe(true);
+    db.prepare(`INSERT INTO episodes (id, space_id, state) VALUES ('ep_b1', 'sp_b', 'open')`).run();
+    db.prepare(`INSERT INTO tasks (id, space_id, title, status) VALUES ('tsk_b1', 'sp_b', 'book cab', 'open')`).run();
+    const before = (db.prepare(`SELECT COUNT(*) AS n FROM spaces`).get() as { n: number }).n;
+    expect(mergeSpaces("sp_a", "sp_b", null, "user answered merge", 1)).not.toBeNull();
+    expect((db.prepare(`SELECT space_id FROM episodes WHERE id = 'ep_b1'`).get() as { space_id: string }).space_id).toBe("sp_a");
+    expect((db.prepare(`SELECT space_id FROM tasks WHERE id = 'tsk_b1'`).get() as { space_id: string }).space_id).toBe("sp_a");
+    expect((db.prepare(`SELECT status FROM spaces WHERE id = 'sp_b'`).get() as { status: string }).status).toBe("archived");
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM spaces`).get() as { n: number }).n).toBe(before);
+    // a second apply is a no-op (the loser is already archived)
+    expect(mergeSpaces("sp_a", "sp_b", null, null, null)).toBeNull();
+  });
+
+  it("the hourly roll skips outright — zero calls — when nothing was written since the last roll (CON-01)", async () => {
+    const db = getDb();
+    seedSpace("sp_a", "goa trip");
+    seedSpace("sp_b", "goa trip"); // a near-duplicate the judge WOULD be asked about
+    // The last roll happened after every write above.
+    appStateSet(T2_LAST_ROLL_KEY, new Date(Date.now() + 1_000).toISOString());
+    const provider = stubProvider([JSON.stringify({ verdict: "merge", survivor: "sp_a", confidence: 0.99 })]);
+    const report = await runT2(deps(provider));
+    expect(report.rollSkipped).toBe(true);
+    expect(report.changedRows).toBe(0);
+    expect(report.modelCalls).toBe(0);
+    expect(provider.calls).toEqual([]);
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM questions`).get() as { n: number }).n).toBe(0);
+
+    // A write since the last roll wakes it: the touched pair is judged once.
+    appStateSet(T2_LAST_ROLL_KEY, new Date(Date.now() - 1_000).toISOString());
+    db.prepare(`INSERT INTO episodes (id, space_id, state) VALUES ('ep_a1', 'sp_a', 'open')`).run();
+    const woke = await runT2(deps(provider));
+    expect(woke.rollSkipped).toBe(false);
+    expect(woke.changedRows).toBeGreaterThan(0);
+    expect(woke.modelCalls).toBe(1);
+    expect(woke.mergeSuggestions).toBe(1);
+    expect(woke.merged).toBe(0);
   });
 
   it("rolls dormancy and the unsorted archive, idempotently, with reversible decisions", async () => {

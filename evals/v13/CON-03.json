@@ -1,29 +1,36 @@
 {
   "id": "CON-03",
   "category": "CON",
-  "title": "Split a contaminated space",
+  "title": "nothing deleted",
   "pass": "consolidate",
-  "mode": "live",
-  "setup": "seeded space \"Falcon project\" containing 4 cricket-plan episodes (from a contamination bug).",
+  "mode": "code",
+  "setup": {
+    "note": "One claim key with 6 versions stated a day apart (the newest active). COMPRESS_KEEP = 3 non-active versions stay open-ended; the deep pass runs over items touched since the batch began.",
+    "versions": 6
+  },
   "input_events": [
-    "Tier-2 review."
+    "The T3 deep pass runs (idle), then runs again."
   ],
-  "expected": "cricket episodes split out (to unsorted or a proposal); Falcon space clean; split recorded, reversible.",
+  "expected": {
+    "ended": 2,
+    "rows_after": 6,
+    "end_date": "the successor version's stated_at",
+    "closed_by": "consolidate:t3",
+    "second_run_ended": 0
+  },
   "wrong": [
     {
-      "label": "split-avoidance",
-      "assert_absent": "the 'split-avoidance' failure mode"
+      "label": "deleted-rows",
+      "assert_absent": "a claim_versions row removed"
     },
     {
-      "label": "over-split",
-      "assert_absent": "Falcon itself shattered"
+      "label": "ended-without-date",
+      "assert_absent": "a version closed by the pass with no valid_to"
     }
   ],
-  "gates": [
-    "contamination_repair"
-  ],
+  "gates": [],
   "source": {
-    "doc": "V1",
-    "section": "CON-03 · Split a contaminated space"
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 CON-03 · nothing deleted"
   }
 }

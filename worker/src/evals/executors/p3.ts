@@ -42,6 +42,7 @@ import { getDb } from "../../db/connection.js";
 import { calendarBlock, fixtureSeed } from "./seeds.js";
 import { fixtureUser } from "./orient.js";
 import { decideExecutor } from "./passes.js";
+import { timCode } from "./cal.js";
 
 import { CdpClient } from "../../browser/cdp.js";
 import { FakeCdpTransport, makeHarnessResponder } from "../../browser/fake-cdp.js";
@@ -494,6 +495,11 @@ export function tim02Code(): ExecutorResult {
 }
 
 export const timeExecutor: Executor = async (ctx) => {
+  // V6 P1 S5.3: the pure clocks (calendar/clocks.ts) are asserted first — a
+  // red here is a code bug and never spends a call; green falls through to
+  // the live judgement as before.
+  const clocks = timCode(ctx.fixture.id);
+  if (clocks && !clocks.ok) return clocks;
   if (ctx.fixture.id === "TIM-02") return tim02Code();
   if (ctx.fixture.id === "TIM-04") return scheduleLive(ctx.fixture);
   return decideExecutor(ctx);

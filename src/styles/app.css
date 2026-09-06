@@ -1387,3 +1387,100 @@ body.aux-window {
 .connect-disclosure code {
   font-size: var(--text-xs);
 }
+
+/* -- Calendar, derived (V6 P1 S5.3, spec §11.9) ----------------------------- */
+
+.calendar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.calendar-layers,
+.calendar-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.calendar .chip.active {
+  background: var(--glass-2-bg);
+  color: var(--ink);
+}
+
+.layer-chip .layer-count {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar .day-heading {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  margin: var(--sp-3) 0 var(--sp-1);
+}
+
+.calendar .day-heading .relative {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+
+.calendar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+
+.calendar-row:hover {
+  background: var(--glass-2-bg);
+}
+
+.calendar-row .layer-glyph {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.calendar-row .when {
+  flex: none;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-row .text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-row .chip.tentative {
+  color: var(--ink-2);
+  border-style: dashed;
+}
+
+.calendar-row .chip.phrase,
+.calendar-row .chip.source-tz {
+  color: var(--ink-2);
+}
+
+.calendar-row .chip.act {
+  cursor: pointer;
+}
+
+.calendar-snooze {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.calendar-note {
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}

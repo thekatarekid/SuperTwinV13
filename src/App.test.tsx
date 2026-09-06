@@ -45,7 +45,11 @@ describe("shell", () => {
     // The stub serves no /api/library/* routes, so the real Library screen
     // (P2.4) lands on its unreachable-worker state.
     await waitFor(() => expect(screen.getByText("worker unreachable")).toBeTruthy());
+    // ⌘2 is the Calendar tab (V6 P1 S5.3); ⌘3 the Timeline. Neither route is
+    // stubbed, so both land on their own unreachable-worker state.
     fireEvent.keyDown(window, { key: "2", metaKey: true });
+    expect(screen.getByLabelText("Calendar")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "3", metaKey: true });
     // The real Timeline screen (P4.1); the stub serves no /api/timeline.
     expect(screen.getByLabelText("Timeline")).toBeTruthy();
     fireEvent.keyDown(window, { key: "1", metaKey: true });

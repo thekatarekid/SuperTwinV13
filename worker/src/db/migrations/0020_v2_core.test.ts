@@ -146,6 +146,8 @@ describe("0020_v2_core applies", () => {
       "0202_v6_fts_projection",
       // V6 P1 S3.7: the per-space card — ADD COLUMNs on spaces only.
       "0203_v6_space_card",
+      // V6 P1 S5.3: the derived calendar — new tables only.
+      "0204_v6_calendar",
     ]);
 
     expect(

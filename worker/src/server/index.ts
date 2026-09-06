@@ -133,6 +133,7 @@ import { handleSurfacesRoute } from "./surfaces-routes.js";
 // World-model reads (P1.1): people / spaces / claims / tone. Same contract —
 // returns false for a path it does not claim.
 import { handleWorldModelRoute } from "./worldmodel-routes.js";
+import { handleCalendarRoute } from "./calendar-routes.js";
 // Review queue + drill-down (P1.7): home, proposals approve/reject, decisions
 // ("why?"), trace reads, dev seed. Same contract.
 import { handleReviewRoute } from "./review-routes.js";
@@ -891,6 +892,14 @@ async function handle(
   // Corrections pipeline (P1.7, spec §14.4): every feedback path lands here.
   if (path.startsWith("/api/corrections")) {
     const handled = await handleCorrectionsRoute(req, res);
+    if (handled) return;
+  }
+
+  // The derived calendar (V6 P1 S5.3): four layers rendered at view time,
+  // tentative → confirmed, recurrence confirms, lead-time plans + snooze,
+  // Settings › Calendar.
+  if (path.startsWith("/api/calendar") || path === "/api/settings/calendar") {
+    const handled = await handleCalendarRoute(req, res);
     if (handled) return;
   }
 

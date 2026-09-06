@@ -35,6 +35,7 @@ import { packExecutor } from "./pck.js";
 import { conExecutor } from "./con.js";
 import { decideSpaceExecutor } from "./dec.js";
 import { claimsExecutor } from "./fact.js";
+import { calendarExecutor } from "./cal.js";
 import {
   browserEvalExecutor,
   decideDispatchExecutor,
@@ -48,6 +49,7 @@ export { gateExecutor } from "./gate.js";
 export { criticExecutor, orientExecutor } from "./orient.js";
 export { criExecutor } from "./cri.js";
 export { conExecutor } from "./con.js";
+export { calendarExecutor, timCode } from "./cal.js";
 export {
   backfillExecutor,
   consolidateExecutor,
@@ -155,4 +157,8 @@ export async function registerProductExecutors(): Promise<void> {
   // the real brain/extract-pass.ts with recorded extract.v6 outputs. Zero
   // model calls.
   registerExecutor("claims", claimsExecutor);
+  // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
+  // circle, the March deadline, recurrence as a rule, layers separable)
+  // against the real calendar/{clocks,store,layers}.ts. Zero model calls.
+  registerExecutor("calendar", calendarExecutor);
 }

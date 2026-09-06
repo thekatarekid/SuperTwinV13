@@ -1,0 +1,32 @@
+{
+  "id": "CAL-04",
+  "category": "CAL",
+  "title": "recurring phrase becomes a rule",
+  "pass": "calendar",
+  "mode": "code",
+  "setup": {
+    "note": "The landlord's reminder on Fri 2026-08-28: \"rent every 1st\".",
+    "message": { "ts": "2026-08-28T04:30:00.000Z", "tz": "Asia/Kolkata" },
+    "phrase": "rent every 1st",
+    "title": "Rent"
+  },
+  "input_events": [
+    "The phrase reaches the calendar.",
+    "The next two occurrences are asked for, before and after the user confirms."
+  ],
+  "expected": {
+    "rule": { "freq": "monthly", "interval": 1, "byMonthDay": 1 },
+    "status_at_birth": "proposed",
+    "question": { "open": true, "kind": "calendar_rule" },
+    "calendar_events_from_rule": 0,
+    "occurrences_visible_before_confirm": 0,
+    "next_occurrences_after_confirm": ["2026-09-01", "2026-10-01"],
+    "model_calls": 0
+  },
+  "wrong": [
+    { "label": "auto-confirmed", "assert_absent": "a recurrence confirmed by the machine — it must always be a suggestion" },
+    { "label": "expanded-to-dates", "assert_absent": "calendar_events rows written for the rule's occurrences" }
+  ],
+  "gates": ["auto_schedule_policy_violation"],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 CAL-04 · recurring phrase becomes a rule" }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "CAL-02",
+  "category": "CAL",
+  "title": "lead time by circle",
+  "pass": "calendar",
+  "mode": "code",
+  "setup": {
+    "note": "Ma is family; her birthday is Sep 20 (yearly). Settings › Calendar: family = plan, 14 days.",
+    "person": { "id": "ent_ma", "name": "Ma", "circle": "family" },
+    "date": { "kind": "birthday", "month": 9, "day": 20 },
+    "settings": { "family": { "mode": "plan", "leadDays": 14 } },
+    "ticks": ["2026-09-05T03:30:00.000Z", "2026-09-06T03:30:00.000Z"],
+    "snooze": "10_days_before"
+  },
+  "input_events": [
+    "The lead-time tick runs on Sep 5, then on Sep 6.",
+    "The user snoozes the nudge: \"10 days before\".",
+    "The planner looks at next year's occurrence."
+  ],
+  "expected": {
+    "plan": { "occurrence": "2026-09-20", "lead_days": 14, "opens_at": "2026-09-06" },
+    "opened_on_sep_5": false,
+    "opened_on_sep_6": true,
+    "space_status_on_open": "active",
+    "snooze_options": [
+      { "id": "next_week", "until": "2026-09-13" },
+      { "id": "10_days_before", "until": "2026-09-10" },
+      { "id": "3_days_before", "until": "2026-09-17" }
+    ],
+    "after_snooze": { "status": "snoozed", "snoozed_until": "2026-09-10", "learned_lead_days": 10 },
+    "next_year": { "occurrence": "2027-09-20", "opens_at": "2027-09-10" },
+    "model_calls": 0
+  },
+  "wrong": [
+    { "label": "early-open", "assert_absent": "a planning space opened before T minus the lead time" },
+    { "label": "snooze-not-learned", "assert_absent": "next year's plan still uses the circle default after the user chose a lead time" },
+    { "label": "wish-planned", "assert_absent": "a space opened for a wish-only circle" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 CAL-02 · lead time by circle" }
+}

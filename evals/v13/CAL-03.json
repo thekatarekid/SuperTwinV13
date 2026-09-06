@@ -1,0 +1,31 @@
+{
+  "id": "CAL-03",
+  "category": "CAL",
+  "title": "a March deadline during backfill",
+  "pass": "calendar",
+  "mode": "code",
+  "setup": {
+    "note": "History backfill. A message from Sat 2026-03-14 14:30 IST says \"book by tomorrow\". Processing time is the fixture clock (Sat 2026-08-29 09:00 IST).",
+    "message": { "ts": "2026-03-14T09:00:00.000Z", "tz": "Asia/Kolkata" },
+    "phrase": "book by tomorrow",
+    "title": "Book the tickets"
+  },
+  "input_events": [
+    "The backfill lane reads the March message in August."
+  ],
+  "expected": {
+    "resolved_date": "2026-03-15",
+    "relation": "past",
+    "disposition": "closure_check",
+    "due_today": false,
+    "event_status": "tentative",
+    "upcoming_layer_contains_it": false,
+    "model_calls": 0
+  },
+  "wrong": [
+    { "label": "due-today", "assert_absent": "the March \"tomorrow\" surfaced as due on the processing day" },
+    { "label": "date-drift", "assert_absent": "\"tomorrow\" resolved against the processing day instead of 2026-03-14" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 CAL-03 · a March deadline during backfill" }
+}

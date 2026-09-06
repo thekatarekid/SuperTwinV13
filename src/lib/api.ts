@@ -1604,3 +1604,88 @@ export const previewDeleteOutsideWindow = (
   request(`/api/capture/sources/${encodeURIComponent(source)}/outside-window/preview`, post());
 export const deleteOutsideWindow = (source: string): Promise<{ report: CascadeReport & { episodes: number } }> =>
   request(`/api/capture/sources/${encodeURIComponent(source)}/outside-window/delete`, post());
+
+// ---------------------------------------------------------------------------
+// Calendar — derived (V6 P1 S5.3; Product_V6_Phase1 §16, Product_V6 §11.9)
+//
+// Four layers over a day range, rendered at VIEW time by the worker: nothing
+// relative is ever stored, so "in 3 days" is recomputed on every read. P1
+// reads no external calendar and writes none back.
+// ---------------------------------------------------------------------------
+
+export const CALENDAR_LAYERS = ["my_events", "my_tasks", "twin_tasks", "people"] as const;
+export type CalendarLayer = (typeof CALENDAR_LAYERS)[number];
+
+export interface CalendarItemView {
+  layer: CalendarLayer;
+  kind: "event" | "rule_occurrence" | "task_due" | "twin_step" | "person_date" | "their_task";
+  refId: string;
+  title: string;
+  at: string;
+  day: string;
+  allDay: boolean;
+  /** tentative | confirmed (events) · the task's status · the plan's status. */
+  status: string | null;
+  /** Computed at paint: "today" · "in 3 days" · "2 days overdue". */
+  relative: string;
+  rendered: string;
+  sourceTz: string | null;
+  spaceId: string | null;
+  spaceLabel: string | null;
+  personEntityId: string | null;
+  personName: string | null;
+  /** The original words, when the item came from a phrase. */
+  phrase: string | null;
+  detail: Record<string, unknown>;
+}
+
+export interface CalendarViewResponse {
+  from: string;
+  to: string;
+  tz: string;
+  layers: CalendarLayer[];
+  items: CalendarItemView[];
+  counts: Record<CalendarLayer, number>;
+}
+
+export const fetchCalendar = (params: {
+  from?: string;
+  to?: string;
+  layers?: readonly CalendarLayer[];
+  tz?: string;
+}): Promise<CalendarViewResponse> => {
+  const q = new URLSearchParams();
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  if (params.layers && params.layers.length > 0) q.set("layers", params.layers.join(","));
+  if (params.tz) q.set("tz", params.tz);
+  const qs = q.toString();
+  return request(`/api/calendar${qs ? `?${qs}` : ""}`);
+};
+
+export const confirmCalendarEvent = (id: string): Promise<{ event: { id: string; status: string } }> =>
+  request(`/api/calendar/events/${encodeURIComponent(id)}/confirm`, post());
+export const cancelCalendarEvent = (id: string): Promise<{ event: { id: string; status: string } }> =>
+  request(`/api/calendar/events/${encodeURIComponent(id)}/cancel`, post());
+
+export type CalendarSnoozeChoice = "next_week" | "10_days_before" | "3_days_before";
+
+export const snoozeCalendarPlan = (
+  planId: string,
+  choice: CalendarSnoozeChoice,
+): Promise<{ plan: { id: string; status: string; snoozed_until: string | null }; learned_lead_days: number }> =>
+  request(`/api/calendar/plans/${encodeURIComponent(planId)}/snooze`, post({ choice }));
+export const stopCalendarPlan = (planId: string): Promise<{ plan: { id: string; status: string } }> =>
+  request(`/api/calendar/plans/${encodeURIComponent(planId)}/stop`, post());
+
+export interface CalendarCirclePolicy {
+  mode: "plan" | "wish";
+  leadDays: number;
+}
+
+export const fetchCalendarSettings = (): Promise<{ circles: Record<string, CalendarCirclePolicy> }> =>
+  request("/api/settings/calendar");
+export const saveCalendarSettings = (
+  circles: Record<string, Partial<CalendarCirclePolicy>>,
+): Promise<{ circles: Record<string, CalendarCirclePolicy> }> =>
+  request("/api/settings/calendar", post({ circles }));

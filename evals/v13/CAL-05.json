@@ -1,0 +1,41 @@
+{
+  "id": "CAL-05",
+  "category": "CAL",
+  "title": "layers separable",
+  "pass": "calendar",
+  "mode": "code",
+  "setup": {
+    "note": "One of everything, all inside 2026-08-30..2026-09-21: the user's own due task, a step the twin scheduled, a task Rohan owns, a confirmed event, a tentative event, and Ma's birthday.",
+    "range": { "from": "2026-08-30", "to": "2026-09-21" },
+    "view_now": "2026-08-29T03:30:00.000Z",
+    "tasks": [
+      { "id": "tsk_mine", "title": "Pay the maintenance", "owner": "self", "due": "2026-09-02" },
+      { "id": "tsk_twin", "title": "Web check-in for the Goa flight", "owner": "self", "status": "scheduled", "schedule": { "mode": "auto", "fire_at": "2026-09-03T01:30:00.000Z" } },
+      { "id": "tsk_rohan", "title": "Rohan pays the villa advance", "owner": "contact:rohan", "due": "2026-09-04" }
+    ],
+    "events": [
+      { "title": "Dinner with Rohan", "starts_at": "2026-09-01T14:30:00.000Z", "status": "confirmed" },
+      { "title": "Movie with Sameer", "phrase": "movie fri 9pm", "message_ts": "2026-08-30T10:00:00.000Z", "status": "tentative" }
+    ],
+    "person": { "id": "ent_ma", "name": "Ma", "circle": "family", "date": { "kind": "birthday", "month": 9, "day": 20 } }
+  },
+  "input_events": [
+    "The Calendar tab renders each layer alone, then all four together."
+  ],
+  "expected": {
+    "my_tasks_alone": ["Pay the maintenance"],
+    "twin_tasks_alone": ["Web check-in for the Goa flight"],
+    "my_events_alone": ["Dinner with Rohan", "Movie with Sameer"],
+    "people_alone": ["Ma's birthday", "Rohan pays the villa advance"],
+    "no_item_in_two_layers": true,
+    "together_equals_union": true,
+    "tentative_marked": true,
+    "model_calls": 0
+  },
+  "wrong": [
+    { "label": "layer-bleed", "assert_absent": "a task in both \"my tasks\" and \"twin's tasks\", or an item that appears in a layer it does not belong to" },
+    { "label": "tentative-unmarked", "assert_absent": "a chat-derived event rendered without its tentative status" }
+  ],
+  "gates": [],
+  "source": { "doc": "V2", "section": "GoldenEvals V6P1 CAL-05 · layers separable" }
+}

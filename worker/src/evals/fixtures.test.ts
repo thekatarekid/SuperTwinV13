@@ -146,10 +146,12 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 223 cases (78 from V1 minus SEG/CRI/CON, 145 from V2 incl. the V6P1 authored categories)", () => {
-    expect(TOTAL_CASES).toBe(223);
+  it("the category table totals 228 cases (78 from V1 minus SEG/CRI/CON, 150 from V2 incl. the V6P1 authored categories)", () => {
+    expect(TOTAL_CASES).toBe(228);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(78);
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(145);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(150);
+    // V6 P1 S5.3 — the derived calendar, five code cases on the `calendar` pass.
+    expect(CATEGORIES.find((c) => c.cat === "CAL")).toMatchObject({ n: 5, pass: "calendar", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "TIER")?.n).toBe(4);
     expect(CATEGORIES.find((c) => c.cat === "DIG")?.n).toBe(2);
     expect(CATEGORIES.some((c) => c.cat === "SEG")).toBe(false);

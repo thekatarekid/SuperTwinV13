@@ -35,6 +35,7 @@ import { startConsolidationJob } from "./consolidation/index.js";
 import { startDispatcher } from "./scheduler/v6/dispatch.js";
 import { startAssistLane } from "./assist/index.js";
 import { startTieringJob } from "./tiers/tiering.js";
+import { startCalendarJob } from "./calendar/job.js";
 import {
   backfillBrowserStreamCategories,
   backfillChatCategories,
@@ -187,6 +188,12 @@ async function main(): Promise<void> {
   // a tiering failure must not stop the worker.
   const tiering = startTieringJob({ log: (line) => console.error(line) });
 
+  // ---- Lead-time planning (V6 P1 S5.3, Product_V6 §11.9.2): a lookup tick
+  // shortly after boot, then hourly — plan rows for people's dates, a space
+  // opened at T minus the circle's lead time, snoozes honoured. Zero model
+  // calls; guarded inside the job.
+  const calendarJob = startCalendarJob({ log: (line) => console.error(line) });
+
   // ---- Category backfill (P1.6, spec §5.1): chat streams get their Cat-1/2
   // by code (user-reply + the cached business tier split); browser streams
   // sync from the P0.8 per-domain verdicts. Zero model calls; every change
@@ -249,6 +256,7 @@ async function main(): Promise<void> {
       spendHeartbeat.stop();
       traceRetention.stop();
       tiering.stop();
+      calendarJob.stop();
       // Every adapter the supervisor started (and the pairing daemon, if any).
       await supervisor.stopAll();
       setSourceSupervisor(null);

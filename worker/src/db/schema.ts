@@ -31,6 +31,7 @@ import { V6_CORE } from "./migrations/0200_v6_core.js";
 import { V6_GRAPH } from "./migrations/0201_v6_graph.js";
 import { V6_FTS_PROJECTION } from "./migrations/0202_v6_fts_projection.js";
 import { V6_SPACE_CARD } from "./migrations/0203_v6_space_card.js";
+import { V6_CALENDAR } from "./migrations/0204_v6_calendar.js";
 
 export interface Migration {
   id: string;
@@ -985,4 +986,9 @@ export const MIGRATIONS: Migration[] = [
   // `summary` / `latest` / `latest_ts`, written by decide.v9. Milestones stay
   // chapters rows (status done|active|todo); plan stays plan_json.
   { id: "0203_v6_space_card", sql: V6_SPACE_CARD },
+  // V6 P1 S5.3 (Build §8 lane C, Product_V6_Phase1 §12/§16): the derived
+  // calendar — chat-derived events (tentative until confirmed), recurrence
+  // rules (always a confirm suggestion), people's dates and their lead-time
+  // plans. Tasks and the twin's steps are read from `tasks`, not copied.
+  { id: "0204_v6_calendar", sql: V6_CALENDAR },
 ];

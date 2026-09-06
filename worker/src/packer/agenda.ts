@@ -8,7 +8,10 @@
 //               roster, capped
 //   calendar    what fires or falls due in the next days across the world
 //               model — task due dates, scheduled fire_at, chapter target
-//               dates (milestones) — capped, nearest first
+//               dates (milestones), the DERIVED calendar's own events (with
+//               their tentative/confirmed status) and the days a person's
+//               date opens its planning space — capped, nearest first
+//               (V6 P1 S5.3; Prompts P-01 `[CALENDAR next 7d]`)
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
@@ -94,11 +97,17 @@ export function renderOpenTask(t: OpenTask): string {
 export interface CalendarItem {
   /** ISO instant or date the item falls on. */
   at: string;
-  kind: "due" | "fires" | "milestone";
+  kind: "due" | "fires" | "milestone" | "event" | "planning";
   refId: string;
   title: string;
   spaceId: string | null;
   spaceLabel: string | null;
+  /**
+   * V6 P1 S5.3: an event's `tentative` / `confirmed`. Rendered in parentheses
+   * so the model can never read a chat-derived plan as firm (CAL-01). Null on
+   * every other kind.
+   */
+  status?: string | null;
 }
 
 export const CALENDAR_MAX = 12;
@@ -153,6 +162,65 @@ export function calendarItems(
     .all(fromDay, toDay + "T99", limit) as { id: string; label: string; target_date: string; space_id: string | null; space_label: string | null }[];
   for (const r of milestones) items.push({ at: r.target_date, kind: "milestone", refId: r.id, title: r.label, spaceId: r.space_id, spaceLabel: r.space_label });
 
+  // V6 P1 S5.3 (Prompts P-01: `[CALENDAR next 7d] … dinner Rohan (tentative) ·
+  // … planning opens: Ma's birthday`). The DERIVED calendar reaches the pack:
+  // chat-derived events carry their status, so a plan the user never confirmed
+  // can never be read as firm; cancelled events are gone.
+  const events = db
+    .prepare(
+      `SELECT ev.id, ev.title, ev.starts_at, ev.status, ev.space_id, sp.label AS space_label
+         FROM calendar_events ev LEFT JOIN spaces sp ON sp.id = ev.space_id
+        WHERE ev.status <> 'cancelled' AND ev.starts_at >= ? AND ev.starts_at <= ?
+        ORDER BY ev.starts_at, ev.id LIMIT ?`,
+    )
+    .all(from, to, limit) as {
+    id: string;
+    title: string;
+    starts_at: string;
+    status: string;
+    space_id: string | null;
+    space_label: string | null;
+  }[];
+  for (const r of events) {
+    items.push({ at: r.starts_at, kind: "event", refId: r.id, title: r.title, spaceId: r.space_id, spaceLabel: r.space_label, status: r.status });
+  }
+
+  // Lead-time planning: the day a person's date opens its planning space. A
+  // snoozed plan opens on the snooze day, not the original one.
+  const planning = db
+    .prepare(
+      `SELECT p.id, COALESCE(p.snoozed_until, p.opens_at) AS opens_on, p.occurrence, p.space_id,
+              sp.label AS space_label, e.canonical AS person_name, d.kind AS date_kind, d.label AS date_label
+         FROM calendar_plans p
+         JOIN person_dates d ON d.id = p.person_date_id
+         JOIN entities e ON e.id = d.person_entity_id
+         LEFT JOIN spaces sp ON sp.id = p.space_id
+        WHERE p.status IN ('pending','opened','snoozed')
+          AND COALESCE(p.snoozed_until, p.opens_at) >= ? AND COALESCE(p.snoozed_until, p.opens_at) <= ?
+        ORDER BY opens_on, p.id LIMIT ?`,
+    )
+    .all(fromDay, toDay, limit) as {
+    id: string;
+    opens_on: string;
+    occurrence: string;
+    space_id: string | null;
+    space_label: string | null;
+    person_name: string | null;
+    date_kind: string;
+    date_label: string | null;
+  }[];
+  for (const r of planning) {
+    const what = r.date_label ?? (r.date_kind === "other" ? "date" : r.date_kind);
+    items.push({
+      at: r.opens_on,
+      kind: "planning",
+      refId: r.id,
+      title: `planning opens: ${r.person_name ?? "someone"}'s ${what} on ${r.occurrence}`,
+      spaceId: r.space_id,
+      spaceLabel: r.space_label,
+    });
+  }
+
   items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.refId < b.refId ? -1 : 1));
   return items.slice(0, limit);
 }
@@ -165,5 +233,8 @@ export function renderCalendarItem(i: CalendarItem): string {
     ? `${i.at.slice(0, 10)} ${WEEKDAYS[new Date(t).getUTCDay()]}${i.at.length > 10 ? ` ${i.at.slice(11, 16)}` : ""}`
     : i.at;
   const space = i.spaceId ? ` → ${i.spaceId}${i.spaceLabel ? ` "${i.spaceLabel}"` : ""}` : "";
-  return `${when} · ${i.kind} · ${i.refId} "${i.title}"${space}`;
+  // A chat-derived event says so: "(tentative)" until the user or a booking
+  // firms it (V6 P1 S5.3, CAL-01).
+  const status = i.status ? ` (${i.status})` : "";
+  return `${when} · ${i.kind} · ${i.refId} "${i.title}"${status}${space}`;
 }

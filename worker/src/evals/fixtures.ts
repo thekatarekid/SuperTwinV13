@@ -108,6 +108,10 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // against brain/commit.ts (two unrelated chats in one bundle → two episodes, never
   // merged); CROSS-N50 / CROSS-DAY are the S4 ship gate.
   { cat: "CROSS", name: "Cross-source batching (V6 P1)", n: 1, doc: "V2", pass: "commit", authored: true },
+  // GoldenEvals V6 Phase 1 — the derived calendar (S5.3). Code-asserted against
+  // calendar/{clocks,store,layers}.ts: tentative until confirmed, lead time by
+  // circle, the March deadline, recurrence as a rule, layers separable.
+  { cat: "CAL", name: "Calendar — derived (V6 P1)", n: 5, doc: "V2", pass: "calendar", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

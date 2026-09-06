@@ -678,7 +678,8 @@ describe("People in the nav (spec §14.1.3)", () => {
 
     fireEvent.keyDown(window, { key: "1", metaKey: true });
     await waitFor(() => expect(screen.getByLabelText("Today")).toBeTruthy());
-    fireEvent.keyDown(window, { key: "4", metaKey: true });
+    // People is ⌘5 since the Calendar tab took the second slot (V6 P1 S5.3).
+    fireEvent.keyDown(window, { key: "5", metaKey: true });
     await waitFor(() => expect(screen.getByLabelText("person Priya")).toBeTruthy());
   });
 

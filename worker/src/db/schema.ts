@@ -37,6 +37,7 @@ import { V6_PEOPLE } from "./migrations/0206_v6_people.js";
 import { V6_BRIEF } from "./migrations/0207_v6_brief.js";
 import { V6_INJECTION } from "./migrations/0208_v6_injection.js";
 import { V6_LIBRARY_PERF } from "./migrations/0209_v6_library_perf.js";
+import { V6_EXTRACT_QUEUE } from "./migrations/0210_v6_extract_queue.js";
 
 export interface Migration {
   id: string;
@@ -1018,4 +1019,9 @@ export const MIGRATIONS: Migration[] = [
   // the Library's per-source counts, day windows, chain walk and disk sums
   // stop full-scanning `events`. No table rewrite.
   { id: "0209_v6_library_perf", sql: V6_LIBRARY_PERF },
+  // V6 P1 E1 (the memory half of the reduce step): `extract_queue` — one row
+  // per episode, the queue the Extract pass never had — plus the
+  // `episodes.extracted_at` watermark and the partial index the backlog
+  // seeder reads. New table, one additive column, two indexes.
+  { id: "0210_v6_extract_queue", sql: V6_EXTRACT_QUEUE },
 ];

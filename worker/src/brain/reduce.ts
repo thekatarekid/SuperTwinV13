@@ -8,10 +8,23 @@
 // module is what runs after their commit. Production caller: the consolidation
 // job (worker/src/consolidation/job.ts) drains the queue every minute — the
 // Gates-phase tick wiring calls runReduce directly on commit.
+//
+// V6 P1 E1 — the Extract half now has a queue of its own. `runReduce`'s
+// per-stream Extract fan-out (one call per stream, every tick) is the shape
+// that kept Extract out of production: a history day across ~15 streams cost
+// ~15 calls. `enqueueCommitted` therefore feeds BOTH queues — Decide's, keyed
+// on the space, and Extract's, keyed on the episode — and `brain/extract-
+// drain.ts` spends against the second on the consolidation cadence, batched
+// and capped. Note the asymmetry: an episode with NO space is skipped by
+// Decide (there is nothing to decide about) but is queued for Extract, because
+// what someone said about themselves is durable whether or not the episode
+// ever found a space. `runReduce` itself stays as the Gates-phase / test entry
+// point and is deliberately not the production path.
 // ===========================================================================
 
 import { enqueueDecide, claimDecideBatch, finishDecide, releaseDecide, type DecidePriority } from "./decide-queue.js";
 import { emptyDecideApplied, runDecidePass, type DecidePassResult } from "./decide-pass.js";
+import { enqueueExtract } from "./extract-queue.js";
 import { runExtractPass, type ExtractPassResult } from "./extract-pass.js";
 import type { JsonPassDeps } from "./llm.js";
 import { getDb } from "../db/connection.js";
@@ -28,7 +41,13 @@ export interface ReduceReport {
   extracted: ExtractPassResult[];
 }
 
-/** Group committed episodes by space and merge them into the Decide queue. */
+/**
+ * Reduce intake: group committed episodes by space into the DECIDE queue, and
+ * queue every committed episode — spaced or not — into the EXTRACT queue.
+ *
+ * Returns the number of spaces enqueued (what the caller has always used); the
+ * extract enqueue is best-effort and never fails the commit that produced it.
+ */
 export function enqueueCommitted(
   episodes: readonly CommittedEpisode[],
   priority: DecidePriority = "live",
@@ -41,6 +60,14 @@ export function enqueueCommitted(
     bySpace.set(ep.spaceId, list);
   }
   for (const [spaceId, ids] of bySpace) enqueueDecide(spaceId, ids, priority);
+  try {
+    enqueueExtract(
+      episodes.map((ep) => ({ episodeId: ep.episodeId, streamId: ep.streamId ?? null })),
+      priority,
+    );
+  } catch (err) {
+    console.error("[brain] extract enqueue failed (continuing):", err);
+  }
   return bySpace.size;
 }
 

@@ -10,6 +10,10 @@
 //                    flag_overlap" — spec §15.2),
 //                  - drain the Decide work queue (spec §6.3.2: the REDUCE
 //                    step's spaces run parallel-across / serial-per space).
+//   every 5 min    - drain the EXTRACT work queue (V6 P1 E1): the memory half
+//                    of the same reduce step — claims, people, tone, feelings.
+//                    A lookup first (empty queue → zero calls, no line), then
+//                    at most two batched calls, then code-only circles.
 //   every hour     - the rolling T2 over what changed since the last roll:
 //                    merge questions / split suggestions / dormancy over
 //                    touched spaces, second-look processing, unsorted review.
@@ -22,6 +26,7 @@
 // ===========================================================================
 
 import { drainDecideQueue } from "../brain/reduce.js";
+import { EXTRACT_INTERVAL_MS, extractDrainLogLine, extractDrainTick } from "../brain/extract-drain.js";
 import type { JsonPassDeps } from "../brain/llm.js";
 import { sweepSpaceOnActivation, unsweptActiveSpaces } from "./sweep.js";
 import { runT2 } from "./t2.js";
@@ -44,6 +49,10 @@ export interface ConsolidationJobOptions {
   idleProbe?: () => Promise<boolean>;
   /** Disable the T3 duty entirely (tests that only exercise T1/T2). */
   t3?: boolean;
+  /** How often the Extract drain may spend (V6 P1 E1). */
+  extractMs?: number;
+  /** Disable the Extract duty entirely (tests that only exercise T1/T2/T3). */
+  extract?: boolean;
 }
 
 export function startConsolidationJob(opts: ConsolidationJobOptions = {}): ConsolidationJobHandle {
@@ -51,7 +60,9 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
   const deps = opts.deps ?? {};
   const intervalMs = opts.intervalMs ?? 60_000;
   const hourlyMs = opts.hourlyMs ?? 3_600_000;
+  const extractMs = opts.extractMs ?? EXTRACT_INTERVAL_MS;
   let lastRollAt = 0;
+  let lastExtractAt = 0;
   let running = false;
 
   const tick = async (): Promise<void> => {
@@ -101,6 +112,23 @@ export function startConsolidationJob(opts: ConsolidationJobOptions = {}): Conso
         }
       } catch (err) {
         log(`[consolidation] decide drain failed: ${(err as Error).message}`);
+      }
+
+      // V6 P1 E1: the memory half of the reduce step. Paced on its own clock
+      // (default every 5 minutes) rather than the minute tick, because this
+      // duty is the one that spends per episode: two batched calls per drain
+      // is 24 an hour, ceiling included. Empty queue → zero calls, no line.
+      if (opts.extract !== false) {
+        try {
+          if (Date.now() - lastExtractAt >= extractMs) {
+            lastExtractAt = Date.now();
+            const report = await extractDrainTick({ deps, log });
+            const line = extractDrainLogLine(report);
+            if (line !== null) log(line);
+          }
+        } catch (err) {
+          log(`[consolidation] extract drain failed: ${(err as Error).message}`);
+        }
       }
 
       // S5.1: the weekly unsorted review — a lookup before it is a call. Due

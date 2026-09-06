@@ -160,6 +160,9 @@ describe("0020_v2_core applies", () => {
       // module-scope CREATE TABLE inside safety/injection.ts.
       "0208_v6_injection",
       "0209_v6_library_perf",
+      // V6 P1 E1: `extract_queue` (new table), the `episodes.extracted_at`
+      // watermark (one ADD COLUMN) and its partial index. Reshapes nothing.
+      "0210_v6_extract_queue",
     ]);
 
     expect(

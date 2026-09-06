@@ -253,7 +253,15 @@ export function App(): JSX.Element {
             </button>
           ))}
         </nav>
-        <FreshnessChip />
+        {/* V6 P1 S6d L6: NOT over the Library. The chip is a cross-source
+            roll-up — its range is the union of every source's and its counter
+            is their sum — so on a two-source machine it printed a range no
+            source had ("2010 → 32 min ago") next to a backlog no source
+            carried ("11,466 events left"). The Library is per source
+            (Product_V6 §7.2), and each sub-tab now states its own source's
+            connection, window, coverage and backlog inside its own panel. One
+            aggregate chip floating above them contradicts all four. */}
+        {tab !== "library" && <FreshnessChip />}
       </div>
 
       <AccessibilityOnboarding />

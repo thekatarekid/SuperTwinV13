@@ -265,8 +265,19 @@ export interface ScreenStatus {
   state: string;
   paused?: boolean;
   pausedApps?: string[];
-  /** False while macOS Accessibility permission is missing. */
+  /**
+   * False while macOS Accessibility permission is missing. Since S6d this is
+   * present on EVERY answer, including the one where the sidecar is not
+   * running — without it the panel could not tell "blocked" from "empty".
+   */
   permission?: boolean;
+  /** Why, when `permission` is false: denied · binary-missing · timeout … */
+  permissionReason?: string;
+  permissionDetail?: string;
+  /** True once the screen source has a connected consent row (gate 1). */
+  consent?: boolean;
+  /** ISO instant of the explicit "Record from now on" (gate 3), or null. */
+  recordFrom?: string | null;
   drops?: Record<string, number>;
   snapshots?: number;
   /** Deep link into System Settings › Privacy & Security › Accessibility. */
@@ -277,6 +288,37 @@ export const fetchScreenStatus = (): Promise<ScreenStatus> => request("/api/scre
 
 export const pauseScreen = (paused: boolean): Promise<ScreenStatus> =>
   request("/api/screen/pause", post({ paused }));
+
+/** The Accessibility trust state. Reports; never asks. Cheap enough to poll. */
+export interface ScreenPermission {
+  granted: boolean;
+  reason: string;
+  detail?: string;
+  /** True when the answer came from a run that actually asked macOS. */
+  prompted?: boolean;
+  settingsUrl: string;
+}
+
+export const fetchScreenPermission = (fresh = false): Promise<ScreenPermission> =>
+  request(`/api/screen/permission${fresh ? "?fresh=1" : ""}`);
+
+/**
+ * ASK macOS for Accessibility (S6d/L4). This is the call that makes SuperTwin
+ * appear in System Settings › Privacy & Security › Accessibility — before it,
+ * the pane the deep link opens has no SuperTwin row and the permission simply
+ * cannot be granted. `granted: false` with `prompted: true` is the normal
+ * first answer: the row now exists, the user has yet to tick it.
+ */
+export const requestScreenPermission = (): Promise<ScreenPermission & { consent?: boolean }> =>
+  request("/api/screen/request-permission", post({}));
+
+/** Gate 3 — the explicit "Record from now on"; the sidecar spawns on this. */
+export const startScreenRecording = (): Promise<{
+  ok?: boolean;
+  error?: string;
+  recordFrom?: string;
+  running?: boolean;
+}> => request("/api/screen/record", post({}));
 
 // ---- Freshness + Library (P2.4, spec §5.4 / §14.3.2) -----------------------
 
@@ -315,6 +357,58 @@ export interface FreshnessOverview {
 }
 
 export const fetchFreshness = (): Promise<FreshnessOverview> => request("/api/freshness");
+
+// ---- Per-source status (V6 P1 S6d L6; Product_V6 §7.2) ---------------------
+//
+// The Library shows status PER SOURCE, inside that sub-tab's own panel. The
+// cross-source overview above is a SUM — it prints a range no single source
+// has and a backlog no single source carries — so a panel never reads it.
+
+/** `not_connected` = no consent row at all; the rest are the row's own state. */
+export type SourceConnectionState =
+  | "connected"
+  | "paused"
+  | "disconnected"
+  | "revoked"
+  | "not_connected";
+
+export interface SourceWindows {
+  index_all: boolean;
+  index_from: string | null;
+  understand_from: string | null;
+}
+
+export interface SourceStatusView {
+  source_id: string;
+  connection: { state: SourceConnectionState; capturing: boolean; granted_at: string | null };
+  windows: SourceWindows | null;
+  /** The windows as one phrase — "index everything · understand from 7 Aug 2026". */
+  window_label: string;
+  coverage: {
+    captured_from: string | null;
+    captured_to: string | null;
+    understood_from: string | null;
+    understood_to: string | null;
+    /** THIS source's own "Knows you: X → Y". */
+    label: string | null;
+  };
+  progress: {
+    status: FreshnessStatus;
+    status_label: string;
+    detail: string;
+    event_count: number;
+    understood_count: number;
+    understood_percent: number;
+    pending_live_count: number;
+    /** THIS source's own backlog — never a sum. */
+    pending_backfill_count: number;
+    backfill_complete: boolean;
+    lag_minutes: number | null;
+  };
+}
+
+export const fetchSourceStatusView = (source: string): Promise<SourceStatusView> =>
+  request(`/api/library/source-status?source=${encodeURIComponent(source)}`);
 
 export interface ChatStreamRow {
   id: string;
@@ -399,6 +493,10 @@ export interface BrowserConsentView {
   index_from: string | null;
   understand_from: string | null;
   profiles: string[];
+  /** Visits the connect card measured per chosen profile, keyed by history path. */
+  counts?: Record<string, number>;
+  /** The card text stored verbatim at connect, when there is one. */
+  card_text?: string | null;
 }
 
 export interface BrowserDiscovery {
@@ -428,13 +526,61 @@ export interface BrowserConnectRequest {
   understand_from?: string | null;
   /** History paths to import; empty = every profile found. */
   profiles?: string[];
+  /** Visits the card measured per chosen profile, keyed by history path (S6d L5). */
+  counts?: Record<string, number>;
+  /** The card's own words, stored verbatim with the consent row. */
+  card_text?: string;
+}
+
+/** One profile's place in the history import (worker adapters/browser/progress.ts). */
+export interface BrowserProfileImport {
+  history_path: string;
+  browser: string;
+  browser_name: string;
+  profile: string;
+  label: string | null;
+  state: "pending" | "reading" | "done" | "failed";
+  visits_read: number;
+  events_written: number;
+  expected_visits: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export interface BrowserImportProgress {
+  /** False when no watcher has reported in this worker process. */
+  known: boolean;
+  reading: boolean;
+  first_pass_done: boolean;
+  profiles: BrowserProfileImport[];
+  visits_read: number;
+  events_written: number;
+  expected_visits: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface BrowserImportView {
+  source: "browser";
+  connected: boolean;
+  running: boolean;
+  progress: BrowserImportProgress;
+}
+
+export interface BrowserConnectResult {
+  ok: boolean;
+  consent: BrowserConsentView | null;
+  started: boolean;
+  running: boolean;
+  progress?: BrowserImportProgress;
 }
 
 export const fetchBrowserDiscovery = (): Promise<BrowserDiscovery> => request("/api/sources/browser/discover");
 export const fetchBrowserSourceStatus = (): Promise<BrowserSourceStatus> => request("/api/sources/browser/status");
-export const connectBrowserSource = (
-  body: BrowserConnectRequest = {},
-): Promise<{ ok: boolean; consent: BrowserConsentView | null; started: boolean; running: boolean }> =>
+/** The cheap live read: the watcher's ledger, no aggregate over the event log. */
+export const fetchBrowserImport = (): Promise<BrowserImportView> => request("/api/sources/browser/import");
+export const connectBrowserSource = (body: BrowserConnectRequest = {}): Promise<BrowserConnectResult> =>
   request("/api/sources/browser/connect", post(body));
 
 export interface ScreenSessionCard {

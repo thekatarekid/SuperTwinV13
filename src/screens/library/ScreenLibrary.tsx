@@ -8,12 +8,22 @@
 // lives: pause capture, and the honest cascading delete (deleting a session
 // removes its captures AND everything the twin derived from them).
 //
-// Not connected is the Accessibility permission flow, not an empty list.
+// Not connected is the Accessibility permission flow, not an empty list — and
+// since S6d/L4 that flow can actually be completed: the three gates (consent →
+// the Accessibility ASK → "Record from now on") live in ScreenGate. Before it,
+// nothing in the app ever asked macOS for the permission, so SuperTwin was not
+// in the Accessibility list at all and screen capture could never start.
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 
-import { LoadFailure } from "../../components/LoadState";
+import {
+  LoadFailure,
+  PANE_FRESH_MS,
+  PanelSkeleton,
+  RefreshingHint,
+  useLoad,
+} from "../../components/LoadState";
 import {
   deleteScreenSpan,
   describeWorkerError,
@@ -23,10 +33,10 @@ import {
   type LibraryScreen,
   type ScreenAppGroup,
   type ScreenSessionCard,
-  type ScreenStatus,
 } from "../../lib/api";
-import { openExternal } from "../../lib/tauri";
 import { ConnectCard, hhmm, minutesLabel } from "./shared";
+import { ScreenGate, ScreenGateNotice, screenGateStep } from "./ScreenGate";
+import { SourcePanelStatus } from "./SourceStatus";
 
 /** Roll flat session cards up by app when the worker predates the grouping. */
 function groupByApp(data: LibraryScreen): ScreenAppGroup[] {
@@ -56,35 +66,34 @@ function groupByApp(data: LibraryScreen): ScreenAppGroup[] {
 }
 
 export function ScreenLibrary(): JSX.Element {
-  const [data, setData] = useState<LibraryScreen | null>(null);
-  const [status, setStatus] = useState<ScreenStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ScreenSessionCard | null>(null);
   const [deleteSummary, setDeleteSummary] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   // Action failures keep their own line: the library on screen is still valid.
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await fetchLibraryScreen());
-      setError(null);
-    } catch (err) {
-      setError(describeWorkerError(err));
-    }
-    try {
-      setStatus(await fetchScreenStatus());
-    } catch {
-      setStatus(null); // the sidecar may simply not be installed
-    }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  // One read for the pane, cached under one key (L2): the day's sessions and
+  // the sidecar's state are asked for TOGETHER instead of one after the other —
+  // they don't depend on each other, and serialising them doubled the wait on a
+  // busy worker (5.4 s + 4.6 s measured). The sidecar's own failure is not the
+  // pane's failure: it may simply not be installed.
+  const gate = useLoad(
+    async () => {
+      const [lib, status] = await Promise.allSettled([fetchLibraryScreen(), fetchScreenStatus()]);
+      if (lib.status === "rejected") throw lib.reason;
+      return {
+        data: lib.value,
+        status: status.status === "fulfilled" ? status.value : null,
+      };
+    },
+    [],
+    { cacheKey: "library.screen", freshFor: PANE_FRESH_MS },
+  );
+  const refresh = gate.retry;
+  const data = gate.data?.data ?? null;
+  const status = gate.data?.status ?? null;
+  const error = gate.error;
+  const loading = gate.loading;
 
   async function runDelete(session: ScreenSessionCard): Promise<void> {
     try {
@@ -103,6 +112,12 @@ export function ScreenLibrary(): JSX.Element {
       setActionError(`delete failed — ${describeWorkerError(err)}`);
     }
   }
+
+  // Unknown is not empty. Until the worker answers, this pane knows neither
+  // whether the sidecar has the Accessibility permission nor whether anything
+  // was captured — so it must not paint "nothing read off your screen yet",
+  // which is what it used to do for the whole 5 s the read took.
+  if (gate.unknown) return <PanelSkeleton what="Screen" rows={4} />;
 
   if (error && !data) {
     return (
@@ -125,22 +140,13 @@ export function ScreenLibrary(): JSX.Element {
     !!status && (status.state === "need_permission" || status.permission === false);
   const captured = (data?.event_count ?? data?.sessions.length ?? 0) > 0;
 
-  if (needsPermission && !captured) {
-    return (
-      <ConnectCard
-        glyph="⬡"
-        title="Grant screen understanding"
-        body="SuperTwin reads what's on your screen through the macOS Accessibility API — no screenshots, no recording. It needs the Accessibility permission before it can capture anything."
-        actions={[
-          {
-            label: "Open System Settings",
-            onClick: () => void openExternal(status.settingsUrl),
-          },
-          { label: "Check again", onClick: () => void refresh() },
-        ]}
-        note="System Settings › Privacy & Security › Accessibility — tick SuperTwin, then capture starts on its own."
-      />
-    );
+  // Nothing captured AND a gate still open: the ladder IS the panel. The old
+  // card here offered one "Open System Settings" button, which opened a pane
+  // with no SuperTwin row in it (nothing had asked) and left the consent row
+  // and the record arm with no interface at all — three gates, none of them
+  // reachable. ScreenGate does the outstanding step.
+  if (!captured && screenGateStep(status) !== "capturing") {
+    return <ScreenGate status={status} onChanged={refresh} />;
   }
 
   if (!captured) {
@@ -148,16 +154,7 @@ export function ScreenLibrary(): JSX.Element {
       <ConnectCard
         glyph="⬡"
         title="Nothing read off your screen yet"
-        body={
-          status?.running
-            ? "Screen capture is on and waiting — the first app you work in shows up here as a session."
-            : "The screen watcher isn't running, so nothing is being read. It starts with the app; if it stays off, check the Accessibility permission."
-        }
-        actions={
-          status
-            ? [{ label: "Open System Settings", onClick: () => void openExternal(status.settingsUrl) }]
-            : undefined
-        }
+        body="Screen capture is on and waiting — the first app you work in shows up here as a session."
         note="privacy: pause any time · blocklist an app · delete a span (honest delete)"
       />
     );
@@ -170,6 +167,7 @@ export function ScreenLibrary(): JSX.Element {
     <section className="card" aria-label="Screen">
       <header className="inbox-bar">
         <h2>Screen · {data?.day}</h2>
+        <RefreshingHint active={gate.refreshing} />
         <span className="inbox-bar-spacer" />
         <button
           type="button"
@@ -185,19 +183,28 @@ export function ScreenLibrary(): JSX.Element {
         </button>
       </header>
 
-      {needsPermission && status && (
-        <p className="source-notice" role="status">
-          Capture is blocked: the macOS Accessibility permission is off, so nothing new is being
-          read. What's below is what was captured before.{" "}
-          <button
-            type="button"
-            className="linklike"
-            onClick={() => void openExternal(status.settingsUrl)}
-          >
-            Open System Settings
-          </button>
-        </p>
-      )}
+      {/* L6: the screen's OWN status. Screen is live-only (Product_V6_Phase1
+          §4: "Windows: live only"), so it has no history floors to state —
+          the window phrase says that instead of borrowing another source's. */}
+      <SourcePanelStatus
+        source="screen"
+        title="Screen"
+        connection={
+          needsPermission
+            ? "capture blocked — Accessibility off"
+            : data?.paused
+              ? "capture paused"
+              : status?.running
+                ? "capturing live"
+                : null
+        }
+        window="live only · no history window"
+      />
+
+      {/* Captures on disk are the user's own history and stay visible; the
+          open gate rides on top as one line whose button does the outstanding
+          step rather than deep-linking to a pane that cannot help yet. */}
+      <ScreenGateNotice status={status} onChanged={refresh} />
 
       <div className="day-strip" aria-label="day strip">
         {(data?.hours ?? []).map((n, h) => (

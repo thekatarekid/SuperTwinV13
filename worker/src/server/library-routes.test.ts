@@ -333,3 +333,41 @@ describe("POST /api/library/screen/delete", () => {
     expect((await post("/api/library/screen/delete", {})).status).toBe(400);
   });
 });
+
+// V6 P1 S6d L6 — the read a Library sub-tab makes about its OWN source. The
+// per-source arithmetic lives in src/library/source-status.test.ts; this pins
+// the wire contract: the route is keyed by source and refuses without one.
+describe("GET /api/library/source-status", () => {
+  it("answers for ONE source, with that source's own coverage and backlog", async () => {
+    const r = appendEvents(
+      [
+        env("whatsapp", "goa@g.us", "2026-08-28T11:58:00.000Z", "hi"),
+        env("browser", "example.com", "2020-01-05T09:00:00.000Z", "old visit"),
+      ],
+      NOW,
+    );
+    getDb().prepare(`UPDATE events SET dispatched_at = ts WHERE id = ?`).run(r.ids[0]);
+
+    const { status, body } = await get("/api/library/source-status?source=whatsapp");
+    expect(status).toBe(200);
+    const s = body as {
+      source_id: string;
+      window_label: string;
+      coverage: { label: string | null };
+      progress: { event_count: number };
+      connection: { state: string };
+    };
+    expect(s.source_id).toBe("whatsapp");
+    // WhatsApp's own count and range — browser's 2020 row is not in either.
+    expect(s.progress.event_count).toBe(1);
+    expect(s.coverage.label).toContain("Aug 2026");
+    expect(s.coverage.label).not.toContain("2020");
+    // No consent row in this fixture: not connected, and no window claimed.
+    expect(s.connection.state).toBe("not_connected");
+    expect(s.window_label).toBe("no window — not connected");
+  });
+
+  it("400s without a source — there is no such thing as everyone's status here", async () => {
+    expect((await get("/api/library/source-status")).status).toBe(400);
+  });
+});

@@ -52,6 +52,18 @@ export function FreshnessChip(): JSX.Element | null {
     .map((s) => `${s.source_id}: ${s.label} — ${s.detail}`)
     .join("\n");
 
+  // L6 — SAY THAT IT IS A ROLL-UP. This chip's range is the union of every
+  // source's and its counter is their sum, so with two sources importing it
+  // printed "importing history — 11,466 events left" as if that were one
+  // thing; it was 6,649 browser + 4,359 WhatsApp, and the range beside it
+  // ("2010 → 32 min ago") belonged to neither source whole. Per-source status
+  // is the Library's job (each sub-tab owns its own panel); what stays global
+  // is honest only if it admits how many sources it is adding up.
+  const contributing = data.sources.filter(
+    (s) => s.status === data.status && (s.pending_backfill_count > 0 || s.pending_live_count > 0),
+  ).length;
+  const across = contributing > 1 ? ` across ${contributing} sources` : "";
+
   return (
     <span
       className={`chip freshness-chip freshness-${data.status}${lagging ? " lagging" : ""}`}
@@ -63,10 +75,16 @@ export function FreshnessChip(): JSX.Element | null {
           {/* Dropped first when the header runs out of room: the state is the
               part the user needs, the identity line is the nice-to-have. */}
           <span className="freshness-knows">{data.label} · </span>
-          <span className="freshness-state">{data.status_label}</span>
+          <span className="freshness-state">
+            {data.status_label}
+            {across}
+          </span>
         </>
       ) : (
-        <span className="freshness-state">{data.status_label}</span>
+        <span className="freshness-state">
+          {data.status_label}
+          {across}
+        </span>
       )}
     </span>
   );

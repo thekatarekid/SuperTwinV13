@@ -49,6 +49,35 @@ function stubLibrary(): WorkerStub {
     lag_minutes: null,
   });
 
+  // L6: every source panel reads its OWN status strip. The pathname-keyed stub
+  // serves one body to all three sources — the per-source split is asserted in
+  // src/library-source-status.test.tsx, which stubs by query param.
+  stub.routes.set("/api/library/source-status", {
+    source_id: "whatsapp",
+    connection: { state: "connected", capturing: true, granted_at: "2026-08-01T00:00:00.000Z" },
+    windows: { index_all: true, index_from: null, understand_from: "2026-08-01T00:00:00.000Z" },
+    window_label: "index everything · understand from 1 Aug 2026",
+    coverage: {
+      captured_from: "2024-01-05T00:00:00.000Z",
+      captured_to: "2026-08-28T11:58:00.000Z",
+      understood_from: "2024-01-05T00:00:00.000Z",
+      understood_to: "2026-08-28T11:58:00.000Z",
+      label: "Knows you: 2024 → 2 min ago",
+    },
+    progress: {
+      status: "up_to_date",
+      status_label: "up to date",
+      detail: "capturing live ✓ · understanding: caught up",
+      event_count: 10,
+      understood_count: 10,
+      understood_percent: 100,
+      pending_live_count: 0,
+      pending_backfill_count: 0,
+      backfill_complete: true,
+      lag_minutes: null,
+    },
+  });
+
   // ---- WhatsApp: linked, imported, two chats -------------------------------
   stub.routes.set("/api/sources/whatsapp/status", {
     state: "online",
@@ -507,8 +536,9 @@ describe("Library › Browser", () => {
     render(<Library />);
     await openSubtab("Browser");
     const sect = await screen.findByLabelText("Browser");
+    // L5: the panel paints the frame it can — the chain list arrives after.
+    const chain = await within(sect).findByLabelText("tab chain chain-1");
     expect(sect.textContent).toContain("airbnb.com ×7");
-    const chain = within(sect).getByLabelText("tab chain chain-1");
     expect(chain.textContent).toContain("anjuna villas");
     expect(chain.textContent).toContain("Villa Sol");
     expect(chain.textContent).toContain("→ Goa trip with Rohan");
@@ -639,8 +669,14 @@ describe("Library › Browser", () => {
     render(<Library />);
     await openSubtab("Browser");
     const sect = await screen.findByLabelText("Browser");
-    expect(sect.textContent).toContain("connected — reading your history");
-    expect(sect.textContent).toContain("understand off");
+    // L5: the panel no longer claims "reading your history" as a default. With
+    // nothing imported and no import running, it says what is actually true.
+    await waitFor(() => expect(sect.textContent).toContain("nothing imported from these browsers"));
+    // L6: the window in force moved out of the header line and into the
+    // source's own status strip, next to its own coverage and its own backlog.
+    expect(within(sect).getByLabelText("browser status").textContent).toContain(
+      "index everything · understand from 1 Aug 2026",
+    );
     expect(screen.queryByLabelText("connect Connect your browsing")).toBeNull();
     expect(stub.calls.some((c) => c.path === "/api/sources/browser/discover")).toBe(false);
   });

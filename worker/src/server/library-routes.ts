@@ -31,6 +31,7 @@ import { pausedKey } from "../db/ingest.js";
 import { freshnessOverview } from "../freshness/index.js";
 import { deleteScreenSpan } from "../library/delete-cascade.js";
 import { setStreamCapturePaused } from "../library/pause.js";
+import { sourceStatus } from "../library/source-status.js";
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -70,37 +71,126 @@ interface ChatRow {
 
 /**
  * One row per stream of a source, ordered newest-first — the conversation list
- * of the Library's chat inbox. The two correlated sub-selects pull the newest
- * event's text/kind for the preview line; a media-only message has no text, so
- * the UI turns `last_kind` into a "📷 Photo"-style label rather than a blank.
+ * of the Library's chat inbox.
+ *
+ * V6 P1 S6d L1. This used to be ONE statement: a LEFT JOIN of `streams` against
+ * every event of the source, grouped per stream, carrying three correlated
+ * sub-selects for the preview line. On the user's real home that answered in
+ * 14.0 seconds. The join is not the problem — the ROW FETCHES are: `knows_from`
+ * reads `dispatched_at` off the table for every event of every stream, and the
+ * three sub-selects each re-seek the same last row.
+ *
+ * Split into three passes, each of which the indexes can serve without touching
+ * a table row until the very end:
+ *
+ *   1. `streams` metadata for the source (a few hundred rows, indexed).
+ *   2. per-stream MAX(ts) / COUNT / today, index-only over (stream_id, ts).
+ *   3. per-stream MIN(ts) among DISPATCHED events, index-only over the partial
+ *      (stream_id, ts) WHERE dispatched_at IS NOT NULL index (0209).
+ *
+ * The preview line is then one seek per RETURNED stream — the newest row read
+ * once instead of three times, and only for the page the caller asked for. A
+ * media-only message has no text, so the UI turns `last_kind` into a
+ * "📷 Photo"-style label rather than a blank.
  */
-function libraryChats(sourceId: string): ChatRow[] {
-  return getDb()
+function libraryChats(sourceId: string, limit?: number, offset = 0): ChatRow[] {
+  const db = getDb();
+  const meta = db
     .prepare(
-      `SELECT s.id, s.label, s.external_key, s.stream_kind, s.tier, s.category,
-              s.capture_paused,
-              MIN(CASE WHEN e.dispatched_at IS NOT NULL THEN e.ts END) AS knows_from,
-              MAX(e.ts) AS last_ts,
-              SUM(CASE WHEN e.ts >= strftime('%Y-%m-%dT00:00:00.000Z','now') THEN 1 ELSE 0 END)
-                AS today_count,
-              COUNT(e.id) AS event_count,
-              (SELECT e2.text FROM events e2 WHERE e2.stream_id = s.id
-                ORDER BY e2.ts DESC, e2.id DESC LIMIT 1) AS last_text,
-              (SELECT e2.kind FROM events e2 WHERE e2.stream_id = s.id
-                ORDER BY e2.ts DESC, e2.id DESC LIMIT 1) AS last_kind,
-              (SELECT CASE WHEN e2.actor = 'self' THEN 1 ELSE 0 END FROM events e2
-                WHERE e2.stream_id = s.id
-                ORDER BY e2.ts DESC, e2.id DESC LIMIT 1) AS last_from_me
-         FROM streams s
-         LEFT JOIN events e ON e.stream_id = s.id
-        WHERE s.source_id = ?
-        GROUP BY s.id
-        ORDER BY (last_ts IS NULL), last_ts DESC`,
+      `SELECT s.id, s.label, s.external_key, s.stream_kind, s.tier, s.category, s.capture_paused
+         FROM streams s WHERE s.source_id = ?`,
     )
-    .all(sourceId) as ChatRow[];
+    .all(sourceId) as Omit<
+    ChatRow,
+    "knows_from" | "last_ts" | "today_count" | "event_count" | "last_text" | "last_kind" | "last_from_me"
+  >[];
+  if (meta.length === 0) return [];
+
+  // Both aggregates run WITHOUT a join to `streams`: joining makes SQLite drive
+  // the loop from `streams` and re-seek the event index once per stream, which
+  // measured 131 ms / 720 ms on the 400k corpus. Scanning the covering index
+  // straight through, in stream_id order, measures 51 ms / 63 ms — and the
+  // extra streams from other sources are dropped by the `meta` map below.
+  const stats = new Map<string, { last_ts: string | null; today_count: number; event_count: number }>();
+  for (const r of db
+    .prepare(
+      `SELECT stream_id AS id, MAX(ts) AS last_ts, COUNT(*) AS event_count,
+              SUM(CASE WHEN ts >= strftime('%Y-%m-%dT00:00:00.000Z','now') THEN 1 ELSE 0 END) AS today_count
+         FROM events WHERE stream_id IS NOT NULL GROUP BY stream_id`,
+    )
+    .all() as { id: string; last_ts: string | null; event_count: number; today_count: number }[]) {
+    stats.set(r.id, { last_ts: r.last_ts, today_count: r.today_count, event_count: r.event_count });
+  }
+
+  const knows = new Map<string, string | null>();
+  for (const r of db
+    .prepare(
+      `SELECT stream_id AS id, MIN(ts) AS knows_from
+         FROM events WHERE dispatched_at IS NOT NULL AND stream_id IS NOT NULL
+        GROUP BY stream_id`,
+    )
+    .all() as { id: string; knows_from: string | null }[]) {
+    knows.set(r.id, r.knows_from);
+  }
+
+  const ordered = meta
+    .map((m) => ({
+      ...m,
+      knows_from: knows.get(m.id) ?? null,
+      last_ts: stats.get(m.id)?.last_ts ?? null,
+      today_count: stats.get(m.id)?.today_count ?? 0,
+      event_count: stats.get(m.id)?.event_count ?? 0,
+      last_text: null as string | null,
+      last_kind: null as string | null,
+      last_from_me: null as number | null,
+    }))
+    .sort((a, b) => {
+      if (a.last_ts === b.last_ts) return 0;
+      if (a.last_ts === null) return 1;
+      if (b.last_ts === null) return -1;
+      return b.last_ts.localeCompare(a.last_ts);
+    });
+
+  const page =
+    limit === undefined ? ordered.slice(offset) : ordered.slice(offset, offset + Math.max(0, limit));
+  // The preview seeks the stream's LAST ts, which pass 2 already knows, instead
+  // of ordering the stream's whole history: `ORDER BY ts DESC, id DESC` cannot
+  // be answered from (stream_id, ts) alone, so SQLite built a temp b-tree over
+  // every event in the stream — 1.5 ms per chat, 900 chats, 1.3 s of the 2.7.
+  // Seeking (stream_id, ts) and tie-breaking on id inside that one timestamp is
+  // the same answer in 20 microseconds.
+  const previewStmt = db.prepare(
+    `SELECT text, kind, actor FROM events WHERE stream_id = ? AND ts = ? ORDER BY id DESC LIMIT 1`,
+  );
+  for (const row of page) {
+    if (row.last_ts === null) continue;
+    const p = previewStmt.get(row.id, row.last_ts) as
+      | { text: string | null; kind: string | null; actor: string | null }
+      | undefined;
+    if (!p) continue;
+    row.last_text = p.text;
+    row.last_kind = p.kind;
+    row.last_from_me = p.actor === "self" ? 1 : 0;
+  }
+  return page as ChatRow[];
 }
 
-/** Total events a source has ever landed — "is anything flowing at all?". */
+/** Conversations a source has, whether or not this page returned them. */
+function streamCount(sourceId: string): number {
+  return (
+    (
+      getDb().prepare(`SELECT COUNT(*) AS n FROM streams WHERE source_id = ?`).get(sourceId) as
+        | { n: number }
+        | undefined
+    )?.n ?? 0
+  );
+}
+
+/**
+ * Total events a source has ever landed — "is anything flowing at all?".
+ * Index-only over `idx_events_source_type_ts` (0209); before that index this
+ * was a full scan of the whole log, once per Library sub-tab open.
+ */
 function sourceEventCount(sourceType: string): number {
   return (
     (
@@ -163,23 +253,43 @@ function libraryBrowser(): {
     .sort((a, b) => b.visits - a.visits || a.domain.localeCompare(b.domain))
     .slice(0, 12);
 
-  // Recent chains: the last 8 tab-chain stream keys, each with its visits.
-  const keys = db
+  // Recent chains: the last 8 tab-chain stream keys.
+  //
+  // V6 P1 S6d L1. This was `GROUP BY stream_key` over EVERY browser visit ever
+  // captured, ordered by MAX(ts) — an unbounded aggregate whose cost grows with
+  // the whole history to answer a question about the last few hours. Walk the
+  // (source_type, kind, ts) index newest-first instead and stop as soon as
+  // eight distinct keys have shown up; CHAIN_SCAN_CAP bounds the walk for a log
+  // where one chain dominates the recent tail.
+  const CHAIN_SCAN_CAP = 4_000;
+  const seen = new Set<string>();
+  const keys: { stream_key: string }[] = [];
+  for (const r of db
     .prepare(
-      `SELECT stream_key, MAX(ts) AS last_ts FROM events
+      `SELECT stream_key FROM events
         WHERE source_type = 'browser' AND kind = 'browser.visit'
-        GROUP BY stream_key ORDER BY last_ts DESC LIMIT 8`,
+        ORDER BY ts DESC LIMIT ?`,
     )
-    .all() as { stream_key: string }[];
+    .all(CHAIN_SCAN_CAP) as { stream_key: string }[]) {
+    if (!r.stream_key || seen.has(r.stream_key)) continue;
+    seen.add(r.stream_key);
+    keys.push({ stream_key: r.stream_key });
+    if (keys.length === 8) break;
+  }
+  // INDEXED BY, deliberately: with (source_type, kind, ts) also available the
+  // planner picked THAT and then filtered on stream_key, scanning every browser
+  // visit ever captured once per chain — 200 ms x 8. (stream_key, ts) answers
+  // the same question, in order, in 0.1 ms.
   const visitStmt = db.prepare(
-    `SELECT id, ts, stream_key, payload_json FROM events
-      WHERE source_type = 'browser' AND kind = 'browser.visit' AND stream_key = ?
+    `SELECT id, ts, stream_key, payload_json FROM events INDEXED BY idx_events_stream_key
+      WHERE stream_key = ? AND source_type = 'browser' AND kind = 'browser.visit'
       ORDER BY ts ASC LIMIT 50`,
   );
   const spaceStmt = db.prepare(
     `SELECT sp.label AS label
        FROM episodes ep JOIN spaces sp ON sp.id = ep.space_id
-      WHERE ep.stream_id = (SELECT stream_id FROM events WHERE stream_key = ? AND source_type='browser' LIMIT 1)
+      WHERE ep.stream_id = (SELECT stream_id FROM events INDEXED BY idx_events_stream_key
+              WHERE stream_key = ? AND source_type='browser' LIMIT 1)
       ORDER BY ep.last_ts DESC LIMIT 1`,
   );
   const chains = keys.map((k) => {
@@ -423,11 +533,35 @@ export async function handleLibraryRoute(req: IncomingMessage, res: ServerRespon
     return true;
   }
 
+  // V6 P1 S6d L6: ONE source's own status — connection, the window in force,
+  // its own coverage range, its own import backlog. The Library sub-tab reads
+  // this instead of picking its row out of the cross-source overview, so the
+  // panel can never show another source's number.
+  if (req.method === "GET" && path === "/api/library/source-status") {
+    const source = url.searchParams.get("source");
+    if (!source) {
+      sendJson(res, 400, { error: "source required" });
+      return true;
+    }
+    sendJson(res, 200, sourceStatus(source));
+    return true;
+  }
+
   if (req.method === "GET" && path === "/api/library/chats") {
     const source = url.searchParams.get("source") ?? "whatsapp";
+    // V6 P1 S6d L1: `limit` / `offset` are OPTIONAL and unbounded by default,
+    // so an existing client keeps the whole inbox; a client that wants the
+    // first screenful and nothing else can now ask for it, and `total` tells it
+    // how many conversations the source has.
+    const rawLimit = Number(url.searchParams.get("limit"));
+    const rawOffset = Number(url.searchParams.get("offset"));
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : undefined;
+    const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+    const streams = libraryChats(source, limit, offset);
     sendJson(res, 200, {
       source_id: source,
-      streams: libraryChats(source),
+      streams,
+      total: streamCount(source),
       event_count: sourceEventCount(source),
     });
     return true;

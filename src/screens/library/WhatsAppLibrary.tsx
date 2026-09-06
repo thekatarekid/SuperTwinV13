@@ -30,7 +30,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
-import { LoadFailure } from "../../components/LoadState";
+import {
+  LoadFailure,
+  PanelSkeleton,
+  RefreshingHint,
+  SkeletonRows,
+  useCachedRead,
+} from "../../components/LoadState";
 import {
   IMPORT_RANGES,
   RANGE_LABELS,
@@ -53,6 +59,7 @@ import {
 } from "../../lib/api";
 import { workerUrl } from "../../lib/config";
 import { ConnectCard, hhmm, knowsFromLabel, relative } from "./shared";
+import { SourcePanelStatus } from "./SourceStatus";
 
 const SOURCE = "whatsapp";
 const POLL_MS = 5_000;
@@ -141,9 +148,16 @@ export function WhatsAppLibrary(props: {
   /** Injected by the tests; production polls the real worker. */
   pollMs?: number;
 } = {}): JSX.Element {
-  const [status, setStatus] = useState<SourceStatus | null>(null);
+  // Both reads are cached per pane (L2): flipping to Screen and back repaints
+  // the inbox from the last answer in the same frame, and a slow reply that
+  // arrives after a newer one can no longer overwrite it.
+  const statusCache = useCachedRead<SourceStatus>("library.whatsapp.status");
+  const chatsCache = useCachedRead<ChatStreamRow[]>("library.whatsapp.chats");
+  const [status, setStatus] = useState<SourceStatus | null>(statusCache.seed);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [streams, setStreams] = useState<ChatStreamRow[] | null>(null);
+  const [streams, setStreams] = useState<ChatStreamRow[] | null>(chatsCache.seed);
+  /** A read is in flight over an answer already on screen — the subtle hint. */
+  const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<InboxMessageRow[] | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -176,26 +190,35 @@ export function WhatsAppLibrary(props: {
   }, []);
 
   const loadStatus = useCallback(async () => {
+    const token = statusCache.begin();
     try {
       const s = await fetchSourceStatus(SOURCE);
+      // A newer read for this key has already answered: this reply is history
+      // and must not overwrite it, on screen or in the cache.
+      if (!statusCache.publish(token, s)) return;
       if (!alive.current) return;
       setStatus(s);
       setStatusError(null);
     } catch (err) {
-      if (alive.current) setStatusError(describeWorkerError(err));
+      if (alive.current && statusCache.accept(token)) setStatusError(describeWorkerError(err));
     }
-  }, []);
+  }, [statusCache]);
 
   const loadStreams = useCallback(async () => {
+    const token = chatsCache.begin();
+    setRefreshing(true);
     try {
       const { streams: rows } = await fetchLibraryChats(SOURCE);
+      if (!chatsCache.publish(token, rows)) return;
       if (!alive.current) return;
       setStreams(rows);
       setError(null);
     } catch (err) {
-      if (alive.current) setError(describeWorkerError(err));
+      if (alive.current && chatsCache.accept(token)) setError(describeWorkerError(err));
+    } finally {
+      if (alive.current && chatsCache.accept(token)) setRefreshing(false);
     }
-  }, []);
+  }, [chatsCache]);
 
   /** The Retry both failed reads share — the pane has one worker, not two. */
   const retry = useCallback(() => {
@@ -364,6 +387,16 @@ export function WhatsAppLibrary(props: {
     [streams, selected],
   );
 
+  // ---- Unknown is not empty ------------------------------------------------
+  // Until the status read answers, this pane does not know whether the account
+  // is paired, mid-import or live — so it paints none of those. It used to fall
+  // through to the inbox shell (or, for an unpaired account, show the inbox and
+  // then flip to the pairing card seconds later); the status read measured 3 s
+  // on the user's machine, all of it spent on a screen that was not true.
+  if (status === null && statusError === null) {
+    return <PanelSkeleton what="WhatsApp" rows={5} />;
+  }
+
   // ---- Not connected: the real pairing flow --------------------------------
 
   if (statusError !== null && !status) {
@@ -504,6 +537,7 @@ export function WhatsAppLibrary(props: {
         {status?.importRange && (
           <span className="meta">history: {RANGE_LABELS[status.importRange as ImportRange] ?? status.importRange}</span>
         )}
+        <RefreshingHint active={refreshing && streams !== null} what="chats" />
         <span className="inbox-bar-spacer" />
         <label className="connect-field">
           <span className="visually-hidden">extend history</span>
@@ -533,6 +567,21 @@ export function WhatsAppLibrary(props: {
         </button>
       </header>
 
+      {/* L6: WhatsApp's OWN status, inside WhatsApp's own panel — its consent
+          window, its own coverage range, its own backlog. Never the top-right
+          chip's cross-source sum. */}
+      <SourcePanelStatus
+        source={SOURCE}
+        title="WhatsApp"
+        connection={
+          status
+            ? status.paused
+              ? "capture paused"
+              : (STATE_TEXT[status.state] ?? status.state)
+            : null
+        }
+      />
+
       {importing && (
         // This source's own state, inside this source's own panel. It has to
         // say something true from the instant the user confirms — the daemon's
@@ -558,8 +607,9 @@ export function WhatsAppLibrary(props: {
           {streams === null ? (
             // A failed read paints the LoadFailure above; the pending line
             // must not sit under it pretending the request is still running.
+            // With no answer yet the list shows its own shape, never "no chats".
             error === null ? (
-              <p className="empty">loading chats…</p>
+              <SkeletonRows rows={6} />
             ) : null
           ) : streams.length === 0 ? (
             <p className="empty">

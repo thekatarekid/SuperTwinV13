@@ -235,6 +235,147 @@ body:not(.tauri) {
   margin-top: var(--sp-1);
 }
 
+/* -- unknown, not empty: the skeleton a pane paints before it has an answer
+      (13.12.x · L2). Same card geometry as the real thing, so the switch to
+      real data moves nothing. ------------------------------------------------ */
+
+.skeleton-card {
+  min-height: 220px;
+}
+
+/* A skeleton standing in for one region INSIDE a card that is already real:
+   no second sheet of glass, no card padding, no minimum height. */
+.skeleton-card.inline {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.skeleton-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+
+.skeleton-progress {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--glass-1-bg);
+  overflow: hidden;
+  position: relative;
+}
+
+.skeleton-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 38%;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  opacity: 0.55;
+  animation: skeleton-slide 1.25s ease-in-out infinite;
+}
+
+@keyframes skeleton-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1;
+}
+
+.skeleton-block {
+  display: block;
+  border-radius: var(--r-sm);
+  background: linear-gradient(
+    90deg,
+    var(--glass-1-bg) 0%,
+    var(--glass-2-bg) 50%,
+    var(--glass-1-bg) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
+}
+
+.skeleton-glyph {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  flex: none;
+}
+
+.skeleton-line-a {
+  height: 10px;
+  width: 38%;
+}
+
+.skeleton-line-b {
+  height: 9px;
+  width: 72%;
+  opacity: 0.7;
+}
+
+.skeleton-rows.wide .skeleton-line-a {
+  width: 55%;
+}
+
+.skeleton-rows.wide .skeleton-line-b {
+  width: 92%;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-slow {
+  padding-top: var(--sp-3);
+  color: var(--ink-3);
+}
+
+.refreshing-hint {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block,
+  .skeleton-progress::after {
+    animation: none;
+  }
+}
+
 /* -- chips ------------------------------------------------------------------ */
 
 .chip {
@@ -1688,4 +1829,214 @@ body.aux-window {
 .calendar-note {
   font-size: var(--text-xs);
   color: var(--ink-2);
+}
+
+/* -- per-source status strip (V6 P1 S6d L6) ---------------------------------
+   Status belongs to the source, inside the source's own panel — Product_V6
+   §7.2 ("Library ──── per source: capture status · windows · pause · delete").
+   The strip is deliberately quiet: it is a header, not a card, so it never
+   competes with the source's data below it. */
+
+.source-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  margin: 0 0 var(--sp-3);
+  background: var(--glass-1-bg);
+  border: var(--glass-border);
+  border-radius: var(--r-sm);
+}
+
+.source-status-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.source-status-spacer {
+  flex: 1 1 auto;
+}
+
+/* The coverage range is this source's own "Knows you"; it may be long, so it
+   ellipsizes rather than pushing the verdict off the row. */
+.source-status-coverage {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-status-verdict {
+  color: var(--ink);
+}
+
+.source-status-importing_history {
+  color: var(--warn);
+}
+
+.source-status-catching_up {
+  color: var(--danger);
+}
+
+.source-status-up_to_date {
+  color: var(--good);
+}
+
+.source-status-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.source-status-bar {
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--glass-2-bg);
+  overflow: hidden;
+}
+
+.source-status-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  transition: width 400ms ease;
+}
+
+.source-status-bar.importing .source-status-fill {
+  background: var(--warn);
+}
+
+/* -- Browser connect: per-profile selection + the history-window pair, and the
+      import view that replaces the post-connect blank (S6d L5). ------------ */
+
+.profile-row {
+  align-items: flex-start;
+}
+
+.profile-check {
+  margin-top: 2px;
+  accent-color: var(--accent, currentColor);
+  cursor: pointer;
+}
+
+.profile-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.profile-row.unreadable strong {
+  opacity: 0.7;
+}
+
+.connect-windows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3, 12px);
+  margin: var(--sp-2, 8px) 0;
+}
+
+.import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1, 4px);
+  padding: var(--sp-2, 8px) 0;
+}
+
+.import-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+}
+
+.import-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.import-bar-fill {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 45%, transparent);
+  animation: import-bar-slide 1.4s ease-in-out infinite;
+}
+
+/* A measured percentage sets its own width and must not slide. */
+.import-bar-fill[style] {
+  animation: none;
+}
+
+@keyframes import-bar-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.import-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.import-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1, 4px);
+}
+
+/* -- Library › Screen: the three-gate ladder (S6d/L4) ---------------------- */
+/* consent → the Accessibility ask → "Record from now on". The rung the flow is
+   on is the one that carries a button; the ones behind it carry a tick, so the
+   card says how far along the user is instead of restating the whole ask. */
+
+.gate-steps {
+  list-style: none;
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-1, 4px) var(--sp-3);
+  margin: 0 auto var(--sp-3);
+  padding: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+
+.gate-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1, 4px);
+  white-space: nowrap;
+}
+
+.gate-step.done {
+  color: var(--ink-2);
+}
+
+.gate-step.current {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.gate-step-mark {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.gate-step.done .gate-step-mark {
+  color: var(--ok, var(--accent));
+  opacity: 1;
 }

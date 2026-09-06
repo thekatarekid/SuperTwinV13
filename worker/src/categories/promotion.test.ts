@@ -110,9 +110,15 @@ describe("CAT-03 · engagement promotes instantly with retroactive full processi
     expect(again.promoted).toBe(false);
     expect(again.replyCount).toBe(2);
     const promotions = getDb()
-      .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_id = ? AND action = 'promote'`)
+      .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_id = ? AND action = 'promote' AND pass = 'code:promotion'`)
       .get(STREAM_ID) as { n: number };
     expect(promotions.n).toBe(1);
+    // V6 S3.8: the same engagement tiers the stream T1 exactly once (idempotent at T1).
+    const tierPromotions = getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_id = ? AND pass = 'code:tier-promotion'`)
+      .get(STREAM_ID) as { n: number };
+    expect(tierPromotions.n).toBe(1);
+    expect(again.tierPromoted).toBe(false);
   });
 
   it("a self-authored live envelope through the single-writer promotes on its own", () => {

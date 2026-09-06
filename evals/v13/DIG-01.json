@@ -1,0 +1,55 @@
+{
+  "id": "DIG-01",
+  "category": "DIG",
+  "title": "weekly digest only on new weeks",
+  "pass": "digest",
+  "mode": "code",
+  "setup": {
+    "note": "A tier-3 society group over three ended weeks; week 2 holds nothing. The current week has a message and must wait. Digest calls are made through digest.v2 with a canned-JSON provider stub (provider layer, never prompt matching).",
+    "now": "2026-08-26T12:00:00Z",
+    "weeks": {
+      "2026-08-03": [
+        "Water tank cleaning on Thursday 10am-1pm, please store water",
+        "Lift B under maintenance till Saturday"
+      ],
+      "2026-08-10": [],
+      "2026-08-17": [
+        "Reminder: maintenance for Sept due by 5th. UPI to society@okaxis",
+        "Diwali fund collection starts 1 Oct",
+        "Parking stickers ready at the office"
+      ]
+    }
+  },
+  "input_events": [
+    "week of 2026-08-03: 2 society notices on wa:sunrise-402",
+    "week of 2026-08-10: nothing",
+    "week of 2026-08-17: 3 society notices on wa:sunrise-402",
+    "week of 2026-08-24 (current): 1 notice — waits"
+  ],
+  "expected": {
+    "state": {
+      "digest_calls": 2,
+      "weeks_called": ["2026-08-17", "2026-08-03"],
+      "rerun_calls": 0,
+      "calls_after_current_week_ends": 1,
+      "empty_week_call": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "empty-week-call",
+      "assert_absent": "a digest call for a week with nothing new"
+    },
+    {
+      "label": "redigest",
+      "assert_absent": "a second call for a week already digested"
+    }
+  ],
+  "gates": [
+    "empty_week_call"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 DIG-01 · weekly digest only on new weeks"
+  }
+}

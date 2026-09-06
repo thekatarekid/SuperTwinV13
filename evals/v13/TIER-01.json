@@ -1,0 +1,40 @@
+{
+  "id": "TIER-01",
+  "category": "TIER",
+  "title": "a replied-in group is tier 1",
+  "pass": "tier",
+  "mode": "code",
+  "setup": {
+    "note": "wa:goa-gang has three messages; one is the user's own reply. Code decides replied-vs-not; the model is never asked.",
+    "now": "2026-08-28T12:00:00Z"
+  },
+  "input_events": [
+    "Rohan on wa:goa-gang: \"goa december mein chalte hai na, dates lock karo\"",
+    "self on wa:goa-gang: \"haan chalo, 18-21 dec lock karte hai\"",
+    "Tanvi on wa:goa-gang: \"villa shortlist bhejta hu\""
+  ],
+  "expected": {
+    "state": {
+      "tier": "T1",
+      "rule": "engaged",
+      "model_calls": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "replied-not-tier1",
+      "assert_absent": "a stream the user wrote into landing anywhere but tier 1"
+    },
+    {
+      "label": "model-asked-about-reply",
+      "assert_absent": "a tier.v1 call to decide something code knows (did the user reply)"
+    }
+  ],
+  "gates": [
+    "tier_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 TIER-01 · a replied-in group is tier 1"
+  }
+}

@@ -106,7 +106,8 @@ export interface TierDecision {
   tier: Tier | null;
   /** Stable rule id. Asserted on, so it never carries prose. */
   rule: string;
-  source: "code" | "p-ti1";
+  /** `tier.v1` is the V6 P-07 business split (tiers/tiering.ts, S3.8). */
+  source: "code" | "p-ti1" | "tier.v1";
   confidence: number | null;
   reason: string;
   needsModel: boolean;

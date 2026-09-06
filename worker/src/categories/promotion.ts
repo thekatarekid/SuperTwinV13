@@ -24,6 +24,7 @@
 
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
+import { promoteOnEngagement } from "../tiers/promote.js";
 
 const DAY_MS = 86_400_000;
 /** Recency half-life of the engagement score, days (ordering signal only). */
@@ -53,6 +54,12 @@ export interface EngagementReport {
   requeued: number;
   replyCount: number;
   engagementScore: number;
+  /**
+   * V6 tier promotion (tiers/promote.ts, S3.8): true when this engagement
+   * flipped the stream's TIER to 1 — instantly, with its digested history
+   * re-queued (counted in `requeued`).
+   */
+  tierPromoted: boolean;
 }
 
 interface StreamRow {
@@ -81,7 +88,7 @@ export function noteUserReply(
     )
     .get(streamId) as StreamRow | undefined;
   if (!row) {
-    return { streamId, promoted: false, requeued: 0, replyCount: 0, engagementScore: 0 };
+    return { streamId, promoted: false, requeued: 0, replyCount: 0, engagementScore: 0, tierPromoted: false };
   }
 
   const replyCount = row.reply_count + 1;
@@ -127,7 +134,20 @@ export function noteUserReply(
   });
   run();
 
-  return { streamId, promoted, requeued, replyCount, engagementScore: score };
+  // V6 tiers (Product_V6 §11.1, P1 §5.3; S3.8, TIER-04): the same engagement
+  // promotes the stream's TIER to 1 — instantly (before the dispatcher's next
+  // tick reads streams.tier) and retroactively (its digest-only history is
+  // re-queued through the S1.2 widening replay). Idempotent at tier 1.
+  const tier = promoteOnEngagement(streamId, ts, nowMs);
+
+  return {
+    streamId,
+    promoted,
+    requeued: requeued + tier.requeued,
+    replyCount,
+    engagementScore: score,
+    tierPromoted: tier.promoted,
+  };
 }
 
 /**

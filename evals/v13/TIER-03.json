@@ -1,0 +1,55 @@
+{
+  "id": "TIER-03",
+  "category": "TIER",
+  "title": "HDFC with OTPs and bills is tier 2, via one cached model call per business",
+  "pass": "tier",
+  "mode": "live",
+  "setup": {
+    "note": "wa:hdfcbank is a business sender (is_business) the user never wrote to: OTPs, debits, statements, EMIs. Code cannot split tier 2/3/4 here, so ONE tier.v1 call runs; the verdict is cached on the stream by the channel's character, and a second tiering pass makes no call.",
+    "now": "2026-08-28T12:00:00Z",
+    "sample": [
+      "Your OTP for HDFC Bank NetBanking is 482913. Valid for 10 minutes. Do not share it with anyone.",
+      "HDFC Bank: Rs.24,110.00 debited from a/c **4321 on 05-Aug-26 towards Credit Card bill payment. Avl bal Rs.1,02,330.15",
+      "Your HDFC Bank Credit Card statement for Aug-26 is ready. Total amount due Rs.31,204.00, minimum due Rs.1,560.00, pay by 03-Sep-26.",
+      "Alert: Rs.2,499.00 spent on HDFC Bank Card **4321 at AMAZON PAY on 12-Aug-26. Not you? Call 18002586161.",
+      "Your OTP is 118273 for a transaction of Rs.1,200.00 at SWIGGY. Valid for 5 mins.",
+      "HDFC Bank: EMI of Rs.8,400.00 for loan a/c **7781 is due on 15-Aug-26. Please maintain sufficient balance.",
+      "Dear Customer, your HDFC Bank FD of Rs.2,00,000 matures on 30-Sep-26. Renewal instructions: auto-renew.",
+      "HDFC Bank: Rs.560.00 debited via UPI to ZOMATO on 27-Aug-26. UPI Ref 523412345678."
+    ]
+  },
+  "input_events": [
+    "8 messages from HDFC Bank on wa:hdfcbank over 20 days: OTPs, debits, a statement, an EMI, an FD maturity — none from self"
+  ],
+  "expected": {
+    "state": {
+      "tier": "T2",
+      "source": "tier.v1",
+      "model_calls_first_pass": 1,
+      "model_calls_second_pass": 0
+    },
+    "tier": "2 — the user transacts with this business and it sends updates (OTPs, bills); reason names the active account/bills; confidence high"
+  },
+  "wrong": [
+    {
+      "label": "business-tier1",
+      "assert_absent": "a business the user never wrote to at tier 1"
+    },
+    {
+      "label": "reask-per-message",
+      "assert_absent": "more than one tier.v1 call for one business in one pass"
+    },
+    {
+      "label": "cache-miss",
+      "assert_absent": "a second tier.v1 call for a channel whose character did not change"
+    }
+  ],
+  "gates": [
+    "tier_accuracy",
+    "trace_coverage"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 TIER-03 · HDFC with OTPs and bills is tier 2, via one cached model call per business"
+  }
+}

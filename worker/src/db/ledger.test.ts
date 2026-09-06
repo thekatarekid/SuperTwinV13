@@ -347,7 +347,7 @@ describe("S0.9 T8-3 · digest, bar answer and media reads go through the pool", 
     const c = counts();
     expect(c).toMatchObject({ runs: 1, traces: 1, unlinked: 0, nullPass: 0, nullOrigin: 0 });
     const run = getDb().prepare(`SELECT role, pass, origin FROM runs`).get() as Record<string, unknown>;
-    expect(run).toMatchObject({ role: "digest", pass: "digest.v1", origin: "backfill" });
+    expect(run).toMatchObject({ role: "digest", pass: "digest.v2", origin: "backfill" });
   });
 
   it("a failed digest call still writes its ledger row and reports failed", async () => {

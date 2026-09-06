@@ -1,0 +1,46 @@
+{
+  "id": "DIG-02",
+  "category": "DIG",
+  "title": "digest output shape",
+  "pass": "digest",
+  "mode": "live",
+  "setup": {
+    "note": "wa:sunrise-apartments-402, the P-06 example week (Mon 2026-08-24). One digest.v2 call over the ended week. The output must be a summary, durable claims with evidence, and recurrences — never a task surfaced as active, never anything marked as needing the user; the 'volunteers needed — reply here' line is a recurrence candidate at most.",
+    "now": "2026-09-02T09:00:00Z"
+  },
+  "input_events": [
+    "e1 2026-08-25T09:00:00Z secretary: \"Water tank cleaning this Thursday 10am-1pm. Please store water in advance.\"",
+    "e2 2026-08-26T18:20:00Z secretary: \"Lift B will be under maintenance till Saturday. Use lift A.\"",
+    "e3 2026-08-27T08:30:00Z secretary: \"Reminder: maintenance for Sept due by 5th. Pay by UPI to society@okaxis or at the office.\"",
+    "e4 2026-08-28T19:05:00Z secretary: \"Ganpati decoration volunteers needed for the 6th — reply here if free.\"",
+    "e5 2026-08-30T10:00:00Z secretary: \"Parking: sticker renewal for 2026-27 starts Monday at the office, Rs.500 per car.\""
+  ],
+  "expected": {
+    "state": {
+      "result_keys": ["claims", "recurrences", "summary"],
+      "tasks_created": 0,
+      "decisions": "digest_summary / propose / propose_recurrence only",
+      "active_markers_in_result": 0
+    },
+    "understanding": "a two-line summary of the week's society notices; a recurrence for the monthly maintenance due by the 5th (rule: monthly on the 5th) with evidence quoting e3; any claim carries verbatim evidence; the volunteers line is NOT a task and nothing is marked as needing the user"
+  },
+  "wrong": [
+    {
+      "label": "active-task",
+      "assert_absent": "a task created or surfaced as active/open from a tier-3 digest"
+    },
+    {
+      "label": "digest-inflation",
+      "assert_absent": "tasks, episodes, spaces, schedules, closures, questions or follow-ups in the digest result"
+    }
+  ],
+  "gates": [
+    "digest_inflation",
+    "empty_week_call",
+    "trace_coverage"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 DIG-02 · digest output shape"
+  }
+}

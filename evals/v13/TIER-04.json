@@ -1,0 +1,48 @@
+{
+  "id": "TIER-04",
+  "category": "TIER",
+  "title": "a reply promotes instantly and retroactively",
+  "pass": "tier",
+  "mode": "code",
+  "setup": {
+    "note": "wa:sunrise-402 is a tier-3 society group whose 12 history messages were only ever digested (every row stamped). The user replies once, through the single writer.",
+    "history_messages": 12,
+    "now": "2026-08-28T12:00:00Z"
+  },
+  "input_events": [
+    "self on wa:sunrise-402: \"is the plumber contact still valid? kitchen sink is leaking\""
+  ],
+  "expected": {
+    "state": {
+      "tier_before": "T3",
+      "tier_after": "T1",
+      "requeued": 12,
+      "history_lane_events_after": 12,
+      "digest_lane_after": false,
+      "rows_deleted": 0,
+      "decision_logged": "code:tier-promotion old {tier:T3} new {tier:T1, requeued:12}",
+      "model_calls": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "caste-system",
+      "assert_absent": "the stream still at tier 3 after the user engaged"
+    },
+    {
+      "label": "history-not-requeued",
+      "assert_absent": "digested history left stamped (understood only at digest granularity) after promotion"
+    },
+    {
+      "label": "data-deleted",
+      "assert_absent": "any event row removed by the promotion"
+    }
+  ],
+  "gates": [
+    "tier_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 TIER-04 · a reply promotes instantly and retroactively"
+  }
+}

@@ -34,7 +34,7 @@ import { startTraceRetentionJob } from "./traces/index.js";
 import { startConsolidationJob } from "./consolidation/index.js";
 import { startDispatcher } from "./scheduler/v6/dispatch.js";
 import { startAssistLane } from "./assist/index.js";
-import { backfillTiers } from "./tiers/derive.js";
+import { startTieringJob } from "./tiers/tiering.js";
 import {
   backfillBrowserStreamCategories,
   backfillChatCategories,
@@ -179,23 +179,13 @@ async function main(): Promise<void> {
     console.error("[worker] source supervisor failed (continuing):", err);
   }
 
-  // ---- Tier backfill (P1.1, restored from V11 — §9.3 rule 4: tiering must
-  // actually RUN). Code rules only at boot: engaged/passive/DM by facts,
-  // business channels by content heuristics; the genuinely ambiguous ones
-  // default to T2 ("unsure -> tx") until the V13 P-TI1 prompt lane lands and
-  // injects a resolver. Guarded: a tiering failure must not stop the worker.
-  try {
-    const report = backfillTiers();
-    if (report.streams > 0) {
-      console.error(
-        `[worker] tier backfill: ${report.assigned}/${report.streams} streams ` +
-          `(T1=${report.byTier.T1} T2=${report.byTier.T2} T3=${report.byTier.T3} T4=${report.byTier.T4}` +
-          `${report.defaulted.length > 0 ? `, defaulted=${report.defaulted.length}` : ""})`,
-      );
-    }
-  } catch (err) {
-    console.error("[worker] tier backfill failed (continuing):", err);
-  }
+  // ---- Tiering (V6 P1 S3.8, Product_V6 §11.1): one pass shortly after boot,
+  // then every 15 minutes. Code decides replied-vs-not (T1 / T3 / self
+  // activity); a never-replied BUSINESS costs one cached, pooled, budgeted
+  // tier.v1 call — re-asked only when the channel changes character. A tier
+  // moving up re-queues the stream's stamped history. Guarded inside the job:
+  // a tiering failure must not stop the worker.
+  const tiering = startTieringJob({ log: (line) => console.error(line) });
 
   // ---- Category backfill (P1.6, spec §5.1): chat streams get their Cat-1/2
   // by code (user-reply + the cached business tier split); browser streams
@@ -258,6 +248,7 @@ async function main(): Promise<void> {
       assistLane.stop();
       spendHeartbeat.stop();
       traceRetention.stop();
+      tiering.stop();
       // Every adapter the supervisor started (and the pairing daemon, if any).
       await supervisor.stopAll();
       setSourceSupervisor(null);

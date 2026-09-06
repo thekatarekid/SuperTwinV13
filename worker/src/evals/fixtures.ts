@@ -91,6 +91,11 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // against brain/extract-pass.ts with recorded model outputs.
   { cat: "FACT", name: "Claims — supersede, coexist, provenance (V6 P1)", n: 6, doc: "V2", pass: "claims", authored: true },
   { cat: "TYP", name: "Claims — typed fields (V6 P1)", n: 3, doc: "V2", pass: "claims", authored: true },
+  // GoldenEvals V6 Phase 1 §5.18 — tiers and the weekly digest (S3.8). TIER-01/02/04 and
+  // DIG-01 are code against tiers/tiering.ts + promote.ts and scheduler/v6/digest.ts;
+  // TIER-03 (tier.v1) and DIG-02 (digest.v2) are live with code-asserted shape.
+  { cat: "TIER", name: "Tier assignment (V6 P1)", n: 4, doc: "V2", pass: "tier", authored: true },
+  { cat: "DIG", name: "Weekly digest (V6 P1)", n: 2, doc: "V2", pass: "digest", authored: true },
   // GoldenEvals V6 Phase 1 §5.17 — decide (S3.7, decide.v9). Code-asserted against
   // brain/decide-pass.ts (+ decide-apply, schedule-policy, closure-check) with canned outputs.
   { cat: "DEC", name: "Decide — one space (V6 P1)", n: 6, doc: "V2", pass: "decide-space", authored: true },

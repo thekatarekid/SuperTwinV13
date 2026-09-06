@@ -23,9 +23,10 @@ import { orientExecutor } from "./orient.js";
 import { criExecutor } from "./cri.js";
 import {
   backfillExecutor,
-  digestExecutor,
   extractExecutor,
 } from "./passes.js";
+import { digExecutor } from "./dig.js";
+import { tierExecutor } from "./tier.js";
 import { assistExecutor } from "./assist.js";
 import { stubExecutor } from "./stub.js";
 import { sourceQualityExecutor } from "./src.js";
@@ -110,7 +111,13 @@ export async function registerProductExecutors(): Promise<void> {
   // consolidation with a stub judge (zero model calls); prose V1 fixtures fall
   // through to the legacy live consolidate executor.
   registerExecutor("consolidate", conExecutor);
-  registerExecutor("digest", digestExecutor);
+  // V6 P1 S3.8: DIG — DIG-* fixtures run the real digest planner + digest.v2
+  // pass (DIG-01 is code: canned provider-layer stub, zero live calls); every
+  // other fixture on "digest" (CAT-*) keeps the legacy executor.
+  registerExecutor("digest", digExecutor);
+  // V6 P1 S3.8: TIER — tier assignment against tiers/tiering.ts + promote.ts
+  // (TIER-01/02/04 code, zero model calls; TIER-03 one cached tier.v1 call).
+  registerExecutor("tier", tierExecutor);
   registerExecutor("scheduler.backfill", backfillExecutor);
   // P2 integration: the assist lane (AST) — gate/suppression/risk-line cases
   // drive the product code directly; evaluator cases run the live prompt.

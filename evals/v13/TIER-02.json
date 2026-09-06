@@ -1,0 +1,40 @@
+{
+  "id": "TIER-02",
+  "category": "TIER",
+  "title": "a never-replied 180-member group is tier 3",
+  "pass": "tier",
+  "mode": "code",
+  "setup": {
+    "note": "wa:mumbai-founders — 180 distinct senders over a month, not one message from the user. A group by its key (@g.us); code says tier 3, digest lane.",
+    "members": 180,
+    "now": "2026-08-28T12:00:00Z"
+  },
+  "input_events": [
+    "180 messages from 180 distinct members on wa:mumbai-founders over 30 days, none from self"
+  ],
+  "expected": {
+    "state": {
+      "tier": "T3",
+      "rule": "group_never_replied",
+      "model_calls": 0,
+      "lane": "digest"
+    }
+  },
+  "wrong": [
+    {
+      "label": "lurker-tier1",
+      "assert_absent": "a group the user never replied in treated as tier 1 (full live understanding)"
+    },
+    {
+      "label": "model-asked-about-group",
+      "assert_absent": "a tier.v1 call for a non-business group"
+    }
+  ],
+  "gates": [
+    "tier_accuracy"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.18 TIER-02 · a never-replied 180-member group is tier 3"
+  }
+}

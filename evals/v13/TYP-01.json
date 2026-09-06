@@ -1,0 +1,90 @@
+{
+  "id": "TYP-01",
+  "category": "TYP",
+  "title": "a receipt yields columns",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "fact",
+          "text": "Aditya paid ₹340 to Uber on 4 September 2026",
+          "provenance": "self_reported",
+          "fields": {
+            "amount": 340,
+            "currency": "INR",
+            "date": "2026-09-04",
+            "status": "paid",
+            "merchant": "Uber",
+            "order_id": null,
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "Paid ₹340 to Uber, 4 Sep"
+            }
+          ],
+          "confidence": 0.95,
+          "valid_from": "2026-09-04"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "A receipt typed into the bar. The recorded output fills amount · currency · merchant · date · status; every column lands exactly on the 0201 claims row and the provenance is self_reported."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:30:00+05:30",
+      "source": "self",
+      "stream": "self:bar",
+      "actor": "self",
+      "text": "Paid ₹340 to Uber, 4 Sep"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "fact",
+          "text_contains": "Uber",
+          "provenance": "self_reported",
+          "fields": {
+            "amount": 340,
+            "currency": "INR",
+            "date": "2026-09-04",
+            "status": "paid",
+            "merchant": "Uber"
+          },
+          "active": true
+        }
+      ],
+      "claims_total": 1
+    }
+  },
+  "wrong": [
+    {
+      "label": "prose-only",
+      "assert_absent": "the amount, currency, merchant or date left only in the claim text"
+    }
+  ],
+  "gates": [
+    "overwrite",
+    "typed_fields_exact"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 TYP-01 · a receipt yields columns"
+  }
+}

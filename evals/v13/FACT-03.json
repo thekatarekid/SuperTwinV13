@@ -1,0 +1,118 @@
+{
+  "id": "FACT-03",
+  "category": "FACT",
+  "title": "self-reported beats inferred",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:14:00+05:30",
+    "people": [
+      {
+        "ref": "contact:tanvi",
+        "name": "Tanvi",
+        "circle": "close_friends"
+      }
+    ],
+    "known_claims": [
+      {
+        "id": "c_chicken",
+        "subject": "contact:tanvi",
+        "kind": "preference",
+        "text": "Tanvi eats chicken",
+        "provenance": "observed",
+        "valid_from": "2024-11-02",
+        "stated_at": "2024-11-02T20:00:00+05:30",
+        "quote": "1x chicken biryani for tanvi"
+      }
+    ],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "contact:tanvi",
+          "kind": "preference",
+          "text": "Tanvi is vegetarian",
+          "provenance": "self_reported",
+          "fields": {
+            "amount": null,
+            "currency": null,
+            "date": null,
+            "status": null,
+            "merchant": null,
+            "order_id": null,
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "tanvi's vegetarian"
+            }
+          ],
+          "confidence": 0.95,
+          "valid_from": "2026-09-05T10:14:00+05:30",
+          "coexists_with": "c_chicken"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "The inferred chicken claim is [KNOWN] as observed. The recorded output hedges with coexists_with — rule 7 in code upgrades a self-reported (bar) claim over an observed one on the same subject+kind to a supersede."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T10:14:00+05:30",
+      "source": "self",
+      "stream": "self:bar",
+      "actor": "self",
+      "text": "tanvi's vegetarian, plan the hampi food around that"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims": [
+        {
+          "subject": "contact:tanvi",
+          "kind": "preference",
+          "text_contains": "vegetarian",
+          "provenance": "self_reported",
+          "supersedes": "c_chicken",
+          "active": true
+        }
+      ],
+      "ended": [
+        {
+          "id": "c_chicken",
+          "valid_to": "2026-09-05",
+          "linked": true
+        }
+      ],
+      "active": {
+        "c_chicken": false
+      },
+      "claims_total": 1,
+      "superseded": 1,
+      "coexisting": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "tie",
+      "assert_absent": "both the inferred chicken claim and the vegetarian claim left standing"
+    },
+    {
+      "label": "overwrite",
+      "assert_absent": "the inferred claim's row rewritten or deleted"
+    }
+  ],
+  "gates": [
+    "overwrite"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 FACT-03 · self-reported beats inferred"
+  }
+}

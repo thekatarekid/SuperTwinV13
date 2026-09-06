@@ -1,0 +1,126 @@
+{
+  "id": "FACT-01",
+  "category": "FACT",
+  "title": "supersede on job change",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [
+      {
+        "ref": "contact:rohan",
+        "name": "Rohan",
+        "circle": "close_friends"
+      }
+    ],
+    "known_claims": [
+      {
+        "id": "c_works",
+        "subject": "contact:rohan",
+        "kind": "fact",
+        "text": "Rohan works at Swiggy",
+        "provenance": "observed",
+        "valid_from": "2026-03-01",
+        "stated_at": "2026-03-01T09:00:00+05:30",
+        "quote": "started at swiggy today"
+      }
+    ],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "contact:rohan",
+          "kind": "fact",
+          "text": "Rohan is joining Zomato from 15 September 2026",
+          "provenance": "observed",
+          "fields": {
+            "amount": null,
+            "currency": null,
+            "date": "2026-09-15",
+            "status": null,
+            "merchant": null,
+            "order_id": null,
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "joining Zomato from the 15th"
+            }
+          ],
+          "confidence": 0.9,
+          "valid_from": "2026-09-15",
+          "supersedes": "c_works"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "Rohan's job claim is [KNOWN] as observed. The recorded extract.v6 output emits the Zomato fact with supersedes → the old version ends at valid_to = the new valid_from and links to its successor; both rows stay."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:40:00+05:30",
+      "source": "wa",
+      "stream": "wa:rohan",
+      "actor": "contact:rohan",
+      "text": "joining Zomato from the 15th 🎉"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims": [
+        {
+          "subject": "contact:rohan",
+          "kind": "fact",
+          "text_contains": "Zomato",
+          "provenance": "observed",
+          "supersedes": "c_works",
+          "valid_from": "2026-09-15",
+          "fields": {
+            "date": "2026-09-15"
+          },
+          "active": true
+        }
+      ],
+      "ended": [
+        {
+          "id": "c_works",
+          "valid_to": "2026-09-15",
+          "linked": true
+        }
+      ],
+      "active": {
+        "c_works": false
+      },
+      "claims_total": 1,
+      "superseded": 1,
+      "coexisting": 0
+    }
+  },
+  "wrong": [
+    {
+      "label": "overwrite",
+      "assert_absent": "the Swiggy claim's row or text changed or deleted"
+    },
+    {
+      "label": "coexist",
+      "assert_absent": "Swiggy and Zomato both left active as coexisting"
+    },
+    {
+      "label": "tie",
+      "assert_absent": "the old claim left open beside the new one"
+    }
+  ],
+  "gates": [
+    "overwrite"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 FACT-01 · supersede on job change"
+  }
+}

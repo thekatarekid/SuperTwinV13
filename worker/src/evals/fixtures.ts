@@ -88,6 +88,10 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // GoldenEvals V6 Phase 1 §5.9 — the critic (S3.5). Re-authored against critic.v5 +
   // the mechanical layer; the V1 CRI-01..08 prose cases were replaced.
   { cat: "CRI", name: "Critic (V6 P1)", n: 4, doc: "V2", pass: "critic", authored: true },
+  // GoldenEvals V6 Phase 1 §5.16 — claims and typed fields (S3.6, extract.v6). Code-asserted
+  // against brain/extract-pass.ts with recorded model outputs.
+  { cat: "FACT", name: "Claims — supersede, coexist, provenance (V6 P1)", n: 6, doc: "V2", pass: "claims", authored: true },
+  { cat: "TYP", name: "Claims — typed fields (V6 P1)", n: 3, doc: "V2", pass: "claims", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

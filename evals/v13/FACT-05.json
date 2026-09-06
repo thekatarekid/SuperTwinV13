@@ -1,0 +1,92 @@
+{
+  "id": "FACT-05",
+  "category": "FACT",
+  "title": "jokes are tone",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [
+      {
+        "ref": "contact:rohan",
+        "name": "Rohan",
+        "circle": "close_friends"
+      }
+    ],
+    "recorded_output": {
+      "claims": [],
+      "people": [],
+      "tone": [
+        {
+          "scope": "group:wa:goa-gang@g.us",
+          "register": "casual banter",
+          "language_mix": "en",
+          "emoji": [
+            "😭"
+          ],
+          "phrases": [
+            "sell a kidney"
+          ],
+          "address_terms": []
+        }
+      ],
+      "feelings": [
+        {
+          "episode": "ep_1",
+          "feeling": "Aditya is excited about the villa and feels it is expensive",
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "I'd sell a kidney for that villa"
+            }
+          ],
+          "confidence": 0.8
+        }
+      ]
+    },
+    "note": "Hyperbole in the group. The recorded output files a feeling pinned to the episode and a group tone note; no belief claim is written."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:50:00+05:30",
+      "source": "wa",
+      "stream": "wa:goa-gang@g.us",
+      "actor": "self",
+      "text": "I'd sell a kidney for that villa 😭"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims_total": 0,
+      "feelings_total": 1,
+      "tone_total": 1,
+      "no_claims": [
+        {
+          "kinds": [
+            "belief",
+            "fact",
+            "opinion",
+            "prospective"
+          ],
+          "label": "belief-claim"
+        }
+      ]
+    }
+  },
+  "wrong": [
+    {
+      "label": "belief-claim",
+      "assert_absent": "a belief or fact that Aditya would sell a kidney"
+    }
+  ],
+  "gates": [
+    "overwrite"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 FACT-05 · jokes are tone"
+  }
+}

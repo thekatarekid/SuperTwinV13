@@ -62,6 +62,8 @@ export const HARD_GATES: readonly Gate[] = [
   { id: "idempotency", metric: "idempotency (no double-ingest / double-apply)", kind: "zero_violations", threshold: null, doc: "V2" },
   // -- V6 P1 (GoldenEvals V6 P1 §3.1, BND / GATE) ----------------------------
   { id: "dispatch_over_cap", metric: "dispatch_over_cap = 0", kind: "zero_violations", threshold: null, doc: "V2" },
+  // -- V6 P1 (GoldenEvals V6 P1 §3.1, FACT / TYP): contradictions never overwrite.
+  { id: "overwrite", metric: "overwrite = 0 (a superseded claim keeps its row, text and history)", kind: "zero_violations", threshold: null, doc: "V2" },
 ];
 
 const HARD_BY_ID = new Map(HARD_GATES.map((g) => [g.id, g]));

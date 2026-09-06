@@ -36,6 +36,16 @@ export const CLAIM_KINDS = [
   "recommendation",
   "workflow",
   "relationship",
+  // V6 P1 S3.6 (extract.v6, Prompts P-04 rule 4 + Product_V6_Phase1 §11):
+  "like",
+  "dislike",
+  "pattern",
+  "feeling",
+  "prospective",
+  "behavioral",
+  "narrative",
+  "emotional",
+  "identity",
 ] as const;
 export type ClaimKind = (typeof CLAIM_KINDS)[number];
 

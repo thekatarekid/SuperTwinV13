@@ -14,8 +14,7 @@
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import type { Fixture } from "../fixtures.js";
 import { runJsonPass } from "../../brain/llm.js";
-import { validateExtractOutput, type ExtractOutput } from "../../prompts/extract.v1.js";
-import { EXTRACT_V5_SYSTEM } from "../../prompts/extract.v5.js";
+import { EXTRACT_V6_SYSTEM, validateExtractV6Output, type ExtractV6Output } from "../../prompts/extract.v6.js";
 import { type DecideOutput } from "../../prompts/decide.v1.js";
 import { DECIDE_V8_SYSTEM, validateDecideV8Output } from "../../prompts/decide.v8.js";
 import { CLOSE_CONFIDENCE_FLOOR } from "../../brain/decide-pass.js";
@@ -44,19 +43,23 @@ export function fixtureBand(fixture: Fixture): { letter: string; lane: string; p
 // ---- The live prompt executors ---------------------------------------------
 
 /**
- * What claims/store.writeClaimVersion does with a contradicts claim — the old
- * claim is ENDED (valid_until set), never deleted. Computed from the output.
+ * What brain/extract-pass.ts does with a `supersedes` claim — the old claim
+ * is ENDED (valid_to = the new claim's valid_from), never deleted; a
+ * `coexists_with` claim lands on its own thread beside the old one. Computed
+ * from the output (V6 P1 S3.6, extract.v6).
  */
-export function extractAppliedView(out: ExtractOutput): Record<string, unknown> | undefined {
-  const superseded = out.claims.filter((c) => c.relation === "contradicts" && c.related_claim);
-  if (superseded.length === 0) return undefined;
+export function extractAppliedView(out: ExtractV6Output): Record<string, unknown> | undefined {
+  const superseded = out.claims.filter((c) => c.supersedes !== null);
+  const coexisting = out.claims.filter((c) => c.supersedes === null && c.coexists_with !== null);
+  if (superseded.length === 0 && coexisting.length === 0) return undefined;
   return {
     resulting_history: superseded.map((c) => ({
-      old_claim: c.related_claim,
+      old_claim: c.supersedes,
       status: "PRESERVED in history with its termination date",
-      valid_until: c.old_valid_until ?? c.valid_from ?? null,
+      valid_to: c.valid_from ?? null,
       new_claim: c.text,
     })),
+    coexisting: coexisting.map((c) => ({ beside: c.coexists_with, new_claim: c.text })),
     note: "contradictions never overwrite — the claim store versions both (code path)",
   };
 }
@@ -68,15 +71,16 @@ export const extractExecutor: Executor = async ({ fixture }) => {
     fixtureUser(fixture.setup, fixture.input_events, band, seed?.state),
     calendarBlock(),
     "",
-    "COMMITTED EPISODES (time-ordered, evidence layer): the NEW BUNDLE events above.",
+    "[KNOWN] the claims named in the setup above, if any.",
+    "[EPISODES] the NEW BUNDLE events above are the committed episodes (time-ordered, evidence layer).",
   ].join("\n");
   const result = await runJsonPass({
     pass: "extract",
-    system: EXTRACT_V5_SYSTEM,
+    system: EXTRACT_V6_SYSTEM,
     user,
     role: "extract",
     unit: { kind: "eval", id: fixture.id },
-    validate: validateExtractOutput,
+    validate: validateExtractV6Output,
   });
   const out = result.output;
   const applied = out ? extractAppliedView(out) : undefined;

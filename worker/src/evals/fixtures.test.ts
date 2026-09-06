@@ -146,10 +146,10 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 205 cases (86 from V1 minus SEG/CRI, 75 from V2, 12 BND + 10 GATE + 6 SRC + 5 CMT + 7 PCK + 4 CRI from V6P1)", () => {
-    expect(TOTAL_CASES).toBe(205);
+  it("the category table totals 214 cases (86 from V1 minus SEG/CRI, 75 from V2, 12 BND + 10 GATE + 6 SRC + 5 CMT + 7 PCK + 4 CRI + 6 FACT + 3 TYP from V6P1)", () => {
+    expect(TOTAL_CASES).toBe(214);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(86);
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(119);
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(128);
     expect(CATEGORIES.some((c) => c.cat === "SEG")).toBe(false);
     expect(CATEGORIES.some((c) => c.cat === "BND")).toBe(true);
   });

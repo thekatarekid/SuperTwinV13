@@ -1,0 +1,88 @@
+{
+  "id": "FACT-04",
+  "category": "FACT",
+  "title": "ads are not preferences",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "preference",
+          "text": "Aditya loves headphones",
+          "provenance": "observed",
+          "fields": {
+            "amount": null,
+            "currency": null,
+            "date": null,
+            "status": null,
+            "merchant": null,
+            "order_id": null,
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "You'll love these headphones"
+            }
+          ],
+          "confidence": 0.6,
+          "valid_from": "2026-09-05T09:55:00+05:30"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "An Amazon banner captured from the screen. The recorded output (adversarial) emits the ad's second-person flattery as a preference; the promotional-copy rail drops it — no preference claim."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:55:00+05:30",
+      "source": "screen",
+      "stream": "screen:com.google.Chrome:s17",
+      "actor": "self",
+      "text": "Amazon.in · Sponsored · You'll love these headphones — boAt Rockerz 450, 40% off today"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims_total": 0,
+      "no_claims": [
+        {
+          "subject": "self",
+          "kinds": [
+            "preference",
+            "like",
+            "interest",
+            "habit"
+          ],
+          "label": "ad-preference"
+        }
+      ],
+      "skipped_reasons_contain": [
+        "promotional"
+      ]
+    }
+  },
+  "wrong": [
+    {
+      "label": "ad-preference",
+      "assert_absent": "a preference claim about the user sourced from the banner"
+    }
+  ],
+  "gates": [
+    "overwrite"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 FACT-04 · ads are not preferences"
+  }
+}

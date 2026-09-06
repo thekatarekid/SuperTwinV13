@@ -1,0 +1,112 @@
+{
+  "id": "FACT-02",
+  "category": "FACT",
+  "title": "contextual coexistence",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [
+      {
+        "ref": "contact:rohan",
+        "name": "Rohan",
+        "circle": "close_friends"
+      }
+    ],
+    "known_claims": [
+      {
+        "id": "c_healthy",
+        "subject": "self",
+        "kind": "preference",
+        "text": "Aditya prefers healthy food on weekdays",
+        "provenance": "self_reported",
+        "valid_from": "2026-08-20",
+        "stated_at": "2026-08-20T08:00:00+05:30",
+        "quote": "trying to eat healthy on weekdays"
+      }
+    ],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "habit",
+          "text": "Aditya has a Friday pizza night habit",
+          "provenance": "observed",
+          "fields": {
+            "amount": null,
+            "currency": null,
+            "date": null,
+            "status": null,
+            "merchant": null,
+            "order_id": null,
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "friday pizza night as always"
+            }
+          ],
+          "confidence": 0.8,
+          "valid_from": "2026-09-04T21:10:00+05:30",
+          "coexists_with": "c_healthy"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "A weekday healthy-food preference and a Friday pizza habit hold in different contexts. The recorded output marks the habit coexists_with the preference; both stay active on separate threads."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-04T21:10:00+05:30",
+      "source": "wa",
+      "stream": "wa:goa-gang@g.us",
+      "actor": "self",
+      "text": "friday pizza night as always 🍕 who's in"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "habit",
+          "text_contains": "pizza",
+          "provenance": "observed",
+          "supersedes": null,
+          "coexists_with": "c_healthy",
+          "active": true
+        }
+      ],
+      "active": {
+        "c_healthy": true
+      },
+      "claims_total": 1,
+      "superseded": 0,
+      "coexisting": 1
+    }
+  },
+  "wrong": [
+    {
+      "label": "overwrite",
+      "assert_absent": "the healthy-food claim changed"
+    },
+    {
+      "label": "false-supersede",
+      "assert_absent": "the healthy-food preference ended by the pizza habit"
+    }
+  ],
+  "gates": [
+    "overwrite"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 FACT-02 · contextual coexistence"
+  }
+}

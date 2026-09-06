@@ -86,10 +86,11 @@ function seedEpisode(id: string, opts: { spaceId?: string | null; streamId?: str
   }
 }
 
-describe("extract pass", () => {
+describe("extract pass (extract.v6)", () => {
   it("writes evidence-gated claims, downgrades fabricated subjects to unknown, creates provisional people, updates tone", async () => {
     const rohan = createEntity({ type: "person", canonical: "Rohan", provisional: false });
-    seedEpisode("ep_1", { events: [{ id: "e1", text: "window seat pls" }] });
+    seedEpisode("ep_1", { events: [{ id: "e1", text: "window seat pls, pune wala flight" }] });
+    const NULLF = { amount: null, currency: null, date: null, status: null, merchant: null, order_id: null, location: null, duration_s: null };
 
     const provider = stubProvider([
       JSON.stringify({
@@ -98,29 +99,33 @@ describe("extract pass", () => {
             kind: "preference",
             subject: rohan.id,
             text: "prefers window seats",
-            relation: "new",
+            provenance: "observed",
+            fields: NULLF,
             evidence: [{ event_ids: ["e1"], quote: "window seat pls" }],
             confidence: 0.85,
           },
           {
             kind: "fact",
             subject: "ent_totally_made_up",
-            subject_hint: "the landlord",
             text: "lives in Pune",
-            relation: "new",
+            provenance: "observed",
+            fields: NULLF,
             evidence: [{ event_ids: ["e1"], quote: "pune wala" }],
             confidence: 0.7,
           },
         ],
-        provisional_people: [{ name: "Sameer", hint: "Rohan's cousin" }],
+        people: [{ id: "new:sameer", name: "Sameer", anchors: ["Rohan's cousin"], relationship: null, confidence: 0.6, evidence: [] }],
         tone: [
           {
-            person: rohan.id,
+            scope: `dm:${rohan.id}`,
             register: "casual",
             language_mix: "Hinglish",
-            address_terms: [{ term: "bro", class: "generic" }],
+            emoji: [],
+            phrases: [],
+            address_terms: [{ term: "bro", class: "generic", maps_to: null }],
           },
         ],
+        feelings: [],
       }),
     ]);
 
@@ -135,7 +140,7 @@ describe("extract pass", () => {
     const madeUp = versions.find((v) => v.text === "lives in Pune");
     // UNKNOWN BEATS WRONG: the fabricated roster id must NOT survive.
     expect(madeUp?.subject_id).toBeNull();
-    expect(madeUp?.subject_hint).toBe("the landlord");
+    expect(madeUp?.subject_hint).toBe("ent_totally_made_up");
     const real = versions.find((v) => v.text === "prefers window seats");
     expect(real?.subject_id).toBe(rohan.id);
 

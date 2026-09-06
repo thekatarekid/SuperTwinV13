@@ -1,0 +1,90 @@
+{
+  "id": "TYP-02",
+  "category": "TYP",
+  "title": "a booking yields status and id",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "fact",
+          "text": "Goibibo booking PNR 8Y2K4Q confirmed for ₹4,200",
+          "provenance": "observed",
+          "fields": {
+            "amount": 4200,
+            "currency": "INR",
+            "date": null,
+            "status": "confirmed",
+            "merchant": "Goibibo",
+            "order_id": "8Y2K4Q",
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "PNR 8Y2K4Q · ₹4,200 · Confirmed"
+            }
+          ],
+          "confidence": 0.9,
+          "valid_from": "2026-09-05T09:20:00+05:30"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "A Goibibo confirmation on screen. The recorded output fills order_id · status · amount (with the thousands separator in the text) · currency · merchant; all land as columns."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:20:00+05:30",
+      "source": "screen",
+      "stream": "screen:com.google.Chrome:s17",
+      "actor": "self",
+      "text": "Goibibo · Your booking · PNR 8Y2K4Q · ₹4,200 · Confirmed · BLR → GOI 18 Dec"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims": [
+        {
+          "subject": "self",
+          "kind": "fact",
+          "text_contains": "8Y2K4Q",
+          "provenance": "observed",
+          "fields": {
+            "amount": 4200,
+            "currency": "INR",
+            "status": "confirmed",
+            "merchant": "Goibibo",
+            "order_id": "8Y2K4Q"
+          },
+          "active": true
+        }
+      ],
+      "claims_total": 1
+    }
+  },
+  "wrong": [
+    {
+      "label": "prose-only",
+      "assert_absent": "the PNR, status or amount left only in the claim text"
+    }
+  ],
+  "gates": [
+    "overwrite",
+    "typed_fields_exact"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 TYP-02 · a booking yields status and id"
+  }
+}

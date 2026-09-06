@@ -1,0 +1,88 @@
+{
+  "id": "TYP-03",
+  "category": "TYP",
+  "title": "no invented columns",
+  "pass": "claims",
+  "mode": "code",
+  "setup": {
+    "now": "2026-09-05T10:00:00+05:30",
+    "people": [
+      {
+        "ref": "contact:rohan",
+        "name": "Rohan",
+        "circle": "close_friends"
+      }
+    ],
+    "recorded_output": {
+      "claims": [
+        {
+          "subject": "unknown",
+          "kind": "fact",
+          "text": "The villa is around ₹5–6k per night",
+          "provenance": "observed",
+          "fields": {
+            "amount": 5500,
+            "currency": "INR",
+            "date": null,
+            "status": null,
+            "merchant": null,
+            "order_id": null,
+            "location": null,
+            "duration_s": null
+          },
+          "evidence": [
+            {
+              "event_ids": [
+                "e1"
+              ],
+              "quote": "villa is around 5–6k"
+            }
+          ],
+          "confidence": 0.7,
+          "valid_from": "2026-09-05T09:45:00+05:30"
+        }
+      ],
+      "people": [],
+      "tone": [],
+      "feelings": []
+    },
+    "note": "A price range. The recorded output (adversarial) fills amount 5500; the literal-presence rail nulls it (and the orphaned currency) — the range stays in prose, the column stays null."
+  },
+  "input_events": [
+    {
+      "id": "e1",
+      "ts": "2026-09-05T09:45:00+05:30",
+      "source": "wa",
+      "stream": "wa:goa-gang@g.us",
+      "actor": "contact:rohan",
+      "text": "villa is around 5–6k a night, will confirm"
+    }
+  ],
+  "expected": {
+    "extract": {
+      "claims": [
+        {
+          "kind": "fact",
+          "text_contains": "5–6k",
+          "fields": {},
+          "active": true
+        }
+      ],
+      "claims_total": 1
+    }
+  },
+  "wrong": [
+    {
+      "label": "midpoint-fill",
+      "assert_absent": "amount filled with a midpoint (5500) or an endpoint of the range"
+    }
+  ],
+  "gates": [
+    "overwrite",
+    "typed_fields_exact"
+  ],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.16 TYP-03 · no invented columns"
+  }
+}

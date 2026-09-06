@@ -16,7 +16,7 @@
 
 import { useEffect, useState } from "react";
 
-import { LoadFallback, useLoad } from "../../components/LoadState";
+import { LoadFallback, PanelSkeleton, useLoad } from "../../components/LoadState";
 import {
   describeWorkerError,
   fetchHealth,
@@ -46,7 +46,21 @@ export function GeneralPanel(): JSX.Element {
   // failure is the one the user must see and be able to retry (W3). The other
   // four reads are decorations — graduation, deep-pass, spend, version — and
   // each degrades to "not shown" on its own without hiding the pane.
-  const gate = useLoad<GeneralSettings>(fetchSettingsGeneral);
+  // FIX-C5: General is the pane Settings opens on, so its read is the one that
+  // decides how fast the Settings tab feels — and on the user's machine it was
+  // the slowest read in the app (37.3 s for 198 bytes, queued behind the
+  // importer). Keyed into the pane cache, a return to Settings repaints the
+  // saved row in the same frame and re-reads underneath.
+  //
+  // `cacheKey` WITHOUT `freshFor`, deliberately: the cache is here to kill the
+  // blank frame, not the request. Settings is where a value can be changed by
+  // something other than this pane, so it re-asks every time it mounts and
+  // shows the last answer while it waits. The repeat-fetch-on-flip that
+  // `freshFor` exists to prevent is already gone — App.tsx keeps the pane
+  // mounted, so a flip does not re-mount it at all.
+  const gate = useLoad<GeneralSettings>(fetchSettingsGeneral, [], {
+    cacheKey: "settings.general",
+  });
   const s = gate.data;
   const setS = gate.setData;
   const attempt = gate.attempt;
@@ -60,7 +74,16 @@ export function GeneralPanel(): JSX.Element {
       .catch(() => setFooter(null));
   }, [attempt]);
 
-  if (!s) return <LoadFallback state={gate} what="General settings" />;
+  // UNKNOWN IS NOT EMPTY: a failed read shows the failure and a Retry; a read
+  // still in flight shows the SHAPE of the pane, not a bare "loading…" line
+  // that is indistinguishable from a panel that has given up.
+  if (!s) {
+    return gate.error !== null ? (
+      <LoadFallback state={gate} what="General settings" />
+    ) : (
+      <PanelSkeleton what="General settings" rows={6} />
+    );
+  }
   const save = async (patch: Partial<GeneralSettings>): Promise<void> => {
     setSaveError(null);
     try {

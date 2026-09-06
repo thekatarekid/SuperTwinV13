@@ -12,7 +12,14 @@
 // Rust side owns summoning via double-tap right-⌘ / ⌘⇧S).
 // ===========================================================================
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   approveProposal,
   artifactDismiss,
@@ -65,6 +72,72 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+// ===========================================================================
+// FIX-C5 — SWITCHING A MAIN TAB COST A COLD READ, EVERY TIME.
+//
+// `{tab === "spaces" && <Spaces />}` unmounts the screen you leave and mounts
+// the one you arrive at from nothing. Every arrival therefore re-issued that
+// screen's whole read set, and until it answered the pane was blank — or, in
+// the People/Timeline case, actively wrong ("every circle 0"). Measured
+// read-only against the user's own worker while the WhatsApp import held the
+// database (better-sqlite3 is synchronous, so a reader queues behind the
+// importer's writes), best of six attempts each:
+//
+//     /api/health        0.002 s      (no database work — the loop is free)
+//     /api/home          4.9 s
+//     /api/freshness     5.0 s
+//     /api/spaces/list   8.0 s   ← 25 bytes of body
+//     /api/artifacts     8.2 s
+//     /api/timeline      9.6 s
+//     /api/calendar     11.1 s   ← 1.4 KB of body
+//
+// `spaces/list` returning 25 bytes in 8 s is the whole diagnosis: the cost is
+// not the query, it is waiting for the one synchronous SQLite connection. No
+// amount of query tuning fixes a tab flip that has to take that queue ticket
+// again — the flip must stop asking.
+//
+// So a main tab is mounted on its FIRST visit and kept mounted after that,
+// hidden rather than destroyed. A second visit is a `display` toggle: no
+// fetch, no queue ticket, no skeleton, and the screen's own state (filters,
+// the open space, scroll) survives the round trip.
+//
+// Freshness is not sacrificed to it. A pane whose last activation is older
+// than STALE_MS is re-mounted on arrival (its `key` changes), so it re-reads —
+// and because the screens seed from the LoadState pane cache, that re-mount
+// still paints the previous answer in the same frame and refreshes underneath.
+// Under STALE_MS the flip is free; over it, it costs one read and never a lie.
+//
+// THE LIBRARY IS DELIBERATELY EXCLUDED. Its sub-tabs own six `setInterval`
+// pollers (WhatsApp status, browser progress, screen gate, per-source status).
+// Kept mounted they would poll a worker that is already the bottleneck, for
+// the life of the window, while nobody is looking at them. A screen that polls
+// must unmount when it leaves; the main six do not poll, so they can stay.
+// ===========================================================================
+
+/** How long a kept-mounted pane's answer stands before an arrival re-reads. */
+const STALE_MS = 30_000;
+
+/** Tabs that are kept mounted between visits — every main tab but the Library. */
+const KEEP_MOUNTED: readonly TabId[] = ["home", "spaces", "calendar", "timeline", "people", "settings"];
+
+/**
+ * One main tab's pane. `hidden` carries the semantics (out of the a11y tree
+ * and out of the tab order); the inline `display` makes it independent of
+ * whether any stylesheet has an opinion about `[hidden]`.
+ */
+function Pane(props: { id: TabId; active: boolean; children: ReactNode }): JSX.Element {
+  return (
+    <div
+      className="screen-pane"
+      data-pane={props.id}
+      hidden={!props.active}
+      style={props.active ? undefined : { display: "none" }}
+    >
+      {props.children}
+    </div>
+  );
+}
+
 type ModalState =
   | { type: "task"; task: TaskRow }
   | { type: "space"; space: SpaceRow }
@@ -86,6 +159,52 @@ export function App(): JSX.Element {
   const [undo, setUndo] = useState<UndoChip | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // FIX-C5 — which tabs have ever been opened (so they exist in the DOM), and
+  // the mount generation of each (bumped when an arrival finds it stale).
+  const [visited, setVisited] = useState<readonly TabId[]>(["home"]);
+  const [generation, setGeneration] = useState<Readonly<Partial<Record<TabId, number>>>>({});
+  const shownAt = useRef(new Map<TabId, number>([["home", Date.now()]]));
+  const mainRef = useRef<HTMLElement | null>(null);
+  const scrollMemo = useRef(new Map<TabId, number>());
+  // The tab a handler sees, without making every handler depend on `tab`.
+  // A state updater is not the place to read it from: React may invoke an
+  // updater twice for the same transition, and remembering a scroll offset is
+  // a side effect, not a reduction.
+  const tabRef = useRef<TabId>(tab);
+  tabRef.current = tab;
+
+  /**
+   * The one way a tab changes. Remembers where the tab being left was scrolled
+   * to, records the arrival, and re-mounts the arriving pane only when its last
+   * answer has gone stale (see STALE_MS).
+   */
+  const selectTab = useCallback((next: TabId) => {
+    const current = tabRef.current;
+    if (current === next) return;
+    if (mainRef.current) scrollMemo.current.set(current, mainRef.current.scrollTop);
+    const last = shownAt.current.get(next);
+    if (last !== undefined && Date.now() - last > STALE_MS) {
+      setGeneration((prev) => ({ ...prev, [next]: (prev[next] ?? 0) + 1 }));
+    }
+    shownAt.current.set(next, Date.now());
+    setVisited((prev) => (prev.includes(next) ? prev : [...prev, next]));
+    setTab(next);
+  }, []);
+
+  // Scroll lives on the shared <main>, so each pane's offset is restored on
+  // arrival rather than inheriting wherever the previous tab happened to be.
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = scrollMemo.current.get(tab) ?? 0;
+  }, [tab, generation]);
+
+  /** Has this tab ever been opened? Only then does its pane exist at all. */
+  const seen = useCallback(
+    (id: TabId): boolean => KEEP_MOUNTED.includes(id) && (visited.includes(id) || tab === id),
+    [visited, tab],
+  );
+  /** A pane's React key — changing it is how a stale pane is made to re-read. */
+  const paneKey = useCallback((id: TabId): string => `${id}:${generation[id] ?? 0}`, [generation]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -126,13 +245,13 @@ export function App(): JSX.Element {
         const next = TABS[Number(e.key) - 1];
         if (next) {
           e.preventDefault();
-          setTab(next.id);
+          selectTab(next.id);
         }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modal, lock]);
+  }, [modal, lock, selectTab]);
 
   /** One correction dispatcher for every path (spec §14.4.5). */
   const correct = useCallback(
@@ -248,7 +367,7 @@ export function App(): JSX.Element {
               key={t.id}
               type="button"
               aria-current={tab === t.id ? "page" : undefined}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
             >
               {t.label}
             </button>
@@ -273,42 +392,62 @@ export function App(): JSX.Element {
           hard-stopped simply looked empty. */}
       <HaltBanner />
 
-      <main className="screen">
-        {tab === "home" && (
-          <Home
-            data={data}
-            error={error}
-            loading={loading}
-            onRetry={() => void refresh()}
-            prepared={artifacts}
-            onOpenArtifact={(a) => void openArtifact(a)}
-            onOpenTask={(task) => setModal({ type: "task", task })}
-            onOpenSpace={(space) => setModal({ type: "space", space })}
-            onOpenProposal={(proposal) => setModal({ type: "proposal", proposal })}
-            onOpenClaim={(claim) => setModal({ type: "claim", claim })}
-            onDragMove={(target, toSpaceId) =>
-              void correct(target, { type: "move", to_space_id: toSpaceId })
-            }
-          />
+      {/* FIX-C5: every main tab that has been opened stays mounted, hidden.
+          The Library is the exception — it polls, so it must unmount. */}
+      <main className="screen" ref={mainRef}>
+        {seen("home") && (
+          <Pane id="home" active={tab === "home"} key={paneKey("home")}>
+            <Home
+              data={data}
+              error={error}
+              loading={loading}
+              onRetry={() => void refresh()}
+              prepared={artifacts}
+              onOpenArtifact={(a) => void openArtifact(a)}
+              onOpenTask={(task) => setModal({ type: "task", task })}
+              onOpenSpace={(space) => setModal({ type: "space", space })}
+              onOpenProposal={(proposal) => setModal({ type: "proposal", proposal })}
+              onOpenClaim={(claim) => setModal({ type: "claim", claim })}
+              onDragMove={(target, toSpaceId) =>
+                void correct(target, { type: "move", to_space_id: toSpaceId })
+              }
+            />
+          </Pane>
         )}
-        {tab === "spaces" && (
-          // FIX-C7: proposals live in Home's Review queue, never in the list.
-          <Spaces
-            onTellTwin={(id, label) => lockTo("space", id, label)}
-            onOpenReview={() => setTab("home")}
-          />
+        {seen("spaces") && (
+          <Pane id="spaces" active={tab === "spaces"} key={paneKey("spaces")}>
+            {/* FIX-C7: proposals live in Home's Review queue, never in the list. */}
+            <Spaces
+              onTellTwin={(id, label) => lockTo("space", id, label)}
+              onOpenReview={() => selectTab("home")}
+            />
+          </Pane>
         )}
-        {tab === "calendar" && <Calendar onOpenSpace={openSpaceById} />}
-        {tab === "timeline" && <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />}
+        {seen("calendar") && (
+          <Pane id="calendar" active={tab === "calendar"} key={paneKey("calendar")}>
+            <Calendar onOpenSpace={openSpaceById} />
+          </Pane>
+        )}
+        {seen("timeline") && (
+          <Pane id="timeline" active={tab === "timeline"} key={paneKey("timeline")}>
+            <Timeline spaces={data?.spaces ?? []} onOpenSpace={openSpaceById} />
+          </Pane>
+        )}
         {tab === "library" && <Library />}
-        {tab === "people" && (
-          <People
-            onTellTwin={(id, label) => lockTo("person", id, label)}
-            onTellTwinClaim={(claimKey, label) => lockTo("claim", claimKey, label)}
-            onOpenEvent={() => setTab("timeline")}
-          />
+        {seen("people") && (
+          <Pane id="people" active={tab === "people"} key={paneKey("people")}>
+            <People
+              onTellTwin={(id, label) => lockTo("person", id, label)}
+              onTellTwinClaim={(claimKey, label) => lockTo("claim", claimKey, label)}
+              onOpenEvent={() => selectTab("timeline")}
+            />
+          </Pane>
         )}
-        {tab === "settings" && <Settings />}
+        {seen("settings") && (
+          <Pane id="settings" active={tab === "settings"} key={paneKey("settings")}>
+            <Settings />
+          </Pane>
+        )}
       </main>
 
       {modal?.type === "task" && (

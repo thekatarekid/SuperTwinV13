@@ -39,11 +39,14 @@ import {
   type SpaceView,
   type SpacesList,
 } from "../lib/api";
-import { LoadFailure } from "../components/LoadState";
+import { LoadFailure, PanelSkeleton, RefreshingHint, useCachedRead } from "../components/LoadState";
 import { WhyPanel } from "../components/WhyPanel";
 import type { TargetKind } from "../lib/api";
 
 const AREAS: string[] = [...LIFE_AREAS, OTHER_AREA];
+
+/** What the pane cache holds for the space list. */
+const SPACES_CACHE_KEY = "spaces.list";
 
 /** The one open why-panel: which element it belongs to. */
 interface WhyTarget {
@@ -94,7 +97,11 @@ export function Spaces(props: {
    */
   onOpenReview?: () => void;
 }): JSX.Element {
-  const [list, setList] = useState<SpacesList | null>(null);
+  // FIX-C5: the answered list is kept per window, so coming back to Spaces
+  // repaints it in the same frame instead of asking a busy worker again
+  // (/api/spaces/list measured 8.0 s on the user's machine for 25 bytes).
+  const cache = useCachedRead<SpacesList>(SPACES_CACHE_KEY);
+  const [list, setList] = useState<SpacesList | null>(cache.seed);
   const [openId, setOpenId] = useState<string | null>(null);
   const [view, setView] = useState<SpaceView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,15 +115,22 @@ export function Spaces(props: {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    // Newest issue wins: a slow first reply must not overwrite a later answer,
+    // on screen or in the cache (LoadState L2).
+    const token = cache.begin();
     try {
-      setList(await fetchSpacesList());
+      const next = await fetchSpacesList();
+      if (!cache.accept(token)) return;
+      cache.publish(token, next);
+      setList(next);
       setError(null);
     } catch (err) {
+      if (!cache.accept(token)) return;
       setError(describeWorkerError(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cache]);
 
   useEffect(() => {
     void refresh();
@@ -191,6 +205,17 @@ export function Spaces(props: {
     );
   }
 
+  // UNKNOWN IS NOT EMPTY. Until the read has produced a list or an error this
+  // screen knows nothing about how many spaces exist, so it paints the shape
+  // of the answer rather than a blank card that reads as "none".
+  if (list === null) {
+    return (
+      <div className="spaces-screen">
+        <PanelSkeleton what="your spaces" rows={5} className="spaces" />
+      </div>
+    );
+  }
+
   const byArea = new Map<string, SpaceListRow[]>();
   for (const a of AREAS) byArea.set(a, []);
   for (const group of list?.areas ?? []) {
@@ -208,7 +233,9 @@ export function Spaces(props: {
   return (
     <div className="spaces-screen">
       <section className="card spaces" aria-label="Spaces">
-        <h2>Spaces</h2>
+        <h2>
+          Spaces <RefreshingHint active={loading} />
+        </h2>
         {list !== null && filed === 0 && waiting === 0 && (
           <p className="empty">no spaces yet — ask for one in the bar, or wait for the twin to propose one</p>
         )}

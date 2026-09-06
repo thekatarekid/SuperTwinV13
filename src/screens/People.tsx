@@ -35,7 +35,7 @@
 // ===========================================================================
 
 import { useCallback, useEffect, useState } from "react";
-import { LoadFailure } from "../components/LoadState";
+import { LoadFailure, PanelSkeleton, RefreshingHint, useCachedRead } from "../components/LoadState";
 import {
   CIRCLES,
   describeWorkerError,
@@ -57,6 +57,14 @@ import { WhoIAm } from "./people/WhoIAm";
 
 type CircleKey = Circle | "unassigned";
 
+/** What the pane cache holds for the people list and its merge questions. */
+const PEOPLE_CACHE_KEY = "people.list";
+
+interface PeoplePage {
+  people: PersonRow[];
+  questions: MergeQuestion[];
+}
+
 const GROUPS: CircleKey[] = [...CIRCLES, "unassigned"];
 
 /** What is under the cursor: a whole person, or one alias chip of a person. */
@@ -76,8 +84,12 @@ export function People(props: {
   /** An evidence quote → the timeline at that event. */
   onOpenEvent?: (eventId: string) => void;
 }): JSX.Element {
-  const [people, setPeople] = useState<PersonRow[] | null>(null);
-  const [questions, setQuestions] = useState<MergeQuestion[]>([]);
+  // FIX-C5 / L2: `null` is NO ANSWER YET and paints a skeleton. Rendering the
+  // circles from `[]` while the read was still on the wire is what put "0" on
+  // every circle on the user's machine — a count the screen had not earned.
+  const cache = useCachedRead<PeoplePage>(PEOPLE_CACHE_KEY);
+  const [people, setPeople] = useState<PersonRow[] | null>(cache.seed?.people ?? null);
+  const [questions, setQuestions] = useState<MergeQuestion[]>(cache.seed?.questions ?? []);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // An action that failed is not a failed LOAD: the list on screen is still
@@ -92,10 +104,15 @@ export function People(props: {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    // Newest issue wins, for the screen and for the cache alike (LoadState L2).
+    const token = cache.begin();
     try {
       const r = await fetchPeople();
-      setPeople(r.people);
-      setQuestions(r.open_questions ?? []);
+      if (!cache.accept(token)) return;
+      const page: PeoplePage = { people: r.people, questions: r.open_questions ?? [] };
+      cache.publish(token, page);
+      setPeople(page.people);
+      setQuestions(page.questions);
       setError(null);
       // Alias chips are an enhancement, not the list: a worker that cannot
       // serve them still renders everyone.
@@ -105,11 +122,11 @@ export function People(props: {
         setAliases({});
       }
     } catch (err) {
-      setError(describeWorkerError(err));
+      if (cache.accept(token)) setError(describeWorkerError(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cache]);
 
   useEffect(() => {
     void refresh();
@@ -219,6 +236,19 @@ export function People(props: {
     );
   }
 
+  // UNKNOWN IS NOT EMPTY. The circle rail is a set of COUNTS; rendering it
+  // before the read answers states five counts of zero and "drag someone here"
+  // under each — the exact false verdict the user reported. The heads (Who I
+  // am, the radar) stage themselves, so only the roster waits here.
+  if (people === null) {
+    return (
+      <div className="people-screen">
+        {heads}
+        <PanelSkeleton what="the people you know" rows={6} className="people" />
+      </div>
+    );
+  }
+
   const grouped = new Map<CircleKey, PersonRow[]>();
   for (const g of GROUPS) grouped.set(g, []);
   for (const p of people ?? []) grouped.get(p.circle ?? "unassigned")!.push(p);
@@ -227,7 +257,9 @@ export function People(props: {
     <div className="people-screen">
       {heads}
       <section className="card people" aria-label="People">
-        <h2>People</h2>
+        <h2>
+          People <RefreshingHint active={loading} />
+        </h2>
 
       {actionError && (
         <p className="error" role="alert">
@@ -248,7 +280,7 @@ export function People(props: {
         </div>
       )}
 
-      {people !== null && people.length === 0 && <p className="empty">no people known yet</p>}
+      {people.length === 0 && <p className="empty">no people known yet</p>}
 
       {GROUPS.map((g) => {
         const rows = grouped.get(g)!;

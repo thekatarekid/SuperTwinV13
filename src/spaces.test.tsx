@@ -12,6 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { resetLoadCache } from "./components/LoadState";
 import { Spaces } from "./screens/Spaces";
 import { stubWorker, type WorkerStub } from "./test-utils";
 import type { SpaceListRow, SpaceView, SpacesList } from "./lib/api";
@@ -186,6 +187,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // FIX-C5: the space list is kept in the pane cache, so one test's answer
+  // would otherwise seed the next one's first frame.
+  resetLoadCache();
 });
 
 describe("Spaces list (Product_V6_Phase1 §13.5)", () => {

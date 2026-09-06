@@ -11,7 +11,7 @@
 // ===========================================================================
 
 import { getDb } from "../../db/connection.js";
-import { bestBand, dayOf, PENDING_SELECT, SCOPE_CLAUSE, tierOf, toBundleEvent, type DeltaBundle, type PendingRow } from "./bundle.js";
+import { bestBand, bundleKey, dayOf, PENDING_SELECT, SCOPE_CLAUSE, tierOf, toBundleEvent, type DeltaBundle, type PendingRow } from "./bundle.js";
 
 export const WEEK_MS = 7 * 86_400_000;
 
@@ -73,7 +73,9 @@ export function planDigest(opts: DigestOptions = {}): DeltaBundle[] {
   const limit = opts.limit ?? Number.POSITIVE_INFINITY;
   for (const g of ordered) {
     const events = g.rows.map(toBundleEvent);
-    const key = `${g.streamId}:${Math.min(...events.map((e) => e.rowid))}-${Math.max(...events.map((e) => e.rowid))}`;
+    // O(n) reduce, not a spread: a tier-3 week of a chatty stream is large,
+    // and Math.min(...events) throws above ~100k events (C6).
+    const key = bundleKey({ streamId: g.streamId, events });
     if (opts.skipKeys?.has(key)) continue;
     out.push({
       streamId: g.streamId,

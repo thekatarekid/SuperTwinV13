@@ -18,7 +18,9 @@
 import { getDb } from "../../db/connection.js";
 import {
   bestBand,
+  bundleKey,
   dayOf,
+  DEFAULT_DISPATCH_CONFIG,
   PENDING_SELECT,
   SCOPE_CLAUSE,
   tierOf,
@@ -30,6 +32,16 @@ import {
 
 /** A day bundle over this many chars splits at its largest gap. */
 export const HISTORY_SPLIT_CHARS = 30_000;
+
+/**
+ * And a hard ceiling on EVENTS per part, whatever the characters say (C6).
+ * The char cap alone bounds nothing when the events are short — a day of
+ * browser visits or screen frames is tens of thousands of ~1-char rows well
+ * under 30k chars, and that part would be handed to the packer whole. The
+ * same number the live lane already splits on (`maxBundleEvents`), so "how
+ * many events fit in one call" has one meaning across the lanes.
+ */
+export const HISTORY_SPLIT_EVENTS = DEFAULT_DISPATCH_CONFIG.maxBundleEvents;
 
 /** WhatsApp → screen → browser → everything else (§11.2). */
 export const SOURCE_ORDER: readonly string[] = ["wa", "whatsapp", "screen", "browser"];
@@ -77,24 +89,73 @@ function tsMs(e: Pick<BundleEvent, "ts">): number {
 
 /**
  * Split one day's events (time order) at the largest inactivity gap until
- * every part is under the cap. A part that cannot split (one event) stands.
+ * every part is under BOTH caps — characters and events. A part that cannot
+ * split (one event) stands.
+ *
+ * Size-independent by construction (C6). The obvious recursive-slice reading
+ * of this rule crashes the history lane on ordinary data:
+ *
+ *   · it re-sorted and re-sliced the array at every level (O(n²) work — 4,000
+ *     events took eleven seconds);
+ *   · `gap > bestGap` kept the FIRST maximum, so a stream with an even cadence
+ *     — messages a second apart, visits a minute apart, screen frames — has
+ *     every gap equal, the split always fell after event 1, and the recursion
+ *     walked one event at a time: depth O(n), `RangeError: Maximum call stack
+ *     size exceeded` from 8,000 events on a day, dead-lettering exactly the
+ *     busiest days.
+ *
+ * So: sort once, walk index ranges on an explicit stack (no recursion, no
+ * depth to exceed), and break a tie between equal gaps toward the middle of
+ * the range — a genuinely largest silence still wins, and a flat cadence
+ * halves instead of shearing. Parts come back in time order.
  */
-export function splitAtLargestGap(events: readonly BundleEvent[], cap = HISTORY_SPLIT_CHARS): DaySplit[] {
+export function splitAtLargestGap(
+  events: readonly BundleEvent[],
+  cap = HISTORY_SPLIT_CHARS,
+  eventCap = HISTORY_SPLIT_EVENTS,
+): DaySplit[] {
   const sorted = [...events].sort((a, b) => tsMs(a) - tsMs(b) || a.rowid - b.rowid);
-  const total = sorted.reduce((n, e) => n + charsOf(e), 0);
-  if (sorted.length <= 1 || total <= cap) {
-    return [{ events: sorted, from: sorted[0]?.ts ?? null, to: sorted[sorted.length - 1]?.ts ?? null }];
-  }
-  let bestIdx = 1;
-  let bestGap = -1;
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = tsMs(sorted[i]) - tsMs(sorted[i - 1]);
-    if (gap > bestGap) {
-      bestGap = gap;
-      bestIdx = i;
+  if (sorted.length === 0) return [{ events: sorted, from: null, to: null }];
+
+  // Prefix sums: the chars of any range in O(1), so no range is ever re-summed.
+  const prefix = new Array<number>(sorted.length + 1);
+  prefix[0] = 0;
+  for (let i = 0; i < sorted.length; i++) prefix[i + 1] = prefix[i] + charsOf(sorted[i]);
+  const charsIn = (lo: number, hi: number): number => prefix[hi] - prefix[lo];
+
+  const maxEvents = Math.max(1, eventCap);
+  const emitted: Array<[number, number]> = [];
+  const stack: Array<[number, number]> = [[0, sorted.length]]; // [lo, hi)
+  while (stack.length > 0) {
+    const [lo, hi] = stack.pop()!;
+    const n = hi - lo;
+    if (n <= 1 || (charsIn(lo, hi) <= cap && n <= maxEvents)) {
+      emitted.push([lo, hi]);
+      continue;
     }
+    // Largest inactivity gap in [lo, hi); ties go to the cut nearest the
+    // middle, which is what keeps a flat cadence from shearing one at a time.
+    const mid = lo + n / 2;
+    let bestIdx = lo + 1;
+    let bestGap = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let i = lo + 1; i < hi; i++) {
+      const gap = tsMs(sorted[i]) - tsMs(sorted[i - 1]);
+      const dist = Math.abs(i - mid);
+      if (gap > bestGap || (gap === bestGap && dist < bestDist)) {
+        bestGap = gap;
+        bestIdx = i;
+        bestDist = dist;
+      }
+    }
+    stack.push([bestIdx, hi], [lo, bestIdx]);
   }
-  return [...splitAtLargestGap(sorted.slice(0, bestIdx), cap), ...splitAtLargestGap(sorted.slice(bestIdx), cap)];
+
+  emitted.sort((a, b) => a[0] - b[0]);
+  return emitted.map(([lo, hi]) => {
+    const part = sorted.slice(lo, hi);
+    return { events: part, from: part[0]?.ts ?? null, to: part[part.length - 1]?.ts ?? null };
+  });
 }
 
 interface DayRows {
@@ -176,7 +237,10 @@ export function planHistory(opts: HistoryOptions = {}): DeltaBundle[] {
         partCount: parts.length,
         day: dayOf(part.events) || day,
       };
-      const key = `${bundle.streamId}:${Math.min(...part.events.map((e) => e.rowid))}-${Math.max(...part.events.map((e) => e.rowid))}`;
+      // bundleKey() is the O(n) reduce and the one definition of the key the
+      // in-flight registry and `bundle_attempts` are filed under. Spreading the
+      // part into Math.min/Math.max instead threw above ~100k events (C6).
+      const key = bundleKey(bundle);
       if (opts.skipKeys?.has(key)) continue;
       out.push(bundle);
       if (out.length >= limit) return out;

@@ -121,9 +121,15 @@ export function registerBundleForEnrichment(bundle: {
   const pending = pendingCountOf(rows);
   if (pending === 0) return { bundleId: null, pending: 0 };
 
-  const rowids = rows.map((r) => r.rowid);
-  const minRowid = Math.min(...rowids);
-  const maxRowid = Math.max(...rowids);
+  // O(n) reduce, never a spread: a hand-off can carry every attachment of a
+  // large day and Math.min(...rowids) throws above ~100k of them (C6).
+  let minRowid = Number.POSITIVE_INFINITY;
+  let maxRowid = 0;
+  for (const r of rows) {
+    if (r.rowid < minRowid) minRowid = r.rowid;
+    if (r.rowid > maxRowid) maxRowid = r.rowid;
+  }
+  if (!Number.isFinite(minRowid)) minRowid = 0;
   const id = enrichmentBundleId(bundle.streamId, minRowid, maxRowid);
   getDb()
     .prepare(

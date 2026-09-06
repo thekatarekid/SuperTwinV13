@@ -147,6 +147,31 @@ export interface DispatcherStats {
   heldForStep: number;
 }
 
+// ---- Failure detail ----------------------------------------------------------
+
+/**
+ * What a thrown sink is remembered by, in the log and in `bundle_attempts`.
+ *
+ * A bare `err.message` is how C6 stayed invisible: five history bundles
+ * dead-lettered against "Maximum call stack size exceeded" and the one thing
+ * that would have named the line — the stack — was dropped on the floor. A
+ * crash inside the understanding pipeline must say where it crashed, so the
+ * top frames ride along, clipped so a stack can never crowd out the message.
+ */
+export function describeSinkFailure(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const frames = (err.stack ?? "")
+    .split("
+")
+    .slice(1)
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("at "))
+    .slice(0, 4)
+    .join(" | ");
+  const detail = frames ? `${err.message} — ${frames}` : err.message;
+  return detail.length > 900 ? `${detail.slice(0, 897)}...` : detail;
+}
+
 // ---- Defaults ----------------------------------------------------------------
 
 function defaultSink(): BundleSink {
@@ -523,7 +548,7 @@ export class Dispatcher {
         (err) =>
           this.afterSettle(
             bundle,
-            { status: "failed", error: err instanceof Error ? err.message : String(err) },
+            { status: "failed", error: describeSinkFailure(err) },
             this.now(),
             lane,
           ),

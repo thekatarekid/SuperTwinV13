@@ -23,7 +23,7 @@
 
 import type { EventEnvelope } from "../db/eventlog.js";
 import { getDb } from "../db/connection.js";
-import { markDispatchedEvents, type DeltaBundle } from "../scheduler/v6/bundle.js";
+import { bundleRef, markDispatchedEvents, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { clearBundleAttempts, noteBundleAttempt } from "../db/v6core.js";
 import { ensureDigests, recordContextStats } from "../packer/index.js";
 import type { JsonPassDeps } from "./llm.js";
@@ -299,11 +299,9 @@ export async function runBrainTick(
   if (commit.heldEventIds.length > 0) {
     const held = new Set(commit.heldEventIds);
     const rows = bundle.events.filter((e) => held.has(e.id));
-    const ref = {
-      streamId: bundle.streamId,
-      minRowid: Math.min(...rows.map((e) => e.rowid)),
-      maxRowid: Math.max(...rows.map((e) => e.rowid)),
-    };
+    // O(n) reduce, never a spread — a held set is bundle-sized and
+    // Math.min(...rows) throws above ~100k events (C6).
+    const ref = bundleRef({ streamId: bundle.streamId, events: rows });
     const attempt = noteBundleAttempt(ref, {
       error: commit.rejections
         .filter((r) => r.eventIds.some((id) => held.has(id)))
@@ -313,11 +311,7 @@ export async function runBrainTick(
     });
     if (attempt.deadLetterAt) toMark = [...toMark, ...rows.map((e) => e.id)];
   } else {
-    clearBundleAttempts({
-      streamId: bundle.streamId,
-      minRowid: Math.min(...bundle.events.map((e) => e.rowid)),
-      maxRowid: Math.max(...bundle.events.map((e) => e.rowid)),
-    });
+    clearBundleAttempts(bundleRef(bundle));
   }
   markDispatchedEvents(bundle, toMark);
   return {

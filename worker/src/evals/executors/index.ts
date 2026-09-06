@@ -40,6 +40,7 @@ import { settingsExecutor } from "./set.js";
 import { liveExecutor } from "./liv.js";
 import { liteExecutor } from "./exe.js";
 import { nudExecutor } from "./nud.js";
+import { brfExecutor } from "./brf.js";
 import { calendarExecutor } from "./cal.js";
 import { tskExecutor } from "./tsk.js";
 import { spacesExecutor } from "./spc.js";
@@ -64,6 +65,7 @@ export { tskExecutor } from "./tsk.js";
 export { spacesExecutor } from "./spc.js";
 export { liteExecutor } from "./exe.js";
 export { nudExecutor } from "./nud.js";
+export { brfExecutor } from "./brf.js";
 export { circlesExecutor, crmExecutor, rolesExecutor } from "./people.js";
 export { barExecutor, fixExecutor } from "./bar.js";
 export {
@@ -198,6 +200,12 @@ export async function registerProductExecutors(): Promise<void> {
   // wrong-goal card the precision check catches) against the real
   // surfaces/router.ts. Zero model calls.
   registerExecutor("router", nudExecutor);
+  // V6 P1 S4.6: BRF brief cases (an unchanged world model buys no call and no
+  // card, then one write wakes the next brief; a moved one buys exactly one
+  // brief.v2 call over a ledger code composed — needs you, today, what moved,
+  // every line carrying its row) against brief/{delta,ledger,run}.ts with a
+  // canned provider. Zero model calls.
+  registerExecutor("brief", brfExecutor);
   // V6 P1 S5.3: CAL calendar cases (tentative until confirmed, lead time by
   // circle, the March deadline, recurrence as a rule, layers separable)
   // against the real calendar/{clocks,store,layers}.ts. Zero model calls.

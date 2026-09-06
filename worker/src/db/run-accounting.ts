@@ -58,6 +58,9 @@ export const RUN_ROLES = [
   "digest",
   "assist",
   "consolidate",
+  // V6 P1 S4.6: the brief lane's one prose call (brief.v2). Its own role so
+  // "Brief: $0.02" is never read as background extraction.
+  "brief",
 ] as const;
 
 export type RunRole = (typeof RUN_ROLES)[number];

@@ -166,6 +166,11 @@ export const CATEGORIES: readonly CategoryInfo[] = [
   // rank without muting, "don't do this" blocks reversibly, and a card that
   // names the wrong goal is the one real failure.
   { cat: "NUD", name: "Nudges and the router (V6 P1)", n: 9, doc: "V2", pass: "router", authored: true },
+  // GoldenEvals V6 Phase 1 §5.21 — the brief (S4.6). Code against brief/*.ts:
+  // an unchanged world model buys no call and no card (and one write wakes the
+  // next brief), and a moved one buys exactly one brief.v2 call over a ledger
+  // code composed — needs you, today, what moved, every line carrying its row.
+  { cat: "BRF", name: "The brief (V6 P1)", n: 2, doc: "V2", pass: "brief", authored: true },
 ];
 
 export const TOTAL_CASES = CATEGORIES.reduce((sum, c) => sum + c.n, 0);

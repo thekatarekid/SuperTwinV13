@@ -38,6 +38,7 @@ import { startAssistLane } from "./assist/index.js";
 import { startTieringJob } from "./tiers/tiering.js";
 import { startCalendarJob } from "./calendar/job.js";
 import { startWakeupJob } from "./tasks/wakeups.js";
+import { startBriefJob } from "./brief/job.js";
 import {
   backfillBrowserStreamCategories,
   backfillChatCategories,
@@ -212,6 +213,13 @@ async function main(): Promise<void> {
   // Boot replays the deferred pen first. Guarded inside the job.
   const wakeups = startWakeupJob({ log: (line) => console.error(line) });
 
+  // ---- The brief (V6 P1 S4.6, Product_V6 §14.4 item 7): one tick a minute so
+  // a set time is noticed within a minute of arriving. The tick is a LOOKUP —
+  // is a slot due, and did the world model move since the last brief? Nothing
+  // changed means no call and no card; a set time that did move costs exactly
+  // one brief.v2 call over a ledger code composed. Guarded inside the job.
+  const briefJob = startBriefJob({ log: (line) => console.error(line) });
+
   // ---- Category backfill (P1.6, spec §5.1): chat streams get their Cat-1/2
   // by code (user-reply + the cached business tier split); browser streams
   // sync from the P0.8 per-domain verdicts. Zero model calls; every change
@@ -276,6 +284,7 @@ async function main(): Promise<void> {
       tiering.stop();
       calendarJob.stop();
       wakeups.stop();
+      briefJob.stop();
       // Every adapter the supervisor started (and the pairing daemon, if any).
       await supervisor.stopAll();
       setSourceSupervisor(null);

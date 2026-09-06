@@ -153,6 +153,8 @@ describe("0020_v2_core applies", () => {
       "0205_v6_spaces",
       // V6 P1 S5.4: role_resolutions + person_prefs — new tables only.
       "0206_v6_people",
+      // V6 P1 S4.6: `briefs` — one row per fired set time. New table only.
+      "0207_v6_brief",
     ]);
 
     expect(

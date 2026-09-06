@@ -145,6 +145,9 @@ import { handleSpacesRoute } from "./spaces-routes.js";
 // subpaths and returns false for the rest (worldmodel owns the list).
 import { handlePeopleRoute } from "./people-routes.js";
 import { handleCalendarRoute } from "./calendar-routes.js";
+// V6 P1 S4.6: the brief — one card at each set time, composed by code, prose
+// only on a delta. Claims /api/brief and its subpaths only.
+import { handleBriefRoute } from "./brief-routes.js";
 // V6 P1 S5.2: the ONE prioritized task list and the one-tap closure answers —
 // claims GET /api/tasks and /api/tasks/:id/(done|cancel|not-yet) only.
 import { handleTasksRoute } from "./tasks-routes.js";
@@ -934,6 +937,13 @@ async function handle(
   // Settings › Calendar.
   if (path.startsWith("/api/calendar") || path === "/api/settings/calendar") {
     const handled = await handleCalendarRoute(req, res);
+    if (handled) return;
+  }
+
+  // The brief (V6 P1 S4.6): the standing card, its ledger, its history, and
+  // an on-demand compose. Its own surface — never the nudge router's.
+  if (path === "/api/brief" || path.startsWith("/api/brief/")) {
+    const handled = await handleBriefRoute(req, res);
     if (handled) return;
   }
 

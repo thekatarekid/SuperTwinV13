@@ -58,8 +58,10 @@ export const T2_CHANGE_SOURCES: readonly { table: string; column: string; where?
   { table: "claim_versions", column: "COALESCE(updated_at, created_at)", where: "COALESCE(closed_by, '') != 'consolidate:t3'" },
   { table: "tasks", column: "COALESCE(updated_at, created_at)" },
   // Consolidation's own bookkeeping (dormancy, unsorted archive, T3) is not
-  // change — otherwise every roll would wake the next one.
-  { table: "decisions", column: "created_at", where: "COALESCE(pass, '') NOT IN ('consolidate', 'code:t3')" },
+  // change — otherwise every roll would wake the next one. Neither is the
+  // brief (V6 P1 S4.6): it READS the world model and writes one row saying so,
+  // and a surface that woke the next roll twice a day would be the same bug.
+  { table: "decisions", column: "created_at", where: "COALESCE(pass, '') NOT IN ('consolidate', 'code:t3', 'brief')" },
   { table: "t2_review_queue", column: "created_at" },
   { table: "second_look", column: "created_at" },
   { table: "unsorted", column: "created_at" },

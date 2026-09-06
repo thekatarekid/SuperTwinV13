@@ -1,0 +1,71 @@
+{
+  "id": "BRF-02",
+  "category": "BRF",
+  "title": "brief composition",
+  "pass": "brief",
+  "mode": "code",
+  "setup": {
+    "note": "One set time over a world that has moved. Code composes the ledger from tasks/priority.ts, the derived calendar and what changed in the window; brief.v2 only phrases it. The call is a canned-JSON provider stub that can do nothing but read the packed ledger back — so an invented figure in the output would be a bug in the packer or the check, never the model.",
+    "last_brief_at": "now + 1s",
+    "standing": [
+      "task tsk_insurance 'Pay insurance renewal' — needs_approval",
+      "question 'Ma's ticket: AC or sleeper?' — open",
+      "event 'Dinner with Rohan' — confirmed, today",
+      "task tsk_cab 'Book the cab' — due today"
+    ],
+    "moved_in_window": [
+      "space 'Goa trip in December' — latest: Rohan's twin confirmed Saturday",
+      "task tsk_visa 'Send the visa photos' — closed done",
+      "artifact 'Villa comparison' — finished"
+    ]
+  },
+  "input_events": [
+    "A brief window that holds a space update, a closed task and a finished artifact.",
+    "A standing approval, an open question, today's dinner and today's cab task.",
+    "The set time arrives."
+  ],
+  "expected": {
+    "state": {
+      "status": "composed",
+      "model_calls": 1,
+      "parts": ["needs_you", "today", "moved"],
+      "every_item_has_a_source_chip": true,
+      "figures_invented": 0
+    },
+    "needs_you": ["the approval", "the open question"],
+    "today": ["the dinner", "the cab"],
+    "moved": ["the space's latest line", "the closed task", "the finished artifact"],
+    "note": "Needs-you, today and what moved. Code composes the ledger; one model call writes the prose."
+  },
+  "wrong": [
+    {
+      "label": "extra-call",
+      "assert_absent": "more than one model call for one brief"
+    },
+    {
+      "label": "missing-part",
+      "assert_absent": "a ledger that drops needs-you, today or what moved"
+    },
+    {
+      "label": "empty-part",
+      "assert_absent": "a part that comes back empty while the world model holds its rows"
+    },
+    {
+      "label": "uncited-item",
+      "assert_absent": "a ledger line with no source chip behind it"
+    },
+    {
+      "label": "invented-figure",
+      "assert_absent": "an amount, time or count in the prose that the ledger never held"
+    },
+    {
+      "label": "missing-heading",
+      "assert_absent": "prose that does not name all three parts"
+    }
+  ],
+  "gates": ["clock_only_call"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 BRF-02 · brief composition"
+  }
+}

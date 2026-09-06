@@ -146,11 +146,11 @@ describe("loadDirectory", () => {
 });
 
 describe("coverage", () => {
-  it("the category table totals 273 cases (72 from V1 minus SEG/CRI/CON/EXE, 201 from V2 incl. the V6P1 authored categories)", () => {
-    expect(TOTAL_CASES).toBe(273);
+  it("the category table totals 276 cases (72 from V1 minus SEG/CRI/CON/EXE, 204 from V2 incl. the V6P1 authored categories)", () => {
+    expect(TOTAL_CASES).toBe(276);
     expect(CATEGORIES.filter((c) => c.doc === "V1").reduce((s, c) => s + c.n, 0)).toBe(72);
-    // 201 with LIV-07 (S4.4, no starvation) authored on the LIV row.
-    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(201);
+    // 204: 201 through S4.4 (LIV-07 authored on the LIV row) plus GATE-A (3).
+    expect(CATEGORIES.filter((c) => c.doc === "V2").reduce((s, c) => s + c.n, 0)).toBe(204);
     // V6 P1 S5.3 — the derived calendar, five code cases on the `calendar` pass.
     expect(CATEGORIES.find((c) => c.cat === "CAL")).toMatchObject({ n: 5, pass: "calendar", authored: true });
     expect(CATEGORIES.find((c) => c.cat === "TIER")?.n).toBe(4);
@@ -180,6 +180,12 @@ describe("coverage", () => {
     expect(CATEGORIES.find((c) => c.cat === "CIR")).toMatchObject({ n: 4, pass: "circles" });
     // V6 P1 S4.3 — nudges and the surface router, nine code cases on `router`.
     expect(CATEGORIES.find((c) => c.cat === "NUD")).toMatchObject({ n: 9, pass: "router", authored: true });
+    // V6 P1 S4.5 — the send gate, three code cases on `send-gate`.
+    expect(CATEGORIES.find((c) => c.cat === "GATE-A")).toMatchObject({
+      n: 3,
+      pass: "send-gate",
+      authored: true,
+    });
   });
 
   it("coverageGaps ignores selftest fixtures and reports shortfalls", () => {

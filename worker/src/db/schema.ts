@@ -34,6 +34,7 @@ import { V6_SPACE_CARD } from "./migrations/0203_v6_space_card.js";
 import { V6_CALENDAR } from "./migrations/0204_v6_calendar.js";
 import { V6_SPACES } from "./migrations/0205_v6_spaces.js";
 import { V6_PEOPLE } from "./migrations/0206_v6_people.js";
+import { V6_BRIEF } from "./migrations/0207_v6_brief.js";
 
 export interface Migration {
   id: string;
@@ -1002,4 +1003,8 @@ export const MIGRATIONS: Migration[] = [
   // (the ladder's per-event verdict, revisable by a new row) and person_prefs
   // (learned follow-up radar lead time).
   { id: "0206_v6_people", sql: V6_PEOPLE },
+  // V6 P1 S4.6 (Build §7.2 lane B, Product_V6 §14.4 item 7): `briefs` — one
+  // row per fired set time, holding the ledger code composed and the prose
+  // one brief.v2 call wrote. New table only; a skipped slot writes nothing.
+  { id: "0207_v6_brief", sql: V6_BRIEF },
 ];

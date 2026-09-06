@@ -66,6 +66,7 @@ export const STEP_EVAL_CATEGORIES: Readonly<Record<string, readonly string[]>> =
   executor: ["EXE", "BRW"],
   chat: ["USR", "FIX", "TRC"],
   tier: ["TIER"],
+  brief: ["BRF"],
 };
 
 export function evalCategoriesForStep(step: string): readonly string[] | null {

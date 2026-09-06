@@ -1,0 +1,51 @@
+{
+  "id": "BRF-01",
+  "category": "BRF",
+  "title": "brief only on a delta",
+  "pass": "brief",
+  "mode": "code",
+  "setup": {
+    "note": "A brief was composed a moment ago and NOTHING has been written to the world model since. The set time comes round again. The brief.v2 call is a canned-JSON provider stub (provider layer, never prompt matching) whose call COUNT is the assertion. The last brief is stamped at now+1s so the window is provably empty whatever else the harness database holds — the device CON-01 uses for the hourly roll.",
+    "last_brief_at": "now + 1s",
+    "world_model_writes_since": 0,
+    "then": "one task moves to needs_approval, stamped inside the window"
+  },
+  "input_events": [
+    "A brief already composed; the window since it holds no episode, space, task, claim, question, calendar row or artifact.",
+    "The next set time arrives.",
+    "Then: exactly one world-model write (a task waiting for approval)."
+  ],
+  "expected": {
+    "state": {
+      "status": "skipped",
+      "reason": "no_delta",
+      "model_calls": 0,
+      "provider_calls": 0,
+      "brief_rows_written": 0
+    },
+    "after_one_write": {
+      "status": "composed",
+      "model_calls": 1
+    },
+    "note": "Nothing changed, no call, no card — and the skip is a lookup, not a mute: the very next write earns a brief."
+  },
+  "wrong": [
+    {
+      "label": "call-on-no-delta",
+      "assert_absent": "a brief.v2 call made on a world model that has not moved"
+    },
+    {
+      "label": "card-on-no-delta",
+      "assert_absent": "a brief row or card written with nothing to say"
+    },
+    {
+      "label": "mute",
+      "assert_absent": "a skip that survives a real change — one write must wake the next brief"
+    }
+  ],
+  "gates": ["clock_only_call"],
+  "source": {
+    "doc": "V2",
+    "section": "GoldenEvals V6P1 §5.21 BRF-01 · brief only on a delta"
+  }
+}

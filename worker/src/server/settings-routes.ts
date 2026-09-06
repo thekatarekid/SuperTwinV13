@@ -152,6 +152,9 @@ export const INTELLIGENCE_STEPS: readonly IntelligenceStep[] = [
   { key: "executor", label: "Executor", group: "Agents", recommended: "sonnet" },
   { key: "chat", label: "Grounded bar", group: "Agents", recommended: "sonnet" },
   { key: "tier", label: "Tiering (business character)", group: "Utility", recommended: "haiku" },
+  // V6 P1 S4.6: the brief's prose call. Code composes the ledger, so turning
+  // this step off holds the set time rather than dropping the brief.
+  { key: "brief", label: "Brief (prose)", group: "Utility", recommended: "haiku" },
 ] as const;
 
 /**

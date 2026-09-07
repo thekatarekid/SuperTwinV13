@@ -9,4 +9,5 @@
 - 2026-09-07: Corrected V2 execution ambiguities: P2-D parser reference, 21 entries/19 keys, Phase 4b file barrier, and isolated ChatGPT eval-home login.
 - 2026-09-07: Safe baseline passed: UI 319/319, build scripts 126/126, worker offline 4,034/4,034 (2 skipped), worker typecheck, and frontend build; test-opened ports closed.
 - 2026-09-07: Existing defect: unfiltered worker tests auto-ran three real-Claude suites when the CLI was present, contrary to the offline-test rule; 12 provider sends/up to 13 attempts failed with zero reported usage (backend billing unknown). Do not rerun before an explicit offline/live split.
+- 2026-09-07: Official-terms review found no public permission for non-Codex use of the private backend; consumer terms prohibit automated/programmatic output extraction. Phase 0a Terms decision remains unresolved.
 - Next: record the three Phase 0a decisions and accepting owner; then run the serial, explicitly costed Phase 0b live probe.

@@ -867,12 +867,14 @@ Status: **awaiting accepting owner; Phase 0b and implementation remain blocked.*
 ### A.2 Terms of Service — Unresolved
 
 - Decision: state the applicable clause/permission, or explicitly accept the risk of a non-Codex client running continuous background traffic at the shipped concurrency.
+- Research finding (2026-09-07): the current consumer [Terms of Use](https://openai.com/policies/terms-of-use/) prohibit automatically or programmatically extracting data or Output and prohibit circumventing rate limits, restrictions, or protective measures. No public authorization was found for a non-Codex client to present Codex's OAuth identity to its private backend.
 - Rationale: awaiting owner.
 - Residual risk: awaiting owner.
 - Accepting owner: awaiting owner.
 
 ### A.3 Consumer Data Posture and Consent — Unresolved
 
+- Research finding (2026-09-07): OpenAI's current [consumer data-use policy](https://openai.com/policies/how-your-data-is-used-to-improve-model-performance/) says content from individual services such as ChatGPT and Codex may be used for model improvement unless the applicable control is disabled. The [Data Controls FAQ](https://help.openai.com/en/articles/7730893-data-control) describes account opt-out and Temporary Chat behavior, but this private backend does not document `store: false` as a retention or Temporary Chat guarantee.
 - Actual retention/training posture for ChatGPT subscription traffic: awaiting owner.
 - Difference from the Claude subscription path: awaiting owner.
 - Exact consent copy shown before sign-in: awaiting owner.
@@ -885,3 +887,4 @@ Status: **awaiting accepting owner; Phase 0b and implementation remain blocked.*
 - "All 21" means the 11 step entries plus 10 role entries; `chat` and `extract` overlap, yielding 19 distinct logical provider-aware keys. Acceptance tests cover both the source-entry count and distinct-key count.
 - P4b-C observes the explicit file-ownership barrier in §11.7.
 - A ChatGPT golden run authenticates its own isolated eval home. It may not reuse or rotate the production home's Keychain entry.
+- The public consumer Terms finding in Appendix A.2 means a "permitted" decision cannot currently be inferred. The owner must either provide specific authorization, explicitly accept the documented risk, or amend the architecture to a supported integration before Phase 0b.

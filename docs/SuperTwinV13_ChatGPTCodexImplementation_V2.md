@@ -8,15 +8,15 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 
 ### Implementation Status (2026-09-07)
 
-- **Overall:** In progress; provider work is stopped at the named Phase 0a decision gate while gate-safe release/test prerequisites proceed.
+- **Overall:** In progress; Phase 0a is accepted and the serial Phase 0b contract probe is next.
 - **Baseline:** `main` at `fd667ec`; application version `13.12.2`.
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
 
 #### Phase and Task Checklist
 
-- [ ] **Phase 0a — Decision Gate:** partially resolved; consent copy approved, but accepting-owner identity and the supported OpenAI integration choice remain required.
-- [ ] **Phase 0b — Direct Backend Contract:** pending Phase 0a; live, serial, explicitly costed.
+- [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved.
+- [ ] **Phase 0b — Direct Backend Contract:** ready for the live, serial, explicitly costed probe.
 - [ ] **P1-A — Provider-neutral contract types:** pending Phase 0a.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
 - [ ] **P1-F — Provider/model resolver:** pending G1.
@@ -96,12 +96,13 @@ V1 began with a live probe. V2 begins with three written decisions, because two 
 
 ### 2.1 Client Identity
 
-The direct backend is not a public API. Reaching it requires an OAuth client and request headers. There are exactly two options and the doc must name one:
+The direct backend is not a public API. Reaching it requires an OAuth client and request headers. The implementation must name its exact identity pattern. Known choices include:
 
 1. **Present SuperTwin's own client identity.** Honest, and likely rejected by the backend.
 2. **Present Codex's client_id and user agent.** Works, and is a misrepresentation of the client to the service.
+3. **Use the Hermes pattern:** reuse the Codex OAuth client ID while truthfully identifying the third-party client through its own user agent and `originator` header. This remains an undocumented/private integration and requires explicit risk acceptance.
 
-V1 §4.7 allowed "user agent" in the header allowlist and never named a value, which left this decision implicit in the code. Record the choice, the header values, and who accepted the risk. If the answer is (2), record explicitly that every user's ChatGPT account is the collateral and that the feature ships flagged off by default.
+V1 §4.7 allowed "user agent" in the header allowlist and never named a value, which left this decision implicit in the code. Record the choice, the header values, and who accepted the risk. If the answer is (2) or (3), record explicitly that every user's ChatGPT account is the collateral and that the feature ships flagged off by default.
 
 ### 2.2 Terms of Service
 
@@ -875,27 +876,29 @@ The waiver never reports the artifact as distribution-ready. Native install, lau
 
 ## Appendix A — Phase 0a Decision Record
 
-Status: **awaiting accepting owner; Phase 0b and implementation remain blocked.** The durable, owner-approved entries below are the source for idempotent per-install decision rows. Never write these manually into the user's production database.
+Status: **accepted by Aditya Katare on 2026-09-07; Phase 0b may proceed.** The durable, owner-approved entries below are the source for idempotent per-install decision rows. Never write these manually into the user's production database.
 
-### A.1 Client Identity — Recommendation Pending Owner Approval
+### A.1 Client Identity — Accepted: Hermes-Compatible Pattern
 
-- Recommended decision: **do not reuse or impersonate Codex's OAuth client ID, user agent or private-backend headers.** SuperTwin presents only an identity issued to SuperTwin by OpenAI. If OpenAI does not issue one, this direct OAuth design stays disabled.
-- Supported alternatives: amend this plan to use the official [Codex SDK/App Server](https://developers.openai.com/codex/sdk/) when Codex agent semantics fit the product, or use the documented [OpenAI API](https://platform.openai.com/docs/quickstart) with separately billed API authentication for general model calls.
-- Exact client ID, user agent and additional identity headers: none available for SuperTwin; awaiting an OpenAI-issued identity or owner approval to amend the architecture.
-- Rationale: OpenAI explicitly documents the Codex SDK for integration within an application and App Server for custom clients that need authentication and streamed events. No equivalent public documentation authorizes a third-party app to clone Codex's OAuth identity and call its private backend directly.
-- Residual risk: even the official Codex integration is designed around Codex-agent workflows; SuperTwin's general personal-context workload should receive written OpenAI confirmation if subscription billing is essential. Codex impersonation retains account suspension, protocol-breakage and collateral-session risk and is not recommended.
-- Accepting owner: awaiting owner.
+- Decision: **follow the ChatGPT OAuth integration pattern implemented by [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) at pinned commit `e9bccc90a5e314ddf6dd4bd3772d50cb40027275`.** Reuse its Codex OAuth public-client identity and private Codex backend contract, but identify SuperTwin honestly instead of copying Hermes's or Codex's user agent.
+- Exact OAuth client ID: `app_EMoamEEZ73f0CkXaXp7hrann`.
+- Exact endpoints: issuer `https://auth.openai.com`; device authorization page `https://auth.openai.com/codex/device`; device-code request `/api/accounts/deviceauth/usercode`; device poll `/api/accounts/deviceauth/token`; token endpoint `https://auth.openai.com/oauth/token`; token-exchange redirect URI `https://auth.openai.com/deviceauth/callback`; inference base `https://chatgpt.com/backend-api/codex`.
+- Exact identity headers: OAuth token requests use `User-Agent: SuperTwinV13/<app-version>`; Codex backend requests use `User-Agent: SuperTwinV13/<app-version>` and `originator: supertwinv13`; `ChatGPT-Account-ID` is derived from `chatgpt_account_id` inside the OAuth JWT's `https://api.openai.com/auth` claim. Per-call `session_id` and `x-client-request-id` are permitted only as bounded request identifiers, not as client-identity impersonation.
+- Auth mechanics to mirror: device-code flow, PKCE verifier exchange, refresh 120 seconds before expiry, refresh-token rotation persisted before use, one refresh retry after a 401, process-level refresh locking, and credentials stored only in SuperTwin's Keychain namespace—never in or imported from Hermes/Codex stores.
+- Rationale: this follows the owner's requested, working open-source precedent while keeping SuperTwin's product identity explicit on the wire. OpenAI's official documentation supports ChatGPT sign-in for Codex clients and documents SDK/App Server integrations, but does not document this direct private-backend contract for general third-party personal-assistant traffic.
+- Residual risk: the reused client ID and private endpoints can change or be rejected without notice; OpenAI may rate-limit, revoke tokens, suspend accounts, or treat the traffic as outside the intended Codex-client scope. Every signed-in user's ChatGPT account is collateral. The feature therefore remains flagged off by default and guarded by canary, quota, logout, and kill-switch controls.
+- Accepting owner: **Aditya Katare (repository owner; explicit task decision on 2026-09-07).**
 
-### A.2 Terms of Service — Recommendation Pending Owner Approval
+### A.2 Terms of Service — Accepted Private-Integration Risk
 
-- Recommended decision: **do not accept the private-backend risk and do not ship Codex impersonation.** Require written authorization from OpenAI for this exact non-Codex workload, or amend the design to a documented integration.
+- Decision: **follow Hermes's direct ChatGPT OAuth/private Codex backend integration posture and explicitly accept the documented terms, account, and protocol risk.** This is risk acceptance, not a representation that Hermes authorizes SuperTwin or that OpenAI has approved this workload.
 - Research finding (2026-09-07): the current consumer [Terms of Use](https://openai.com/policies/terms-of-use/) prohibit automatically or programmatically extracting data or Output and prohibit circumventing rate limits, restrictions, or protective measures. No public authorization was found for a non-Codex client to present Codex's OAuth identity to its private backend.
 - Official alternatives (verified 2026-09-07): OpenAI documents the [Codex SDK/App Server](https://developers.openai.com/codex/sdk/) for programmatically integrating Codex into an application, and documents the API as the supported general-purpose programmatic interface. API usage has [separate billing from ChatGPT subscriptions](https://help.openai.com/en/articles/9039756-managing-billing-settings-on-chatgpt-web-and-platform).
-- Rationale: an owner can acknowledge business risk but cannot grant permission on OpenAI's behalf. A supported interface or written authorization is the defensible release gate.
-- Residual risk: the official Codex SDK may not cover high-volume, non-coding personal-assistant workloads; obtain written confirmation before treating subscription access as authorized for this use.
-- Accepting owner: awaiting owner.
+- Rationale: the owner specifically chose the Hermes implementation precedent for SuperTwin's subscription-backed provider. The rollout remains deliberately constrained and observable rather than assuming a public stability or authorization guarantee.
+- Residual risk: owner acceptance cannot waive OpenAI's terms or bind OpenAI. Continuous background traffic and 8+ streams may trigger enforcement, throttling, CAPTCHA, token revocation, subscription disruption, or account suspension. The probe and release gates must stop on any such signal and must not circumvent a restriction.
+- Accepting owner: **Aditya Katare (repository owner; explicit task decision on 2026-09-07).**
 
-### A.3 Consumer Data Posture and Consent — Copy Approved; Owner Name Pending
+### A.3 Consumer Data Posture and Consent — Accepted
 
 - Research finding (2026-09-07): OpenAI's current [consumer data-use policy](https://openai.com/policies/how-your-data-is-used-to-improve-model-performance/) says content from individual services such as ChatGPT and Codex may be used for model improvement unless the applicable control is disabled. The [Data Controls FAQ](https://help.openai.com/en/articles/7730893-data-control) describes account opt-out and Temporary Chat behavior, but this private backend does not document `store: false` as a retention or Temporary Chat guarantee.
 - Actual retention/training posture for ChatGPT subscription traffic: consumer-service treatment controlled by the user's OpenAI account settings; SuperTwin does not promise API business-data treatment, Temporary Chat equivalence, no training or deletion.
@@ -903,7 +906,7 @@ Status: **awaiting accepting owner; Phase 0b and implementation remain blocked.*
 - Exact consent copy shown before sign-in (approved by the requester on 2026-09-07): **“SuperTwin will send selected WhatsApp messages, browser text, screen captures, and derived context to OpenAI using your personal ChatGPT/Codex subscription. This is consumer-service traffic, not API business data. OpenAI may retain or use content according to your account’s data controls. SuperTwin cannot guarantee no training, Temporary Chat treatment, or deletion. Confirm you have permission to share this data. You can sign out and stop future sends at any time.”**
 - Rationale: names the data categories, destination, consumer-service posture, permission duty and stop control before authentication.
 - Residual risk: account controls may change; senders and people represented in captured content may not have authorized onward disclosure. Consent must remain explicit and revocable.
-- Accepting owner: awaiting owner.
+- Accepting owner: **Aditya Katare (repository owner; exact copy approved in the task on 2026-09-07).**
 
 ## Appendix B — Execution Clarifications
 
@@ -911,4 +914,4 @@ Status: **awaiting accepting owner; Phase 0b and implementation remain blocked.*
 - "All 21" means the 11 step entries plus 10 role entries; `chat` and `extract` overlap, yielding 19 distinct logical provider-aware keys. Acceptance tests cover both the source-entry count and distinct-key count.
 - P4b-C observes the explicit file-ownership barrier in §11.7.
 - A ChatGPT golden run authenticates its own isolated eval home. It may not reuse or rotate the production home's Keychain entry.
-- The public consumer Terms finding in Appendix A.2 means a "permitted" decision cannot currently be inferred. The owner must either provide specific authorization, explicitly accept the documented risk, or amend the architecture to a supported integration before Phase 0b.
+- Appendix A.2 records explicit risk acceptance, not a finding that the private integration is permitted. Any OpenAI enforcement, CAPTCHA, restriction, or account-warning signal stops the probe and rollout; the implementation may not work around it.

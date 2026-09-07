@@ -2,17 +2,17 @@
 
 - 2026-09-07: Started V2 implementation audit; required product, build, prompt, eval, and V1/V2 documents are under review.
 - 2026-09-07: Confirmed `main` at `fd667ec`, version `13.12.2`; V2/V1 implementation docs are currently untracked user files.
-- 2026-09-07: Phase 0a is **blocked on owner decisions** for OAuth client identity, Terms-of-Service risk, and consumer-data retention/consent copy. V2 forbids Phase 0b+ work until all three are accepted and recorded.
+- 2026-09-07: Phase 0a initially blocked provider work pending owner decisions for OAuth identity, Terms risk, and consumer-data consent.
 - 2026-09-07: Parallel read-only audits started for task graph, code coverage, and macOS DMG/version/test pipeline.
 - 2026-09-07: Packaged-app acceptance will use macOS Computer Use; browser tooling is limited to browser-specific connector flows.
 - 2026-09-07: Full document/code audit confirms no ChatGPT provider implementation exists yet; current Phase 1 product baseline intentionally ships Claude only.
 - 2026-09-07: Corrected V2 execution ambiguities: P2-D parser reference, 21 entries/19 keys, Phase 4b file barrier, and isolated ChatGPT eval-home login.
 - 2026-09-07: Safe baseline passed: UI 319/319, build scripts 126/126, worker offline 4,034/4,034 (2 skipped), worker typecheck, and frontend build; test-opened ports closed.
 - 2026-09-07: Baseline defect confirmed: the old unfiltered worker command auto-ran three real-Claude suites when the CLI was present; 13 top-level sends/up to 14 CLI attempts failed with zero reported usage (backend billing unknown).
-- 2026-09-07: Official-terms review found no public permission for non-Codex use of the private backend; consumer terms prohibit automated/programmatic output extraction. Phase 0a Terms decision remains unresolved.
+- 2026-09-07: Official-terms review found no documented public contract for SuperTwin's direct private-backend use; risk must be explicit and restrictions must never be circumvented.
 - 2026-09-07: Added an offline-by-default worker gate and double opt-in live-Claude command; preserved 3 offline server-route checks. Passed worker 4,037/4,037 (7 intentional skips), scripts 138/138 and typecheck with 0 live model calls.
 - 2026-09-07: Added deterministic DMG verification for synchronized source/lock versions, manifest hash, mounted self-contained resources, plist, architecture, code signature and Gatekeeper status. Existing 13.12.2 DMG passes local-only verification; ad-hoc signing prevents distribution-ready status.
 - 2026-09-07: Hardened release identity: bumps now prevalidate/update `Cargo.lock`, CI checks both lockfiles, and duplicate checks recognize phase-prefixed archives. No build/version bump performed.
 - 2026-09-07: Wired mounted DMG verification into release CI before upload; pending rows require the build SHA and completed manifest mismatches remain fatal. Passed 145 script checks and an actual 13.12.2 mounted verification; no new build.
-- 2026-09-07: Requester approved the consumer-service consent copy. Recommended no Codex OAuth impersonation and no private-backend risk acceptance; official Codex SDK/App Server or the separately billed API are the documented alternatives. Accepting-owner name and architecture choice remain pending.
-- Next: record the accepting owner and supported integration choice; then amend the implementation path or, if OpenAI supplies written authorization and a SuperTwin client identity, run the serial costed probe.
+- 2026-09-07: Phase 0a accepted by Aditya Katare: mirror Hermes's pinned ChatGPT OAuth pattern—reuse the Codex client ID while sending honest SuperTwin user-agent/originator headers—and explicitly accept the private-backend/account/terms risk. Consent copy approved unchanged.
+- Next: finish the gate-safe DMG executable verifier, then run the serial Phase 0b probe only after declaring its live-call budget and using an isolated test account/home.

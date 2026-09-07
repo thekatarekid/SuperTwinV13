@@ -16,7 +16,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 #### Phase and Task Checklist
 
 - [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved. The three complete records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
-- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold implemented; live authentication and contract matrix not yet run.
+- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted; live authentication and contract matrix not yet run. `--live-auth` is separately gated at 0 inference calls and at most 305 OAuth HTTP requests; the later full matrix is capped at 70 inference POSTs with no retries.
 - [ ] **P1-A — Provider-neutral contract types:** pending Phase 0b exit evidence.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
 - [ ] **P1-F — Provider/model resolver:** pending G1.
@@ -42,6 +42,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Release identity hardening: version bumps now prevalidate and update the application stanza in `Cargo.lock`; release CI checks both lockfiles; duplicate detection covers canonical Tauri and historical phase-prefixed DMG names.
 - [x] Phase 0a durable decision seed: exact OAuth identity/endpoints/headers/mechanics, terms risk posture, and approved consumer-data consent are stored as three additive governance rows. Fresh/upgrade/idempotence/amendment-preservation tests pass.
 - [x] Latest complete offline worker gate: 333 files passed, 4,048 tests passed, 7 intentionally skipped, zero live-model calls; the 60-second scratch-home boot test closed its port and removed its home.
+- [x] Phase 0b probe scaffold: pinned Hermes device endpoints/client ID, honest SuperTwin identity, bounded polling/backoff/timeouts, redacted dry-run fixtures, and a temp-home/double-opt-in live rail. Focused 9/9 and typecheck pass; refusal performs zero fetches.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 
 ### 0.1 What Changed From V1, and Why

@@ -19,5 +19,6 @@
 - 2026-09-07: Extended DMG verification to require execute bits and arm64 compatibility for the app, Node, worker/media sidecars, and bundled Chromium. Passed focused 12/12, full scripts 147/147, and mounted 13.12.2 verification; no build/version bump.
 - 2026-09-08: Added the Phase 0a repo-backed seed: three exact, owner-accepted governance records in the canonical `decisions` ledger; fresh/upgrade/idempotence/local-amendment tests pass.
 - 2026-09-08: Full offline worker gate passed: 333 files, 4,048 tests, 7 intentional skips, 0 live calls; fixed an independent stdout/stderr boot-test race and verified scratch-home/port cleanup.
-- 2026-09-08: Phase 0b offline device-flow scaffold is under acceptance review; no OAuth or model network calls have been made. App version remains 13.12.2 and no new DMG has been built.
-- Next: commit the decision seed, land the offline Phase 0b probe scaffold, then run the serial device login and contract matrix with declared budgets on an isolated home/account.
+- 2026-09-08: Accepted the Phase 0b offline device-flow scaffold: Hermes-pinned protocol, honest SuperTwin identity, redaction, bounded waits/backoff, temp-home/opt-in rails, and exact budgets. Focused 9/9, typecheck, dry run, and zero-fetch refusal pass; no OAuth/model calls made.
+- 2026-09-08: Live-auth budget is 0 inference calls and at most 305 OAuth HTTP requests; the later full matrix is capped at 70 inference POSTs with zero retries. App remains 13.12.2; no new DMG built.
+- Next: run the serial device login on an isolated home/account, then implement and execute the explicitly budgeted contract matrix before Phase 1.

@@ -13,6 +13,7 @@
     "tauri": "tauri",
     "worker": "node scripts/dev-worker.mjs",
     "worker:live": "node scripts/dev-worker.mjs --live",
+    "probe:chatgpt-oauth": "npm run probe:chatgpt-oauth -w @supertwinv13/worker --",
     "test:worker:live:claude": "npm run test:live:claude -w @supertwinv13/worker",
     "bundle:worker": "node scripts/bundle-worker.mjs",
     "stage:node": "node scripts/stage-node-sidecar.mjs",

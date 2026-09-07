@@ -38,6 +38,16 @@ export const REQUIRED_BUNDLE_FILES = [
   "Contents/Resources/models/embeddings/Xenova/multilingual-e5-small/onnx/model_quantized.onnx",
 ];
 
+export const REQUIRED_EXECUTABLE_FILES = [
+  "Contents/MacOS/supertwinv13",
+  "Contents/MacOS/node",
+  "Contents/Resources/worker/bin/whatsapp-go",
+  "Contents/Resources/worker/bin/screenwatch",
+  "Contents/Resources/bin/ffmpeg",
+  "Contents/Resources/bin/whisper-cli",
+  "Contents/Resources/bin/yt-dlp",
+];
+
 const CANONICAL_DMG_RE = /^SuperTwinV13_(\d+\.\d+\.\d+)_(aarch64|x64|universal)\.dmg$/;
 const ARCHIVE_DMG_RE = /^SuperTwinV13_[A-Za-z0-9]+_(\d+\.\d+\.\d+)\.dmg$/;
 
@@ -123,6 +133,20 @@ export function expectedArchitectures(dmgArch) {
   if (dmgArch === "x64") return ["x86_64"];
   if (dmgArch === "universal") return ["arm64", "x86_64"];
   return [];
+}
+
+export function nonExecutableFiles(paths, stat = statSync) {
+  return paths.filter((path) => (stat(path).mode & 0o111) === 0);
+}
+
+export function architectureGaps(architecturesByFile, expected) {
+  const gaps = [];
+  for (const [file, architectures] of Object.entries(architecturesByFile)) {
+    for (const architecture of expected) {
+      if (!architectures.includes(architecture)) gaps.push(`${file}: missing ${architecture}`);
+    }
+  }
+  return gaps;
 }
 
 export function assessDistribution({ spctlOk, signatureText, allowAdhoc }) {
@@ -212,7 +236,18 @@ function verifyMountedApp({ appPath, version, dmgArch, allowAdhoc }) {
 
   const missing = missingBundleFiles(appPath);
   if (missing.length) throw new Error(`bundle missing: ${missing.join(", ")}`);
-  if (!findChromiumExecutable(appPath)) throw new Error("bundle missing Chrome for Testing executable");
+  const chromiumExecutable = findChromiumExecutable(appPath);
+  if (!chromiumExecutable) throw new Error("bundle missing Chrome for Testing executable");
+  const executableEntries = [
+    ...REQUIRED_EXECUTABLE_FILES.map((file) => ({ file, path: join(appPath, file) })),
+    { file: "Chrome for Testing", path: chromiumExecutable },
+  ];
+  const notExecutable = nonExecutableFiles(executableEntries.map((entry) => entry.path));
+  if (notExecutable.length) {
+    throw new Error(
+      `bundle files lack executable permission: ${notExecutable.map((path) => path.slice(appPath.length + 1)).join(", ")}`,
+    );
+  }
   const bundledWorker = JSON.parse(
     readFileSync(join(appPath, "Contents/Resources/worker/package.json"), "utf8"),
   );
@@ -234,14 +269,23 @@ function verifyMountedApp({ appPath, version, dmgArch, allowAdhoc }) {
     allowAdhoc,
   });
 
-  const archText = command("lipo", ["-archs", join(appPath, "Contents/MacOS/supertwinv13")]);
-  const architectures = archText.split(/\s+/).filter(Boolean);
-  for (const expected of expectedArchitectures(dmgArch)) {
-    if (!architectures.includes(expected)) {
-      throw new Error(`DMG says ${dmgArch}, app executable is ${architectures.join(",")}`);
-    }
+  const executableArchitectures = Object.fromEntries(
+    executableEntries.map(({ file, path }) => [
+      file,
+      command("lipo", ["-archs", path]).split(/\s+/).filter(Boolean),
+    ]),
+  );
+  const expected = expectedArchitectures(dmgArch);
+  const gaps = architectureGaps(executableArchitectures, expected);
+  if (gaps.length) {
+    throw new Error(`DMG says ${dmgArch}, incompatible bundled executables: ${gaps.join(", ")}`);
   }
-  return { plist, architectures, distribution };
+  return {
+    plist,
+    architectures: executableArchitectures["Contents/MacOS/supertwinv13"],
+    executableArchitectures,
+    distribution,
+  };
 }
 
 export function parseArgs(args) {

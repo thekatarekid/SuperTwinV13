@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import {
   REQUIRED_BUNDLE_FILES,
+  REQUIRED_EXECUTABLE_FILES,
+  architectureGaps,
   assessDistribution,
   assertSynchronizedVersions,
   cargoPackageVersion,
@@ -13,6 +15,7 @@ import {
   expectedReleaseDigest,
   manifestDigest,
   missingBundleFiles,
+  nonExecutableFiles,
   parseArgs,
 } from "./verify-release.mjs";
 
@@ -99,6 +102,32 @@ describe("self-contained bundle contract", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("requires execute permission on every bundled program", () => {
+    const modes = new Map([
+      ["ok", 0o100755],
+      ["owner-only", 0o100700],
+      ["bad", 0o100644],
+    ]);
+    expect(nonExecutableFiles([...modes.keys()], (path) => ({ mode: modes.get(path) }))).toEqual([
+      "bad",
+    ]);
+    expect(REQUIRED_EXECUTABLE_FILES).toContain("Contents/MacOS/node");
+    expect(REQUIRED_EXECUTABLE_FILES).toContain("Contents/Resources/worker/bin/screenwatch");
+  });
+
+  it("requires every declared DMG architecture across all native executables", () => {
+    expect(
+      architectureGaps(
+        {
+          app: ["arm64", "x86_64"],
+          node: ["arm64"],
+        },
+        ["arm64", "x86_64"],
+      ),
+    ).toEqual(["node: missing x86_64"]);
+    expect(architectureGaps({ app: ["arm64"], node: ["arm64"] }, ["arm64"])).toEqual([]);
   });
 });
 

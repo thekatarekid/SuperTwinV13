@@ -20,7 +20,7 @@ export interface ProbeHttpRequest {
   body?: Record<string, unknown>;
 }
 
-function backendHeaders(
+export function buildBackendHeaders(
   accessToken: string,
   accountId: string,
   env: NodeJS.ProcessEnv,
@@ -37,7 +37,7 @@ export function buildDryRunRequests(
   env: NodeJS.ProcessEnv = process.env,
 ): ProbeHttpRequest[] {
   const identityHeaders = { "User-Agent": superTwinUserAgent(env) };
-  const backend = backendHeaders("probe-access-token", "probe-account-id", env);
+  const backend = buildBackendHeaders("probe-access-token", "probe-account-id", env);
   return [
     {
       name: "device-code",

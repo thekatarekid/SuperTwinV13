@@ -9,11 +9,17 @@ import {
   CODEX_MODELS_URL,
   CODEX_OAUTH_CLIENT_ID,
   CODEX_OAUTH_TOKEN_URL,
-  FULL_PROBE_INFERENCE_CALL_BUDGET,
+  FULL_PROBE_CASE_BUDGET,
+  FULL_PROBE_INFERENCE_POST_BUDGET,
   LIVE_AUTH_HTTP_REQUEST_BUDGET,
   LIVE_AUTH_INFERENCE_CALL_BUDGET,
 } from "./constants.js";
 import { runProbeCli } from "./cli.js";
+import {
+  formatHttpAccounting,
+  LIVE_AUTH_HTTP_LIMITS,
+  ProbeHttpAccounting,
+} from "./accounting.js";
 import {
   exchangeAuthorizationCode,
   pollDeviceAuthorization,
@@ -100,13 +106,15 @@ describe("Phase 0b offline safety", () => {
     ).toBe(join(tmpdir(), "supertwin-phase0b-test"));
   });
 
-  it("separates the zero-inference live-auth budget from the planned 70-call full probe", () => {
+  it("separates live-auth from the 70-case, 55-POST full probe", () => {
     expect(LIVE_AUTH_INFERENCE_CALL_BUDGET).toBe(0);
-    expect(LIVE_AUTH_HTTP_REQUEST_BUDGET).toBe(305);
-    expect(FULL_PROBE_INFERENCE_CALL_BUDGET).toBe(70);
+    expect(LIVE_AUTH_HTTP_REQUEST_BUDGET).toBe(302);
+    expect(FULL_PROBE_CASE_BUDGET).toBe(70);
+    expect(FULL_PROBE_INFERENCE_POST_BUDGET).toBe(55);
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
-    expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=305");
-    expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=70");
+    expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=302");
+    expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
+    expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=55");
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
   });
 
@@ -124,7 +132,59 @@ describe("Phase 0b offline safety", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalledOnce();
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
-    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=70");
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=55");
+  });
+
+  it("requires the additional live-contract flag pairing before any fetch", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await expect(runProbeCli(["--live-contract"], {})).rejects.toThrow(
+      /--live-contract additionally requires --live-auth/,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=55");
+  });
+
+  it("keeps the incomplete live contract runner fail-closed before opt-in or fetch", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await expect(runProbeCli(["--live-auth", "--live-contract"], {})).rejects.toThrow(
+      /live contract execution is not enabled/,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PHASE_0B_LIVE_CONTRACT_DECLARATION");
+  });
+
+  it("records exact per-endpoint HTTP attempts without retaining request data", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
+    const accounting = new ProbeHttpAccounting({
+      ...LIVE_AUTH_HTTP_LIMITS,
+      models: 1,
+    });
+    const countedFetch = accounting.wrap(fetchMock);
+
+    await countedFetch(CODEX_DEVICE_CODE_URL);
+    await countedFetch(CODEX_DEVICE_TOKEN_URL);
+    await countedFetch(CODEX_MODELS_URL);
+
+    expect(accounting.snapshot()).toEqual({
+      deviceCode: 1,
+      devicePoll: 1,
+      token: 0,
+      models: 1,
+      quota: 0,
+      inference: 0,
+      other: 0,
+      total: 3,
+    });
+    expect(formatHttpAccounting(accounting.snapshot())).toContain('"total":3');
+    expect(JSON.stringify(accounting.snapshot())).not.toContain("ABCD-EFGH");
+    await expect(countedFetch("https://example.test/undeclared")).rejects.toThrow(
+      /HTTP budget exhausted for other/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
   });
 });
 
@@ -142,21 +202,12 @@ describe("Hermes-compatible device-code protocol (mocked HTTP only)", () => {
     expect(h.onUserCode).toHaveBeenCalledOnce();
   });
 
-  it("matches Hermes's bounded 2s/4s/8s device-code backoff", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse(429, {}))
-      .mockResolvedValueOnce(jsonResponse(429, {}))
-      .mockResolvedValueOnce(jsonResponse(429, {}))
-      .mockResolvedValueOnce(
-        jsonResponse(200, { user_code: "ABCD-EFGH", device_auth_id: "device-secret" }),
-      );
+  it("stops on the first device-code rate limit without retrying", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(429, {}));
     const h = hooks(fetchMock);
-    await requestDeviceCode(h);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(h.sleep).toHaveBeenNthCalledWith(1, 2_000);
-    expect(h.sleep).toHaveBeenNthCalledWith(2, 4_000);
-    expect(h.sleep).toHaveBeenNthCalledWith(3, 8_000);
+    await expect(requestDeviceCode(h)).rejects.toThrow(/rate-limited/);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(h.sleep).not.toHaveBeenCalled();
   });
 
   it("treats 403/404 as pending and stops at the first authorized response", async () => {

@@ -16,7 +16,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 #### Phase and Task Checklist
 
 - [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved. The three complete records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
-- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted; live authentication and contract matrix not yet run. `--live-auth` is separately gated at 0 inference calls and at most 305 OAuth HTTP requests; the later full matrix is capped at 70 inference POSTs with no retries.
+- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted; live authentication and contract matrix not yet completed. `--live-auth` is separately gated at 0 inference calls and at most 302 OAuth HTTP requests, stopping on the first rate-limit signal. The full matrix contains exactly 70 cases, of which 15 invalid shapes reject before fetch, so its ceiling is 55 inference POSTs with no retries. Live contract execution remains fail-closed until every safety/evidence prerequisite is implemented.
 - [ ] **P1-A — Provider-neutral contract types:** pending Phase 0b exit evidence.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
 - [ ] **P1-F — Provider/model resolver:** pending G1.
@@ -41,8 +41,9 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Bundled-executable verifier: every required program must be executable and match the DMG architecture. Focused 12/12 and full 147/147 script checks pass; the existing 13.12.2 artifact is arm64-compatible throughout (with universal `yt-dlp`) and remains local-only.
 - [x] Release identity hardening: version bumps now prevalidate and update the application stanza in `Cargo.lock`; release CI checks both lockfiles; duplicate detection covers canonical Tauri and historical phase-prefixed DMG names.
 - [x] Phase 0a durable decision seed: exact OAuth identity/endpoints/headers/mechanics, terms risk posture, and approved consumer-data consent are stored as three additive governance rows. Fresh/upgrade/idempotence/amendment-preservation tests pass.
-- [x] Latest complete offline worker gate: 333 files passed, 4,048 tests passed, 7 intentionally skipped, zero live-model calls; the 60-second scratch-home boot test closed its port and removed its home.
-- [x] Phase 0b probe scaffold: pinned Hermes device endpoints/client ID, honest SuperTwin identity, bounded polling/backoff/timeouts, redacted dry-run fixtures, and a temp-home/double-opt-in live rail. Focused 9/9 and typecheck pass; refusal performs zero fetches.
+- [x] Latest complete offline worker gate: 335 files passed, 4,064 tests passed, 7 intentionally skipped, zero live-model calls; the 60-second scratch-home boot test closed its port and removed its home.
+- [x] Phase 0b probe scaffold: pinned Hermes device endpoints/client ID, honest SuperTwin identity, bounded polling/timeouts, redacted dry-run fixtures, temp-home opt-in, exact endpoint accounting and hard HTTP ceilings. The 70-case/55-POST matrix and bounded SSE parser have offline coverage; focused 24/24 and typecheck pass. Live-contract remains fail-closed.
+- [ ] Phase 0b live evidence: first device-code attempt reached the owner account-selection screen and was cancelled when unattended; 0 inference calls were made. Exact per-endpoint HTTP accounting is now implemented for the retry.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 
 ### 0.1 What Changed From V1, and Why

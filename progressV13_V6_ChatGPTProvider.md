@@ -20,5 +20,11 @@
 - 2026-09-08: Added the Phase 0a repo-backed seed: three exact, owner-accepted governance records in the canonical `decisions` ledger; fresh/upgrade/idempotence/local-amendment tests pass.
 - 2026-09-08: Full offline worker gate passed: 333 files, 4,048 tests, 7 intentional skips, 0 live calls; fixed an independent stdout/stderr boot-test race and verified scratch-home/port cleanup.
 - 2026-09-08: Accepted the Phase 0b offline device-flow scaffold: Hermes-pinned protocol, honest SuperTwin identity, redaction, bounded waits/backoff, temp-home/opt-in rails, and exact budgets. Focused 9/9, typecheck, dry run, and zero-fetch refusal pass; no OAuth/model calls made.
-- 2026-09-08: Live-auth budget is 0 inference calls and at most 305 OAuth HTTP requests; the later full matrix is capped at 70 inference POSTs with zero retries. App remains 13.12.2; no new DMG built.
+- 2026-09-08: Corrected full-probe accounting to 70 cases and at most 55 inference POSTs: 15 rejected shapes must fail before fetch; retries remain zero.
+- 2026-09-08: Reduced live-auth ceiling to 302 OAuth requests (1 device request + at most 300 polls + 1 exchange); the probe now stops on the first 429 instead of retrying it.
+- 2026-09-08: First device-code attempt reached Brave account selection and was cancelled when unattended. Actual inference calls: 0. No credentials were persisted; scratch directories removed.
+- 2026-09-08: Added exact per-endpoint attempt accounting, hard auth ceilings, redirect refusal, SIGINT abort accounting, 70-case/55-POST matrix scaffolding, bounded ordered SSE evidence, substantive cancellation, nested usage projection, and local rejection for 15 invalid shapes. Focused 24/24 and typecheck pass.
+- 2026-09-08: Live-contract remains fail-closed pending dedicated-account fingerprint, refresh/logout/final quota health, capability-aware cases, cache/concurrency measurements, and complete per-case acceptance predicates.
+- 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
+- 2026-09-08: App remains 13.12.2; no new DMG built.
 - Next: run the serial device login on an isolated home/account, then implement and execute the explicitly budgeted contract matrix before Phase 1.

@@ -5,7 +5,6 @@ import {
   CODEX_DEVICE_VERIFICATION_URL,
   CODEX_OAUTH_CLIENT_ID,
   CODEX_OAUTH_TOKEN_URL,
-  MAX_DEVICE_CODE_REQUESTS,
   MAX_DEVICE_POLL_SECONDS,
   MIN_DEVICE_POLL_INTERVAL_SECONDS,
   superTwinUserAgent,
@@ -25,10 +24,11 @@ export interface EphemeralOAuthTokens {
 
 export interface DeviceFlowHooks {
   fetch: typeof fetch;
-  sleep(milliseconds: number): Promise<void>;
+  sleep(milliseconds: number, signal?: AbortSignal): Promise<void>;
   now(): number;
   onUserCode(code: DeviceCode): void;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
 }
 
 interface DeviceAuthorization {
@@ -49,44 +49,39 @@ async function responseJson(response: Response, label: string): Promise<Record<s
   }
 }
 
-function retryAfterSeconds(response: Response): number | undefined {
-  const raw = response.headers.get("retry-after");
-  if (!raw) return undefined;
-  const seconds = Number.parseInt(raw, 10);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+function requestSignal(hooks: DeviceFlowHooks): AbortSignal {
+  const timeout = AbortSignal.timeout(15_000);
+  return hooks.signal ? AbortSignal.any([timeout, hooks.signal]) : timeout;
+}
+
+function assertNotAborted(hooks: DeviceFlowHooks): void {
+  if (hooks.signal?.aborted) throw hooks.signal.reason ?? new Error("OAuth probe aborted");
 }
 
 export async function requestDeviceCode(hooks: DeviceFlowHooks): Promise<DeviceCode> {
-  let lastStatus = 0;
-  for (let attempt = 1; attempt <= MAX_DEVICE_CODE_REQUESTS; attempt += 1) {
-    const response = await hooks.fetch(CODEX_DEVICE_CODE_URL, {
-      method: "POST",
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": superTwinUserAgent(hooks.env),
-      },
-      body: JSON.stringify({ client_id: CODEX_OAUTH_CLIENT_ID }),
-    });
-    lastStatus = response.status;
-    if (response.status !== 429) {
-      if (response.status !== 200) throw new Error(`Device code request failed (HTTP ${response.status})`);
-      const payload = await responseJson(response, "Device code request");
-      const deviceCode = {
-        userCode: requiredString(payload.user_code, "user_code"),
-        deviceAuthId: requiredString(payload.device_auth_id, "device_auth_id"),
-        intervalSeconds: Math.max(MIN_DEVICE_POLL_INTERVAL_SECONDS, Number(payload.interval) || 5),
-        verificationUrl: CODEX_DEVICE_VERIFICATION_URL,
-      };
-      hooks.onUserCode(deviceCode);
-      return deviceCode;
-    }
-    if (attempt < MAX_DEVICE_CODE_REQUESTS) {
-      const delay = Math.max(1, Math.min(retryAfterSeconds(response) ?? 2 ** attempt, 60));
-      await hooks.sleep(delay * 1_000);
-    }
+  assertNotAborted(hooks);
+  const response = await hooks.fetch(CODEX_DEVICE_CODE_URL, {
+    method: "POST",
+    signal: requestSignal(hooks),
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": superTwinUserAgent(hooks.env),
+    },
+    body: JSON.stringify({ client_id: CODEX_OAUTH_CLIENT_ID }),
+  });
+  if (response.status === 429) {
+    throw new Error("OpenAI rate-limited the device code request (HTTP 429); stop and retry later");
   }
-  throw new Error(`OpenAI rate-limited the device code request (HTTP ${lastStatus}); stop and retry later`);
+  if (response.status !== 200) throw new Error(`Device code request failed (HTTP ${response.status})`);
+  const payload = await responseJson(response, "Device code request");
+  const deviceCode = {
+    userCode: requiredString(payload.user_code, "user_code"),
+    deviceAuthId: requiredString(payload.device_auth_id, "device_auth_id"),
+    intervalSeconds: Math.max(MIN_DEVICE_POLL_INTERVAL_SECONDS, Number(payload.interval) || 5),
+    verificationUrl: CODEX_DEVICE_VERIFICATION_URL,
+  };
+  hooks.onUserCode(deviceCode);
+  return deviceCode;
 }
 
 export async function pollDeviceAuthorization(
@@ -95,10 +90,11 @@ export async function pollDeviceAuthorization(
 ): Promise<DeviceAuthorization> {
   const startedAt = hooks.now();
   while (hooks.now() - startedAt < MAX_DEVICE_POLL_SECONDS * 1_000) {
-    await hooks.sleep(device.intervalSeconds * 1_000);
+    assertNotAborted(hooks);
+    await hooks.sleep(device.intervalSeconds * 1_000, hooks.signal);
     const response = await hooks.fetch(CODEX_DEVICE_TOKEN_URL, {
       method: "POST",
-      signal: AbortSignal.timeout(15_000),
+      signal: requestSignal(hooks),
       headers: {
         "Content-Type": "application/json",
         "User-Agent": superTwinUserAgent(hooks.env),
@@ -119,6 +115,7 @@ export async function exchangeAuthorizationCode(
   authorization: DeviceAuthorization,
   hooks: DeviceFlowHooks,
 ): Promise<EphemeralOAuthTokens> {
+  assertNotAborted(hooks);
   const code = requiredString(authorization.authorization_code, "authorization_code");
   const verifier = requiredString(authorization.code_verifier, "code_verifier");
   const body = new URLSearchParams({
@@ -130,7 +127,7 @@ export async function exchangeAuthorizationCode(
   });
   const response = await hooks.fetch(CODEX_OAUTH_TOKEN_URL, {
     method: "POST",
-    signal: AbortSignal.timeout(15_000),
+    signal: requestSignal(hooks),
     headers: {
       Accept: "application/json",
       "Content-Type": "application/x-www-form-urlencoded",

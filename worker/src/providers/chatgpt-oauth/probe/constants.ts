@@ -17,22 +17,27 @@ export const CODEX_MODELS_URL = `${CODEX_BACKEND_BASE_URL}/models?client_version
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
 export const LIVE_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE";
-export const FULL_PROBE_INFERENCE_CALL_BREAKDOWN = {
+export const FULL_PROBE_CASE_BREAKDOWN = {
   allowlistAcceptedAndRejected: 30,
   focusedBehavior: 9,
   concurrencyLadder: 1 + 4 + 8 + 16,
   canary: 1,
   cancellation: 1,
 } as const;
-export const FULL_PROBE_INFERENCE_CALL_BUDGET = Object.values(
-  FULL_PROBE_INFERENCE_CALL_BREAKDOWN,
+export const FULL_PROBE_CASE_BUDGET = Object.values(
+  FULL_PROBE_CASE_BREAKDOWN,
 ).reduce(
   (sum, calls) => sum + calls,
   0,
 );
+/** 15 negative contract cases are rejected locally and never reach the backend. */
+export const FULL_PROBE_PREFLIGHT_REJECTION_COUNT = 15;
+export const FULL_PROBE_INFERENCE_POST_BUDGET =
+  FULL_PROBE_CASE_BUDGET - FULL_PROBE_PREFLIGHT_REJECTION_COUNT;
 /** The currently implemented --live-auth command performs OAuth only. */
 export const LIVE_AUTH_INFERENCE_CALL_BUDGET = 0;
-export const MAX_DEVICE_CODE_REQUESTS = 4;
+/** Phase 0b stops on the first 429; it does not exercise Hermes's production retry loop. */
+export const MAX_DEVICE_CODE_REQUESTS = 1;
 export const MIN_DEVICE_POLL_INTERVAL_SECONDS = 3;
 export const MAX_DEVICE_POLL_SECONDS = 15 * 60;
 export const MAX_DEVICE_POLL_REQUESTS =

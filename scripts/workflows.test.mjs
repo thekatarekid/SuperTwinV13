@@ -64,6 +64,14 @@ describe("workflow files", () => {
   });
 });
 
+describe("release version identity", () => {
+  it("checks both lockfiles before the expensive DMG build", () => {
+    const release = readFileSync(join(workflowDir, "release-dmg.yml"), "utf8");
+    expect(release).toContain('package-lock.json');
+    expect(release).toContain('src-tauri/Cargo.lock');
+  });
+});
+
 describe("the scanner itself", () => {
   it("catches the exact duplicate that disabled CI", () => {
     const broken = [

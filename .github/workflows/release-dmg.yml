@@ -71,10 +71,10 @@ jobs:
             wanted="${INPUT_VERSION:-$committed}"
           fi
 
-          case "$wanted" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::'$wanted' is not an X.Y.Z version"; exit 1 ;;
-          esac
+          if [[ ! "$wanted" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$wanted' is not an X.Y.Z version"
+            exit 1
+          fi
 
           if [ "$wanted" != "$committed" ]; then
             echo "::error::asked for $wanted but this commit says $committed."
@@ -82,12 +82,22 @@ jobs:
             exit 1
           fi
 
-          # All four version files must agree, or the .app, the .dmg name and
-          # the tag drift apart.
+          cargo_lock_version="$(awk '
+            /^\[\[package\]\]$/ { in_app = 0 }
+            /^name = "supertwinv13"$/ { in_app = 1; next }
+            in_app && /^version = "/ { gsub(/^version = "|"$/, ""); print; exit }
+          ' src-tauri/Cargo.lock)"
+
+          # Every source and lock version must agree, or the app, DMG name and
+          # tag drift apart. Keep this list aligned with scripts/verify-release.mjs.
           for check in \
             "worker/package.json:$(node -p "require('./worker/package.json').version")" \
             "src-tauri/tauri.conf.json:$(node -p "require('./src-tauri/tauri.conf.json').version")" \
-            "src-tauri/Cargo.toml:$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
+            "src-tauri/Cargo.toml:$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)" \
+            "package-lock.json:$(node -p "require('./package-lock.json').version")" \
+            "package-lock.json#root:$(node -p "require('./package-lock.json').packages[''].version")" \
+            "package-lock.json#worker:$(node -p "require('./package-lock.json').packages.worker.version")" \
+            "src-tauri/Cargo.lock:$cargo_lock_version"
           do
             file="${check%%:*}"; got="${check#*:}"
             if [ "$got" != "$committed" ]; then

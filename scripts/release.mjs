@@ -10,10 +10,11 @@
 //   npm run release -- --publish    # also upload the .dmg to GitHub Releases
 //
 // Every .dmg lands in releases/ under its own version and is never
-// overwritten: if a .dmg for that version is already there — whatever its
-// architecture suffix — the script refuses to run before touching a single
-// file. The .dmg is gitignored and shipped as a GitHub Release asset rather
-// than committed: ~700 MB per version adds up fast in history. RELEASES.md is
+// overwritten: if a .dmg for that version is already there — with either the
+// Tauri architecture suffix or the historical phase prefix — the script
+// refuses before touching a single file. The .dmg is gitignored and shipped
+// as a GitHub Release asset rather than committed: ~1 GB per version adds up
+// fast in history. RELEASES.md is
 // the committed manifest of what exists, and rows are only ever added or
 // filled in, never rewritten and never removed.
 //
@@ -43,8 +44,8 @@ import { fileURLToPath } from 'node:url'
 
 export const APP_NAME = 'SuperTwinV13'
 
-// package-lock.json is bumped structurally (below) rather than by regex: it
-// carries unrelated dependency versions that a regex would happily corrupt.
+// Lockfiles are bumped structurally (below) rather than by a first-version
+// regex: both carry unrelated dependency versions that must remain untouched.
 export const VERSION_FILES = [
   'package.json',
   'worker/package.json',
@@ -100,12 +101,12 @@ export function nextVersion(from, args = []) {
 // Tauri names the installer <product>_<version>_<arch>.dmg — aarch64 for an
 // Apple-silicon build, x64 for Intel, universal for a fat one. The arch is not
 // ours to predict, so we match on the version instead of guessing a filename.
-const DMG_RE = new RegExp(`^${APP_NAME}_(\\d+\\.\\d+\\.\\d+)_([A-Za-z0-9_.-]+)\\.dmg$`)
+const TAURI_DMG_RE = new RegExp(`^${APP_NAME}_(\\d+\\.\\d+\\.\\d+)_([A-Za-z0-9_.-]+)\\.dmg$`)
+const PHASE_DMG_RE = new RegExp(`^${APP_NAME}_[A-Za-z0-9][A-Za-z0-9_.-]*_(\\d+\\.\\d+\\.\\d+)\\.dmg$`)
 
 /** The version a .dmg filename claims, or null if it is not one of ours. */
 export function dmgVersion(name) {
-  const m = DMG_RE.exec(name)
-  return m ? m[1] : null
+  return TAURI_DMG_RE.exec(name)?.[1] ?? PHASE_DMG_RE.exec(name)?.[1] ?? null
 }
 
 /** Every archived .dmg in `dir` for `version`. Missing dir means none. */
@@ -169,6 +170,26 @@ export function bumpLockfile(text, version, workspaces = []) {
     if (lock.packages?.[key]?.version) lock.packages[key].version = version
   }
   return `${JSON.stringify(lock, null, 2)}\n`
+}
+
+/** Rewrite only this application's package stanza in Cargo.lock. */
+export function bumpCargoLock(text, version, packageName = 'supertwinv13') {
+  if (!SEMVER.test(version ?? '')) throw new Error(`not a X.Y.Z version: ${version}`)
+  const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const nameRe = new RegExp(`^name = "${escapedName}"$`, 'm')
+  let matches = 0
+  const out = String(text)
+    .split(/(?=^\[\[package\]\]$)/m)
+    .map((block) => {
+      if (!nameRe.test(block)) return block
+      const versionRe = /^version = "\d+\.\d+\.\d+"$/m
+      if (!versionRe.test(block)) throw new Error(`no version field found for ${packageName} in Cargo.lock`)
+      matches += 1
+      return block.replace(versionRe, `version = "${version}"`)
+    })
+    .join('')
+  if (matches !== 1) throw new Error(`expected one ${packageName} package in Cargo.lock, found ${matches}`)
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +297,25 @@ export function preflight(root, version) {
     if (!existsSync(abs)) throw new Error(`missing version file ${rel}`)
     planned.push([abs, rel, bumpSource(readFileSync(abs, 'utf8'), rel, version)])
   }
+
+  const packageLockRel = 'package-lock.json'
+  const packageLockPath = join(root, packageLockRel)
+  if (!existsSync(packageLockPath)) throw new Error(`missing version file ${packageLockRel}`)
+  const workspaces = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).workspaces ?? []
+  planned.push([
+    packageLockPath,
+    packageLockRel,
+    bumpLockfile(readFileSync(packageLockPath, 'utf8'), version, workspaces),
+  ])
+
+  const cargoLockRel = 'src-tauri/Cargo.lock'
+  const cargoLockPath = join(root, cargoLockRel)
+  if (!existsSync(cargoLockPath)) throw new Error(`missing version file ${cargoLockRel}`)
+  planned.push([
+    cargoLockPath,
+    cargoLockRel,
+    bumpCargoLock(readFileSync(cargoLockPath, 'utf8'), version),
+  ])
   return { planned, manifestPath, manifest }
 }
 
@@ -283,13 +323,6 @@ export function applyBump(root, version, planned) {
   for (const [abs, rel, text] of planned) {
     writeFileSync(abs, text)
     console.log(`  ${rel} -> ${version}`)
-  }
-
-  const lockPath = join(root, 'package-lock.json')
-  if (existsSync(lockPath)) {
-    const workspaces = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).workspaces ?? []
-    writeFileSync(lockPath, bumpLockfile(readFileSync(lockPath, 'utf8'), version, workspaces))
-    console.log(`  package-lock.json -> ${version}`)
   }
 }
 

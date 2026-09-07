@@ -8,6 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { skipWithoutRealCli } from "../testing/real-cli.js";
 
+// This file intentionally mixes a billable real-CLI suite with load-bearing
+// offline route-mount coverage. The worker config derives this value from both
+// the dedicated Vitest mode and the explicit spend opt-in. Checking it here
+// keeps the offline describe below in every ordinary run.
+const skipWithoutExplicitLiveOptIn =
+  skipWithoutRealCli || process.env.SUPERTWIN_LIVE_CLAUDE_MODE !== "1";
+
 // Point the DB at a temp file BEFORE importing the db/server modules (the db
 // module reads SUPERTWIN_DB_PATH at load). vitest gives each test file its own
 // module registry, so this env set is scoped to this file.
@@ -55,7 +62,7 @@ async function readSse(res: Response): Promise<Array<Record<string, unknown>>> {
   return events;
 }
 
-describe.skipIf(skipWithoutRealCli)("worker server (real CLI)", () => {
+describe.skipIf(skipWithoutExplicitLiveOptIn)("worker server (real CLI)", () => {
   beforeAll(async () => {
     runMigrations();
     register(claudeLocalProvider);

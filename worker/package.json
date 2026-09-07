@@ -9,6 +9,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:live:claude": "node -e \"if(process.env.SUPERTWIN_RUN_LIVE_CLAUDE_TESTS!=='1'){console.error('REFUSED: live Claude tests spend money. Re-run with SUPERTWIN_RUN_LIVE_CLAUDE_TESTS=1');process.exit(1)};console.error('LIVE COST: running 3 real-Claude suites (up to 14 model turns; Anthropic charges may apply).')\" && vitest run --mode live-claude src/providers/claude-local/adapter.integration.test.ts src/providers/claude-local/transport.integration.test.ts src/server/server.integration.test.ts",
     "eval": "tsx src/evals/cli.ts"
   },
   "dependencies": {

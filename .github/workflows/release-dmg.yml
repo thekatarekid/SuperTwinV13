@@ -159,6 +159,8 @@ jobs:
         run: npm test
 
       - name: Worker tests
+        # Cost-bearing Claude suites are excluded by the worker config. A
+        # release runner must never become live merely because a CLI is present.
         run: npm test --if-present -w @supertwinv13/worker
 
       - name: Build the .dmg

@@ -48,28 +48,18 @@ jobs:
         run: npx vitest run --config scripts/vitest.config.mjs
 
       - name: Worker tests
+        # worker/vitest.config.ts always excludes the three cost-bearing Claude
+        # suites from this command, even if a runner happens to have the CLI.
         run: npm test --if-present -w @supertwinv13/worker
 
       # The golden set is LIVE BY CONSTRUCTION (worker/src/evals/cli.ts): the
       # model-facing cases run the real pass through the real `claude` CLI and
-      # are graded by the haiku judge. There is no frozen mode. A GitHub-hosted
-      # runner carries no CLI, so `npm run eval` can only die on SPAWN_FAILED —
-      # which is what it did the moment the script landed.
+      # are graded by the haiku judge. There is no frozen mode.
       #
-      # So the gate is the toolchain, not the script: absent CLI is a skip, the
-      # same posture testing/real-cli.ts and the Go daemon suites take for their
-      # missing toolchains. A PRESENT CLI is never skipped, so a genuinely red
-      # eval run still fails the job — on a self-hosted runner, or here the day
-      # a credentialed transport is wired in.
-      - name: Golden evals
+      # Live golden evals are never inferred from tool availability. They are a
+      # deliberate, separately-invoked operator workflow because every run is
+      # billable. CI records that boundary instead of probing for `claude`.
+      - name: Golden eval boundary
         run: |
-          set -euo pipefail
-          if ! node -e "process.exit(require('./package.json').scripts?.eval ? 0 : 1)"; then
-            echo "no 'eval' script in package.json — skipping"
-            echo "No \`eval\` script in package.json yet — skipped." >> "$GITHUB_STEP_SUMMARY"
-          elif ! command -v claude >/dev/null 2>&1; then
-            echo "no 'claude' CLI on PATH — skipping the live golden set"
-            echo "Golden evals skipped: no \`claude\` CLI on this runner (the golden set is live-by-construction)." >> "$GITHUB_STEP_SUMMARY"
-          else
-            npm run eval
-          fi
+          echo "Golden evals not run: live model calls require an explicit operator invocation." \
+            >> "$GITHUB_STEP_SUMMARY"

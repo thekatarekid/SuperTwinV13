@@ -8,7 +8,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 
 ### Implementation Status (2026-09-07)
 
-- **Overall:** In progress; stopped at the named Phase 0a decision gate.
+- **Overall:** In progress; provider work is stopped at the named Phase 0a decision gate while gate-safe release/test prerequisites proceed.
 - **Baseline:** `main` at `fd667ec`; application version `13.12.2`.
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
@@ -36,7 +36,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Documentation/task-graph audit: all seven requested implementation, product, build, prompt and eval documents read end to end.
 - [x] Current implementation audit: code is Claude-only; no V2 ChatGPT provider or provider-aware settings path exists.
 - [x] Safe baseline: UI 319/319, build scripts 126/126, worker offline 4,034/4,034 with 2 skipped, worker typecheck and frontend build pass.
-- [ ] Test-harness correction: the unfiltered worker command currently auto-runs three real-Claude suites when the CLI is installed. Split offline and explicitly costed live commands before using it as a normal gate.
+- [x] Test-harness correction: ordinary worker/CI/release tests exclude billable Claude suites even when the CLI is installed; a dedicated command requires a second spend opt-in. The mixed server suite retains its 3 offline route tests. Verified by 4,037 worker passes/7 intentional skips, 138 script passes and worker typecheck, with zero live model calls.
 
 ### 0.1 What Changed From V1, and Why
 
@@ -783,7 +783,13 @@ npm --workspace worker run typecheck
 npm --workspace worker run test
 ```
 
-Live OAuth, backend, cache, image and concurrency tests run only with an explicit environment flag and a test account. Normal CI stays offline and deterministic.
+The worker command above is offline even if a runner has an authenticated Claude CLI or a leaked opt-in variable. The three cost-bearing Claude suites require both the dedicated command and explicit spend consent:
+
+```bash
+SUPERTWIN_RUN_LIVE_CLAUDE_TESTS=1 npm run test:worker:live:claude
+```
+
+It prints the maximum expected turn count before invoking Vitest. Live OAuth, backend, cache, image and concurrency tests likewise run only with a dedicated command, an explicit environment flag and a test account. Normal CI stays offline and deterministic.
 
 ## 12. Verification Matrix
 

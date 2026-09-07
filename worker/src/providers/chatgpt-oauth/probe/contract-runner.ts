@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import { accountFingerprint, accountIdFromAccessToken } from "./account.js";
 import {
   CODEX_MODELS_URL,
   CODEX_RESPONSES_URL,
@@ -16,6 +15,7 @@ import {
 } from "./matrix.js";
 import { redactProbeValue } from "./redact.js";
 import { buildBackendHeaders } from "./requests.js";
+import { assertLiveContractProbeAccount } from "./safety.js";
 import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -287,7 +287,8 @@ export async function runContractProbeScaffold(
   hooks: ContractProbeHooks,
 ): Promise<FullContractEvidence> {
   const tokens = await runDeviceCodeFlow(hooks);
-  const accountId = accountIdFromAccessToken(tokens.accessToken);
+  const account = assertLiveContractProbeAccount(tokens.accessToken, hooks.env ?? process.env);
+  const accountId = account.accountId;
   const headers = buildBackendHeaders(tokens.accessToken, accountId, hooks.env ?? process.env);
 
   const modelsResponse = await fetchJson(CODEX_MODELS_URL, headers, hooks);
@@ -308,7 +309,7 @@ export async function runContractProbeScaffold(
     inferenceRetries: 0,
     plannedInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
     actualInferencePosts,
-    accountFingerprint: accountFingerprint(accountId),
+    accountFingerprint: account.fingerprint,
     modelCatalogue: { status: modelsResponse.status, ids, responseBytes: modelsResponse.bytes },
     quota: {
       status: quotaResponse.status,

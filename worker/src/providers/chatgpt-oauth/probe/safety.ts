@@ -8,6 +8,12 @@ import {
   LIVE_AUTH_INFERENCE_CALL_BUDGET,
   LIVE_PROBE_ENV,
 } from "./constants.js";
+import {
+  assertExpectedProbeAccount,
+  type DedicatedProbeAccount,
+} from "./account.js";
+
+export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
 
 export interface LiveProbeDeclaration {
   liveAuthInferencePostBudget: number;
@@ -50,6 +56,24 @@ export function assertLiveProbeOptIn(env: NodeJS.ProcessEnv = process.env): stri
     throw new Error("REFUSED: live probing requires a concrete semver SUPERTWIN_APP_VERSION");
   }
   return assertScratchProbeHome(env);
+}
+
+/** A second opt-in is required for the 70-case contract ladder. */
+export function assertLiveContractProbeOptIn(env: NodeJS.ProcessEnv = process.env): string {
+  const scratchHome = assertLiveProbeOptIn(env);
+  if (env[LIVE_CONTRACT_PROBE_ENV] !== "1") {
+    throw new Error(`REFUSED: live contract probing requires ${LIVE_CONTRACT_PROBE_ENV}=1`);
+  }
+  return scratchHome;
+}
+
+/** Run after OAuth exchange and before model, quota, or inference requests. */
+export function assertLiveContractProbeAccount(
+  accessToken: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DedicatedProbeAccount {
+  assertLiveContractProbeOptIn(env);
+  return assertExpectedProbeAccount(accessToken, env);
 }
 
 export function formatLiveDeclaration(mode: "auth" | "contract" = "auth"): string {

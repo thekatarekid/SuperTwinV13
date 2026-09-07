@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  accountFingerprint,
+  EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV,
+} from "./account.js";
 
 import {
   CODEX_DEVICE_CODE_URL,
@@ -28,7 +32,13 @@ import {
 } from "./device-flow.js";
 import { buildDryRunRequests, dryRunSnapshot } from "./requests.js";
 import { redactedJson } from "./redact.js";
-import { assertLiveProbeOptIn, formatLiveDeclaration } from "./safety.js";
+import {
+  assertLiveContractProbeAccount,
+  assertLiveContractProbeOptIn,
+  assertLiveProbeOptIn,
+  formatLiveDeclaration,
+  LIVE_CONTRACT_PROBE_ENV,
+} from "./safety.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -43,6 +53,13 @@ function hooks(fetchImpl: typeof fetch): DeviceFlowHooks {
     onUserCode: vi.fn(),
     env: { SUPERTWIN_APP_VERSION: "13.12.2" },
   };
+}
+
+function accountJwt(accountId: string): string {
+  const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none" })}.${encode({
+    "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+  })}.probe-signature`;
 }
 
 describe("Phase 0b offline safety", () => {
@@ -104,6 +121,50 @@ describe("Phase 0b offline safety", () => {
         SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-test"),
       }),
     ).toBe(join(tmpdir(), "supertwin-phase0b-test"));
+  });
+
+  it("requires a separate live-contract opt-in without fetching", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const env = {
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-contract-opt-in"),
+    };
+    expect(() => assertLiveContractProbeOptIn(env)).toThrow(
+      /SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE=1/,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing or mismatched dedicated-account fingerprint without fetching", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const accountId = "acct-dedicated-phase0b";
+    const env = {
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-account-gate"),
+    };
+    expect(() => assertLiveContractProbeAccount(accountJwt(accountId), env)).toThrow(
+      new RegExp(EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
+    );
+    expect(() => assertLiveContractProbeAccount(accountJwt(accountId), {
+      ...env,
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "000000000000",
+    })).toThrow(/not the dedicated Phase 0b test account/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts only the predeclared 12-hex fingerprint of the decoded JWT account", () => {
+    const accountId = "acct-dedicated-phase0b";
+    const result = assertLiveContractProbeAccount(accountJwt(accountId), {
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: accountFingerprint(accountId),
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-account-match"),
+    });
+    expect(result).toEqual({ accountId, fingerprint: accountFingerprint(accountId) });
   });
 
   it("separates live-auth from the 70-case, 55-POST full probe", () => {

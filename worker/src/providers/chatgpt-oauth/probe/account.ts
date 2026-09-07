@@ -1,6 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const OPENAI_AUTH_CLAIM = "https://api.openai.com/auth";
+export const EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV =
+  "SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT";
+
+export interface DedicatedProbeAccount {
+  /** Kept in process memory solely for the required routing header. Never log this. */
+  accountId: string;
+  fingerprint: string;
+}
 
 function decodeBase64UrlJson(segment: string): Record<string, unknown> {
   let parsed: unknown;
@@ -33,4 +41,24 @@ export function accountIdFromAccessToken(accessToken: string): string {
 
 export function accountFingerprint(accountId: string): string {
   return createHash("sha256").update(accountId, "utf8").digest("hex").slice(0, 12);
+}
+
+/** Bind a decoded OAuth account to the dedicated test account selected out of band. */
+export function assertExpectedProbeAccount(
+  accessToken: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DedicatedProbeAccount {
+  // Decode first so comparison is always against the account actually represented by the token.
+  const accountId = accountIdFromAccessToken(accessToken);
+  const actual = accountFingerprint(accountId);
+  const configured = env[EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]?.trim().toLowerCase();
+  if (!configured || !/^[a-f0-9]{12}$/.test(configured)) {
+    throw new Error(
+      `REFUSED: ${EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV} must be the dedicated test account's 12-hex fingerprint`,
+    );
+  }
+  if (!timingSafeEqual(Buffer.from(actual, "ascii"), Buffer.from(configured, "ascii"))) {
+    throw new Error("REFUSED: authenticated ChatGPT account is not the dedicated Phase 0b test account");
+  }
+  return { accountId, fingerprint: actual };
 }

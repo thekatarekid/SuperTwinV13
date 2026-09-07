@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { accountFingerprint, accountIdFromAccessToken } from "./account.js";
+import { LIVE_CONTRACT_PROBE_ENV } from "./safety.js";
 import {
   CODEX_DEVICE_CODE_URL,
   CODEX_DEVICE_TOKEN_URL,
@@ -24,6 +27,16 @@ function jwt(accountId: string): string {
   return `${encode({ alg: "none" })}.${encode({
     "https://api.openai.com/auth": { chatgpt_account_id: accountId },
   })}.probe-signature`;
+}
+
+function contractEnv(accountId: string): NodeJS.ProcessEnv {
+  return {
+    SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+    [LIVE_CONTRACT_PROBE_ENV]: "1",
+    SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
+    SUPERTWIN_APP_VERSION: "13.12.2",
+    SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-contract-test"),
+  };
 }
 
 function jsonResponse(status: number, value: unknown): Response {
@@ -109,6 +122,34 @@ describe("ephemeral account and SSE evidence", () => {
 });
 
 describe("mocked contract runner scaffold", () => {
+  it("rejects the wrong account before model, quota, or inference traffic", async () => {
+    const accountId = "acct-wrong-for-this-run";
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === CODEX_DEVICE_CODE_URL) {
+        return jsonResponse(200, { user_code: "ABCD-EFGH", device_auth_id: "device-secret", interval: 3 });
+      }
+      if (url === CODEX_DEVICE_TOKEN_URL) {
+        return jsonResponse(200, { authorization_code: "authorization-secret", code_verifier: "verifier-secret" });
+      }
+      if (url === CODEX_OAUTH_TOKEN_URL) {
+        return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
+      }
+      throw new Error(`Account gate allowed unexpected URL: ${url}`);
+    });
+    const env = contractEnv(accountId);
+    env.SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT = "000000000000";
+
+    await expect(runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env,
+    })).rejects.toThrow(/not the dedicated Phase 0b test account/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("performs auth, model/quota reads, and each of the 55 inference POSTs exactly once", async () => {
     const accountId = "acct-never-log-this";
     let inferencePosts = 0;
@@ -147,7 +188,7 @@ describe("mocked contract runner scaffold", () => {
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
       requestId: () => "00000000-0000-4000-8000-000000000000",
-      env: { SUPERTWIN_APP_VERSION: "13.12.2" },
+      env: contractEnv(accountId),
     });
 
     expect(inferencePosts).toBe(FULL_PROBE_INFERENCE_POST_BUDGET);
@@ -207,7 +248,7 @@ describe("mocked contract runner scaffold", () => {
       sleep: vi.fn(async () => undefined),
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
-      env: { SUPERTWIN_APP_VERSION: "13.12.2" },
+      env: contractEnv(accountId),
     })).rejects.toThrow(/canary\.blank-context did not match/);
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === CODEX_RESPONSES_URL)).toHaveLength(1);
   });

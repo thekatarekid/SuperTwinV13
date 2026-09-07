@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 
 import { dryRunSnapshot } from "./requests.js";
 import { redactedJson } from "./redact.js";
+import { accountFingerprint, accountIdFromAccessToken } from "./account.js";
 import { runDeviceCodeFlow, type DeviceCode } from "./device-flow.js";
 import {
   formatHttpAccounting,
@@ -59,8 +60,14 @@ export async function runProbeCli(
   };
   try {
     const tokens = await runDeviceCodeFlow(hooks);
+    const fingerprint = accountFingerprint(accountIdFromAccessToken(tokens.accessToken));
     process.stdout.write(
-      `${redactedJson({ status: "authenticated-ephemeral", access_token: tokens.accessToken, refresh_token: tokens.refreshToken })}\n`,
+      `${redactedJson({
+        status: "authenticated-ephemeral",
+        account_fingerprint: fingerprint,
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      })}\n`,
     );
     return 0;
   } finally {

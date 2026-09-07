@@ -31,6 +31,7 @@
 - 2026-09-08: Continuation IDs are now redacted from returned evidence; refresh JSON is bounded while streaming; contract failures abort peers and clear ephemeral credentials.
 - 2026-09-08: Live-contract remains fail-closed pending the owner-completed live authentication and final safety review; no live contract or inference calls have been made.
 - 2026-09-08: Phase 0b offline acceptance passed: 67/67 focused probe tests, worker typecheck, full worker 4,107 passed/7 intentional skips, diff check, zero live calls; independent final review found no commit blocker.
+- 2026-09-08: Owner login retry expired unapproved after 15 minutes: exact HTTP actuals 1 device request + 169 pending polls; 0 token/model/quota/inference calls, no credentials persisted, scratch homes removed.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.
 - Next: run the serial device login on an isolated home/account, then implement and execute the explicitly budgeted contract matrix before Phase 1.

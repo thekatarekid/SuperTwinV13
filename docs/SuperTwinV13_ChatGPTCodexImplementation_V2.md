@@ -50,6 +50,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Phase 0b lifecycle rails: the runner reports counts from its single hard-ceiling HTTP wrapper, refuses redirects and unknown endpoints, redacts continuation identifiers, aborts cancellation at the first substantive delta, aborts concurrent peers on failure, and clears the ephemeral session on every post-login exit.
 - [x] Phase 0b offline acceptance: 67/67 focused probe tests, worker typecheck, and the full offline worker gate (4,107 passed, 7 intentionally skipped) pass with zero live calls. Independent adversarial review found no remaining commit blocker.
 - [ ] Phase 0b live evidence: first device-code attempt reached the owner account-selection screen and was cancelled when unattended; 0 inference calls were made. Exact per-endpoint HTTP accounting is now implemented for the retry.
+- [ ] Phase 0b owner login retry (2026-09-08): the 15-minute device window expired without owner approval. Exact actuals were 1 device-code request + 169 pending polls = 170 OAuth HTTP requests; token/model/catalogue/quota/inference requests were all 0. No credentials were persisted and both empty scratch homes were removed. Generate a fresh code only when the owner is ready to complete the page.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 
 ### 0.1 What Changed From V1, and Why

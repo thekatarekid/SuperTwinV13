@@ -240,7 +240,13 @@ describe("CNS-09 — the card is honest", () => {
       }),
     ).toThrow(ConsentWindowError);
     expect(getConsent("whatsapp")).toBeNull();
-    expect((getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number }).n).toBe(0);
+    expect(
+      (
+        getDb()
+          .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_kind <> 'provider_rollout'`)
+          .get() as { n: number }
+      ).n,
+    ).toBe(0);
   });
 
   it("re-confirm counts the log exactly, widens as a replay, and stores a second card verbatim", () => {

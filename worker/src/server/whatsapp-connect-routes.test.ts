@@ -184,7 +184,9 @@ describe("POST /api/sources/whatsapp/confirm", () => {
     expect(body.error).toBe("invalid-windows");
     expect(body.detail).toMatch(/Understand never exceeds Index/);
     expect(getConsent("whatsapp")).toBeNull();
-    const n = getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number };
+    const n = getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_kind <> 'provider_rollout'`)
+      .get() as { n: number };
     expect(n.n).toBe(0);
     expect(child.commands().some((c) => c.cmd === "import")).toBe(false);
   });

@@ -6,18 +6,18 @@ Implement this document end to end. Complete the phases in order, meet every exi
 
 This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Section 0.1 records what changed and why; Section 0.2 names the rails in this tree that the implementation must not break. Read both before Section 1.
 
-### Implementation Status (2026-09-07)
+### Implementation Status (2026-09-08)
 
-- **Overall:** In progress; Phase 0a is accepted and the serial Phase 0b contract probe is next.
-- **Baseline:** `main` at `fd667ec`; application version `13.12.2`.
+- **Overall:** In progress; Phase 0a is accepted and durably seeded, and the serial Phase 0b contract probe is next.
+- **Baseline:** `main` through `d2d2206`; application version `13.12.2` (no new app build yet).
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
 
 #### Phase and Task Checklist
 
-- [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved.
-- [ ] **Phase 0b — Direct Backend Contract:** ready for the live, serial, explicitly costed probe.
-- [ ] **P1-A — Provider-neutral contract types:** pending Phase 0a.
+- [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved. The three complete records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
+- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold implemented; live authentication and contract matrix not yet run.
+- [ ] **P1-A — Provider-neutral contract types:** pending Phase 0b exit evidence.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
 - [ ] **P1-F — Provider/model resolver:** pending G1.
 - [ ] **P1-G/P1-H — Call-site migration, registry and shutdown:** pending P1-F.
@@ -40,6 +40,8 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Pre-release artifact verifier: source and lock versions, DMG identity/hash, mounted bundle/runtime/model layout, plist, architecture, deep signature and Gatekeeper posture are checked without launching the app. The existing 13.12.2 artifact passes structural verification and is truthfully classified local-only because it is ad-hoc signed.
 - [x] Bundled-executable verifier: every required program must be executable and match the DMG architecture. Focused 12/12 and full 147/147 script checks pass; the existing 13.12.2 artifact is arm64-compatible throughout (with universal `yt-dlp`) and remains local-only.
 - [x] Release identity hardening: version bumps now prevalidate and update the application stanza in `Cargo.lock`; release CI checks both lockfiles; duplicate detection covers canonical Tauri and historical phase-prefixed DMG names.
+- [x] Phase 0a durable decision seed: exact OAuth identity/endpoints/headers/mechanics, terms risk posture, and approved consumer-data consent are stored as three additive governance rows. Fresh/upgrade/idempotence/amendment-preservation tests pass.
+- [x] Latest complete offline worker gate: 333 files passed, 4,048 tests passed, 7 intentionally skipped, zero live-model calls; the 60-second scratch-home boot test closed its port and removed its home.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 
 ### 0.1 What Changed From V1, and Why

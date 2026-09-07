@@ -136,7 +136,10 @@ describe("runDigestPass (digest.v2)", () => {
 
     const db = getDb();
     const decisions = db
-      .prepare(`SELECT pass, target_kind, action, new_json FROM decisions ORDER BY id`)
+      .prepare(
+        `SELECT pass, target_kind, action, new_json FROM decisions
+          WHERE target_kind <> 'provider_rollout' ORDER BY id`,
+      )
       .all() as { pass: string; target_kind: string; action: string; new_json: string }[];
     expect(decisions).toHaveLength(3);
     expect(decisions.every((d) => d.pass === "digest")).toBe(true);
@@ -170,7 +173,11 @@ describe("runDigestPass (digest.v2)", () => {
     const report = await runDigestPass(weekBundle(), { provider });
     expect(report.status).toBe("failed");
     expect(report.error).toBe("TIMEOUT");
-    const n = (getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number }).n;
+    const n = (
+      getDb()
+        .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_kind <> 'provider_rollout'`)
+        .get() as { n: number }
+    ).n;
     expect(n).toBe(0);
   });
 

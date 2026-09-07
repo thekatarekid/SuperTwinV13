@@ -85,7 +85,13 @@ describe("POST /api/consent/card", () => {
     expect(card.disk.accuracy).toBe("about");
     expect(typeof card.text).toBe("string");
     expect(getConsent("whatsapp")).toBeNull();
-    expect((getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number }).n).toBe(0);
+    expect(
+      (
+        getDb()
+          .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_kind <> 'provider_rollout'`)
+          .get() as { n: number }
+      ).n,
+    ).toBe(0);
   });
 
   it("400 on a missing source, a missing understand_from, or a bad timestamp", async () => {

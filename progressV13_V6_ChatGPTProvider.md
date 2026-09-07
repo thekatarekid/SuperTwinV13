@@ -17,4 +17,7 @@
 - 2026-09-07: Phase 0a accepted by Aditya Katare: mirror Hermes's pinned ChatGPT OAuth pattern—reuse the Codex client ID while sending honest SuperTwin user-agent/originator headers—and explicitly accept the private-backend/account/terms risk. Consent copy approved unchanged.
 - 2026-09-07: Pinned Hermes audit at `e9bccc90`: direct `/backend-api/codex/responses`, device-code login with no loopback/scope, 120-second refresh skew, account-scoped catalogue, own-product identity headers, and raw SSE. No authorization artifact exists in Hermes; owner risk acceptance remains the gate basis.
 - 2026-09-07: Extended DMG verification to require execute bits and arm64 compatibility for the app, Node, worker/media sidecars, and bundled Chromium. Passed focused 12/12, full scripts 147/147, and mounted 13.12.2 verification; no build/version bump.
-- Next: implement the repo-backed decision seed, then prepare the serial Phase 0b probe with a declared live-call budget and isolated test account/home.
+- 2026-09-08: Added the Phase 0a repo-backed seed: three exact, owner-accepted governance records in the canonical `decisions` ledger; fresh/upgrade/idempotence/local-amendment tests pass.
+- 2026-09-08: Full offline worker gate passed: 333 files, 4,048 tests, 7 intentional skips, 0 live calls; fixed an independent stdout/stderr boot-test race and verified scratch-home/port cleanup.
+- 2026-09-08: Phase 0b offline device-flow scaffold is under acceptance review; no OAuth or model network calls have been made. App version remains 13.12.2 and no new DMG has been built.
+- Next: commit the decision seed, land the offline Phase 0b probe scaffold, then run the serial device login and contract matrix with declared budgets on an isolated home/account.

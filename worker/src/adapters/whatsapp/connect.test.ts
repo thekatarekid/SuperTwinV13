@@ -255,7 +255,9 @@ describe("window rules at the confirm edge (Understand never exceeds Index — C
       confirmWhatsAppWindows({ index: "30d", understand: "1y", cardText: "never stored", nowMs: NOW }),
     ).toThrow(WindowChoiceError);
     expect(getConsent("whatsapp")).toBeNull();
-    const n = getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number };
+    const n = getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_kind <> 'provider_rollout'`)
+      .get() as { n: number };
     expect(n.n).toBe(0);
   });
 

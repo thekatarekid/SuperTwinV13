@@ -138,7 +138,9 @@ describe("POST /api/sources/whatsapp/confirm — dispatch, not completion", () =
     expect(body.error).toBe("invalid-windows");
     expect(getConsent("whatsapp")).toBeNull();
     expect(child.commands().some((c) => c.cmd === "import")).toBe(false);
-    const n = getDb().prepare(`SELECT COUNT(*) AS n FROM decisions`).get() as { n: number };
+    const n = getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_kind <> 'provider_rollout'`)
+      .get() as { n: number };
     expect(n.n).toBe(0);
   });
 

@@ -38,6 +38,7 @@ import { V6_BRIEF } from "./migrations/0207_v6_brief.js";
 import { V6_INJECTION } from "./migrations/0208_v6_injection.js";
 import { V6_LIBRARY_PERF } from "./migrations/0209_v6_library_perf.js";
 import { V6_EXTRACT_QUEUE } from "./migrations/0210_v6_extract_queue.js";
+import { CHATGPT_PROVIDER_DECISIONS } from "./migrations/0211_chatgpt_provider_decisions.js";
 
 export interface Migration {
   id: string;
@@ -1024,4 +1025,8 @@ export const MIGRATIONS: Migration[] = [
   // `episodes.extracted_at` watermark and the partial index the backlog
   // seeder reads. New table, one additive column, two indexes.
   { id: "0210_v6_extract_queue", sql: V6_EXTRACT_QUEUE },
+  // ChatGPT provider Phase 0a: three owner-approved governance rows in the
+  // canonical decisions ledger. Stable ids and INSERT OR IGNORE keep the
+  // per-install seed deterministic and idempotent.
+  { id: "0211_chatgpt_provider_decisions", sql: CHATGPT_PROVIDER_DECISIONS },
 ];

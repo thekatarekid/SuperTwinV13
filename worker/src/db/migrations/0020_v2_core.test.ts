@@ -163,6 +163,9 @@ describe("0020_v2_core applies", () => {
       // V6 P1 E1: `extract_queue` (new table), the `episodes.extracted_at`
       // watermark (one ADD COLUMN) and its partial index. Reshapes nothing.
       "0210_v6_extract_queue",
+      // ChatGPT provider Phase 0a: three owner-approved governance rows in
+      // the canonical decisions ledger; no user content is seeded.
+      "0211_chatgpt_provider_decisions",
     ]);
 
     expect(

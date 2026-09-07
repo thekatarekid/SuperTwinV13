@@ -15,7 +15,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 
 #### Phase and Task Checklist
 
-- [ ] **Phase 0a — Decision Gate:** blocking; owner input required for client identity, Terms-of-Service risk, and data posture/consent.
+- [ ] **Phase 0a — Decision Gate:** partially resolved; consent copy approved, but accepting-owner identity and the supported OpenAI integration choice remain required.
 - [ ] **Phase 0b — Direct Backend Contract:** pending Phase 0a; live, serial, explicitly costed.
 - [ ] **P1-A — Provider-neutral contract types:** pending Phase 0a.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
@@ -877,29 +877,32 @@ The waiver never reports the artifact as distribution-ready. Native install, lau
 
 Status: **awaiting accepting owner; Phase 0b and implementation remain blocked.** The durable, owner-approved entries below are the source for idempotent per-install decision rows. Never write these manually into the user's production database.
 
-### A.1 Client Identity — Unresolved
+### A.1 Client Identity — Recommendation Pending Owner Approval
 
-- Decision: choose either SuperTwin's honest OAuth client identity or Codex's identity/user agent.
-- Exact client ID, user agent and additional identity headers: awaiting owner.
-- Rationale: awaiting owner.
-- Residual risk, including account collateral if Codex identity is chosen: awaiting owner.
+- Recommended decision: **do not reuse or impersonate Codex's OAuth client ID, user agent or private-backend headers.** SuperTwin presents only an identity issued to SuperTwin by OpenAI. If OpenAI does not issue one, this direct OAuth design stays disabled.
+- Supported alternatives: amend this plan to use the official [Codex SDK/App Server](https://developers.openai.com/codex/sdk/) when Codex agent semantics fit the product, or use the documented [OpenAI API](https://platform.openai.com/docs/quickstart) with separately billed API authentication for general model calls.
+- Exact client ID, user agent and additional identity headers: none available for SuperTwin; awaiting an OpenAI-issued identity or owner approval to amend the architecture.
+- Rationale: OpenAI explicitly documents the Codex SDK for integration within an application and App Server for custom clients that need authentication and streamed events. No equivalent public documentation authorizes a third-party app to clone Codex's OAuth identity and call its private backend directly.
+- Residual risk: even the official Codex integration is designed around Codex-agent workflows; SuperTwin's general personal-context workload should receive written OpenAI confirmation if subscription billing is essential. Codex impersonation retains account suspension, protocol-breakage and collateral-session risk and is not recommended.
 - Accepting owner: awaiting owner.
 
-### A.2 Terms of Service — Unresolved
+### A.2 Terms of Service — Recommendation Pending Owner Approval
 
-- Decision: state the applicable clause/permission, or explicitly accept the risk of a non-Codex client running continuous background traffic at the shipped concurrency.
+- Recommended decision: **do not accept the private-backend risk and do not ship Codex impersonation.** Require written authorization from OpenAI for this exact non-Codex workload, or amend the design to a documented integration.
 - Research finding (2026-09-07): the current consumer [Terms of Use](https://openai.com/policies/terms-of-use/) prohibit automatically or programmatically extracting data or Output and prohibit circumventing rate limits, restrictions, or protective measures. No public authorization was found for a non-Codex client to present Codex's OAuth identity to its private backend.
-- Rationale: awaiting owner.
-- Residual risk: awaiting owner.
+- Official alternatives (verified 2026-09-07): OpenAI documents the [Codex SDK/App Server](https://developers.openai.com/codex/sdk/) for programmatically integrating Codex into an application, and documents the API as the supported general-purpose programmatic interface. API usage has [separate billing from ChatGPT subscriptions](https://help.openai.com/en/articles/9039756-managing-billing-settings-on-chatgpt-web-and-platform).
+- Rationale: an owner can acknowledge business risk but cannot grant permission on OpenAI's behalf. A supported interface or written authorization is the defensible release gate.
+- Residual risk: the official Codex SDK may not cover high-volume, non-coding personal-assistant workloads; obtain written confirmation before treating subscription access as authorized for this use.
 - Accepting owner: awaiting owner.
 
-### A.3 Consumer Data Posture and Consent — Unresolved
+### A.3 Consumer Data Posture and Consent — Copy Approved; Owner Name Pending
 
 - Research finding (2026-09-07): OpenAI's current [consumer data-use policy](https://openai.com/policies/how-your-data-is-used-to-improve-model-performance/) says content from individual services such as ChatGPT and Codex may be used for model improvement unless the applicable control is disabled. The [Data Controls FAQ](https://help.openai.com/en/articles/7730893-data-control) describes account opt-out and Temporary Chat behavior, but this private backend does not document `store: false` as a retention or Temporary Chat guarantee.
-- Actual retention/training posture for ChatGPT subscription traffic: awaiting owner.
-- Difference from the Claude subscription path: awaiting owner.
-- Exact consent copy shown before sign-in: awaiting owner.
-- Rationale and residual risk: awaiting owner.
+- Actual retention/training posture for ChatGPT subscription traffic: consumer-service treatment controlled by the user's OpenAI account settings; SuperTwin does not promise API business-data treatment, Temporary Chat equivalence, no training or deletion.
+- Difference from the Claude subscription path: content goes to OpenAI under the selected OpenAI account/workspace controls rather than to Anthropic through the Claude CLI and its account controls.
+- Exact consent copy shown before sign-in (approved by the requester on 2026-09-07): **“SuperTwin will send selected WhatsApp messages, browser text, screen captures, and derived context to OpenAI using your personal ChatGPT/Codex subscription. This is consumer-service traffic, not API business data. OpenAI may retain or use content according to your account’s data controls. SuperTwin cannot guarantee no training, Temporary Chat treatment, or deletion. Confirm you have permission to share this data. You can sign out and stop future sends at any time.”**
+- Rationale: names the data categories, destination, consumer-service posture, permission duty and stop control before authentication.
+- Residual risk: account controls may change; senders and people represented in captured content may not have authorized onward disclosure. Consent must remain explicit and revocable.
 - Accepting owner: awaiting owner.
 
 ## Appendix B — Execution Clarifications

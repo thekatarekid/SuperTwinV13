@@ -70,6 +70,15 @@ describe("release version identity", () => {
     expect(release).toContain('package-lock.json');
     expect(release).toContain('src-tauri/Cargo.lock');
   });
+
+  it("runs the structural DMG verifier before upload", () => {
+    const release = readFileSync(join(workflowDir, "release-dmg.yml"), "utf8");
+    const verifyAt = release.indexOf("npm run verify:release");
+    const uploadAt = release.indexOf("actions/upload-artifact@v4");
+    expect(verifyAt).toBeGreaterThan(0);
+    expect(uploadAt).toBeGreaterThan(verifyAt);
+    expect(release).toContain('--expected-sha "$SHA"');
+  });
 });
 
 describe("the scanner itself", () => {

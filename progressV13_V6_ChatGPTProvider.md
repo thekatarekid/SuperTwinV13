@@ -13,4 +13,5 @@
 - 2026-09-07: Added an offline-by-default worker gate and double opt-in live-Claude command; preserved 3 offline server-route checks. Passed worker 4,037/4,037 (7 intentional skips), scripts 138/138 and typecheck with 0 live model calls.
 - 2026-09-07: Added deterministic DMG verification for synchronized source/lock versions, manifest hash, mounted self-contained resources, plist, architecture, code signature and Gatekeeper status. Existing 13.12.2 DMG passes local-only verification; ad-hoc signing prevents distribution-ready status.
 - 2026-09-07: Hardened release identity: bumps now prevalidate/update `Cargo.lock`, CI checks both lockfiles, and duplicate checks recognize phase-prefixed archives. No build/version bump performed.
+- 2026-09-07: Wired mounted DMG verification into release CI before upload; pending rows require the build SHA and completed manifest mismatches remain fatal. Passed 145 script checks and an actual 13.12.2 mounted verification; no new build.
 - Next: record the three Phase 0a decisions and accepting owner; then run the serial, explicitly costed Phase 0b live probe.

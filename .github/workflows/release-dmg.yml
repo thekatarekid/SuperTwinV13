@@ -248,6 +248,19 @@ jobs:
             echo "Commit that row (replacing any \`pending\` one) so the manifest matches the shipped installer."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Verify the built installer
+        env:
+          DMG: ${{ steps.dmg.outputs.path }}
+          SHA: ${{ steps.dmg.outputs.sha }}
+        run: |
+          # This workflow currently produces an ad-hoc signed local installer.
+          # The explicit waiver still runs every structural/signature check and
+          # reports local-only; it never upgrades the result to distributable.
+          npm run verify:release -- \
+            --dmg "$DMG" \
+            --expected-sha "$SHA" \
+            --allow-adhoc
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:

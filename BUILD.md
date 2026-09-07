@@ -171,6 +171,13 @@ against the tag, runs the test suites, builds, and attaches
 artifact too, so a failed upload never loses the installer. Copy the manifest row
 the job summary prints over the `pending` one and commit it.
 
+Before either upload, the macOS workflow mounts the just-built DMG and runs the
+same deterministic verification as `npm run verify:release`: version/lock
+identity, checksum, bundled runtime/model layout, plist, architecture, deep
+signature and Gatekeeper posture. A CI-computed `--expected-sha` may stand in
+for a still-pending manifest row, but can never override a completed row that
+disagrees. The current ad-hoc pipeline uses the explicit local-only waiver.
+
 Nothing in the pipeline ever replaces an installer: `npm run release` refuses a
 version whose canonical Tauri or historical phase-prefixed `.dmg` is already in
 `releases/`, or whose digest is already in `RELEASES.md`; the workflow refuses a

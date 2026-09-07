@@ -10,6 +10,7 @@ import {
   cargoPackageVersion,
   dmgMetadata,
   expectedArchitectures,
+  expectedReleaseDigest,
   manifestDigest,
   missingBundleFiles,
   parseArgs,
@@ -66,6 +67,21 @@ describe("version and manifest parsing", () => {
     expect(manifestDigest(manifest, "13.12.2")).toBe(sha);
     expect(manifestDigest(manifest, "13.12.3")).toBeNull();
   });
+
+  it("accepts an explicit build digest for a pending row without weakening completed rows", () => {
+    const oldSha = "a".repeat(64);
+    const newSha = "b".repeat(64);
+    const manifest = `| 13.12.2 | 992 MB | \`${oldSha}\` |\n| 13.12.3 | — | pending |\n`;
+    expect(
+      expectedReleaseDigest({ manifest, version: "13.12.3", expectedSha: newSha.toUpperCase() }),
+    ).toBe(newSha);
+    expect(() =>
+      expectedReleaseDigest({ manifest, version: "13.12.2", expectedSha: newSha }),
+    ).toThrow(/disagrees with RELEASES\.md/);
+    expect(() => expectedReleaseDigest({ manifest, version: "13.12.3" })).toThrow(
+      /pass --expected-sha/,
+    );
+  });
 });
 
 describe("self-contained bundle contract", () => {
@@ -107,11 +123,17 @@ describe("distribution truthfulness", () => {
 
 describe("CLI guardrails", () => {
   it("parses an explicit local-only waiver and DMG path", () => {
-    expect(parseArgs(["--allow-adhoc", "--dmg", "/tmp/app.dmg"])).toEqual({
+    const sha = "A".repeat(64);
+    expect(
+      parseArgs(["--allow-adhoc", "--dmg", "/tmp/app.dmg", "--expected-sha", sha]),
+    ).toEqual({
       allowAdhoc: true,
       dmg: "/tmp/app.dmg",
+      expectedSha: sha.toLowerCase(),
     });
     expect(() => parseArgs(["--dmg"])).toThrow(/requires a path/);
+    expect(() => parseArgs(["--dmg", "--allow-adhoc"])).toThrow(/requires a path/);
+    expect(() => parseArgs(["--expected-sha", "abc"])).toThrow(/64 hexadecimal/);
     expect(() => parseArgs(["--wat"])).toThrow(/unknown argument/);
   });
 });

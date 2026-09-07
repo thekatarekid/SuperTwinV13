@@ -65,6 +65,24 @@ export function manifestDigest(text, version) {
   return null;
 }
 
+export function expectedReleaseDigest({ manifest, version, expectedSha = null }) {
+  const supplied = expectedSha?.toLowerCase() ?? null;
+  if (supplied && !/^[a-f0-9]{64}$/.test(supplied)) {
+    throw new Error("--expected-sha requires exactly 64 hexadecimal characters");
+  }
+  const recorded = manifestDigest(manifest, version);
+  if (recorded && supplied && recorded !== supplied) {
+    throw new Error(`expected SHA-256 ${supplied} disagrees with RELEASES.md ${recorded}`);
+  }
+  const expected = recorded ?? supplied;
+  if (!expected) {
+    throw new Error(
+      `RELEASES.md has no completed digest for ${version}; pass --expected-sha for a just-built pending release`,
+    );
+  }
+  return expected;
+}
+
 export function sourceVersions(root) {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const worker = JSON.parse(readFileSync(join(root, "worker/package.json"), "utf8"));
@@ -229,15 +247,29 @@ function verifyMountedApp({ appPath, version, dmgArch, allowAdhoc }) {
 export function parseArgs(args) {
   const allowAdhoc = args.includes("--allow-adhoc");
   const dmgIndex = args.indexOf("--dmg");
-  if (dmgIndex !== -1 && !args[dmgIndex + 1]) throw new Error("--dmg requires a path");
+  const shaIndex = args.indexOf("--expected-sha");
+  if (dmgIndex !== -1 && (!args[dmgIndex + 1] || args[dmgIndex + 1].startsWith("--"))) {
+    throw new Error("--dmg requires a path");
+  }
+  if (shaIndex !== -1 && (!args[shaIndex + 1] || args[shaIndex + 1].startsWith("--"))) {
+    throw new Error("--expected-sha requires a digest");
+  }
   const unknown = args.filter((arg, index) =>
-    arg !== "--allow-adhoc" && arg !== "--dmg" && !(dmgIndex !== -1 && index === dmgIndex + 1),
+    arg !== "--allow-adhoc" &&
+    arg !== "--dmg" &&
+    arg !== "--expected-sha" &&
+    !(dmgIndex !== -1 && index === dmgIndex + 1) &&
+    !(shaIndex !== -1 && index === shaIndex + 1),
   );
   if (unknown.length) throw new Error(`unknown argument: ${unknown[0]}`);
-  return { allowAdhoc, dmg: dmgIndex === -1 ? null : args[dmgIndex + 1] };
+  const expectedSha = shaIndex === -1 ? null : args[shaIndex + 1].toLowerCase();
+  if (expectedSha && !/^[a-f0-9]{64}$/.test(expectedSha)) {
+    throw new Error("--expected-sha requires exactly 64 hexadecimal characters");
+  }
+  return { allowAdhoc, dmg: dmgIndex === -1 ? null : args[dmgIndex + 1], expectedSha };
 }
 
-export function verifyRelease({ root, dmg, allowAdhoc = false }) {
+export function verifyRelease({ root, dmg, allowAdhoc = false, expectedSha = null }) {
   if (process.platform !== "darwin") throw new Error("release verification requires macOS");
   const versions = sourceVersions(root);
   const version = assertSynchronizedVersions(versions);
@@ -251,8 +283,11 @@ export function verifyRelease({ root, dmg, allowAdhoc = false }) {
 
   command("hdiutil", ["verify", dmgPath]);
   const digest = sha256File(dmgPath);
-  const expectedDigest = manifestDigest(readFileSync(join(root, "RELEASES.md"), "utf8"), version);
-  if (!expectedDigest) throw new Error(`RELEASES.md has no completed digest for ${version}`);
+  const expectedDigest = expectedReleaseDigest({
+    manifest: readFileSync(join(root, "RELEASES.md"), "utf8"),
+    version,
+    expectedSha,
+  });
   if (digest !== expectedDigest) throw new Error(`DMG SHA-256 ${digest} != manifest ${expectedDigest}`);
 
   const mount = mkdtempSync(join(tmpdir(), "supertwin-verify-"));
@@ -279,7 +314,12 @@ if (process.argv[1] && resolve(process.argv[1]) === thisFile) {
   try {
     const root = resolve(dirname(thisFile), "..");
     const args = parseArgs(process.argv.slice(2));
-    const result = verifyRelease({ root, dmg: args.dmg, allowAdhoc: args.allowAdhoc });
+    const result = verifyRelease({
+      root,
+      dmg: args.dmg,
+      allowAdhoc: args.allowAdhoc,
+      expectedSha: args.expectedSha,
+    });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     if (result.distribution.localOnly) {
       process.stderr.write(`verify-release: LOCAL-ONLY — ${result.distribution.message}\n`);

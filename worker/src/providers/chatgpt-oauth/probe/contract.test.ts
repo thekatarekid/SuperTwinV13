@@ -47,16 +47,28 @@ function jsonResponse(status: number, value: unknown): Response {
   });
 }
 
-function sseResponse(type = "response.completed"): Response {
-  const events = type === "response.completed"
+function sseResponse(type = "response.completed", output = "probe", toolCall = false): Response {
+  const usage = {
+    input_tokens: 10,
+    output_tokens: 1,
+    input_tokens_details: { cached_tokens: 2, cache_write_tokens: 1 },
+  };
+  const events = toolCall
     ? [
-      { type: "response.output_text.delta", delta: "probe" },
-      { type, response: { id: "resp_probe", usage: { input_tokens: 1, output_tokens: 1 } } },
+      { type: "response.output_item.added", item: { id: "item_probe", type: "function_call", name: "probe_echo" } },
+      { type: "response.function_call_arguments.delta", item_id: "item_probe", delta: "{\"value\":\"probe\"}" },
+      { type: "response.output_item.done", item: { id: "item_probe", type: "function_call", name: "probe_echo", arguments: "{\"value\":\"probe\"}" } },
+      { type: "response.completed", response: { id: "resp_probe", usage } },
+    ]
+    : type === "response.completed"
+    ? [
+      { type: "response.output_text.delta", delta: output },
+      { type, response: { id: "resp_probe", usage } },
     ]
     : [
       { type: "response.created", response: { id: "resp_probe" } },
-      { type, response: { id: "resp_probe" }, delta: "probe" },
-      { type: "response.completed", response: { id: "resp_probe", usage: { input_tokens: 1, output_tokens: 1 } } },
+      { type, response: { id: "resp_probe" }, delta: output },
+      { type: "response.completed", response: { id: "resp_probe", usage } },
     ];
   return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
     status: 200,
@@ -140,15 +152,22 @@ describe("mocked contract runner scaffold", () => {
     });
     const env = contractEnv(accountId);
     env.SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT = "000000000000";
+    const finalized = vi.fn();
 
     await expect(runContractProbeScaffold({
       fetch: fetchMock,
       sleep: vi.fn(async () => undefined),
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
+      onFinalized: finalized,
       env,
     })).rejects.toThrow(/not the dedicated Phase 0b test account/);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
+      aborted: true,
+      logout: expect.objectContaining({ authenticated: false, hasRefreshToken: false }),
+      httpActuals: expect.objectContaining({ deviceCode: 1, devicePoll: 1, token: 1, inference: 0 }),
+    }));
   });
 
   it("performs auth, model/quota reads, and each of the 55 inference POSTs exactly once", async () => {
@@ -156,6 +175,7 @@ describe("mocked contract runner scaffold", () => {
     let inferencePosts = 0;
     let continuationBody: Record<string, unknown> | undefined;
     let canaryHeaders: Record<string, string> | undefined;
+    let cancellationSignal: AbortSignal | null | undefined;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
       if (url === CODEX_DEVICE_CODE_URL) {
@@ -188,10 +208,13 @@ describe("mocked contract runner scaffold", () => {
         const headers = init?.headers as Record<string, string>;
         const sequence = Number(headers.session_id.split("-").at(-1));
         if (sequence === 1) canaryHeaders = headers;
+        if (sequence === 2) cancellationSignal = init?.signal;
         if (sequence === 21) continuationBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         if (sequence >= 4 && sequence <= 32 && sequence % 2 === 0) {
           return jsonResponse(400, { error: { code: "invalid_request" } });
         }
+        if (sequence === 38) return sseResponse("response.completed", "{\"ok\":true}");
+        if (sequence === 40) return sseResponse("response.completed", "", true);
         return sseResponse(sequence === 2 ? "response.output_text.delta" : "response.completed");
       }
       throw new Error(`Unexpected mocked URL: ${url}`);
@@ -217,8 +240,36 @@ describe("mocked contract runner scaffold", () => {
       quotaComparison: { healthyAtStart: true, healthyAtEnd: true },
       refresh: { authenticated: true, previousRecoveryPairAvailable: true },
       logout: { authenticated: false, previousRecoveryPairAvailable: false },
+      httpActuals: {
+        deviceCode: 1,
+        devicePoll: 1,
+        token: 2,
+        models: 1,
+        quota: 2,
+        inference: 55,
+        other: 0,
+        total: 62,
+      },
+      localListeningSocketsCreated: false,
     });
+    expect(evidence.concurrency.rungs.map(({ concurrency, attempts }) => [concurrency, attempts])).toEqual([
+      [1, 1], [4, 4], [8, 8], [16, 16],
+    ]);
+    expect(evidence.concurrency.concurrency8CeilingInputs).toMatchObject({
+      peakOverlap: expect.any(Number),
+      projectedCallsPerHour: expect.any(Number),
+      failures: 0,
+      rateLimits: 0,
+    });
+    expect(evidence.cache.supported).toBe(true);
+    if (!evidence.cache.supported) throw new Error("Mocked capable model unexpectedly skipped cache evidence");
+    expect(evidence.cache.modes.map(({ mode }) => mode)).toEqual(["none", "implicit", "explicit"]);
     expect(evidence.cases[1]?.stream?.stoppedEarly).toBe(true);
+    expect(cancellationSignal?.aborted).toBe(true);
+    expect(evidence.cases.find(({ name }) => name === "focused.strict-json")?.stream)
+      .toMatchObject({ outputMatchesExactOkBooleanSchema: true });
+    expect(evidence.cases.find(({ name }) => name === "focused.tool-call")?.stream?.functionCalls)
+      .toEqual([{ name: "probe_echo", argumentBytes: 17, argumentsJsonValid: true, argumentsMatchProbeEchoSchema: true }]);
     expect(continuationBody?.previous_response_id).toBe("resp_probe");
     expect(Object.keys(canaryHeaders ?? {}).sort()).toEqual([
       "Accept",
@@ -240,6 +291,7 @@ describe("mocked contract runner scaffold", () => {
     expect(output).not.toContain(accountId);
     expect(output).not.toContain("refresh-secret");
     expect(output).not.toContain("Bearer ey");
+    expect(output).not.toContain("resp_probe");
   });
 
   it("fails closed on a 200 stream without a completion event", async () => {
@@ -274,13 +326,90 @@ describe("mocked contract runner scaffold", () => {
       throw new Error(`Unexpected mocked URL: ${url}`);
     });
 
+    const finalized = vi.fn();
+    await expect(runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      onFinalized: finalized,
+      env: contractEnv(accountId),
+    })).rejects.toThrow(/canary\.blank-context did not match/);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === CODEX_RESPONSES_URL)).toHaveLength(1);
+    expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
+      aborted: true,
+      logout: expect.objectContaining({ authenticated: false, hasRefreshToken: false }),
+      httpActuals: expect.objectContaining({ inference: 1, models: 1, quota: 1, token: 2 }),
+    }));
+  });
+
+  it("aborts and settles every concurrency-4 peer before rejecting, without starting concurrency-8", async () => {
+    const accountId = "acct-concurrency-abort-test";
+    const startedSequences: number[] = [];
+    const abortedPeers = new Set<number>();
+    const settledPeers = new Set<number>();
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === CODEX_DEVICE_CODE_URL) {
+        return jsonResponse(200, { user_code: "ABCD-EFGH", device_auth_id: "device-secret", interval: 3 });
+      }
+      if (url === CODEX_DEVICE_TOKEN_URL) {
+        return jsonResponse(200, { authorization_code: "authorization-secret", code_verifier: "verifier-secret" });
+      }
+      if (url === CODEX_OAUTH_TOKEN_URL) {
+        return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
+      }
+      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{
+        slug: "gpt-probe",
+        input_modalities: ["text", "image"],
+        supported_reasoning_efforts: ["low"],
+        max_output_tokens: 4096,
+        supports_tools: true,
+        supports_parallel_tool_calls: true,
+        supports_verbosity: true,
+        supports_prompt_cache_key: true,
+        supports_prompt_cache_options: true,
+        supports_structured_output: true,
+      }] });
+      if (url === CODEX_USAGE_URL) return jsonResponse(200, {
+        plan_type: "plus",
+        rate_limit: { primary_window: { used_percent: 10, reset_at: 2_000_000_000 } },
+      });
+      if (url !== CODEX_RESPONSES_URL) throw new Error(`Unexpected mocked URL: ${url}`);
+
+      const sequence = Number((init?.headers as Record<string, string>).session_id.split("-").at(-1));
+      startedSequences.push(sequence);
+      if (sequence === 38) return sseResponse("response.completed", "{\"ok\":true}");
+      if (sequence === 40) return sseResponse("response.completed", "", true);
+      if (sequence === 2) return sseResponse("response.output_text.delta");
+      if (sequence === 43) return jsonResponse(500, { error: { code: "forced_concurrency_4_failure" } });
+      if (sequence >= 44 && sequence <= 46) {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) return reject(new Error("peer request did not receive an abort signal"));
+          signal.addEventListener("abort", () => {
+            abortedPeers.add(sequence);
+            setTimeout(() => {
+              settledPeers.add(sequence);
+              reject(signal.reason ?? new Error("peer aborted"));
+            }, 5);
+          }, { once: true });
+        });
+      }
+      return sseResponse();
+    });
+
     await expect(runContractProbeScaffold({
       fetch: fetchMock,
       sleep: vi.fn(async () => undefined),
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
       env: contractEnv(accountId),
-    })).rejects.toThrow(/canary\.blank-context did not match/);
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === CODEX_RESPONSES_URL)).toHaveLength(1);
+    })).rejects.toThrow(/ladder\.4\.1 did not match/);
+
+    expect(abortedPeers).toEqual(new Set([44, 45, 46]));
+    expect(settledPeers).toEqual(new Set([44, 45, 46]));
+    expect(startedSequences).toEqual(expect.arrayContaining([42, 43, 44, 45, 46]));
+    expect(startedSequences.some((sequence) => sequence >= 47)).toBe(false);
   });
 });

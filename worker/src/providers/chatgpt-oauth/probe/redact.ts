@@ -1,4 +1,4 @@
-const SENSITIVE_KEY = /(?:access|refresh|id)_?token|authorization|account(?:_|-)?id|device_auth_id|code_verifier/i;
+const SENSITIVE_KEY = /(?:access|refresh|id)_?token|authorization|account(?:_|-)?id|device_auth_id|code_verifier|previous_response_id|response_?id/i;
 
 export const REDACTED = "<redacted>";
 

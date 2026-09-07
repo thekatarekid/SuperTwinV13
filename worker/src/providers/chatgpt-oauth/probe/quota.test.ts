@@ -10,7 +10,7 @@ describe("Phase 0b quota evidence", () => {
         primary_window: { used_percent: 12.5, reset_at: 2_000_000_000 },
         secondary_window: { used_percent: 4, reset_at: "2026-09-09T00:00:00Z" },
       },
-      credits: { remaining: 8, secret: "drop" },
+      credits: { remaining: "8", secret: "drop" },
       account_id: "drop",
     })).toEqual({
       planType: "plus",
@@ -26,6 +26,12 @@ describe("Phase 0b quota evidence", () => {
     { plan_type: "plus", rate_limit: { primary_window: { used_percent: 100, reset_at: 1 } } },
     { plan_type: "plus", status: "account_flagged", rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } },
     { plan_type: "plus", warning: "CAPTCHA required", rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } },
+    { plan_type: "plus", account: { flagged: true }, rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } },
+    { plan_type: "plus", rate_limit: { primary_window: { used_percent: 1, reset_at: 1 }, limited: true } },
+    { plan_type: "plus", account: { is_flagged: true }, rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } },
+    { plan_type: "plus", rate_limit: { primary_window: { used_percent: 1, reset_at: 1 }, rate_limited: true } },
+    { plan_type: "plus", restriction: true, rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } },
+    { plan_type: "plus", captcha: true, rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } },
   ])("marks quota or account restrictions unhealthy", (payload) => {
     expect(parseProbeQuota(payload).healthy).toBe(false);
   });
@@ -33,6 +39,25 @@ describe("Phase 0b quota evidence", () => {
   it("rejects empty and malformed quota payloads", () => {
     expect(() => parseProbeQuota({})).toThrow(/plan_type/);
     expect(() => parseProbeQuota({ plan_type: "plus", rate_limit: {} })).toThrow(/primary window/);
+    expect(() => parseProbeQuota({
+      plan_type: "plus",
+      rate_limit: {
+        primary_window: { used_percent: 1, reset_at: 1 },
+        secondary_window: { used_percent: "bad", reset_at: 1 },
+      },
+    })).toThrow(/secondary window/);
+    expect(() => parseProbeQuota({
+      plan_type: "plus",
+      rate_limit: {
+        primary_window: { used_percent: 1, reset_at: 1 },
+        secondary_window: null,
+      },
+    })).toThrow(/secondary window/);
+    expect(() => parseProbeQuota({
+      plan_type: "plus",
+      credits: { remaining: "unknown" },
+      rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } },
+    })).toThrow(/credits balance/);
   });
 
   it("compares healthy start/end evidence and rejects a bad final state", () => {
@@ -54,5 +79,9 @@ describe("Phase 0b quota evidence", () => {
       healthy: false,
       restrictionSignal: true,
     })).toThrow(/quota-limited or restricted/);
+    expect(() => compareProbeQuota(start, {
+      ...end,
+      secondary: { usedPercent: 1, resetAt: 1 },
+    })).toThrow(/secondary window changed shape/);
   });
 });

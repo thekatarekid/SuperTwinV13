@@ -110,5 +110,16 @@ describe("capability-gated contract matrix", () => {
     expect(matrix.find((probe) => probe.name === "focused.image-input")?.disposition).toBe("post");
     expect(matrix.find((probe) => probe.name === "focused.cache-explicit")?.disposition).toBe("post");
     expect(matrix.filter((probe) => probe.expectation !== "rejected").every((probe) => probe.body.max_output_tokens === 8)).toBe(true);
+    const ladderBodies = matrix.filter((probe) => probe.category === "ladder").map((probe) => probe.body);
+    expect(new Set(ladderBodies.map((body) => JSON.stringify(body)))).toHaveLength(1);
+    expect(ladderBodies[0]).toMatchObject({
+      prompt_cache_key: "supertwin-phase0b-ladder-v1",
+      prompt_cache_options: { mode: "implicit", ttl: "30m" },
+    });
+    const body = (name: string) => matrix.find((probe) => probe.name === name)!.body;
+    expect(body("focused.cache-none")).toEqual(body("allowlist.minimum-envelope.accepted"));
+    expect(body("focused.cache-implicit")).toEqual(body("allowlist.prompt_cache_key.accepted"));
+    expect(body("focused.cache-explicit")).toEqual(body("allowlist.prompt_cache_options.accepted"));
+    expect(JSON.stringify(body("focused.cache-none")).length).toBeGreaterThan(12_000);
   });
 });

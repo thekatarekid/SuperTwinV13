@@ -12,6 +12,7 @@ import {
   assertExpectedProbeAccount,
   type DedicatedProbeAccount,
 } from "./account.js";
+import { LIVE_CONTRACT_HTTP_REQUEST_BUDGET } from "./accounting.js";
 
 export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
 
@@ -88,6 +89,7 @@ export function formatLiveDeclaration(mode: "auth" | "contract" = "auth"): strin
     `MAX_LIVE_AUTH_HTTP_REQUESTS=${LIVE_PROBE_DECLARATION.liveAuthHttpRequestBudget}`,
     `PLANNED_FULL_PHASE_0B_CASES=${LIVE_PROBE_DECLARATION.plannedFullProbeCaseBudget}`,
     `PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget}`,
+    `MAX_LIVE_CONTRACT_HTTP_REQUESTS=${LIVE_CONTRACT_HTTP_REQUEST_BUDGET}`,
     "PREFLIGHT_REJECTIONS=15",
     "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange",
     "INFERENCE_RETRIES=0",

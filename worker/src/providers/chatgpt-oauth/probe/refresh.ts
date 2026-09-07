@@ -44,9 +44,25 @@ function requiredString(value: unknown, label: string): string {
 }
 
 async function boundedJson(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_TOKEN_RESPONSE_BYTES) {
-    throw new ProbeAuthError("TOKEN_ERROR", "OAuth refresh response exceeded its byte limit");
+  if (!response.body) throw new ProbeAuthError("TOKEN_ERROR", "OAuth refresh response has no body");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let text = "";
+  let bytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_TOKEN_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new ProbeAuthError("TOKEN_ERROR", "OAuth refresh response exceeded its byte limit");
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    reader.releaseLock();
   }
   try {
     const value = JSON.parse(text) as unknown;

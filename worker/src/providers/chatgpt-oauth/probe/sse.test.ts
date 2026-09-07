@@ -30,6 +30,49 @@ describe("bounded Codex SSE evidence", () => {
     expect(evidence).toMatchObject({ terminal: false, completed: false, incomplete: false, failed: false, error: false });
   });
 
+  it("records cancellation when abort makes reader cancellation reject", async () => {
+    const request = new AbortController();
+    let readerCancellationAttempted = false;
+    const encoded = new TextEncoder().encode(
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "first" })}\n\n`,
+    );
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoded);
+      },
+      cancel() {
+        readerCancellationAttempted = true;
+        throw new DOMException("request aborted", "AbortError");
+      },
+    }));
+    const evidence = await consumeBoundedSse(response, {
+      stopAfterFirstSubstantiveDelta: true,
+      onFirstSubstantiveDelta: () => request.abort(),
+      isRequestAborted: () => request.signal.aborted,
+    });
+    expect(request.signal.aborted).toBe(true);
+    expect(readerCancellationAttempted).toBe(true);
+    expect(evidence).toMatchObject({ stoppedEarly: true, substantiveOutput: true });
+  });
+
+  it("does not hide a non-abort reader cancellation failure", async () => {
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "first" })}\n\n`,
+        ));
+      },
+      cancel() {
+        throw new Error("unrelated reader failure");
+      },
+    }));
+    await expect(consumeBoundedSse(response, {
+      stopAfterFirstSubstantiveDelta: true,
+      onFirstSubstantiveDelta: () => undefined,
+      isRequestAborted: () => false,
+    })).rejects.toThrow(/reader cancellation failed/);
+  });
+
   it("treats a function argument delta as substantive and preserves duplicate event types in order", async () => {
     const evidence = await consumeBoundedSse(
       responseFor([
@@ -98,6 +141,82 @@ describe("bounded Codex SSE evidence", () => {
       incomplete: true,
       failed: true,
       error: true,
+      restrictionSignal: false,
     });
+  });
+
+  it("flags account and rate-limit stop signals without retaining their text", async () => {
+    const evidence = await consumeBoundedSse(responseFor([{
+      type: "error",
+      error: { code: "rate_limit_exceeded", message: "sensitive account detail" },
+    }]));
+    expect(evidence.restrictionSignal).toBe(true);
+    expect(JSON.stringify(evidence)).not.toContain("sensitive account detail");
+  });
+
+  it("returns text and exact-schema validation facts without retaining output content", async () => {
+    const rawText = '{"ok":true}';
+    const evidence = await consumeBoundedSse(responseFor([
+      { type: "response.output_text.delta", delta: rawText.slice(0, 6) },
+      { type: "response.output_text.delta", delta: rawText.slice(6) },
+      { type: "response.completed", response: { usage: {} } },
+    ]));
+    expect(evidence).toMatchObject({
+      outputTextBytes: Buffer.byteLength(rawText, "utf8"),
+      substantiveOutput: true,
+      outputJsonValid: true,
+      outputJsonObject: true,
+      outputMatchesExactOkBooleanSchema: true,
+      usagePresent: true,
+    });
+    expect(JSON.stringify(evidence)).not.toContain(rawText);
+    expect(JSON.stringify(evidence)).not.toContain('"ok":true');
+  });
+
+  it("distinguishes valid JSON and object shape from the exact ok:boolean schema", async () => {
+    const arrayEvidence = await consumeBoundedSse(responseFor([
+      { type: "response.output_text.done", text: "[true]" },
+    ]));
+    expect(arrayEvidence).toMatchObject({
+      outputJsonValid: true,
+      outputJsonObject: false,
+      outputMatchesExactOkBooleanSchema: false,
+    });
+    const extraEvidence = await consumeBoundedSse(responseFor([
+      { type: "response.output_item.done", item: { type: "message", content: [{ type: "output_text", text: '{"ok":false,"extra":1}' }] } },
+    ]));
+    expect(extraEvidence).toMatchObject({
+      outputJsonValid: true,
+      outputJsonObject: true,
+      outputMatchesExactOkBooleanSchema: false,
+    });
+  });
+
+  it("projects safe function-call validation from item, delta, and done shapes without IDs or arguments", async () => {
+    const secretId = "call_secret_identifier";
+    const secretArguments = '{"value":"sensitive argument"}';
+    const evidence = await consumeBoundedSse(responseFor([
+      { type: "response.output_item.added", item: { type: "function_call", id: secretId, name: "probe_echo", arguments: "" } },
+      { type: "response.function_call_arguments.delta", item_id: secretId, delta: secretArguments.slice(0, 10) },
+      { type: "response.function_call_arguments.done", item_id: secretId, arguments: secretArguments },
+      { type: "response.output_item.done", item: { type: "function_call", id: "bad_id", name: "unsafe name!", arguments: "not-json" } },
+    ]));
+    expect(evidence.functionCalls).toEqual([
+      { name: "probe_echo", argumentBytes: Buffer.byteLength(secretArguments, "utf8"), argumentsJsonValid: true, argumentsMatchProbeEchoSchema: true },
+      { argumentBytes: Buffer.byteLength("not-json", "utf8"), argumentsJsonValid: false, argumentsMatchProbeEchoSchema: false },
+    ]);
+    expect(evidence.invalidFunctionNameCount).toBe(1);
+    expect(evidence.substantiveOutput).toBe(true);
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain(secretId);
+    expect(serialized).not.toContain("sensitive argument");
+    expect(serialized).not.toContain("unsafe name!");
+    expect(serialized).not.toContain("bad_id");
+  });
+
+  it("reports usage absence explicitly", async () => {
+    const evidence = await consumeBoundedSse(responseFor([{ type: "response.completed" }]));
+    expect(evidence.usagePresent).toBe(false);
+    expect(evidence.usage).toBeUndefined();
   });
 });

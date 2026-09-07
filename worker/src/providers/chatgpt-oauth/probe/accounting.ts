@@ -31,6 +31,20 @@ export const LIVE_AUTH_HTTP_LIMITS: ProbeHttpLimits = {
   other: 0,
 };
 
+export const LIVE_CONTRACT_HTTP_LIMITS: ProbeHttpLimits = {
+  deviceCode: 1,
+  devicePoll: 300,
+  token: 2,
+  models: 1,
+  quota: 2,
+  inference: 55,
+  other: 0,
+};
+
+export const LIVE_CONTRACT_HTTP_REQUEST_BUDGET = Object.values(
+  LIVE_CONTRACT_HTTP_LIMITS,
+).reduce((sum, count) => sum + count, 0);
+
 export class ProbeHttpAccounting {
   readonly #counts: ProbeHttpCounts = {
     deviceCode: 0,

@@ -71,6 +71,10 @@ const tool = {
   strict: true,
 };
 
+// Deliberately exceeds the usual 1,024-token cache threshold while containing
+// no user or account data. Every warm/measured cache request reuses it byte-for-byte.
+const CACHE_PROBE_PROMPT = `${"SuperTwin deterministic cache measurement prefix. ".repeat(256)}Reply with OK.`;
+
 function baseline(model: string, prompt = "Reply with the single token OK."): Record<string, unknown> {
   return {
     model,
@@ -207,7 +211,11 @@ function focusedFixtures(model: string): ContractProbeCase[] {
     expectation: "completed",
     concurrency: 1,
     stage: "focused-serial",
-    body: withFields(model, fields, `Focused ${name} probe. Keep the response minimal.`),
+    body: withFields(
+      model,
+      fields,
+      name.startsWith("cache-") ? CACHE_PROBE_PROMPT : `Focused ${name} probe. Keep the response minimal.`,
+    ),
   }));
 }
 
@@ -220,7 +228,7 @@ function ladderFixtures(model: string): ContractProbeCase[] {
       expectation: "completed" as const,
       concurrency,
       stage: `ladder-${concurrency}`,
-      body: baseline(model, `Concurrency ${concurrency} probe ${index + 1}. Reply OK.`),
+      body: baseline(model),
     })),
   );
 }
@@ -236,10 +244,7 @@ function capabilityRequirement(probe: ContractProbeCase, model: ProbeModel): str
   if (probe.name === "allowlist.reasoning.accepted" && !capabilities.reasoningEfforts?.length) {
     return "model catalogue does not declare reasoning efforts";
   }
-  if (probe.name === "allowlist.prompt_cache_key.accepted" && capabilities.promptCacheKey !== true) {
-    return "model catalogue does not declare prompt-cache-key support";
-  }
-  if (["allowlist.prompt_cache_options.accepted", "focused.cache-implicit", "focused.cache-explicit"].includes(probe.name) &&
+  if (["allowlist.prompt_cache_key.accepted", "allowlist.prompt_cache_options.accepted", "focused.cache-implicit", "focused.cache-explicit"].includes(probe.name) &&
       (capabilities.promptCacheKey !== true || capabilities.promptCacheOptions !== true)) {
     return "model catalogue does not declare prompt-cache option support";
   }
@@ -264,6 +269,18 @@ function applyModelCapabilities(probe: ContractProbeCase, model: ProbeModel): Co
     };
   }
   let body = probe.body;
+  if (probe.name === "allowlist.prompt_cache_key.accepted") {
+    body = withFields(model.id, {
+      prompt_cache_key: "supertwin-probe-implicit",
+      prompt_cache_options: { mode: "implicit", ttl: "30m" },
+    }, CACHE_PROBE_PROMPT);
+  }
+  if (probe.name === "allowlist.prompt_cache_options.accepted") {
+    body = withFields(model.id, {
+      prompt_cache_key: "supertwin-probe-explicit",
+      prompt_cache_options: { mode: "explicit", ttl: "30m" },
+    }, CACHE_PROBE_PROMPT);
+  }
   if (probe.name === "allowlist.reasoning.accepted") {
     body = { ...body, reasoning: { effort: model.capabilities.reasoningEfforts![0] } };
   }
@@ -272,6 +289,15 @@ function applyModelCapabilities(probe: ContractProbeCase, model: ProbeModel): Co
   }
   if (model.capabilities.maxOutputTokens !== undefined) {
     body = { ...body, max_output_tokens: Math.min(16, model.capabilities.maxOutputTokens) };
+  }
+  if (probe.category === "ladder" && model.capabilities.promptCacheKey === true) {
+    body = {
+      ...body,
+      prompt_cache_key: "supertwin-phase0b-ladder-v1",
+      ...(model.capabilities.promptCacheOptions === true
+        ? { prompt_cache_options: { mode: "implicit", ttl: "30m" } }
+        : {}),
+    };
   }
   return { ...probe, disposition: "post", body };
 }
@@ -294,7 +320,7 @@ export function buildContractProbeMatrix(
       expectation: "completed",
       concurrency: 1,
       stage: "canary",
-      body: baseline(model),
+      body: baseline(model, CACHE_PROBE_PROMPT),
     },
     {
       sequence: 0,
@@ -313,7 +339,7 @@ export function buildContractProbeMatrix(
       expectation: "accepted",
       concurrency: 1,
       stage: "allowlist-serial",
-      body: baseline(model),
+      body: baseline(model, CACHE_PROBE_PROMPT),
     },
     {
       sequence: 0,

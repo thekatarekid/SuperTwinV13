@@ -22,6 +22,8 @@ import { runProbeCli } from "./cli.js";
 import {
   formatHttpAccounting,
   LIVE_AUTH_HTTP_LIMITS,
+  LIVE_CONTRACT_HTTP_LIMITS,
+  LIVE_CONTRACT_HTTP_REQUEST_BUDGET,
   ProbeHttpAccounting,
 } from "./accounting.js";
 import {
@@ -172,10 +174,12 @@ describe("Phase 0b offline safety", () => {
     expect(LIVE_AUTH_HTTP_REQUEST_BUDGET).toBe(302);
     expect(FULL_PROBE_CASE_BUDGET).toBe(70);
     expect(FULL_PROBE_INFERENCE_POST_BUDGET).toBe(55);
+    expect(LIVE_CONTRACT_HTTP_REQUEST_BUDGET).toBe(361);
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=302");
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=55");
+    expect(formatLiveDeclaration()).toContain("MAX_LIVE_CONTRACT_HTTP_REQUESTS=361");
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
   });
 
@@ -246,6 +250,18 @@ describe("Phase 0b offline safety", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
+  });
+
+  it("hard-limits the complete contract endpoint budget", () => {
+    expect(LIVE_CONTRACT_HTTP_LIMITS).toEqual({
+      deviceCode: 1,
+      devicePoll: 300,
+      token: 2,
+      models: 1,
+      quota: 2,
+      inference: 55,
+      other: 0,
+    });
   });
 });
 

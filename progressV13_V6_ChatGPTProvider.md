@@ -27,7 +27,10 @@
 - 2026-09-08: Added a separate contract opt-in plus a timing-safe dedicated-account fingerprint gate before model/quota/inference traffic; live-auth exposes only the safe fingerprint. Focused account/contract tests 22/22 and typecheck pass.
 - 2026-09-08: Added offline ephemeral refresh/rotation/logout proof: 120-second skew, shared in-flight refresh, rotate-before-exposure, previous-pair recovery, one 401 retry, typed stop errors, and signed-out zero-fetch behavior. Combined probe tests 35/35 and typecheck pass.
 - 2026-09-08: Added visible account-model parsing, explicit model selection, capability-gated unsupported skips, start/end quota health evidence, and live-runner refresh/logout sequencing. Combined probe tests 46/46 and typecheck pass.
-- 2026-09-08: Live-contract remains fail-closed pending cache/concurrency measurements, complete focused-case acceptance predicates, full HTTP ceiling wiring, and the owner-completed live authentication.
+- 2026-09-08: Added exact warm/repeat cache probes, absent-vs-zero token handling, strict text/JSON/tool/usage acceptance, ordered restriction-aware SSE, abort-first cancellation, hard full-flow HTTP accounting, failure cleanup evidence, and the 1/4/8/16 timing/resource metrics collector.
+- 2026-09-08: Continuation IDs are now redacted from returned evidence; refresh JSON is bounded while streaming; contract failures abort peers and clear ephemeral credentials.
+- 2026-09-08: Live-contract remains fail-closed pending the owner-completed live authentication and final safety review; no live contract or inference calls have been made.
+- 2026-09-08: Phase 0b offline acceptance passed: 66/66 focused probe tests, worker typecheck, full worker 4,106 passed/7 intentional skips, diff check, zero live calls; independent final review found no commit blocker.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.
 - Next: run the serial device login on an isolated home/account, then implement and execute the explicitly budgeted contract matrix before Phase 1.

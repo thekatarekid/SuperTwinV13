@@ -34,6 +34,7 @@ function contractEnv(accountId: string): NodeJS.ProcessEnv {
     SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
     [LIVE_CONTRACT_PROBE_ENV]: "1",
     SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
+    SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-probe",
     SUPERTWIN_APP_VERSION: "13.12.2",
     SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-contract-test"),
   };
@@ -166,8 +167,22 @@ describe("mocked contract runner scaffold", () => {
       if (url === CODEX_OAUTH_TOKEN_URL) {
         return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
       }
-      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{ slug: "gpt-probe" }] });
-      if (url === CODEX_USAGE_URL) return jsonResponse(200, { plan_type: "plus", rate_limit: {} });
+      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{
+        slug: "gpt-probe",
+        input_modalities: ["text", "image"],
+        supported_reasoning_efforts: ["low"],
+        max_output_tokens: 4096,
+        supports_tools: true,
+        supports_parallel_tool_calls: true,
+        supports_verbosity: true,
+        supports_prompt_cache_key: true,
+        supports_prompt_cache_options: true,
+        supports_structured_output: true,
+      }] });
+      if (url === CODEX_USAGE_URL) return jsonResponse(200, {
+        plan_type: "plus",
+        rate_limit: { primary_window: { used_percent: 10, reset_at: 2_000_000_000 } },
+      });
       if (url === CODEX_RESPONSES_URL) {
         inferencePosts += 1;
         const headers = init?.headers as Record<string, string>;
@@ -192,13 +207,16 @@ describe("mocked contract runner scaffold", () => {
     });
 
     expect(inferencePosts).toBe(FULL_PROBE_INFERENCE_POST_BUDGET);
-    expect(fetchMock).toHaveBeenCalledTimes(60);
+    expect(fetchMock).toHaveBeenCalledTimes(62);
     expect(evidence).toMatchObject({
       persistedCredentials: false,
       inferenceRetries: 0,
       plannedInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
       actualInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
-      modelCatalogue: { ids: ["gpt-probe"] },
+      modelCatalogue: { ids: ["gpt-probe"], selectedId: "gpt-probe" },
+      quotaComparison: { healthyAtStart: true, healthyAtEnd: true },
+      refresh: { authenticated: true, previousRecoveryPairAvailable: true },
+      logout: { authenticated: false, previousRecoveryPairAvailable: false },
     });
     expect(evidence.cases[1]?.stream?.stoppedEarly).toBe(true);
     expect(continuationBody?.previous_response_id).toBe("resp_probe");
@@ -237,8 +255,21 @@ describe("mocked contract runner scaffold", () => {
       if (url === CODEX_OAUTH_TOKEN_URL) {
         return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
       }
-      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{ slug: "gpt-probe" }] });
-      if (url === CODEX_USAGE_URL) return jsonResponse(200, { plan_type: "plus" });
+      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{
+        slug: "gpt-probe",
+        input_modalities: ["text", "image"],
+        supported_reasoning_efforts: ["low"],
+        supports_tools: true,
+        supports_parallel_tool_calls: true,
+        supports_verbosity: true,
+        supports_prompt_cache_key: true,
+        supports_prompt_cache_options: true,
+        supports_structured_output: true,
+      }] });
+      if (url === CODEX_USAGE_URL) return jsonResponse(200, {
+        plan_type: "plus",
+        rate_limit: { primary_window: { used_percent: 10, reset_at: 2_000_000_000 } },
+      });
       if (url === CODEX_RESPONSES_URL) return sseResponse("response.created");
       throw new Error(`Unexpected mocked URL: ${url}`);
     });

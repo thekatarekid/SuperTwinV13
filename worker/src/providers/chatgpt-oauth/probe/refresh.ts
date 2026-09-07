@@ -121,9 +121,11 @@ export class EphemeralProbeTokenSession {
       }),
     });
     if (response.status === 429) {
+      await response.body?.cancel();
       throw new ProbeAuthError("RATE_LIMITED", "OpenAI rate-limited OAuth refresh; stop the probe");
     }
     if (response.status === 401 || response.status === 403) {
+      await response.body?.cancel();
       throw new ProbeAuthError("AUTH_EXPIRED", "OAuth refresh was rejected; sign in again");
     }
     const payload = await boundedJson(response);

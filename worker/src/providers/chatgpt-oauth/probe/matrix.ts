@@ -2,6 +2,11 @@ import {
   FULL_PROBE_CASE_BUDGET,
   FULL_PROBE_CASE_BREAKDOWN,
 } from "./constants.js";
+import {
+  selectRequestedProbeModel,
+  type ProbeModel,
+  type ProbeModelCatalogue,
+} from "./models.js";
 
 export type ProbeExpectation = "accepted" | "rejected" | "completed" | "cancelled";
 export type ProbeCategory = "allowlist" | "focused" | "canary" | "cancellation" | "ladder";
@@ -15,6 +20,8 @@ export interface ContractProbeCase {
   concurrency: ProbeConcurrency;
   stage: string;
   body: Record<string, unknown>;
+  disposition?: "post" | "preflight-reject" | "unsupported-skip";
+  unsupportedReason?: string;
 }
 
 export const PROBED_ALLOWLIST_FIELDS = [
@@ -218,8 +225,67 @@ function ladderFixtures(model: string): ContractProbeCase[] {
   );
 }
 
-export function buildContractProbeMatrix(model: string): ContractProbeCase[] {
-  if (!model.trim()) throw new Error("A discovered model is required to build the Phase 0b matrix");
+function capabilityRequirement(probe: ContractProbeCase, model: ProbeModel): string | undefined {
+  const capabilities = model.capabilities;
+  if (["allowlist.tools.accepted", "allowlist.tool_choice.accepted", "focused.tool-call"].includes(probe.name) && capabilities.tools !== true) {
+    return "model catalogue does not declare tool support";
+  }
+  if (probe.name === "allowlist.parallel_tool_calls.accepted" && capabilities.parallelToolCalls !== true) {
+    return "model catalogue does not declare parallel tool-call support";
+  }
+  if (probe.name === "allowlist.reasoning.accepted" && !capabilities.reasoningEfforts?.length) {
+    return "model catalogue does not declare reasoning efforts";
+  }
+  if (probe.name === "allowlist.prompt_cache_key.accepted" && capabilities.promptCacheKey !== true) {
+    return "model catalogue does not declare prompt-cache-key support";
+  }
+  if (["allowlist.prompt_cache_options.accepted", "focused.cache-implicit", "focused.cache-explicit"].includes(probe.name) &&
+      (capabilities.promptCacheKey !== true || capabilities.promptCacheOptions !== true)) {
+    return "model catalogue does not declare prompt-cache option support";
+  }
+  if (probe.name === "focused.image-input" && !capabilities.inputModalities?.includes("image")) {
+    return "model catalogue does not declare image input support";
+  }
+  if (probe.name === "focused.strict-json" && capabilities.structuredOutput !== true) {
+    return "model catalogue does not declare structured-output support";
+  }
+  return undefined;
+}
+
+function applyModelCapabilities(probe: ContractProbeCase, model: ProbeModel): ContractProbeCase {
+  if (probe.expectation === "rejected") return { ...probe, disposition: "preflight-reject" };
+  const unsupportedReason = capabilityRequirement(probe, model);
+  if (unsupportedReason) {
+    return {
+      ...probe,
+      disposition: "unsupported-skip",
+      unsupportedReason,
+      body: baseline(model.id, `Skipped unsupported fixture ${probe.name}.`),
+    };
+  }
+  let body = probe.body;
+  if (probe.name === "allowlist.reasoning.accepted") {
+    body = { ...body, reasoning: { effort: model.capabilities.reasoningEfforts![0] } };
+  }
+  if (probe.name === "allowlist.text.accepted" && model.capabilities.verbosity === true) {
+    body = { ...body, text: { format: { type: "text" }, verbosity: "low" } };
+  }
+  if (model.capabilities.maxOutputTokens !== undefined) {
+    body = { ...body, max_output_tokens: Math.min(16, model.capabilities.maxOutputTokens) };
+  }
+  return { ...probe, disposition: "post", body };
+}
+
+export function buildContractProbeMatrix(
+  source: string | ProbeModelCatalogue,
+  requestedModel?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): ContractProbeCase[] {
+  const selected = typeof source === "string"
+    ? { id: source.trim(), capabilities: {} }
+    : selectRequestedProbeModel(source, requestedModel, env);
+  const model = selected.id;
+  if (!model) throw new Error("A discovered model is required to build the Phase 0b matrix");
   const unordered: ContractProbeCase[] = [
     {
       sequence: 0,
@@ -261,7 +327,8 @@ export function buildContractProbeMatrix(model: string): ContractProbeCase[] {
     ...focusedFixtures(model),
     ...ladderFixtures(model),
   ];
-  const cases = unordered.map((probe, index) => ({ ...probe, sequence: index + 1 }));
+  const cases = unordered.map((probe, index) =>
+    applyModelCapabilities({ ...probe, sequence: index + 1 }, selected));
   assertContractProbeMatrix(cases);
   return cases;
 }

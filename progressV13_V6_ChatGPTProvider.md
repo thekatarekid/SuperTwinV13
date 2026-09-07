@@ -26,7 +26,8 @@
 - 2026-09-08: Added exact per-endpoint attempt accounting, hard auth ceilings, redirect refusal, SIGINT abort accounting, 70-case/55-POST matrix scaffolding, bounded ordered SSE evidence, substantive cancellation, nested usage projection, and local rejection for 15 invalid shapes. Focused 24/24 and typecheck pass.
 - 2026-09-08: Added a separate contract opt-in plus a timing-safe dedicated-account fingerprint gate before model/quota/inference traffic; live-auth exposes only the safe fingerprint. Focused account/contract tests 22/22 and typecheck pass.
 - 2026-09-08: Added offline ephemeral refresh/rotation/logout proof: 120-second skew, shared in-flight refresh, rotate-before-exposure, previous-pair recovery, one 401 retry, typed stop errors, and signed-out zero-fetch behavior. Combined probe tests 35/35 and typecheck pass.
-- 2026-09-08: Live-contract remains fail-closed pending refresh/logout/final quota health, capability-aware cases, cache/concurrency measurements, and complete per-case acceptance predicates.
+- 2026-09-08: Added visible account-model parsing, explicit model selection, capability-gated unsupported skips, start/end quota health evidence, and live-runner refresh/logout sequencing. Combined probe tests 46/46 and typecheck pass.
+- 2026-09-08: Live-contract remains fail-closed pending cache/concurrency measurements, complete focused-case acceptance predicates, full HTTP ceiling wiring, and the owner-completed live authentication.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.
 - Next: run the serial device login on an isolated home/account, then implement and execute the explicitly budgeted contract matrix before Phase 1.

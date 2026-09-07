@@ -9,7 +9,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 ### Implementation Status (2026-09-08)
 
 - **Overall:** In progress; Phase 0a is accepted and durably seeded, and the serial Phase 0b contract probe is next.
-- **Baseline:** `main` through `d2d2206`; application version `13.12.2` (no new app build yet).
+- **Baseline:** implementation commits are recorded in the progress log; application version `13.12.2` (no new app build yet).
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
 
@@ -42,9 +42,10 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Release identity hardening: version bumps now prevalidate and update the application stanza in `Cargo.lock`; release CI checks both lockfiles; duplicate detection covers canonical Tauri and historical phase-prefixed DMG names.
 - [x] Phase 0a durable decision seed: exact OAuth identity/endpoints/headers/mechanics, terms risk posture, and approved consumer-data consent are stored as three additive governance rows. Fresh/upgrade/idempotence/amendment-preservation tests pass.
 - [x] Latest complete offline worker gate: 335 files passed, 4,064 tests passed, 7 intentionally skipped, zero live-model calls; the 60-second scratch-home boot test closed its port and removed its home.
-- [x] Phase 0b probe scaffold: pinned Hermes device endpoints/client ID, honest SuperTwin identity, bounded polling/timeouts, redacted dry-run fixtures, temp-home opt-in, exact endpoint accounting and hard HTTP ceilings. The 70-case/55-POST matrix, bounded SSE parser, dedicated-account rail, and ephemeral refresh proof have offline coverage; focused 35/35 and typecheck pass. Live-contract remains fail-closed.
+- [x] Phase 0b probe scaffold: pinned Hermes device endpoints/client ID, honest SuperTwin identity, bounded polling/timeouts, redacted dry-run fixtures, temp-home opt-in, exact endpoint accounting and hard HTTP ceilings. The 70-case/55-POST matrix, bounded SSE parser, dedicated-account rail, model/capability selection, quota health, and ephemeral refresh proof have offline coverage; focused 46/46 and typecheck pass. Live-contract remains fail-closed.
 - [x] Phase 0b dedicated-account rail: a separate contract opt-in and predeclared 12-hex account fingerprint are both required; the decoded OAuth account is compared timing-safely before model, quota, or inference traffic. Live-auth reports only the safe fingerprint for a later run.
 - [x] Phase 0b ephemeral session proof: one shared refresh, 120-second skew, rotation-before-exposure, one previous recovery pair, one 401 refresh/retry, no-refresh-token fallback, typed stop errors, and logout-to-`AUTH_REQUIRED` are covered without persistence or live calls.
+- [x] Phase 0b catalogue/quota rails: only an explicitly selected visible account model is used; absent capabilities stay absent and unsupported probes do not fetch. Start/end quota evidence requires a plan and reset windows and fails on exhaustion, account warnings, CAPTCHA, or restriction signals.
 - [ ] Phase 0b live evidence: first device-code attempt reached the owner account-selection screen and was cancelled when unattended; 0 inference calls were made. Exact per-endpoint HTTP accounting is now implemented for the retry.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 

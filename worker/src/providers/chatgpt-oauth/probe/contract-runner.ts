@@ -13,10 +13,18 @@ import {
   type ContractProbeCase,
   validateProbeRequestBody,
 } from "./matrix.js";
+import { parseProbeModelCatalogue, selectRequestedProbeModel } from "./models.js";
 import { redactProbeValue } from "./redact.js";
 import { buildBackendHeaders } from "./requests.js";
 import { assertLiveContractProbeAccount } from "./safety.js";
 import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
+import { EphemeralProbeTokenSession, ProbeAuthError, type SafeSessionEvidence } from "./refresh.js";
+import {
+  compareProbeQuota,
+  parseProbeQuota,
+  type ProbeQuotaComparison,
+  type ProbeQuotaEvidence,
+} from "./quota.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 128 * 1024;
@@ -34,7 +42,7 @@ export interface ContractCaseEvidence {
   category: ContractProbeCase["category"];
   expectation: ContractProbeCase["expectation"];
   concurrency: ContractProbeCase["concurrency"];
-  status: number | "preflight-rejected";
+  status: number | "preflight-rejected" | "unsupported-skip";
   matchedExpectation: boolean;
   request: unknown;
   stream?: SseProbeEvidence;
@@ -49,8 +57,12 @@ export interface FullContractEvidence {
   plannedInferencePosts: number;
   actualInferencePosts: number;
   accountFingerprint: string;
-  modelCatalogue: { status: number; ids: string[]; responseBytes: number };
-  quota: { status: number; topLevelKeys: string[]; responseBytes: number };
+  modelCatalogue: { status: number; ids: string[]; selectedId: string; responseBytes: number };
+  quota: ProbeQuotaEvidence & { status: number; responseBytes: number };
+  finalQuota: ProbeQuotaEvidence & { status: number; responseBytes: number };
+  quotaComparison: ProbeQuotaComparison;
+  refresh: SafeSessionEvidence;
+  logout: SafeSessionEvidence;
   cases: ContractCaseEvidence[];
 }
 
@@ -111,33 +123,6 @@ async function fetchJson(
   }
 }
 
-function modelIds(value: unknown): string[] {
-  const record = value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-  const candidates = Array.isArray(value)
-    ? value
-    : Array.isArray(record?.models)
-      ? record.models
-      : Array.isArray(record?.data)
-        ? record.data
-        : [];
-  const ids = candidates.flatMap((candidate) => {
-    if (typeof candidate === "string") return [candidate];
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
-    const item = candidate as Record<string, unknown>;
-    const id = item.slug ?? item.id ?? item.model;
-    return typeof id === "string" && id.trim() ? [id] : [];
-  });
-  return [...new Set(ids)];
-}
-
-function topLevelKeys(value: unknown): string[] {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? Object.keys(value as Record<string, unknown>).sort()
-    : [];
-}
-
 function matchesExpectation(
   probe: ContractProbeCase,
   response: Response,
@@ -164,6 +149,23 @@ function preflightRejectionEvidence(probe: ContractProbeCase): ContractCaseEvide
     matchedExpectation: true,
     request: redactProbeValue({ body: probe.body }),
     preflightErrors,
+  };
+}
+
+function unsupportedEvidence(probe: ContractProbeCase): ContractCaseEvidence {
+  if (probe.disposition !== "unsupported-skip" || !probe.unsupportedReason) {
+    throw new Error(`Probe ${probe.name} is missing its unsupported capability reason`);
+  }
+  return {
+    sequence: probe.sequence,
+    name: probe.name,
+    category: probe.category,
+    expectation: probe.expectation,
+    concurrency: probe.concurrency,
+    status: "unsupported-skip",
+    matchedExpectation: true,
+    request: { omitted: true },
+    preflightErrors: [probe.unsupportedReason],
   };
 }
 
@@ -258,9 +260,11 @@ async function executeMatrix(
   let previousResponseId: string | undefined;
   const serial = cases.filter((probe) => probe.category !== "ladder");
   for (const probe of serial) {
-    const result = probe.expectation === "rejected"
-      ? preflightRejectionEvidence(probe)
-      : await executeCase(probe, headers, hooks, controllers, previousResponseId);
+    const result = probe.disposition === "unsupported-skip"
+      ? unsupportedEvidence(probe)
+      : probe.expectation === "rejected"
+        ? preflightRejectionEvidence(probe)
+        : await executeCase(probe, headers, hooks, controllers, previousResponseId);
     evidence.push(result);
     if (result.stream?.eventTypes.includes("response.completed") && result.stream.responseId) {
       previousResponseId = result.stream.responseId;
@@ -288,19 +292,46 @@ export async function runContractProbeScaffold(
 ): Promise<FullContractEvidence> {
   const tokens = await runDeviceCodeFlow(hooks);
   const account = assertLiveContractProbeAccount(tokens.accessToken, hooks.env ?? process.env);
+  const session = new EphemeralProbeTokenSession(tokens);
   const accountId = account.accountId;
-  const headers = buildBackendHeaders(tokens.accessToken, accountId, hooks.env ?? process.env);
+  let headers = buildBackendHeaders(session.current().accessToken, accountId, hooks.env ?? process.env);
 
   const modelsResponse = await fetchJson(CODEX_MODELS_URL, headers, hooks);
-  const ids = modelIds(modelsResponse.value);
-  if (!ids.length) throw new Error("Authenticated model catalogue contains no usable model IDs");
+  const catalogue = parseProbeModelCatalogue(modelsResponse.value);
+  if (!catalogue.models.length) throw new Error("Authenticated model catalogue contains no usable model IDs");
+  const selectedModel = selectRequestedProbeModel(catalogue, undefined, hooks.env ?? process.env);
   const quotaResponse = await fetchJson(CODEX_USAGE_URL, headers, hooks);
-  const matrix = buildContractProbeMatrix(ids[0]!);
+  const quotaEvidence = parseProbeQuota(quotaResponse.value);
+  if (!quotaEvidence.healthy) throw new Error("Phase 0b account is quota-limited or restricted at start");
+  const refreshed = await session.refresh(hooks);
+  const refreshedAccount = assertLiveContractProbeAccount(
+    refreshed.accessToken,
+    hooks.env ?? process.env,
+  );
+  if (refreshedAccount.fingerprint !== account.fingerprint) {
+    throw new Error("REFUSED: OAuth refresh changed the dedicated Phase 0b account");
+  }
+  headers = buildBackendHeaders(refreshed.accessToken, accountId, hooks.env ?? process.env);
+  const refreshEvidence = session.evidence();
+  const matrix = buildContractProbeMatrix(catalogue, selectedModel.id, hooks.env ?? process.env);
   const cases = await executeMatrix(matrix, headers, hooks);
-  const actualInferencePosts = cases.filter((probe) => probe.status !== "preflight-rejected").length;
+  const actualInferencePosts = cases.filter(
+    (probe) => probe.status !== "preflight-rejected" && probe.status !== "unsupported-skip",
+  ).length;
   if (cases.length !== FULL_PROBE_CASE_BUDGET ||
-      actualInferencePosts !== FULL_PROBE_INFERENCE_POST_BUDGET) {
-    throw new Error("Phase 0b runner did not execute its declared cases and POSTs exactly once");
+      actualInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET) {
+    throw new Error("Phase 0b runner exceeded its declared case or POST ceiling");
+  }
+  const finalQuotaResponse = await fetchJson(CODEX_USAGE_URL, headers, hooks);
+  const finalQuotaEvidence = parseProbeQuota(finalQuotaResponse.value);
+  const quotaComparison = compareProbeQuota(quotaEvidence, finalQuotaEvidence);
+  session.logout();
+  const logoutEvidence = session.evidence();
+  try {
+    session.current();
+    throw new Error("Phase 0b logout failed to clear the in-memory session");
+  } catch (error) {
+    if (!(error instanceof ProbeAuthError) || error.code !== "AUTH_REQUIRED") throw error;
   }
 
   return {
@@ -310,12 +341,25 @@ export async function runContractProbeScaffold(
     plannedInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
     actualInferencePosts,
     accountFingerprint: account.fingerprint,
-    modelCatalogue: { status: modelsResponse.status, ids, responseBytes: modelsResponse.bytes },
+    modelCatalogue: {
+      status: modelsResponse.status,
+      ids: catalogue.models.map((model) => model.id),
+      selectedId: selectedModel.id,
+      responseBytes: modelsResponse.bytes,
+    },
     quota: {
       status: quotaResponse.status,
-      topLevelKeys: topLevelKeys(quotaResponse.value),
       responseBytes: quotaResponse.bytes,
+      ...quotaEvidence,
     },
+    finalQuota: {
+      status: finalQuotaResponse.status,
+      responseBytes: finalQuotaResponse.bytes,
+      ...finalQuotaEvidence,
+    },
+    quotaComparison,
+    refresh: refreshEvidence,
+    logout: logoutEvidence,
     cases,
   };
 }

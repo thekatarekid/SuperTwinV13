@@ -20,6 +20,7 @@ export interface DeviceCode {
 export interface EphemeralOAuthTokens {
   accessToken: string;
   refreshToken?: string;
+  expiresAtMs?: number;
 }
 
 export interface DeviceFlowHooks {
@@ -70,6 +71,7 @@ export async function requestDeviceCode(hooks: DeviceFlowHooks): Promise<DeviceC
     body: JSON.stringify({ client_id: CODEX_OAUTH_CLIENT_ID }),
   });
   if (response.status === 429) {
+    await response.body?.cancel();
     throw new Error("OpenAI rate-limited the device code request (HTTP 429); stop and retry later");
   }
   if (response.status !== 200) throw new Error(`Device code request failed (HTTP ${response.status})`);
@@ -104,7 +106,10 @@ export async function pollDeviceAuthorization(
         user_code: device.userCode,
       }),
     });
-    if (response.status === 403 || response.status === 404) continue;
+    if (response.status === 403 || response.status === 404) {
+      await response.body?.cancel();
+      continue;
+    }
     if (response.status !== 200) throw new Error(`Device authorization poll failed (HTTP ${response.status})`);
     return responseJson(response, "Device authorization poll");
   }
@@ -135,12 +140,19 @@ export async function exchangeAuthorizationCode(
     },
     body,
   });
-  if (response.status === 429) throw new Error("OpenAI rate-limited token exchange; stop and retry later");
+  if (response.status === 429) {
+    await response.body?.cancel();
+    throw new Error("OpenAI rate-limited token exchange; stop and retry later");
+  }
   if (response.status !== 200) throw new Error(`Token exchange failed (HTTP ${response.status})`);
   const payload = await responseJson(response, "Token exchange");
+  const expiresIn = typeof payload.expires_in === "number" && payload.expires_in > 0
+    ? payload.expires_in
+    : undefined;
   return {
     accessToken: requiredString(payload.access_token, "access_token"),
     refreshToken: typeof payload.refresh_token === "string" ? payload.refresh_token : undefined,
+    ...(expiresIn === undefined ? {} : { expiresAtMs: hooks.now() + expiresIn * 1_000 }),
   };
 }
 

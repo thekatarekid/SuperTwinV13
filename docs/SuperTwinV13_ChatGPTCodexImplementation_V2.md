@@ -37,6 +37,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Current implementation audit: code is Claude-only; no V2 ChatGPT provider or provider-aware settings path exists.
 - [x] Safe baseline: UI 319/319, build scripts 126/126, worker offline 4,034/4,034 with 2 skipped, worker typecheck and frontend build pass.
 - [x] Test-harness correction: ordinary worker/CI/release tests exclude billable Claude suites even when the CLI is installed; a dedicated command requires a second spend opt-in. The mixed server suite retains its 3 offline route tests. Verified by 4,037 worker passes/7 intentional skips, 138 script passes and worker typecheck, with zero live model calls.
+- [x] Pre-release artifact verifier: source and lock versions, DMG identity/hash, mounted bundle/runtime/model layout, plist, architecture, deep signature and Gatekeeper posture are checked without launching the app. The existing 13.12.2 artifact passes structural verification and is truthfully classified local-only because it is ad-hoc signed.
 
 ### 0.1 What Changed From V1, and Why
 
@@ -790,6 +791,18 @@ SUPERTWIN_RUN_LIVE_CLAUDE_TESTS=1 npm run test:worker:live:claude
 ```
 
 It prints the maximum expected turn count before invoking Vitest. Live OAuth, backend, cache, image and concurrency tests likewise run only with a dedicated command, an explicit environment flag and a test account. Normal CI stays offline and deterministic.
+
+After a version-bumped DMG is built and its completed SHA-256 row is recorded in `RELEASES.md`, verify it before native Computer Use acceptance:
+
+```bash
+# Developer ID signed + notarized distribution gate (strict default)
+npm run verify:release
+
+# Explicit waiver for local-only, ad-hoc builds
+npm run verify:release -- --allow-adhoc
+```
+
+The waiver never reports the artifact as distribution-ready. Native install, launch, permission, quit and process-lifecycle checks still require macOS Computer Use against the new build.
 
 ## 12. Verification Matrix
 

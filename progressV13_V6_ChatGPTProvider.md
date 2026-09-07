@@ -11,4 +11,5 @@
 - 2026-09-07: Baseline defect confirmed: the old unfiltered worker command auto-ran three real-Claude suites when the CLI was present; 13 top-level sends/up to 14 CLI attempts failed with zero reported usage (backend billing unknown).
 - 2026-09-07: Official-terms review found no public permission for non-Codex use of the private backend; consumer terms prohibit automated/programmatic output extraction. Phase 0a Terms decision remains unresolved.
 - 2026-09-07: Added an offline-by-default worker gate and double opt-in live-Claude command; preserved 3 offline server-route checks. Passed worker 4,037/4,037 (7 intentional skips), scripts 138/138 and typecheck with 0 live model calls.
+- 2026-09-07: Added deterministic DMG verification for synchronized source/lock versions, manifest hash, mounted self-contained resources, plist, architecture, code signature and Gatekeeper status. Existing 13.12.2 DMG passes local-only verification; ad-hoc signing prevents distribution-ready status.
 - Next: record the three Phase 0a decisions and accepting owner; then run the serial, explicitly costed Phase 0b live probe.

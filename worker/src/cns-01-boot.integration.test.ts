@@ -121,7 +121,14 @@ beforeAll(async () => {
   });
 
   const deadline = Date.now() + READY_TIMEOUT_MS;
-  while (!stdout.includes(`WORKER_READY port=${port}`)) {
+  // stdout and stderr are independent pipes. The worker writes the source
+  // summary before it announces readiness, but the parent can receive the
+  // stdout chunk first under whole-suite load. Wait for both boot barriers so
+  // the assertion below observes the completed boot log rather than a pipe race.
+  while (
+    !stdout.includes(`WORKER_READY port=${port}`) ||
+    !stderr.includes("[worker] sources: started [")
+  ) {
     if (child.exitCode !== null) throw new Error(`worker exited early (${child.exitCode}):\n${stderr}`);
     if (Date.now() > deadline) throw new Error(`worker not ready in ${READY_TIMEOUT_MS} ms:\n${stderr}`);
     await sleep(200);

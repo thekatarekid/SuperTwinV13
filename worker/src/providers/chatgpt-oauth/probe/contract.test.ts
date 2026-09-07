@@ -135,6 +135,18 @@ describe("ephemeral account and SSE evidence", () => {
 });
 
 describe("mocked contract runner scaffold", () => {
+  it("refuses missing live opt-ins before the first OAuth request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    await expect(runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env: {},
+    })).rejects.toThrow(/live OAuth\/network access requires/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects the wrong account before model, quota, or inference traffic", async () => {
     const accountId = "acct-wrong-for-this-run";
     const fetchMock = vi.fn<typeof fetch>(async (input) => {

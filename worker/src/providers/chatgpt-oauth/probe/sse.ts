@@ -44,7 +44,7 @@ export interface SseProbeEvidence {
   stoppedEarly: boolean;
 }
 
-const SAFE_FUNCTION_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const ALLOWED_PROBE_FUNCTION_NAMES = new Set(["probe_echo"]);
 const MAX_FUNCTION_CALLS = 128;
 
 export interface SseProbeOptions {
@@ -246,7 +246,7 @@ export async function consumeBoundedSse(
     }
     const rawName = item?.name ?? event.name;
     if (typeof rawName === "string") {
-      if (SAFE_FUNCTION_NAME_RE.test(rawName)) state.name = rawName;
+      if (ALLOWED_PROBE_FUNCTION_NAMES.has(rawName)) state.name = rawName;
       else if (!state.invalidName) {
         state.invalidName = true;
         invalidFunctionNameCount += 1;

@@ -16,7 +16,7 @@ import {
 import { parseProbeModelCatalogue, selectRequestedProbeModel } from "./models.js";
 import { redactProbeValue } from "./redact.js";
 import { buildBackendHeaders } from "./requests.js";
-import { assertLiveContractProbeAccount } from "./safety.js";
+import { assertLiveContractProbeAccount, assertLiveContractProbeOptIn } from "./safety.js";
 import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
 import { EphemeralProbeTokenSession, ProbeAuthError, type SafeSessionEvidence } from "./refresh.js";
 import {
@@ -169,7 +169,7 @@ function matchesExpectation(
   if (!stream.substantiveOutput) return false;
   if (probe.name === "focused.strict-json") return stream.outputMatchesExactOkBooleanSchema;
   if (probe.name === "focused.tool-call") {
-    return stream.invalidFunctionNameCount === 0 && stream.functionCalls.some(
+    return stream.invalidFunctionNameCount === 0 && stream.functionCalls.length === 1 && stream.functionCalls.some(
       (call) => call.name === "probe_echo" && call.argumentsMatchProbeEchoSchema,
     );
   }
@@ -392,6 +392,7 @@ async function executeMatrix(
 export async function runContractProbeScaffold(
   hooks: ContractProbeHooks,
 ): Promise<FullContractEvidence> {
+  assertLiveContractProbeOptIn(hooks.env ?? process.env);
   const listeningSocketsBefore = listeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_CONTRACT_HTTP_LIMITS);
   const probeAbort = new AbortController();
@@ -467,21 +468,27 @@ export async function runContractProbeScaffold(
     { mode: "implicit" as const, warm: "allowlist.prompt_cache_key.accepted", measured: "focused.cache-implicit" },
     { mode: "explicit" as const, warm: "allowlist.prompt_cache_options.accepted", measured: "focused.cache-explicit" },
   ];
-  const cachePairs = cachePairNames.map(({ mode, warm, measured }) => {
-    const warmCase = matrix.find((probe) => probe.name === warm);
-    const measuredCase = matrix.find((probe) => probe.name === measured);
-    if (!warmCase || !measuredCase || JSON.stringify(warmCase.body) !== JSON.stringify(measuredCase.body)) {
-      throw new Error(`Phase 0b ${mode} cache probe is not a byte-identical warm/read pair`);
-    }
-    return { mode, warmSequence: warmCase.sequence, measuredSequence: measuredCase.sequence };
-  });
   const cache = cacheSupported
-    ? { supported: true as const, pairs: cachePairs, ...compareProbeCacheBehavior(cacheCases.map(({ mode, evidence }) => ({
-      mode,
-      inputTokens: evidence!.stream!.usage!.inputTokens!,
-      cachedInputTokens: evidence!.stream!.usage!.cachedInputTokens!,
-      cacheWriteInputTokens: evidence!.stream!.usage!.cacheWriteInputTokens!,
-    }))) }
+    ? (() => {
+      const pairs = cachePairNames.map(({ mode, warm, measured }) => {
+        const warmCase = matrix.find((probe) => probe.name === warm);
+        const measuredCase = matrix.find((probe) => probe.name === measured);
+        if (!warmCase || !measuredCase || JSON.stringify(warmCase.body) !== JSON.stringify(measuredCase.body)) {
+          throw new Error(`Phase 0b ${mode} cache probe is not a byte-identical warm/read pair`);
+        }
+        return { mode, warmSequence: warmCase.sequence, measuredSequence: measuredCase.sequence };
+      });
+      return {
+        supported: true as const,
+        pairs,
+        ...compareProbeCacheBehavior(cacheCases.map(({ mode, evidence }) => ({
+          mode,
+          inputTokens: evidence!.stream!.usage!.inputTokens!,
+          cachedInputTokens: evidence!.stream!.usage!.cachedInputTokens!,
+          cacheWriteInputTokens: evidence!.stream!.usage!.cacheWriteInputTokens!,
+        }))),
+      };
+    })()
     : { supported: false as const, reason: "selected model does not declare all cache modes" };
   const finalQuotaResponse = await fetchJson(CODEX_USAGE_URL, headers, probeHooks);
   const finalQuotaEvidence = parseProbeQuota(finalQuotaResponse.value);

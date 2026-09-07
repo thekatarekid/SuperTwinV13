@@ -200,18 +200,21 @@ describe("bounded Codex SSE evidence", () => {
       { type: "response.function_call_arguments.delta", item_id: secretId, delta: secretArguments.slice(0, 10) },
       { type: "response.function_call_arguments.done", item_id: secretId, arguments: secretArguments },
       { type: "response.output_item.done", item: { type: "function_call", id: "bad_id", name: "unsafe name!", arguments: "not-json" } },
+      { type: "response.output_item.done", item: { type: "function_call", id: "secret_id", name: "acct_secret_123", arguments: "{}" } },
     ]));
     expect(evidence.functionCalls).toEqual([
       { name: "probe_echo", argumentBytes: Buffer.byteLength(secretArguments, "utf8"), argumentsJsonValid: true, argumentsMatchProbeEchoSchema: true },
       { argumentBytes: Buffer.byteLength("not-json", "utf8"), argumentsJsonValid: false, argumentsMatchProbeEchoSchema: false },
+      { argumentBytes: 2, argumentsJsonValid: true, argumentsMatchProbeEchoSchema: false },
     ]);
-    expect(evidence.invalidFunctionNameCount).toBe(1);
+    expect(evidence.invalidFunctionNameCount).toBe(2);
     expect(evidence.substantiveOutput).toBe(true);
     const serialized = JSON.stringify(evidence);
     expect(serialized).not.toContain(secretId);
     expect(serialized).not.toContain("sensitive argument");
     expect(serialized).not.toContain("unsafe name!");
     expect(serialized).not.toContain("bad_id");
+    expect(serialized).not.toContain("acct_secret_123");
   });
 
   it("reports usage absence explicitly", async () => {

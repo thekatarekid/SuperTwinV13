@@ -53,6 +53,13 @@ describe("Phase 0b account model catalogue", () => {
     expect(parseProbeModelCatalogue({ data: [{ slug: "two", visibility: "visible" }] }).models[0]?.id).toBe("two");
   });
 
+  it("omits unsafe IDs and hostile capability numerics from projected metadata", () => {
+    expect(parseProbeModelCatalogue({ models: [
+      { slug: "unsafe/model", max_output_tokens: 10 },
+      { slug: "safe-model", max_output_tokens: Number.MAX_SAFE_INTEGER },
+    ] }).models).toEqual([{ id: "safe-model", capabilities: {} }]);
+  });
+
   it("requires an explicitly requested visible model from argument or environment", () => {
     const catalogue = parseProbeModelCatalogue({ models: [{ slug: "one" }, { slug: "two" }] });
     expect(() => selectRequestedProbeModel(catalogue, undefined, {})).toThrow(

@@ -60,6 +60,25 @@ describe("Phase 0b quota evidence", () => {
     })).toThrow(/credits balance/);
   });
 
+  it.each([
+    ["non-finite used percent", { plan_type: "plus", rate_limit: { primary_window: { used_percent: Infinity, reset_at: 1 } } }],
+    ["absurd used percent", { plan_type: "plus", rate_limit: { primary_window: { used_percent: 1_001, reset_at: 1 } } }],
+    ["fractional numeric reset", { plan_type: "plus", rate_limit: { primary_window: { used_percent: 1, reset_at: 1.5 } } }],
+    ["absurd numeric reset", { plan_type: "plus", rate_limit: { primary_window: { used_percent: 1, reset_at: 253_402_300_799_001 } } }],
+    ["unbounded reset string", { plan_type: "plus", rate_limit: { primary_window: { used_percent: 1, reset_at: "x".repeat(129) } } }],
+    ["unbounded plan", { plan_type: "x".repeat(129), rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } } }],
+  ])("rejects hostile outward quota numeric/string metadata: %s", (_label, payload) => {
+    expect(() => parseProbeQuota(payload)).toThrow();
+  });
+
+  it.each([Infinity, 1_000_000_001])("rejects unsafe credits balance %s", (remaining) => {
+    expect(() => parseProbeQuota({
+      plan_type: "plus",
+      credits: { remaining },
+      rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } },
+    })).toThrow(/credits balance/);
+  });
+
   it("compares healthy start/end evidence and rejects a bad final state", () => {
     const start = parseProbeQuota({
       plan_type: "plus",

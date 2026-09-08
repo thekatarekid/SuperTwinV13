@@ -3,6 +3,7 @@ const SENSITIVE_KEY = /(?:access|refresh|id)_?token|authorization|account(?:_|-)
 export const REDACTED = "<redacted>";
 
 export function redactProbeValue(value: unknown, key = ""): unknown {
+  if (key === "hasRefreshToken" && typeof value === "boolean") return value;
   if (SENSITIVE_KEY.test(key)) return REDACTED;
   if (Array.isArray(value)) return value.map((item) => redactProbeValue(item));
   if (value && typeof value === "object") {

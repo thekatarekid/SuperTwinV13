@@ -76,7 +76,9 @@ function reasoningEfforts(value: unknown): ProbeReasoningEffort[] | undefined {
 }
 
 function positiveInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 10_000_000
+    ? value
+    : undefined;
 }
 
 function visibleModel(value: unknown): ProbeModel | undefined {
@@ -84,7 +86,7 @@ function visibleModel(value: unknown): ProbeModel | undefined {
   if (!source) return undefined;
   if (source.hidden === true || source.is_hidden === true || source.visibility === "hidden") return undefined;
   const id = first(source, {}, ["slug", "id", "model"]);
-  if (typeof id !== "string" || !id.trim()) return undefined;
+  if (typeof id !== "string" || !SAFE_PROBE_MODEL_ID.test(id.trim())) return undefined;
   const nested = record(source.capabilities) ?? record(source.supported_features) ?? {};
   const displayName = first(source, nested, ["display_name", "displayName", "name"]);
   const capabilities: ProbeModelCapabilities = {

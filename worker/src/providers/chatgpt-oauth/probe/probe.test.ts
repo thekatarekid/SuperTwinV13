@@ -20,11 +20,13 @@ import {
 } from "./constants.js";
 import { runProbeCli } from "./cli.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
+import { runDiscoveryProbe } from "./discovery-runner.js";
 import {
   formatHttpAccounting,
   LIVE_AUTH_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_REQUEST_BUDGET,
+  LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
   ProbeHttpAccounting,
 } from "./accounting.js";
 import {
@@ -43,6 +45,7 @@ import {
   assertLiveProbeOptIn,
   formatLiveDeclaration,
   LIVE_CONTRACT_PROBE_ENV,
+  LIVE_DISCOVERY_PROBE_ENV,
 } from "./safety.js";
 
 afterEach(() => vi.restoreAllMocks());
@@ -65,6 +68,16 @@ function accountJwt(accountId: string): string {
   return `${encode({ alg: "none" })}.${encode({
     "https://api.openai.com/auth": { chatgpt_account_id: accountId },
   })}.probe-signature`;
+}
+
+function cliDiscoveryEnv(): NodeJS.ProcessEnv {
+  return {
+    SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+    [LIVE_DISCOVERY_PROBE_ENV]: "1",
+    [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+    SUPERTWIN_APP_VERSION: "13.12.2",
+    SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-discovery"),
+  };
 }
 
 describe("Phase 0b offline safety", () => {
@@ -180,6 +193,7 @@ describe("Phase 0b offline safety", () => {
     expect(FULL_PROBE_CASE_BUDGET).toBe(70);
     expect(FULL_PROBE_INFERENCE_POST_BUDGET).toBe(55);
     expect(LIVE_CONTRACT_HTTP_REQUEST_BUDGET).toBe(361);
+    expect(LIVE_DISCOVERY_HTTP_REQUEST_BUDGET).toBe(304);
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=302");
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
@@ -187,6 +201,8 @@ describe("Phase 0b offline safety", () => {
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_CONTRACT_HTTP_REQUESTS=361");
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
     expect(formatLiveDeclaration("contract")).toContain("1 token exchange + 1 refresh");
+    expect(formatLiveDeclaration("discover")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=0");
+    expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
   });
 
   it("prints the declaration, refuses missing opt-in, and never fetches", async () => {
@@ -215,6 +231,154 @@ describe("Phase 0b offline safety", () => {
     );
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=55");
+  });
+
+  it("keeps discovery mutually exclusive and refuses every missing gate before fetch", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const discoveryRunner = vi.fn<typeof runDiscoveryProbe>();
+    const base = {
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-discovery-gates"),
+    };
+
+    await expect(runProbeCli(["--live-discover"], base, {
+      runDiscoveryProbe: discoveryRunner,
+    })).rejects.toThrow(/additionally requires --live-auth/);
+    await expect(runProbeCli(["--live-auth", "--live-contract", "--live-discover"], base, {
+      runDiscoveryProbe: discoveryRunner,
+    })).rejects.toThrow(/mutually exclusive/);
+    await expect(runProbeCli(["--live-auth", "--live-discover"], base, {
+      runDiscoveryProbe: discoveryRunner,
+    })).rejects.toThrow(/live OAuth\/network access requires/);
+    await expect(runProbeCli(["--live-auth", "--live-discover"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+    }, { runDiscoveryProbe: discoveryRunner })).rejects.toThrow(
+      new RegExp(LIVE_DISCOVERY_PROBE_ENV),
+    );
+    await expect(runProbeCli(["--live-auth", "--live-discover"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_DISCOVERY_PROBE_ENV]: "1",
+    }, { runDiscoveryProbe: discoveryRunner })).rejects.toThrow(
+      new RegExp(EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(discoveryRunner).not.toHaveBeenCalled();
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
+  });
+
+  it("delegates discovery without a selected model and prints token-free partial evidence", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const actuals = {
+      deviceCode: 1, devicePoll: 1, token: 1, models: 1,
+      quota: 1, inference: 0, other: 0, total: 5,
+    };
+    const logout = { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false };
+    const discoveryRunner = vi.fn<typeof runDiscoveryProbe>(async (hooks) => {
+      expect(hooks.env?.[REQUESTED_PROBE_MODEL_ENV]).toBeUndefined();
+      hooks.onFinalized?.({ httpActuals: actuals, logout, aborted: true });
+      return {
+        mode: "discovery",
+        evidenceCompleteness: "partial-metadata-only",
+        persistedCredentials: false,
+        inferenceCalls: 0,
+        accountFingerprint: "7d41db9e5a28",
+        models: {
+          status: 200,
+          responseBytes: 42,
+          visible: [{ id: "gpt-safe", capabilities: { tools: true } }],
+        },
+        quota: {
+          status: 200,
+          responseBytes: 51,
+          planType: "plus",
+          primary: { usedPercent: 1, resetAt: 1 },
+          healthy: true,
+          restrictionSignal: false,
+        },
+        httpActuals: actuals,
+        logout,
+        localListeningSocketsCreated: false,
+      };
+    });
+
+    await expect(runProbeCli(["--live-auth", "--live-discover"], cliDiscoveryEnv(), {
+      runDiscoveryProbe: discoveryRunner,
+    })).resolves.toBe(0);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(discoveryRunner).toHaveBeenCalledOnce();
+    const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(output).toContain('"evidenceCompleteness": "partial-metadata-only"');
+    expect(output).toContain('"inferenceCalls": 0');
+    expect(output).not.toMatch(/"(?:accessToken|refreshToken|accountId)"/);
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+  });
+
+  it("prints finalized discovery failure actuals exactly once with no stdout", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const actuals = {
+      deviceCode: 1, devicePoll: 2, token: 1, models: 1,
+      quota: 0, inference: 0, other: 0, total: 5,
+    };
+    const discoveryRunner = vi.fn<typeof runDiscoveryProbe>(async (hooks) => {
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      throw new Error("forced discovery failure");
+    });
+
+    await expect(runProbeCli(["--live-auth", "--live-discover"], cliDiscoveryEnv(), {
+      runDiscoveryProbe: discoveryRunner,
+    })).rejects.toThrow(/forced discovery failure/);
+
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+    expect(stdoutSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts discovery on SIGINT, removes its listener, and prints final actuals once", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const listenersBefore = process.listeners("SIGINT");
+    const actuals = {
+      deviceCode: 1, devicePoll: 2, token: 0, models: 0,
+      quota: 0, inference: 0, other: 0, total: 3,
+    };
+    const discoveryRunner = vi.fn<typeof runDiscoveryProbe>(async (hooks) => {
+      const prior = new Set(listenersBefore);
+      const added = process.listeners("SIGINT").filter((listener) => !prior.has(listener));
+      expect(added).toHaveLength(1);
+      added[0]!("SIGINT");
+      expect(hooks.signal?.aborted).toBe(true);
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      throw hooks.signal?.reason ?? new Error("expected discovery SIGINT abort");
+    });
+
+    await expect(runProbeCli(["--live-auth", "--live-discover"], cliDiscoveryEnv(), {
+      runDiscoveryProbe: discoveryRunner,
+    })).rejects.toThrow(/discovery probe cancelled by SIGINT/);
+
+    expect(process.listeners("SIGINT")).toEqual(listenersBefore);
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+    expect(stdoutSpy).not.toHaveBeenCalled();
   });
 
   it("refuses contract execution before fetch unless both opt-ins, fingerprint, and model are present", async () => {

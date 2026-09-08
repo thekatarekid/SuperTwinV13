@@ -12,14 +12,17 @@ import {
   type ProbeHttpCounts,
 } from "./accounting.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
+import { runDiscoveryProbe } from "./discovery-runner.js";
 import {
   assertLiveContractProbePreflight,
+  assertLiveDiscoveryProbePreflight,
   assertLiveProbeOptIn,
   formatLiveDeclaration,
 } from "./safety.js";
 
 export interface ProbeCliDependencies {
   runContractProbe?: typeof runContractProbeScaffold;
+  runDiscoveryProbe?: typeof runDiscoveryProbe;
 }
 
 const ZERO_HTTP_COUNTS: Readonly<ProbeHttpCounts> = Object.freeze({
@@ -40,17 +43,25 @@ export async function runProbeCli(
 ): Promise<number> {
   const liveAuth = args.includes("--live-auth");
   const liveContract = args.includes("--live-contract");
-  if (!liveAuth && !liveContract) {
+  const liveDiscover = args.includes("--live-discover");
+  if (!liveAuth && !liveContract && !liveDiscover) {
     process.stdout.write(`${redactedJson(dryRunSnapshot(env))}\n`);
     return 0;
   }
 
   // This declaration must precede the opt-in checks and every possible network operation.
-  process.stderr.write(`${formatLiveDeclaration(liveContract ? "contract" : "auth")}\n`);
+  process.stderr.write(`${formatLiveDeclaration(liveContract ? "contract" : liveDiscover ? "discover" : "auth")}\n`);
+  if (liveContract && liveDiscover) {
+    throw new Error("REFUSED: --live-contract and --live-discover are mutually exclusive");
+  }
   if (liveContract && !liveAuth) {
     throw new Error("REFUSED: --live-contract additionally requires --live-auth");
   }
   if (liveContract) return runLiveContractProbe(env, dependencies);
+  if (liveDiscover && !liveAuth) {
+    throw new Error("REFUSED: --live-discover additionally requires --live-auth");
+  }
+  if (liveDiscover) return runLiveDiscoveryProbe(env, dependencies);
   assertLiveProbeOptIn(env);
 
   const accounting = new ProbeHttpAccounting(LIVE_AUTH_HTTP_LIMITS);
@@ -91,6 +102,39 @@ export async function runProbeCli(
   } finally {
     process.off("SIGINT", onSigint);
     printAccounting();
+  }
+}
+
+async function runLiveDiscoveryProbe(
+  env: NodeJS.ProcessEnv,
+  dependencies: ProbeCliDependencies,
+): Promise<number> {
+  assertLiveDiscoveryProbePreflight(env);
+  const abortController = new AbortController();
+  let httpActuals: ProbeHttpCounts = { ...ZERO_HTTP_COUNTS };
+  const onSigint = (): void => {
+    abortController.abort(new Error("Phase 0b discovery probe cancelled by SIGINT"));
+  };
+  process.once("SIGINT", onSigint);
+  try {
+    const evidence = await (dependencies.runDiscoveryProbe ?? runDiscoveryProbe)({
+      fetch,
+      sleep: (milliseconds: number, signal?: AbortSignal) => sleep(milliseconds, undefined, { signal }),
+      now: Date.now,
+      env,
+      signal: abortController.signal,
+      onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
+        process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);
+      },
+      onFinalized: (finalized) => {
+        httpActuals = finalized.httpActuals;
+      },
+    });
+    process.stdout.write(`${redactedJson(evidence)}\n`);
+    return 0;
+  } finally {
+    process.off("SIGINT", onSigint);
+    process.stderr.write(`${formatHttpAccounting(httpActuals)}\n`);
   }
 }
 

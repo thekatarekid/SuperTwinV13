@@ -13,14 +13,20 @@ import {
   expectedProbeAccountFingerprint,
   type DedicatedProbeAccount,
 } from "./account.js";
-import { LIVE_CONTRACT_HTTP_REQUEST_BUDGET } from "./accounting.js";
+import {
+  LIVE_CONTRACT_HTTP_REQUEST_BUDGET,
+  LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
+} from "./accounting.js";
 import { requestedProbeModelId } from "./models.js";
 
 export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
+export const LIVE_DISCOVERY_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_DISCOVERY_PROBE";
 
 export interface LiveProbeDeclaration {
   liveAuthInferencePostBudget: number;
   liveAuthHttpRequestBudget: number;
+  liveDiscoveryInferencePostBudget: 0;
+  liveDiscoveryHttpRequestBudget: number;
   plannedFullProbeInferencePostBudget: number;
   plannedFullProbeCaseBudget: number;
   retryPolicy: "none";
@@ -29,6 +35,8 @@ export interface LiveProbeDeclaration {
 export const LIVE_PROBE_DECLARATION: LiveProbeDeclaration = {
   liveAuthInferencePostBudget: LIVE_AUTH_INFERENCE_CALL_BUDGET,
   liveAuthHttpRequestBudget: LIVE_AUTH_HTTP_REQUEST_BUDGET,
+  liveDiscoveryInferencePostBudget: 0,
+  liveDiscoveryHttpRequestBudget: LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
   plannedFullProbeInferencePostBudget: FULL_PROBE_INFERENCE_POST_BUDGET,
   plannedFullProbeCaseBudget: FULL_PROBE_CASE_BUDGET,
   retryPolicy: "none",
@@ -78,6 +86,24 @@ export function assertLiveContractProbePreflight(env: NodeJS.ProcessEnv = proces
   return scratchHome;
 }
 
+/** Discovery has its own opt-in and account binding, but never requires or selects a model. */
+export function assertLiveDiscoveryProbePreflight(env: NodeJS.ProcessEnv = process.env): string {
+  const scratchHome = assertLiveProbeOptIn(env);
+  if (env[LIVE_DISCOVERY_PROBE_ENV] !== "1") {
+    throw new Error(`REFUSED: live discovery requires ${LIVE_DISCOVERY_PROBE_ENV}=1`);
+  }
+  expectedProbeAccountFingerprint(env);
+  return scratchHome;
+}
+
+export function assertLiveDiscoveryProbeAccount(
+  accessToken: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DedicatedProbeAccount {
+  assertLiveDiscoveryProbePreflight(env);
+  return assertExpectedProbeAccount(accessToken, env);
+}
+
 /** Run after OAuth exchange and before model, quota, or inference requests. */
 export function assertLiveContractProbeAccount(
   accessToken: string,
@@ -87,16 +113,22 @@ export function assertLiveContractProbeAccount(
   return assertExpectedProbeAccount(accessToken, env);
 }
 
-export function formatLiveDeclaration(mode: "auth" | "contract" = "auth"): string {
+export function formatLiveDeclaration(mode: "auth" | "discover" | "contract" = "auth"): string {
   const inferencePosts =
     mode === "contract"
       ? LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget
       : LIVE_PROBE_DECLARATION.liveAuthInferencePostBudget;
   return [
-    mode === "contract" ? "PHASE_0B_LIVE_CONTRACT_DECLARATION" : "PHASE_0B_LIVE_AUTH_DECLARATION",
+    mode === "contract"
+      ? "PHASE_0B_LIVE_CONTRACT_DECLARATION"
+      : mode === "discover"
+        ? "PHASE_0B_LIVE_DISCOVERY_DECLARATION"
+        : "PHASE_0B_LIVE_AUTH_DECLARATION",
     `MAX_SELECTED_MODE_INFERENCE_POSTS=${inferencePosts}`,
     `MAX_LIVE_AUTH_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.liveAuthInferencePostBudget}`,
     `MAX_LIVE_AUTH_HTTP_REQUESTS=${LIVE_PROBE_DECLARATION.liveAuthHttpRequestBudget}`,
+    `MAX_LIVE_DISCOVERY_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.liveDiscoveryInferencePostBudget}`,
+    `MAX_LIVE_DISCOVERY_HTTP_REQUESTS=${LIVE_PROBE_DECLARATION.liveDiscoveryHttpRequestBudget}`,
     `PLANNED_FULL_PHASE_0B_CASES=${LIVE_PROBE_DECLARATION.plannedFullProbeCaseBudget}`,
     `PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget}`,
     `MAX_LIVE_CONTRACT_HTTP_REQUESTS=${LIVE_CONTRACT_HTTP_REQUEST_BUDGET}`,

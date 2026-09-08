@@ -223,6 +223,8 @@ describe("mocked contract runner scaffold", () => {
       }
       if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{
         slug: "gpt-probe",
+        display_name: "Restricted Preview Model",
+        description: "Availability is restricted to supported account tiers.",
         input_modalities: ["text", "image"],
         supported_reasoning_efforts: ["low"],
         max_output_tokens: 4096,
@@ -326,6 +328,56 @@ describe("mocked contract runner scaffold", () => {
     expect(output).not.toContain("refresh-secret");
     expect(output).not.toContain("Bearer ey");
     expect(output).not.toContain("resp_probe");
+  });
+
+  it("ignores restriction words in model metadata but rejects structural catalogue flags", async () => {
+    const accountId = "acct-contract-structural-restriction";
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === CODEX_DEVICE_CODE_URL) {
+        return jsonResponse(200, { user_code: "ABCD-EFGH", device_auth_id: "device-secret", interval: 3 });
+      }
+      if (url === CODEX_DEVICE_TOKEN_URL) {
+        return jsonResponse(200, { authorization_code: "authorization-secret", code_verifier: "verifier-secret" });
+      }
+      if (url === CODEX_OAUTH_TOKEN_URL) {
+        return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
+      }
+      if (url === CODEX_MODELS_URL) {
+        return jsonResponse(200, {
+          account: { flagged: true },
+          models: [{
+            slug: "gpt-probe",
+            display_name: "Restricted Preview Model",
+            description: "Availability is restricted to supported tiers.",
+          }],
+        });
+      }
+      throw new Error(`Structural catalogue gate allowed unexpected URL: ${url}`);
+    });
+    const finalized = vi.fn();
+
+    await expect(runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      onFinalized: finalized,
+      env: contractEnv(accountId),
+    })).rejects.toThrow(/upstream restriction \(HTTP 200\)/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === CODEX_USAGE_URL)).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === CODEX_RESPONSES_URL)).toBe(false);
+    expect(finalized).toHaveBeenCalledOnce();
+    expect(finalized).toHaveBeenCalledWith({
+      httpActuals: {
+        deviceCode: 1, devicePoll: 1, token: 1, models: 1,
+        quota: 0, inference: 0, other: 0, total: 4,
+      },
+      logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+      aborted: true,
+    });
   });
 
   it("fails closed on a 200 stream without a completion event", async () => {

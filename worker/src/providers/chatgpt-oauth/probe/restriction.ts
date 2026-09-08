@@ -51,3 +51,12 @@ export function hasBoundedRestrictionSignal(
 
   return scan(value, 0, Boolean(options.scanAllStrings), true);
 }
+
+/** Model names/descriptions are product metadata, not account restriction signals. */
+export function hasModelCatalogueRestrictionSignal(value: unknown): boolean {
+  return hasBoundedRestrictionSignal(value, {
+    ignoreContainerKeys: ["models", "data"],
+    ignoreRootArray: true,
+    ignoreTextKeys: ["display_name", "displayName", "name", "description"],
+  });
+}

@@ -38,6 +38,7 @@ import {
   type SanitizedProbeMetric,
 } from "./metrics.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
+import { hasModelCatalogueRestrictionSignal } from "./restriction.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 128 * 1024;
@@ -145,7 +146,7 @@ async function fetchJson(
       : AbortSignal.timeout(30_000),
   });
   const { text, bytes } = await readBoundedText(response, MAX_JSON_RESPONSE_BYTES);
-  if (response.status === 429 || RESTRICTION_RE.test(text)) {
+  if (response.status === 429) {
     throw new ContractRestrictionError(`Contract probe stopped on upstream restriction (HTTP ${response.status})`);
   }
   if (!response.ok) throw new Error(`Contract metadata request failed (HTTP ${response.status})`);
@@ -418,6 +419,11 @@ export async function runContractProbeScaffold(
   let headers = buildBackendHeaders(session.current().accessToken, accountId, probeHooks.env ?? process.env);
 
   const modelsResponse = await fetchJson(CODEX_MODELS_URL, headers, probeHooks);
+  if (hasModelCatalogueRestrictionSignal(modelsResponse.value)) {
+    throw new ContractRestrictionError(
+      `Contract probe stopped on upstream restriction (HTTP ${modelsResponse.status})`,
+    );
+  }
   const catalogue = parseProbeModelCatalogue(modelsResponse.value);
   if (!catalogue.models.length) throw new Error("Authenticated model catalogue contains no usable model IDs");
   const selectedModel = selectRequestedProbeModel(catalogue, undefined, probeHooks.env ?? process.env);

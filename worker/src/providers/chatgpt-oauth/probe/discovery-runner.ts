@@ -9,7 +9,7 @@ import { parseProbeModelCatalogue, type ProbeModelCapabilities } from "./models.
 import { parseProbeQuota, type ProbeQuotaWindow } from "./quota.js";
 import { EphemeralProbeTokenSession, type SafeSessionEvidence } from "./refresh.js";
 import { buildBackendHeaders } from "./requests.js";
-import { hasBoundedRestrictionSignal } from "./restriction.js";
+import { hasModelCatalogueRestrictionSignal } from "./restriction.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
 import {
   assertLiveDiscoveryProbeAccount,
@@ -132,11 +132,7 @@ export async function runDiscoveryProbe(
     const account = assertLiveDiscoveryProbeAccount(tokens.accessToken, env);
     const headers = buildBackendHeaders(tokens.accessToken, account.accountId, env);
     const modelResponse = await fetchMetadata(CODEX_MODELS_URL, headers, probeHooks);
-    if (hasBoundedRestrictionSignal(modelResponse.value, {
-      ignoreContainerKeys: ["models", "data"],
-      ignoreRootArray: true,
-      ignoreTextKeys: ["display_name", "displayName", "name", "description"],
-    })) {
+    if (hasModelCatalogueRestrictionSignal(modelResponse.value)) {
       throw new Error("Phase 0b discovery stopped on a structural account or restriction signal");
     }
     const catalogue = parseProbeModelCatalogue(modelResponse.value);

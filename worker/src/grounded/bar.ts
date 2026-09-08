@@ -29,7 +29,6 @@
 // ===========================================================================
 
 import { getDb } from "../db/connection.js";
-import { getSelectedModel } from "../db/settings.js";
 import { runJsonPass } from "../brain/llm.js";
 import {
   BAR_GENERAL_V1_INSTRUCTIONS,
@@ -182,7 +181,6 @@ export const planViaModel: RoutePlanner = async (text, now, ctx) => {
       user: packRouteInput(text, now, ctx.streams),
       role: "classify",
       cohortId: null,
-      model: getSelectedModel("classify") || undefined,
       unit: { kind: "bar-route", id: "bar" },
       validate: (parsed) => {
         const plan = parseRouteOutput(JSON.stringify(parsed));
@@ -203,7 +201,6 @@ export const judgeViaModel: JudgeCall = async (question, passages) => {
     user: packJudgeInput(question, passages),
     role: "chat",
     cohortId: null,
-    model: getSelectedModel("chat") || undefined,
     unit: { kind: "bar-judge", id: "bar" },
     validate: (parsed) => {
       const rec = parsed as Record<string, unknown>;
@@ -221,7 +218,6 @@ export const generalViaModel: GeneralCall = async (question) => {
     user: packGeneralInput(question),
     role: "chat",
     cohortId: null,
-    model: getSelectedModel("chat") || undefined,
     unit: { kind: "bar-general", id: "bar" },
     validate: (parsed) => {
       const text = parseGeneralOutput(JSON.stringify(parsed));

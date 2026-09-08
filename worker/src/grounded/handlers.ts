@@ -25,9 +25,8 @@ import { randomBytes } from "node:crypto";
 
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
-import { getSelectedModel } from "../db/settings.js";
 import { runJsonPass } from "../brain/llm.js";
-import { reasoningForPass } from "../brain/reasoning.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 // bar-action.v3 — v2 plus the worked example for the ambiguous-space case.
 // The S6 sweep found the model picking one of two equally plausible spaces
 // ("goa" matching both a December trip and a wedding), which is the hard
@@ -46,9 +45,19 @@ import {
   packAnswerInput,
 } from "../prompts/bar-answer.v1.js";
 import { writeRunLedger } from "../db/index.js";
-import { systemPromptPath } from "../prompts/runner.js";
-import { claudeLocalProvider } from "../providers/claude-local/index.js";
 import { resourcePool } from "../providers/pool.js";
+import { ProviderGateError } from "../providers/gate.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
+import type {
+  ProviderErrorCode,
+  ProviderRequest,
+  ProviderStreamEvent,
+} from "../providers/types.js";
 import { bindTraceContext, withTraceContext } from "../traces/context.js";
 import {
   buildContextBlock,
@@ -136,6 +145,94 @@ export type CitationResolver = (id: string) => boolean;
 
 const defaultResolver: CitationResolver = (id) => getEventDetail(id) !== null;
 
+/** Claude's plain-completion transport needs one answer turn plus its bounded
+ * preamble allowance. Providers that cannot honour this strict cap reject the
+ * request; the grounded path never swaps provider or silently widens it. */
+const CLAUDE_GROUNDED_MAX_AGENT_TURNS = 2;
+
+function groundedCacheRequest(
+  resolved: ResolvedModelCall,
+): Pick<ProviderRequest, "cache"> {
+  // Claude's CLI cache is implicit and predates the neutral capability flags.
+  // HTTP providers get no cache hint unless the immutable catalogue row says
+  // their wire supports both fields used by the implicit-cache mode.
+  return resolved.providerId === "claude-local" ||
+    (resolved.modelSnapshot.supportsPromptCacheKey &&
+      resolved.modelSnapshot.supportsPromptCacheOptions)
+    ? { cache: { mode: "implicit" } }
+    : {};
+}
+
+function groundedAnswerFailure(
+  resolved: ResolvedModelCall,
+  code: ProviderErrorCode | undefined,
+): Error {
+  switch (code) {
+    case "AUTH_REQUIRED":
+    case "AUTH_EXPIRED":
+    case "BACKEND_UNSUPPORTED":
+      return new ProviderGateError(code);
+    case "BAD_REQUEST":
+    case "PROVIDER_UNAVAILABLE":
+    case "MODEL_UNAVAILABLE":
+    case "CAPABILITY_UNSUPPORTED":
+      return new ProviderSelectionError(
+        code,
+        `grounded answer call was rejected by ${resolved.providerId}`,
+        {
+          providerId: resolved.providerId,
+          key: resolved.key,
+          model: resolved.model,
+        },
+      );
+    default:
+      return new Error(`bar-answer call failed: ${code ?? "unknown"}`);
+  }
+}
+
+/** Build the exact stateless, tool-free provider-neutral grounded-answer call. */
+export function groundedAnswerRequest(
+  runId: string,
+  user: string,
+  resolved: ResolvedModelCall,
+  onEvent: (event: ProviderStreamEvent) => void,
+): ProviderRequest {
+  if (!resolved.modelSnapshot.inputModalities.includes("text")) {
+    throw new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      `model ${resolved.model} does not accept grounded text input`,
+      {
+        providerId: resolved.providerId,
+        key: resolved.key,
+        model: resolved.model,
+      },
+    );
+  }
+  return {
+    runId,
+    model: resolved.model,
+    instructions: BAR_ANSWER_INSTRUCTIONS,
+    input: [{
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: user }],
+    }],
+    hostTools: [],
+    toolChoice: "none",
+    ...groundedCacheRequest(resolved),
+    persistContinuation: false,
+    plainCompletion: true,
+    skipHostSettings: true,
+    maxOutputTokens: requireMaxOutputTokens(resolved),
+    maxAgentTurns: resolved.providerId === "claude-local"
+      ? CLAUDE_GROUNDED_MAX_AGENT_TURNS
+      : 1,
+    timeoutMs: 120_000,
+    onEvent,
+    ...reasoningRequestForResolvedCall(resolved),
+  };
+}
+
 /**
  * The USR-04 hard gate, in code: every claim cites; citations must resolve
  * to real events; an answer with claims but zero resolvable citations is
@@ -161,17 +258,17 @@ export function enforceCitations(
 }
 
 /**
- * The production answer call: one traced plain completion via the local
- * `claude` CLI (Haiku default). The answer is PROSE with a CITATIONS line —
+ * The production answer call: one traced, provider-neutral plain completion
+ * using the resolved chat model. The answer is PROSE with a CITATIONS line —
  * not the wire/JSON contract the batch runners validate — so it goes through
- * the provider directly (the same pattern the eval judge uses), inside a
- * trace context (TRC-01) with the versioned prompt as the system file.
+ * the resolved provider directly, inside a trace context (TRC-01) with the
+ * versioned prompt supplied as exact instruction bytes.
  */
 export const answerViaModel: BarModelCall = async (user) => {
-  const systemFile = systemPromptPath(BAR_ANSWER_VERSION, BAR_ANSWER_INSTRUCTIONS);
   let text = "";
   const runId = mintId("run");
-  const model = getSelectedModel("chat") || "haiku";
+  const resolved = resolveModelCall({ source: "role", key: "chat" });
+  const model = resolved.model;
   const startedAt = new Date().toISOString();
   const result = await withTraceContext(
     { pass: BAR_ANSWER_VERSION, caller: "grounded/handlers", promptVersion: BAR_ANSWER_VERSION },
@@ -181,20 +278,14 @@ export const answerViaModel: BarModelCall = async (user) => {
       const res = await resourcePool.run(
         "llm",
         bindTraceContext(() =>
-          claudeLocalProvider.send({
+          resolved.provider.send(groundedAnswerRequest(
             runId,
-            message: user,
-            systemPromptFile: systemFile,
-            plainCompletion: true,
-            maxTurns: 1,
-            ...reasoningForPass("chat", model),
-            allowedTools: [],
-            model,
-            timeoutMs: 120_000,
-            onEvent: (ev) => {
+            user,
+            resolved,
+            (ev) => {
               if (ev.type === "delta") text += ev.text;
             },
-          }),
+          )),
         ),
         { lane: "understanding" },
       );
@@ -220,7 +311,7 @@ export const answerViaModel: BarModelCall = async (user) => {
             ttftMs: null,
           },
           log: {
-            provider: claudeLocalProvider.id,
+            provider: resolved.providerId,
             sessionId: null,
             runId,
             kind: BAR_ANSWER_VERSION,
@@ -244,7 +335,7 @@ export const answerViaModel: BarModelCall = async (user) => {
     },
   );
   if (result.status !== "ok") {
-    throw new Error(`bar-answer call failed: ${result.errorCode ?? "unknown"}`);
+    throw groundedAnswerFailure(resolved, result.errorCode);
   }
   return text;
 };
@@ -288,7 +379,7 @@ export interface BarActionOutcome {
 }
 
 /**
- * The production action parse: one traced JSON call (Haiku default) through
+ * The production action parse: one traced resolved-provider JSON call through
  * the same runner every V13 JSON pass uses — the bar-action contract is a
  * one-line JSON object, so runJsonPass validates + repair-bounds it.
  */
@@ -299,7 +390,6 @@ export const actionViaModel: BarModelCall = async (user) => {
     user,
     role: "classify",
     cohortId: null,
-    model: getSelectedModel("classify") || undefined,
     unit: { kind: "bar-action", id: "bar" },
     validate: (parsed) => {
       const action = parseActionOutput(JSON.stringify(parsed));

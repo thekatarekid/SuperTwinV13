@@ -14,9 +14,11 @@
 //     the window. Usage outside the window is excluded.
 // ===========================================================================
 
+import { randomUUID } from "node:crypto";
+
 import type Database from "better-sqlite3";
 
-import type { Usage } from "../providers/types.js";
+import type { ProviderId, Usage } from "../providers/types.js";
 import { billableTokens } from "../providers/usage.js";
 import { getDb, runMigrations } from "./connection.js";
 import {
@@ -65,7 +67,7 @@ export type RunKind = "chat" | "extraction" | (string & {});
 export type RunStatus = "ok" | "error";
 
 export interface ChatSession {
-  sessionId: string;
+  conversationId: string;
   provider: string;
   cwd: string;
   promptBundleHash: string;
@@ -79,12 +81,37 @@ export interface ChatSession {
 
 export interface ChatMessage {
   id: number;
-  sessionId: string;
+  conversationId: string;
   role: ChatRole;
   content: string;
   runId: string | null;
   usageJson: string | null;
   /** Phase 2: JSON array of citations parsed off the assistant reply, or null. */
+  citationsJson: string | null;
+  ts: string;
+}
+
+/** @deprecated Internal-key shape retained for the one-release server cutover. */
+export interface LegacyChatSession {
+  sessionId: string;
+  provider: string;
+  cwd: string;
+  promptBundleHash: string;
+  title: string | null;
+  status: SessionStatus;
+  grounded: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @deprecated Internal-key shape retained for the one-release server cutover. */
+export interface LegacyChatMessage {
+  id: number;
+  sessionId: string;
+  role: ChatRole;
+  content: string;
+  runId: string | null;
+  usageJson: string | null;
   citationsJson: string | null;
   ts: string;
 }
@@ -153,6 +180,7 @@ export interface LogRunParams {
   origin?: RunOrigin | null;
 }
 
+/** @deprecated Use CreateChatSessionParams with createChatSession(). */
 export interface CreateSessionParams {
   sessionId: string;
   provider: string;
@@ -163,6 +191,7 @@ export interface CreateSessionParams {
   grounded?: boolean;
 }
 
+/** @deprecated Use AppendChatUserMessageParams or CommitAssistantTurnParams. */
 export interface AppendMessageParams {
   sessionId: string;
   role: ChatRole;
@@ -171,6 +200,66 @@ export interface AppendMessageParams {
   usageJson?: string | null;
   /** Phase 2: JSON array of citations for an assistant message, or null. */
   citationsJson?: string | null;
+}
+
+export interface ChatUserMessageInput {
+  content: string;
+  runId?: string | null;
+}
+
+export interface CreateChatSessionParams {
+  /** Optional deterministic test/import seam; production normally omits it. */
+  conversationId?: string;
+  provider: ProviderId;
+  model: string;
+  cwd: string;
+  /** SHA-256 of the exact prompt bundle bound to provider continuation. */
+  promptBundleHash: string;
+  title?: string | null;
+  grounded?: boolean;
+  userMessage: ChatUserMessageInput;
+}
+
+export interface AppendChatUserMessageParams extends ChatUserMessageInput {
+  conversationId: string;
+}
+
+export interface ChatAssistantMessageInput {
+  content: string;
+  runId?: string | null;
+  usageJson?: string | null;
+  citationsJson?: string | null;
+}
+
+/**
+ * Provider-dispatch state. This is an internal service boundary: never return
+ * it from an HTTP route or merge it into the public ChatSession shape.
+ */
+export interface ChatContinuationState {
+  conversationId: string;
+  provider: ProviderId | null;
+  model: string | null;
+  promptBundleHash: string | null;
+  continuation: string | null;
+  generation: number;
+}
+
+export interface ContinuationCas {
+  conversationId: string;
+  expectedGeneration: number;
+}
+
+export interface RebindChatContinuationParams extends ContinuationCas {
+  provider: ProviderId;
+  model: string;
+  promptBundleHash: string;
+}
+
+export type ReserveChatTurnParams = RebindChatContinuationParams;
+
+export interface CommitAssistantTurnParams extends RebindChatContinuationParams {
+  continuation: string | null;
+  assistantMessage: ChatAssistantMessageInput;
 }
 
 export interface AddUsageParams {
@@ -184,8 +273,10 @@ export interface AddUsageParams {
 
 // ---- Internal DB row shapes (snake_case, as stored) ----------------------
 
-interface SessionRow {
+/** Private storage record. Neither key nor continuation enters ChatSession. */
+interface ChatSessionRecord {
   session_id: string;
+  conversation_id: string;
   provider: string;
   cwd: string;
   prompt_bundle_hash: string;
@@ -194,11 +285,17 @@ interface SessionRow {
   grounded: number;
   created_at: string;
   updated_at: string;
+  provider_continuation: string | null;
+  continuation_provider: ProviderId | null;
+  continuation_model: string | null;
+  continuation_prompt_bundle_hash: string | null;
+  continuation_generation: number;
 }
 
 interface MessageRow {
   id: number;
   session_id: string;
+  conversation_id?: string;
   role: ChatRole;
   content: string;
   run_id: string | null;
@@ -216,7 +313,21 @@ interface QuotaAggRow {
   run_count: number | null;
 }
 
-function toSession(r: SessionRow): ChatSession {
+function toSession(r: ChatSessionRecord): ChatSession {
+  return {
+    conversationId: r.conversation_id,
+    provider: r.continuation_provider ?? r.provider,
+    cwd: r.cwd,
+    promptBundleHash: r.continuation_prompt_bundle_hash ?? r.prompt_bundle_hash,
+    title: r.title,
+    status: r.status,
+    grounded: r.grounded === 1,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function toLegacySession(r: ChatSessionRecord): LegacyChatSession {
   return {
     sessionId: r.session_id,
     provider: r.provider,
@@ -231,6 +342,19 @@ function toSession(r: SessionRow): ChatSession {
 }
 
 function toMessage(r: MessageRow): ChatMessage {
+  return {
+    id: r.id,
+    conversationId: r.conversation_id!,
+    role: r.role,
+    content: r.content,
+    runId: r.run_id,
+    usageJson: r.usage_json,
+    citationsJson: r.citations_json,
+    ts: r.ts,
+  };
+}
+
+function toLegacyMessage(r: MessageRow): LegacyChatMessage {
   return {
     id: r.id,
     sessionId: r.session_id,
@@ -252,6 +376,16 @@ function toMessage(r: MessageRow): ChatMessage {
 interface Statements {
   db: Database.Database;
   insertRun: Database.Statement;
+  insertChatSession: Database.Statement;
+  insertChatUserMessage: Database.Statement;
+  getChatSession: Database.Statement;
+  listChatSessions: Database.Statement;
+  getChatMessages: Database.Statement;
+  getChatContinuation: Database.Statement;
+  reserveChatTurn: Database.Statement;
+  clearChatContinuation: Database.Statement;
+  rebindChatContinuation: Database.Statement;
+  commitChatContinuation: Database.Statement;
   insertSession: Database.Statement;
   poisonSession: Database.Statement;
   touchSession: Database.Statement;
@@ -287,6 +421,87 @@ function statements(): Statements {
          @cacheReadInputTokens,
          @outputTokens, @costUsd, @durationMs, @status, @errorCode,
          @model, @role)
+    `),
+    insertChatSession: db.prepare(`
+      INSERT INTO chat_sessions
+        (session_id, conversation_id, provider, cwd, prompt_bundle_hash,
+         title, grounded, continuation_provider, continuation_model,
+         continuation_prompt_bundle_hash, continuation_generation)
+      VALUES
+        (@internalSessionKey, @conversationId, @provider, @cwd,
+         @promptBundleHash, @title, @grounded, @provider, @model,
+         @promptBundleHash, 1)
+    `),
+    insertChatUserMessage: db.prepare(`
+      INSERT INTO chat_messages
+        (session_id, role, content, run_id, usage_json, citations_json)
+      SELECT session_id, 'user', @content, @runId, NULL, NULL
+        FROM chat_sessions
+       WHERE conversation_id = @conversationId
+    `),
+    getChatSession: db.prepare(`
+      SELECT * FROM chat_sessions WHERE conversation_id = ?
+    `),
+    listChatSessions: db.prepare(`
+      SELECT * FROM chat_sessions ORDER BY updated_at DESC, created_at DESC
+    `),
+    getChatMessages: db.prepare(`
+      SELECT m.*, s.conversation_id
+        FROM chat_messages m
+        JOIN chat_sessions s ON s.session_id = m.session_id
+       WHERE s.conversation_id = ?
+       ORDER BY m.ts ASC, m.id ASC
+    `),
+    getChatContinuation: db.prepare(`
+      SELECT * FROM chat_sessions WHERE conversation_id = ?
+    `),
+    reserveChatTurn: db.prepare(`
+      UPDATE chat_sessions
+         SET continuation_generation = continuation_generation + 1,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE conversation_id = @conversationId
+         AND continuation_generation = @expectedGeneration
+         AND continuation_generation < 2147483647
+         AND continuation_provider = @provider
+         AND continuation_model = @model
+         AND continuation_prompt_bundle_hash = @promptBundleHash
+      RETURNING provider_continuation, continuation_generation
+    `),
+    clearChatContinuation: db.prepare(`
+      UPDATE chat_sessions
+         SET provider_continuation = NULL,
+             continuation_generation = continuation_generation + 1,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE conversation_id = @conversationId
+         AND continuation_generation = @expectedGeneration
+         AND continuation_generation < 2147483647
+      RETURNING continuation_generation
+    `),
+    rebindChatContinuation: db.prepare(`
+      UPDATE chat_sessions
+         SET continuation_provider = @provider,
+             continuation_model = @model,
+             continuation_prompt_bundle_hash = @promptBundleHash,
+             continuation_generation = continuation_generation + 1,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE conversation_id = @conversationId
+         AND continuation_generation = @expectedGeneration
+         AND continuation_generation < 2147483647
+         AND provider_continuation IS NULL
+      RETURNING continuation_generation
+    `),
+    commitChatContinuation: db.prepare(`
+      UPDATE chat_sessions
+         SET provider_continuation = @continuation,
+             continuation_generation = continuation_generation + 1,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE conversation_id = @conversationId
+         AND continuation_generation = @expectedGeneration
+         AND continuation_generation < 2147483647
+         AND continuation_provider = @provider
+         AND continuation_model = @model
+         AND continuation_prompt_bundle_hash = @promptBundleHash
+      RETURNING session_id, continuation_generation
     `),
     insertSession: db.prepare(`
       INSERT INTO chat_sessions
@@ -630,7 +845,151 @@ function mirrorRun(p: LogRunParams, extractionRunRowId: number | bigint): void {
   });
 }
 
-/** Persist a new chat session (call only after a run produced a session id). */
+/** Create the public conversation and its first user message atomically. */
+export function createChatSession(params: CreateChatSessionParams): ChatSession {
+  const s = statements();
+  const conversationId = params.conversationId ?? randomUUID();
+  let internalSessionKey = randomUUID();
+  while (internalSessionKey === conversationId) internalSessionKey = randomUUID();
+  const create = s.db.transaction(() => {
+    s.insertChatSession.run({
+      internalSessionKey,
+      conversationId,
+      provider: params.provider,
+      model: params.model,
+      cwd: params.cwd,
+      promptBundleHash: params.promptBundleHash,
+      title: params.title ?? null,
+      grounded: params.grounded ? 1 : 0,
+    });
+    const message = s.insertMessage.run({
+      sessionId: internalSessionKey,
+      role: "user",
+      content: params.userMessage.content,
+      runId: params.userMessage.runId ?? null,
+      usageJson: null,
+      citationsJson: null,
+    });
+    if (message.changes !== 1) throw new Error("chat user message was not created");
+  });
+  create();
+  const session = getChatSession(conversationId);
+  if (!session) throw new Error("chat session was not created");
+  return session;
+}
+
+/** Fetch one public chat session by conversation id. */
+export function getChatSession(conversationId: string): ChatSession | null {
+  const row = statements().getChatSession.get(conversationId) as ChatSessionRecord | undefined;
+  return row ? toSession(row) : null;
+}
+
+/** List public chat sessions without internal keys or opaque continuations. */
+export function listChatSessions(): ChatSession[] {
+  const rows = statements().listChatSessions.all() as ChatSessionRecord[];
+  return rows.map(toSession);
+}
+
+/**
+ * Append a subsequent user message by public id. A dispatch path must call
+ * reserveChatTurn first so a losing cross-process caller leaves no orphan
+ * message; fresh createChatSession already owns its first message atomically.
+ */
+export function appendChatUserMessage(params: AppendChatUserMessageParams): void {
+  const result = statements().insertChatUserMessage.run({
+    conversationId: params.conversationId,
+    content: params.content,
+    runId: params.runId ?? null,
+  });
+  if (result.changes !== 1) throw new Error("chat conversation not found");
+}
+
+/** Fetch public messages by conversation id, oldest first. */
+export function getChatMessages(conversationId: string): ChatMessage[] {
+  const rows = statements().getChatMessages.all(conversationId) as MessageRow[];
+  return rows.map(toMessage);
+}
+
+/** @internal Provider dispatch only. Never serialize this state. */
+export function getChatContinuation(conversationId: string): ChatContinuationState | null {
+  const row = statements().getChatContinuation.get(conversationId) as ChatSessionRecord | undefined;
+  if (!row) return null;
+  return {
+    conversationId: row.conversation_id,
+    provider: row.continuation_provider,
+    model: row.continuation_model,
+    promptBundleHash: row.continuation_prompt_bundle_hash,
+    continuation: row.provider_continuation,
+    generation: row.continuation_generation,
+  };
+}
+
+/**
+ * Reserve one provider send before inference. Two processes holding the same
+ * generation cannot both win; the loser receives null and must not dispatch.
+ */
+export function reserveChatTurn(params: ReserveChatTurnParams): ChatContinuationState | null {
+  const row = statements().reserveChatTurn.get(params) as
+    | { provider_continuation: string | null; continuation_generation: number }
+    | undefined;
+  if (!row) return null;
+  return {
+    conversationId: params.conversationId,
+    provider: params.provider,
+    model: params.model,
+    promptBundleHash: params.promptBundleHash,
+    continuation: row.provider_continuation,
+    generation: row.continuation_generation,
+  };
+}
+
+/** Invalidate the opaque token if the caller still owns the generation. */
+export function clearChatContinuation(params: ContinuationCas): number | null {
+  const row = statements().clearChatContinuation.get(params) as
+    | { continuation_generation: number }
+    | undefined;
+  return row?.continuation_generation ?? null;
+}
+
+/** Rebind provider/model/prompt only after the token has been cleared. */
+export function rebindChatContinuation(params: RebindChatContinuationParams): number | null {
+  const row = statements().rebindChatContinuation.get(params) as
+    | { continuation_generation: number }
+    | undefined;
+  return row?.continuation_generation ?? null;
+}
+
+/**
+ * Commit a successful assistant message and its successor continuation as one
+ * generation-CAS transaction. A stale generation writes neither half.
+ */
+export function commitAssistantTurn(params: CommitAssistantTurnParams): number | null {
+  const s = statements();
+  const commit = s.db.transaction((): number | null => {
+    const updated = s.commitChatContinuation.get({
+      conversationId: params.conversationId,
+      expectedGeneration: params.expectedGeneration,
+      provider: params.provider,
+      model: params.model,
+      promptBundleHash: params.promptBundleHash,
+      continuation: params.continuation,
+    }) as { session_id: string; continuation_generation: number } | undefined;
+    if (!updated) return null;
+    const message = s.insertMessage.run({
+      sessionId: updated.session_id,
+      role: "assistant",
+      content: params.assistantMessage.content,
+      runId: params.assistantMessage.runId ?? null,
+      usageJson: params.assistantMessage.usageJson ?? null,
+      citationsJson: params.assistantMessage.citationsJson ?? null,
+    });
+    if (message.changes !== 1) throw new Error("chat assistant message was not created");
+    return updated.continuation_generation;
+  });
+  return commit();
+}
+
+/** @deprecated Internal provider-key API; use createChatSession(). */
 export function createSession(params: CreateSessionParams): void {
   statements().insertSession.run({
     sessionId: params.sessionId,
@@ -642,29 +1001,29 @@ export function createSession(params: CreateSessionParams): void {
   });
 }
 
-/** Mark a session poisoned so it is never resumed again. */
+/** @deprecated Internal provider-key API retained for the server cutover. */
 export function markSessionPoisoned(sessionId: string): void {
   statements().poisonSession.run(sessionId);
 }
 
-/** Bump a session's updated_at timestamp. */
+/** @deprecated Internal provider-key API retained for the server cutover. */
 export function updateSessionTimestamp(sessionId: string): void {
   statements().touchSession.run(sessionId);
 }
 
-/** Fetch one session by id, or null. */
-export function getSession(sessionId: string): ChatSession | null {
-  const row = statements().getSession.get(sessionId) as SessionRow | undefined;
-  return row ? toSession(row) : null;
+/** @deprecated Internal provider-key API; use getChatSession(). */
+export function getSession(sessionId: string): LegacyChatSession | null {
+  const row = statements().getSession.get(sessionId) as ChatSessionRecord | undefined;
+  return row ? toLegacySession(row) : null;
 }
 
-/** List sessions, most-recent first. */
-export function listSessions(): ChatSession[] {
-  const rows = statements().listSessions.all() as SessionRow[];
-  return rows.map(toSession);
+/** @deprecated Internal provider-key API; use listChatSessions(). */
+export function listSessions(): LegacyChatSession[] {
+  const rows = statements().listSessions.all() as ChatSessionRecord[];
+  return rows.map(toLegacySession);
 }
 
-/** Append a chat message to a session. */
+/** @deprecated Internal provider-key API; use appendChatUserMessage(). */
 export function appendMessage(params: AppendMessageParams): void {
   statements().insertMessage.run({
     sessionId: params.sessionId,
@@ -676,10 +1035,10 @@ export function appendMessage(params: AppendMessageParams): void {
   });
 }
 
-/** Fetch all messages for a session, oldest first. */
-export function getMessages(sessionId: string): ChatMessage[] {
+/** @deprecated Internal provider-key API; use getChatMessages(). */
+export function getMessages(sessionId: string): LegacyChatMessage[] {
   const rows = statements().getMessages.all(sessionId) as MessageRow[];
-  return rows.map(toMessage);
+  return rows.map(toLegacyMessage);
 }
 
 /**

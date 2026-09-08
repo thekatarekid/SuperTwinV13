@@ -136,6 +136,7 @@ export interface FullContractEvidence {
     caseSequence?: 1;
     caseName?: "canary.blank-context";
     acceptancePolicyVersion?: "phase0b-canary-success-v1";
+    plannedInferencePosts?: number;
     reservationPost?: number;
   };
   accountFingerprint: string;
@@ -157,10 +158,17 @@ export interface FullContractEvidence {
 
 class ContractRestrictionError extends Error {}
 
-export function contractHttpLimitsForRun(reuseCanary: boolean): ProbeHttpLimits {
+export function contractHttpLimitsForRun(
+  plannedInferencePosts: number,
+  reuseCanary: boolean,
+): ProbeHttpLimits {
+  if (!Number.isSafeInteger(plannedInferencePosts) || plannedInferencePosts < 1 ||
+      plannedInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET) {
+    throw new Error("REFUSED: invalid authorized inference plan count");
+  }
   return Object.freeze({
     ...LIVE_CONTRACT_HTTP_LIMITS,
-    inference: FULL_PROBE_INFERENCE_POST_BUDGET - (reuseCanary ? 1 : 0),
+    inference: plannedInferencePosts - (reuseCanary ? 1 : 0),
   });
 }
 
@@ -482,6 +490,7 @@ function checkpointEvidence(
     request: {
       checkpointReused: true,
       acceptancePolicyVersion: checkpoint.acceptancePolicyVersion,
+      plannedInferencePosts: checkpoint.plannedInferencePosts,
       reservationPost: checkpoint.reservationPost,
     },
   };
@@ -685,11 +694,12 @@ export async function runContractProbeScaffold(
   const env = { ...(hooks.env ?? process.env) };
   assertLiveContractProbePreflight(env);
   const authorization = await prepareLiveInferenceAuthorization("contract", env);
-  const preflightInferencePosts = FULL_PROBE_INFERENCE_POST_BUDGET -
-    (authorization.ledger.canaryCheckpoint ? 1 : 0);
   return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = contractListeningSocketCount();
-  const accounting = new ProbeHttpAccounting(contractHttpLimitsForRun(preflightInferencePosts === 54));
+  const accounting = new ProbeHttpAccounting(contractHttpLimitsForRun(
+    authorization.ledger.plannedInferencePosts,
+    Boolean(authorization.ledger.canaryCheckpoint),
+  ));
   const probeAbort = new AbortController();
   const signals = [hooks.signal, probeAbort.signal].filter(
     (signal): signal is AbortSignal => signal !== undefined,
@@ -750,7 +760,7 @@ export async function runContractProbeScaffold(
   const matrixHttpActuals = accounting.snapshot();
   const actualInferencePosts = matrixHttpActuals.inference;
   if (cases.length !== FULL_PROBE_CASE_BUDGET ||
-      actualInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET - (checkpoint ? 1 : 0) ||
+      actualInferencePosts > boundAuthorization.plan.inferencePostCount - (checkpoint ? 1 : 0) ||
       actualInferencePosts !== evidenceInferencePosts || matrixHttpActuals.other !== 0) {
     throw new Error("Phase 0b runner exceeded its declared case or POST ceiling");
   }
@@ -837,6 +847,7 @@ export async function runContractProbeScaffold(
       caseSequence: checkpoint.caseSequence,
       caseName: checkpoint.caseName,
       acceptancePolicyVersion: checkpoint.acceptancePolicyVersion,
+      plannedInferencePosts: checkpoint.plannedInferencePosts,
       reservationPost: checkpoint.reservationPost,
     } : { canary: "not-reused" },
     accountFingerprint: account.fingerprint,

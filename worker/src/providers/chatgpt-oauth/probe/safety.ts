@@ -152,9 +152,9 @@ export function formatLiveDeclaration(mode: "auth" | "discover" | "canary" | "co
       ? "CUMULATIVE_AUTHORIZATION=existing external SQLite ledger required"
       : "CUMULATIVE_AUTHORIZATION=not-applicable-no-inference",
     ...(mode === "contract" || mode === "canary" ? [
-      "AUTHORIZATION_ENV=SUPERTWIN_CHATGPT_AUTHORIZATION_LEDGER_PATH + SUPERTWIN_CHATGPT_AUTHORIZATION_ID + SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER + SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS",
+      "AUTHORIZATION_ENV=SUPERTWIN_CHATGPT_AUTHORIZATION_LEDGER_PATH + SUPERTWIN_CHATGPT_AUTHORIZATION_ID + SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER + SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS + SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS",
       mode === "contract"
-        ? `PREFLIGHT_REMAINING_INFERENCE_POSTS=${FULL_PROBE_INFERENCE_POST_BUDGET} fresh; ${FULL_PROBE_INFERENCE_POST_BUDGET - 1} only with an exact matched canary checkpoint`
+        ? "PREFLIGHT_REMAINING_INFERENCE_POSTS=exact authorized plan count; minus 1 only with an exact matched canary checkpoint"
         : "PREFLIGHT_REMAINING_INFERENCE_POSTS=1",
       "RESERVATION_POLICY=durable-before-fetch-no-refunds; ladder-stage-batch-before-peers",
     ] : []),

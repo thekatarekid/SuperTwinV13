@@ -8,6 +8,7 @@ import {
   AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV,
   AUTHORIZATION_MATRIX_HASH_ENV,
   AUTHORIZATION_MATRIX_VERSION_ENV,
+  CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS,
   initializeInferenceAuthorizationFromEnvironment,
 } from "./authorization-ledger-init.js";
 import { readInferenceAuthorizationLedger } from "./authorization-ledger.js";
@@ -19,11 +20,12 @@ import {
   AUTHORIZATION_LEDGER_PATH_ENV,
   AUTHORIZATION_OWNER_ENV,
   AUTHORIZED_INFERENCE_POSTS_ENV,
+  AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
 } from "./live-authorization.js";
 import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 
 const roots = new Set<string>();
-const MATRIX_HASH = "a".repeat(64);
+const MATRIX_HASH = "b02baf6834d23ad8fbaf5df4f693f3f924ce6f8787cc9173f1668995e96cac88";
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -46,6 +48,7 @@ async function initializationEnv(): Promise<NodeJS.ProcessEnv> {
     [AUTHORIZATION_MATRIX_VERSION_ENV]: PHASE0B_MATRIX_VERSION,
     [AUTHORIZATION_MATRIX_HASH_ENV]: MATRIX_HASH,
     [AUTHORIZED_INFERENCE_POSTS_ENV]: String(FULL_PROBE_INFERENCE_POST_BUDGET),
+    [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]: String(CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS),
     [AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV]: "2",
   };
 }
@@ -58,12 +61,13 @@ function grant(env: NodeJS.ProcessEnv) {
     modelId: env[REQUESTED_PROBE_MODEL_ENV]!,
     matrixVersion: env[AUTHORIZATION_MATRIX_VERSION_ENV]!,
     matrixHash: env[AUTHORIZATION_MATRIX_HASH_ENV]!,
+    plannedInferencePosts: Number(env[AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]),
     authorizedPosts: Number(env[AUTHORIZED_INFERENCE_POSTS_ENV]),
   };
 }
 
 describe("Phase 0b offline authorization ledger initializer", () => {
-  it("creates the exact 55-post grant at cumulative count 2 without network access", async () => {
+  it("creates the exact 55-post cap and 46-post plan at cumulative count 2 without network access", async () => {
     const env = await initializationEnv();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
@@ -73,6 +77,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
       modelId: "gpt-5.6-sol",
       matrixVersion: PHASE0B_MATRIX_VERSION,
       matrixHash: MATRIX_HASH,
+      plannedInferencePosts: 46,
       authorizedPosts: 55,
       consumedPosts: 2,
       remainingPosts: 53,
@@ -117,6 +122,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     AUTHORIZATION_MATRIX_VERSION_ENV,
     AUTHORIZATION_MATRIX_HASH_ENV,
     AUTHORIZED_INFERENCE_POSTS_ENV,
+    AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
     AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV,
   ])("requires explicit %s before creating a ledger", async (missing) => {
     const env = await initializationEnv();
@@ -131,6 +137,8 @@ describe("Phase 0b offline authorization ledger initializer", () => {
   it.each([
     [AUTHORIZED_INFERENCE_POSTS_ENV, "54", /must explicitly equal 55/],
     [AUTHORIZED_INFERENCE_POSTS_ENV, "56", /must explicitly equal 55/],
+    [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV, "45", /must explicitly equal 46/],
+    [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV, "47", /must explicitly equal 46/],
     [AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV, "0", /must explicitly equal 2/],
     [AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV, "3", /must explicitly equal 2/],
     [AUTHORIZATION_MATRIX_VERSION_ENV, "phase0b-contract-matrix-v2", /must equal/],
@@ -170,6 +178,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     expect(stderrSpy).not.toHaveBeenCalled();
     const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
     expect(output).toContain(`"matrixHash": "${MATRIX_HASH}"`);
+    expect(output).toContain('"plannedInferencePosts": 46');
     expect(output).toContain('"remainingPosts": 53');
     expect(output).not.toContain(env[AUTHORIZATION_LEDGER_PATH_ENV]!);
     expect(output).not.toContain("Aditya Katare");

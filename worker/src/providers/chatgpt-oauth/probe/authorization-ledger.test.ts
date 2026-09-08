@@ -40,6 +40,7 @@ async function fixture(authorizedPosts = 2): Promise<{
       modelId: "gpt-probe",
       matrixVersion: "phase0b-v1",
       matrixHash: MATRIX_HASH,
+      plannedInferencePosts: 1,
       authorizedPosts,
     },
   };
@@ -53,7 +54,7 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
   it("creates a 0600 SQLite ledger with an explicit conservative starting count", async () => {
     const { location, grant } = await fixture(55);
     const ledger = await initializeInferenceAuthorizationLedger(location, grant, 2);
-    expect(ledger).toEqual({ ...grant, schemaVersion: 2, consumedPosts: 2 });
+    expect(ledger).toEqual({ ...grant, schemaVersion: 3, consumedPosts: 2 });
     expect((await lstat(location.ledgerPath)).mode & 0o777).toBe(0o600);
     const bytes = await readFile(location.ledgerPath);
     expect(bytes.subarray(0, 16).toString()).toBe("SQLite format 3\0");
@@ -80,6 +81,7 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
       caseSequence: 1,
       caseName: "canary.blank-context",
       acceptancePolicyVersion: "phase0b-canary-success-v1",
+      plannedInferencePosts: 1,
       state: "reserved",
     });
     const reservedLedger = await readInferenceAuthorizationLedger(location, grant);
@@ -118,6 +120,7 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
       authorizationId: grant.authorizationId,
       matrixVersion: grant.matrixVersion,
       matrixHash: grant.matrixHash,
+      plannedInferencePosts: grant.plannedInferencePosts,
       reservationPost: 1,
       caseSequence: 1 as const,
       caseName: "canary.blank-context" as const,
@@ -131,6 +134,10 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
     await expect(markCanaryInferenceMatched(location, grant, {
       ...reservation,
       authorizationId: "different-authorization",
+    })).rejects.toThrow(/immutable grant and reservation/);
+    await expect(markCanaryInferenceMatched(location, grant, {
+      ...reservation,
+      plannedInferencePosts: 2,
     })).rejects.toThrow(/immutable grant and reservation/);
     await expect(markCanaryInferenceMatched(location, {
       ...grant,
@@ -171,11 +178,11 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
     await expect(readInferenceAuthorizationLedger(location, grant)).rejects.toThrow(/attempt records are corrupt/);
   });
 
-  it("refuses schema v1 explicitly without migrating or resetting it", async () => {
+  it("refuses schema v2 explicitly without migrating or resetting it", async () => {
     const { location, grant } = await fixture(3);
     await initializeInferenceAuthorizationLedger(location, grant, 2);
     const db = new Database(location.ledgerPath);
-    db.pragma("user_version = 1");
+    db.pragma("user_version = 2");
     db.close();
     await expect(readInferenceAuthorizationLedger(location, grant)).rejects.toThrow(/schema is unsupported/);
     const inspect = new Database(location.ledgerPath, { readonly: true });
@@ -238,6 +245,10 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
       ...malformed.grant,
       matrixHash: "not-a-sha256",
     })).rejects.toThrow(/grant values/);
+    await expect(initializeInferenceAuthorizationLedger(malformed.location, {
+      ...malformed.grant,
+      plannedInferencePosts: 56,
+    })).rejects.toThrow(/grant values/);
     const extra = await fixture();
     await expect(initializeInferenceAuthorizationLedger(
       extra.location,
@@ -249,6 +260,10 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
     await expect(readInferenceAuthorizationLedger(drift.location, {
       ...drift.grant,
       matrixHash: "b".repeat(64),
+    })).rejects.toThrow(/immutable grant/);
+    await expect(readInferenceAuthorizationLedger(drift.location, {
+      ...drift.grant,
+      plannedInferencePosts: 2,
     })).rejects.toThrow(/immutable grant/);
 
     const corrupt = await fixture();

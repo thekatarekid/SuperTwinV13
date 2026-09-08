@@ -10,6 +10,7 @@ import {
   AUTHORIZATION_LEDGER_PATH_ENV,
   AUTHORIZATION_OWNER_ENV,
   AUTHORIZED_INFERENCE_POSTS_ENV,
+  AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
 } from "./live-authorization.js";
 import type { ProbeModelCatalogue } from "./models.js";
 
@@ -18,7 +19,7 @@ const authorizationRoots = new Set<string>();
 export async function addTestInferenceAuthorization(
   env: NodeJS.ProcessEnv,
   catalogue: ProbeModelCatalogue = { models: [{ id: "gpt-probe", capabilities: {} }] },
-  options: { authorizedPosts?: number; consumedPosts?: number } = {},
+  options: { authorizedPosts?: number; consumedPosts?: number; plannedInferencePosts?: number } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const authorizedPosts = options.authorizedPosts ?? 55;
   const root = await mkdtemp(join(tmpdir(), "supertwin-live-auth-test-"));
@@ -32,6 +33,7 @@ export async function addTestInferenceAuthorization(
   const accountFingerprint = env.SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT!;
   const modelId = env.SUPERTWIN_CHATGPT_PROBE_MODEL!;
   const plan = buildPhase0bAuthorizationPlan(catalogue, modelId, env);
+  const plannedInferencePosts = options.plannedInferencePosts ?? plan.inferencePostCount;
   await initializeInferenceAuthorizationLedger({
     ledgerPath,
     superTwinHome: env.SUPERTWIN_HOME!,
@@ -42,6 +44,7 @@ export async function addTestInferenceAuthorization(
     modelId,
     matrixVersion: plan.matrixVersion,
     matrixHash: plan.matrixHash,
+    plannedInferencePosts,
     authorizedPosts,
   }, options.consumedPosts ?? 0);
   return {
@@ -50,6 +53,7 @@ export async function addTestInferenceAuthorization(
     [AUTHORIZATION_ID_ENV]: authorizationId,
     [AUTHORIZATION_OWNER_ENV]: owner,
     [AUTHORIZED_INFERENCE_POSTS_ENV]: String(authorizedPosts),
+    [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]: String(plannedInferencePosts),
   };
 }
 

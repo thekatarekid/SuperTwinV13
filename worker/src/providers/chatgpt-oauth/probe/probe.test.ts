@@ -223,7 +223,10 @@ describe("Phase 0b offline safety", () => {
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
     expect(formatLiveDeclaration("contract")).toContain("1 token exchange + 1 refresh");
     expect(formatLiveDeclaration("contract")).toContain(
-      "PREFLIGHT_REMAINING_INFERENCE_POSTS=55 fresh; 54 only with an exact matched canary checkpoint",
+      "PREFLIGHT_REMAINING_INFERENCE_POSTS=exact authorized plan count; minus 1 only with an exact matched canary checkpoint",
+    );
+    expect(formatLiveDeclaration("contract")).toContain(
+      "SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS",
     );
     expect(formatLiveDeclaration("discover")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");

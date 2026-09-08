@@ -17,7 +17,6 @@ import {
   buildPhase0bAuthorizationPlan,
   type Phase0bAuthorizationPlan,
 } from "./authorization-plan.js";
-import { FULL_PROBE_INFERENCE_POST_BUDGET } from "./constants.js";
 import { requestedProbeModelId } from "./models.js";
 import type { ProbeModelCatalogue } from "./models.js";
 import {
@@ -29,6 +28,8 @@ export const AUTHORIZATION_LEDGER_PATH_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_LE
 export const AUTHORIZATION_ID_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_ID";
 export const AUTHORIZATION_OWNER_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER";
 export const AUTHORIZED_INFERENCE_POSTS_ENV = "SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS";
+export const AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV =
+  "SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS";
 
 export type LiveInferenceAuthorizationMode = "canary" | "contract";
 
@@ -50,6 +51,7 @@ function grantFor(authorization: BoundLiveInferenceAuthorization): InferenceAuth
     modelId: authorization.ledger.modelId,
     matrixVersion: authorization.plan.matrixVersion,
     matrixHash: authorization.plan.matrixHash,
+    plannedInferencePosts: authorization.plan.inferencePostCount,
     authorizedPosts: authorization.ledger.authorizedPosts,
   };
 }
@@ -70,6 +72,16 @@ function authorizedPosts(env: NodeJS.ProcessEnv): number {
   const value = env[AUTHORIZED_INFERENCE_POSTS_ENV]?.trim();
   if (!value || !/^[1-9][0-9]{0,6}$/.test(value)) {
     throw new Error(`REFUSED: ${AUTHORIZED_INFERENCE_POSTS_ENV} must be an explicit positive integer cap`);
+  }
+  return Number(value);
+}
+
+function authorizedPlannedInferencePosts(env: NodeJS.ProcessEnv): number {
+  const value = env[AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]?.trim();
+  if (!value || !/^[1-9][0-9]{0,6}$/.test(value)) {
+    throw new Error(
+      `REFUSED: ${AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV} must be an explicit positive integer plan count`,
+    );
   }
   return Number(value);
 }
@@ -96,6 +108,7 @@ export async function prepareLiveInferenceAuthorization(
     owner: authorizationOwner(env),
     accountFingerprint: expectedProbeAccountFingerprint(env),
     modelId: requestedProbeModelId(env),
+    plannedInferencePosts: authorizedPlannedInferencePosts(env),
     authorizedPosts: authorizedPosts(env),
   });
   if (mode === "canary" && ledger.canaryCheckpoint) {
@@ -103,7 +116,7 @@ export async function prepareLiveInferenceAuthorization(
   }
   const intendedPosts = mode === "canary"
     ? 1
-    : FULL_PROBE_INFERENCE_POST_BUDGET - (ledger.canaryCheckpoint ? 1 : 0);
+    : ledger.plannedInferencePosts - (ledger.canaryCheckpoint ? 1 : 0);
   if (ledger.authorizedPosts - ledger.consumedPosts < intendedPosts) {
     throw new Error(`REFUSED: cumulative inference authorization is insufficient for ${mode}`);
   }
@@ -125,6 +138,7 @@ export async function bindLiveInferenceAuthorizationPlan(
     modelId: selectedModelId,
     matrixVersion: plan.matrixVersion,
     matrixHash: plan.matrixHash,
+    plannedInferencePosts: plan.inferencePostCount,
     authorizedPosts: authorization.ledger.authorizedPosts,
   });
   const beforeCheckpoint = authorization.ledger.canaryCheckpoint?.reservationPost;
@@ -133,7 +147,7 @@ export async function bindLiveInferenceAuthorizationPlan(
     throw new Error("REFUSED: canary checkpoint changed after preflight");
   }
   const required = authorization.mode === "contract"
-    ? plan.inferencePostCount - (ledger.canaryCheckpoint ? 1 : 0)
+    ? ledger.plannedInferencePosts - (ledger.canaryCheckpoint ? 1 : 0)
     : 1;
   if (ledger.authorizedPosts - ledger.consumedPosts < required) {
     throw new Error(`REFUSED: cumulative inference authorization is insufficient for ${authorization.mode}`);

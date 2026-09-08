@@ -14,6 +14,7 @@ import {
   AUTHORIZATION_LEDGER_PATH_ENV,
   AUTHORIZATION_OWNER_ENV,
   AUTHORIZED_INFERENCE_POSTS_ENV,
+  AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
   bindLiveInferenceAuthorizationPlan,
   prepareLiveInferenceAuthorization,
   reserveLiveInferencePosts,
@@ -42,6 +43,7 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       AUTHORIZATION_ID_ENV,
       AUTHORIZATION_OWNER_ENV,
       AUTHORIZED_INFERENCE_POSTS_ENV,
+      AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
     ]) {
       const candidate = { ...complete };
       delete candidate[key];
@@ -51,6 +53,10 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       ...complete,
       [AUTHORIZATION_LEDGER_PATH_ENV]: join(tmpdir(), "missing-phase0b-ledger.sqlite"),
     })).rejects.toThrow(/ledger is missing|ledger location is unavailable/);
+    await expect(prepareLiveInferenceAuthorization("canary", {
+      ...complete,
+      [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]: "45",
+    })).rejects.toThrow(/preflight binding/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -70,7 +76,31 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       authorizedPosts: 55,
       consumedPosts: 2,
     });
-    await expect(prepareLiveInferenceAuthorization("contract", contractEnv)).rejects.toThrow(/insufficient/);
+    await expect(prepareLiveInferenceAuthorization("contract", contractEnv)).resolves.toMatchObject({
+      ledger: { plannedInferencePosts: 44, authorizedPosts: 55, consumedPosts: 2 },
+    });
+    const currentPlanCatalogue = {
+      models: [{ id: "gpt-probe", capabilities: { parallelToolCalls: true, structuredOutput: true } }],
+    };
+    const currentGrantEnv = await addTestInferenceAuthorization(baseEnv("contract"), currentPlanCatalogue, {
+      authorizedPosts: 55,
+      consumedPosts: 2,
+    });
+    const currentPrepared = await prepareLiveInferenceAuthorization("contract", currentGrantEnv);
+    expect(currentPrepared).toMatchObject({
+      ledger: { plannedInferencePosts: 46, authorizedPosts: 55, consumedPosts: 2 },
+    });
+    await expect(bindLiveInferenceAuthorizationPlan(
+      currentPrepared,
+      currentPlanCatalogue,
+      "gpt-probe",
+      currentGrantEnv,
+    )).resolves.toMatchObject({ plan: { inferencePostCount: 46 } });
+    const insufficientEnv = await addTestInferenceAuthorization(baseEnv("contract"), undefined, {
+      authorizedPosts: 45,
+      consumedPosts: 2,
+    });
+    await expect(prepareLiveInferenceAuthorization("contract", insufficientEnv)).rejects.toThrow(/insufficient/);
   });
 
   it("refuses capability-resolved matrix or app-transport drift before inference", async () => {
@@ -83,6 +113,15 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       models: [{ id: "gpt-probe", capabilities: {} }],
     }, "gpt-probe", { ...env, SUPERTWIN_APP_VERSION: "13.12.3" })).rejects.toThrow(/immutable grant/);
     expect(testConsumedInferencePosts(env)).toBe(0);
+
+    const countDrift = await addTestInferenceAuthorization(baseEnv("canary"), undefined, {
+      plannedInferencePosts: 43,
+    });
+    const countPrepared = await prepareLiveInferenceAuthorization("canary", countDrift);
+    await expect(bindLiveInferenceAuthorizationPlan(countPrepared, {
+      models: [{ id: "gpt-probe", capabilities: {} }],
+    }, "gpt-probe", countDrift)).rejects.toThrow(/immutable grant/);
+    expect(testConsumedInferencePosts(countDrift)).toBe(0);
   });
 
   it("charges nothing for SIGINT before reserve and keeps the permit after SIGINT following reserve", async () => {

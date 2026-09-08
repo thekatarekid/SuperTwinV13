@@ -54,6 +54,7 @@ export interface CanaryProbeEvidence {
     caseSequence: 1;
     caseName: "canary.blank-context";
     acceptancePolicyVersion: "phase0b-canary-success-v1";
+    plannedInferencePosts: number;
     reservationPost: number;
   };
   httpActuals: ProbeHttpCounts;
@@ -223,6 +224,7 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
       caseSequence: checkpoint.caseSequence,
       caseName: checkpoint.caseName,
       acceptancePolicyVersion: checkpoint.acceptancePolicyVersion,
+      plannedInferencePosts: checkpoint.plannedInferencePosts,
       reservationPost: checkpoint.reservationPost,
     },
   };

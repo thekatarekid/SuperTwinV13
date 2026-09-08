@@ -20,6 +20,7 @@ import {
   runContractProbeScaffold,
 } from "./contract-runner.js";
 import { ProbeHttpAccounting } from "./accounting.js";
+import { buildPhase0bAuthorizationPlan } from "./authorization-plan.js";
 import {
   buildContractProbeMatrix,
   PROBED_ALLOWLIST_FIELDS,
@@ -62,6 +63,14 @@ const CAPABLE_CATALOGUE: ProbeModelCatalogue = { models: [{
     promptCacheKey: true,
     promptCacheOptions: true,
     structuredOutput: true,
+  },
+}] };
+
+const DISCOVERED_GPT_5_6_SOL_CATALOGUE: ProbeModelCatalogue = { models: [{
+  id: "gpt-5.6-sol",
+  capabilities: {
+    inputModalities: ["text", "image"],
+    parallelToolCalls: true,
   },
 }] };
 
@@ -485,6 +494,93 @@ describe("mocked contract runner scaffold", () => {
     expect(output).not.toContain("resp_probe");
   });
 
+  it("runs the exact discovered gpt-5.6-sol 46-POST plan end to end", async () => {
+    const accountId = "acct-discovered-gpt-5-6-sol";
+    const plan = buildPhase0bAuthorizationPlan(
+      DISCOVERED_GPT_5_6_SOL_CATALOGUE,
+      "gpt-5.6-sol",
+      { SUPERTWIN_APP_VERSION: "13.12.2" },
+    );
+    expect(plan).toEqual({
+      matrixVersion: "phase0b-contract-matrix-v1",
+      matrixHash: "b02baf6834d23ad8fbaf5df4f693f3f924ce6f8787cc9173f1668995e96cac88",
+      caseCount: 70,
+      inferencePostCount: 46,
+      inferenceRetries: 0,
+    });
+    const liveEnv = await addTestInferenceAuthorization({
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
+      SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-5.6-sol",
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-discovered-plan-test"),
+    }, DISCOVERED_GPT_5_6_SOL_CATALOGUE, { authorizedPosts: 55, consumedPosts: 0 });
+
+    let inferencePosts = 0;
+    const sequences: number[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === CODEX_DEVICE_CODE_URL) {
+        return jsonResponse(200, {
+          user_code: "ABCD-EFGH",
+          device_auth_id: "device-secret",
+          interval: 3,
+        });
+      }
+      if (url === CODEX_DEVICE_TOKEN_URL) {
+        return jsonResponse(200, {
+          authorization_code: "authorization-secret",
+          code_verifier: "verifier-secret",
+        });
+      }
+      if (url === CODEX_OAUTH_TOKEN_URL) {
+        return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
+      }
+      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{
+        slug: "gpt-5.6-sol",
+        input_modalities: ["text", "image"],
+        supports_parallel_tool_calls: true,
+      }] });
+      if (url === CODEX_USAGE_URL) return jsonResponse(200, {
+        plan_type: "plus",
+        rate_limit: { primary_window: { used_percent: 10, reset_at: 2_000_000_000 } },
+      });
+      if (url !== CODEX_RESPONSES_URL) throw new Error(`Unexpected mocked URL: ${url}`);
+      inferencePosts += 1;
+      expect(testConsumedInferencePosts(liveEnv)).toBeGreaterThanOrEqual(inferencePosts);
+      const sequence = Number((init?.headers as Record<string, string>).session_id.split("-").at(-1));
+      sequences.push(sequence);
+      if (sequence >= 4 && sequence <= 32 && sequence % 2 === 0) {
+        return jsonResponse(400, { error: { code: "invalid_request" } });
+      }
+      return sseResponse(sequence === 2 ? "response.output_text.delta" : "response.completed");
+    });
+
+    const evidence = await runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env: liveEnv,
+    });
+
+    expect(sequences).toHaveLength(46);
+    expect(new Set(sequences).size).toBe(46);
+    expect(inferencePosts).toBe(46);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(46);
+    expect(fetchMock).toHaveBeenCalledTimes(53);
+    expect(evidence).toMatchObject({
+      plannedInferencePosts: 46,
+      actualInferencePosts: 46,
+      checkpoint: { canary: "not-reused" },
+      modelCatalogue: { ids: ["gpt-5.6-sol"], selectedId: "gpt-5.6-sol" },
+      httpActuals: { inference: 46, total: 53 },
+    });
+    expect(evidence.cases).toHaveLength(70);
+    expect(evidence.cases.filter(({ status }) => status === "unsupported-skip")).toHaveLength(9);
+  });
+
   it("reuses only an exact matched canary and runs the remaining 54 POSTs", async () => {
     const accountId = "acct-checkpoint-resume";
     const liveEnv = await contractEnv(
@@ -567,6 +663,7 @@ describe("mocked contract runner scaffold", () => {
         caseSequence: 1,
         caseName: "canary.blank-context",
         acceptancePolicyVersion: "phase0b-canary-success-v1",
+        plannedInferencePosts: 55,
         reservationPost: 3,
       },
       httpActuals: { inference: 54, total: 61 },
@@ -582,10 +679,25 @@ describe("mocked contract runner scaffold", () => {
 
   it("hard-caps a checkpoint-resumed run at 54 before an erroneous 55th fetch", async () => {
     const upstream = vi.fn<typeof fetch>(async () => sseResponse());
-    const counted = new ProbeHttpAccounting(contractHttpLimitsForRun(true)).wrap(upstream);
+    const counted = new ProbeHttpAccounting(contractHttpLimitsForRun(55, true)).wrap(upstream);
     for (let index = 0; index < 54; index += 1) await counted(CODEX_RESPONSES_URL);
     await expect(counted(CODEX_RESPONSES_URL)).rejects.toThrow(/budget exhausted for inference/);
     expect(upstream).toHaveBeenCalledTimes(54);
+  });
+
+  it.each([
+    { planned: 46, reused: false, expectedFetches: 46 },
+    { planned: 46, reused: true, expectedFetches: 45 },
+  ])("hard-caps a $planned-post current plan at $expectedFetches fetches when reused=$reused", async ({
+    planned,
+    reused,
+    expectedFetches,
+  }) => {
+    const upstream = vi.fn<typeof fetch>(async () => sseResponse());
+    const counted = new ProbeHttpAccounting(contractHttpLimitsForRun(planned, reused)).wrap(upstream);
+    for (let index = 0; index < expectedFetches; index += 1) await counted(CODEX_RESPONSES_URL);
+    await expect(counted(CODEX_RESPONSES_URL)).rejects.toThrow(/budget exhausted for inference/);
+    expect(upstream).toHaveBeenCalledTimes(expectedFetches);
   });
 
   it("ignores restriction words in model metadata but rejects structural catalogue flags", async () => {

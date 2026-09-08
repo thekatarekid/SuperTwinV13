@@ -3,7 +3,9 @@ import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
-const LEDGER_SCHEMA_VERSION = 2;
+import { FULL_PROBE_INFERENCE_POST_BUDGET } from "./constants.js";
+
+const LEDGER_SCHEMA_VERSION = 3;
 export const CANARY_ACCEPTANCE_POLICY_VERSION = "phase0b-canary-success-v1";
 export const CANARY_CASE_NAME = "canary.blank-context";
 export const CANARY_CASE_SEQUENCE = 1;
@@ -20,6 +22,7 @@ const GRANT_KEYS = [
   "matrixVersion",
   "modelId",
   "owner",
+  "plannedInferencePosts",
 ] as const;
 
 export interface InferenceAuthorizationGrant {
@@ -29,6 +32,7 @@ export interface InferenceAuthorizationGrant {
   modelId: string;
   matrixVersion: string;
   matrixHash: string;
+  plannedInferencePosts: number;
   authorizedPosts: number;
 }
 
@@ -42,6 +46,7 @@ export interface CanaryInferenceReservation {
   authorizationId: string;
   matrixVersion: string;
   matrixHash: string;
+  plannedInferencePosts: number;
   reservationPost: number;
   caseSequence: typeof CANARY_CASE_SEQUENCE;
   caseName: typeof CANARY_CASE_NAME;
@@ -55,7 +60,7 @@ export interface CanaryCompletionCheckpoint extends Omit<CanaryInferenceReservat
 
 export type InferenceAuthorizationBinding = Pick<
   InferenceAuthorizationGrant,
-  "authorizationId" | "owner" | "accountFingerprint" | "modelId" | "authorizedPosts"
+  "authorizationId" | "owner" | "accountFingerprint" | "modelId" | "plannedInferencePosts" | "authorizedPosts"
 >;
 
 export interface AuthorizationLedgerLocation {
@@ -91,6 +96,8 @@ function validateGrant(value: unknown): InferenceAuthorizationGrant {
       typeof grant.modelId !== "string" || !SAFE_MODEL.test(grant.modelId) ||
       typeof grant.matrixVersion !== "string" || !SAFE_TEXT.test(grant.matrixVersion) ||
       typeof grant.matrixHash !== "string" || !SHA256_HEX.test(grant.matrixHash) ||
+      typeof grant.plannedInferencePosts !== "number" || !Number.isSafeInteger(grant.plannedInferencePosts) ||
+      grant.plannedInferencePosts < 1 || grant.plannedInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET ||
       typeof grant.authorizedPosts !== "number" || !Number.isSafeInteger(grant.authorizedPosts) ||
       grant.authorizedPosts < 1 || grant.authorizedPosts > MAX_AUTHORIZED_POSTS) {
     fail("invalid authorization grant values");
@@ -102,6 +109,7 @@ function validateGrant(value: unknown): InferenceAuthorizationGrant {
     modelId: grant.modelId,
     matrixVersion: grant.matrixVersion,
     matrixHash: grant.matrixHash,
+    plannedInferencePosts: grant.plannedInferencePosts,
     authorizedPosts: grant.authorizedPosts,
   });
 }
@@ -259,6 +267,7 @@ function rowToLedger(row: unknown): InferenceAuthorizationLedger {
     matrixVersion: value.matrixVersion,
     modelId: value.modelId,
     owner: value.owner,
+    plannedInferencePosts: value.plannedInferencePosts,
   });
   if (value.schemaVersion !== LEDGER_SCHEMA_VERSION || typeof value.consumedPosts !== "number" ||
       !Number.isSafeInteger(value.consumedPosts) || value.consumedPosts < 0 ||
@@ -280,6 +289,7 @@ function readCanaryAttempts(
         authorization_id AS authorizationId,
         matrix_version AS matrixVersion,
         matrix_hash AS matrixHash,
+        planned_inference_posts AS plannedInferencePosts,
         case_sequence AS caseSequence,
         case_name AS caseName,
         acceptance_policy_version AS acceptancePolicyVersion,
@@ -297,6 +307,7 @@ function readCanaryAttempts(
       row.reservationPost >= 1 && row.reservationPost <= ledger.consumedPosts &&
       row.authorizationId === ledger.authorizationId &&
       row.matrixVersion === ledger.matrixVersion && row.matrixHash === ledger.matrixHash &&
+      row.plannedInferencePosts === ledger.plannedInferencePosts &&
       row.caseSequence === CANARY_CASE_SEQUENCE && row.caseName === CANARY_CASE_NAME &&
       row.acceptancePolicyVersion === CANARY_ACCEPTANCE_POLICY_VERSION &&
       (row.state === "reserved" || row.state === "matched") &&
@@ -308,6 +319,7 @@ function readCanaryAttempts(
         authorizationId: ledger.authorizationId,
         matrixVersion: ledger.matrixVersion,
         matrixHash: ledger.matrixHash,
+        plannedInferencePosts: ledger.plannedInferencePosts,
         reservationPost: row.reservationPost as number,
         caseSequence: CANARY_CASE_SEQUENCE,
         caseName: CANARY_CASE_NAME,
@@ -342,6 +354,7 @@ function readRow(db: Database.Database): InferenceAuthorizationLedger {
     "model_id",
     "matrix_version",
     "matrix_hash",
+    "planned_inference_posts",
     "authorized_posts",
     "consumed_posts",
   ];
@@ -356,6 +369,7 @@ function readRow(db: Database.Database): InferenceAuthorizationLedger {
     "authorization_id",
     "matrix_version",
     "matrix_hash",
+    "planned_inference_posts",
     "case_sequence",
     "case_name",
     "acceptance_policy_version",
@@ -377,6 +391,7 @@ function readRow(db: Database.Database): InferenceAuthorizationLedger {
         model_id AS modelId,
         matrix_version AS matrixVersion,
         matrix_hash AS matrixHash,
+        planned_inference_posts AS plannedInferencePosts,
         authorized_posts AS authorizedPosts,
         consumed_posts AS consumedPosts
       FROM inference_authorization
@@ -397,7 +412,9 @@ function sameGrant(actual: InferenceAuthorizationLedger, expected: InferenceAuth
 function validateBinding(value: unknown): InferenceAuthorizationBinding {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("invalid authorization binding");
   const binding = value as Record<string, unknown>;
-  const keys = ["accountFingerprint", "authorizationId", "authorizedPosts", "modelId", "owner"];
+  const keys = [
+    "accountFingerprint", "authorizationId", "authorizedPosts", "modelId", "owner", "plannedInferencePosts",
+  ];
   if (!exactKeys(binding, keys)) fail("invalid authorization binding fields");
   const placeholderGrant = validateGrant({
     ...binding,
@@ -409,6 +426,7 @@ function validateBinding(value: unknown): InferenceAuthorizationBinding {
     owner: placeholderGrant.owner,
     accountFingerprint: placeholderGrant.accountFingerprint,
     modelId: placeholderGrant.modelId,
+    plannedInferencePosts: placeholderGrant.plannedInferencePosts,
     authorizedPosts: placeholderGrant.authorizedPosts,
   });
 }
@@ -421,6 +439,7 @@ function sameBinding(
     actual.owner === expected.owner &&
     actual.accountFingerprint === expected.accountFingerprint &&
     actual.modelId === expected.modelId &&
+    actual.plannedInferencePosts === expected.plannedInferencePosts &&
     actual.authorizedPosts === expected.authorizedPosts;
 }
 
@@ -429,12 +448,15 @@ function validateCanaryReservation(value: unknown): CanaryInferenceReservation {
   const reservation = value as Record<string, unknown>;
   const keys = [
     "acceptancePolicyVersion", "authorizationId", "caseName", "caseSequence",
-    "matrixHash", "matrixVersion", "reservationPost", "state",
+    "matrixHash", "matrixVersion", "plannedInferencePosts", "reservationPost", "state",
   ];
   if (!exactKeys(reservation, keys)) fail("invalid canary reservation fields");
   if (typeof reservation.authorizationId !== "string" || !SAFE_TEXT.test(reservation.authorizationId) ||
       typeof reservation.matrixVersion !== "string" || !SAFE_TEXT.test(reservation.matrixVersion) ||
       typeof reservation.matrixHash !== "string" || !SHA256_HEX.test(reservation.matrixHash) ||
+      typeof reservation.plannedInferencePosts !== "number" ||
+      !Number.isSafeInteger(reservation.plannedInferencePosts) || reservation.plannedInferencePosts < 1 ||
+      reservation.plannedInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET ||
       typeof reservation.reservationPost !== "number" || !Number.isSafeInteger(reservation.reservationPost) ||
       reservation.reservationPost < 1 || reservation.caseSequence !== CANARY_CASE_SEQUENCE ||
       reservation.caseName !== CANARY_CASE_NAME ||
@@ -453,6 +475,7 @@ function reservationFor(
     authorizationId: ledger.authorizationId,
     matrixVersion: ledger.matrixVersion,
     matrixHash: ledger.matrixHash,
+    plannedInferencePosts: ledger.plannedInferencePosts,
     reservationPost,
     caseSequence: CANARY_CASE_SEQUENCE,
     caseName: CANARY_CASE_NAME,
@@ -502,13 +525,15 @@ export async function initializeInferenceAuthorizationLedger(
     db.exec(`
       CREATE TABLE inference_authorization (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 3),
         authorization_id TEXT NOT NULL,
         owner TEXT NOT NULL,
         account_fingerprint TEXT NOT NULL,
         model_id TEXT NOT NULL,
         matrix_version TEXT NOT NULL,
         matrix_hash TEXT NOT NULL,
+        planned_inference_posts INTEGER NOT NULL
+          CHECK (planned_inference_posts >= 1 AND planned_inference_posts <= ${FULL_PROBE_INFERENCE_POST_BUDGET}),
         authorized_posts INTEGER NOT NULL CHECK (authorized_posts >= 1),
         consumed_posts INTEGER NOT NULL CHECK (consumed_posts >= 0 AND consumed_posts <= authorized_posts)
       ) STRICT;
@@ -519,6 +544,8 @@ export async function initializeInferenceAuthorizationLedger(
         authorization_id TEXT NOT NULL,
         matrix_version TEXT NOT NULL,
         matrix_hash TEXT NOT NULL,
+        planned_inference_posts INTEGER NOT NULL
+          CHECK (planned_inference_posts >= 1 AND planned_inference_posts <= ${FULL_PROBE_INFERENCE_POST_BUDGET}),
         case_sequence INTEGER NOT NULL CHECK (case_sequence = 1),
         case_name TEXT NOT NULL CHECK (case_name = 'canary.blank-context'),
         acceptance_policy_version TEXT NOT NULL CHECK (acceptance_policy_version = 'phase0b-canary-success-v1'),
@@ -531,7 +558,7 @@ export async function initializeInferenceAuthorizationLedger(
       ) STRICT;
     `);
     db.prepare(`
-      INSERT INTO inference_authorization VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO inference_authorization VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       LEDGER_SCHEMA_VERSION,
       grant.authorizationId,
@@ -540,6 +567,7 @@ export async function initializeInferenceAuthorizationLedger(
       grant.modelId,
       grant.matrixVersion,
       grant.matrixHash,
+      grant.plannedInferencePosts,
       grant.authorizedPosts,
       initialConsumedPosts,
     );
@@ -689,13 +717,14 @@ export async function reserveCanaryInferencePost(
     db.prepare(`
       INSERT INTO inference_attempt (
         reservation_post, authorization_singleton, authorization_id, matrix_version, matrix_hash,
-        case_sequence, case_name, acceptance_policy_version, state, matched_singleton
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 'reserved', NULL)
+        planned_inference_posts, case_sequence, case_name, acceptance_policy_version, state, matched_singleton
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 'reserved', NULL)
     `).run(
       reservationPost,
       ledger.authorizationId,
       ledger.matrixVersion,
       ledger.matrixHash,
+      ledger.plannedInferencePosts,
       CANARY_CASE_SEQUENCE,
       CANARY_CASE_NAME,
       CANARY_ACCEPTANCE_POLICY_VERSION,
@@ -741,6 +770,7 @@ export async function markCanaryInferenceMatched(
     const ledger = readRow(db);
     if (!sameGrant(ledger, expected) || reservation.authorizationId !== ledger.authorizationId ||
         reservation.matrixVersion !== ledger.matrixVersion || reservation.matrixHash !== ledger.matrixHash ||
+        reservation.plannedInferencePosts !== ledger.plannedInferencePosts ||
         reservation.reservationPost > ledger.consumedPosts) {
       fail("canary completion does not match the immutable grant and reservation");
     }
@@ -758,6 +788,7 @@ export async function markCanaryInferenceMatched(
       UPDATE inference_attempt
       SET state = 'matched', matched_singleton = 1
       WHERE reservation_post = ? AND authorization_id = ? AND matrix_version = ? AND matrix_hash = ?
+        AND planned_inference_posts = ?
         AND case_sequence = ? AND case_name = ? AND acceptance_policy_version = ?
         AND state = 'reserved' AND matched_singleton IS NULL
     `).run(
@@ -765,6 +796,7 @@ export async function markCanaryInferenceMatched(
       reservation.authorizationId,
       reservation.matrixVersion,
       reservation.matrixHash,
+      reservation.plannedInferencePosts,
       CANARY_CASE_SEQUENCE,
       CANARY_CASE_NAME,
       CANARY_ACCEPTANCE_POLICY_VERSION,

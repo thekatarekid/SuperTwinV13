@@ -12,6 +12,7 @@ import {
   AUTHORIZATION_LEDGER_PATH_ENV,
   AUTHORIZATION_OWNER_ENV,
   AUTHORIZED_INFERENCE_POSTS_ENV,
+  AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
 } from "./live-authorization.js";
 import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 
@@ -20,6 +21,7 @@ export const AUTHORIZATION_MATRIX_HASH_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_MA
 export const AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV =
   "SUPERTWIN_CHATGPT_AUTHORIZATION_INITIAL_CONSUMED_POSTS";
 export const REQUIRED_INITIAL_CONSUMED_POSTS = 2;
+export const CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS = 46;
 
 export interface AuthorizationLedgerInitializationEvidence {
   status: "authorization-ledger-created";
@@ -27,6 +29,7 @@ export interface AuthorizationLedgerInitializationEvidence {
   modelId: string;
   matrixVersion: typeof PHASE0B_MATRIX_VERSION;
   matrixHash: string;
+  plannedInferencePosts: typeof CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS;
   authorizedPosts: number;
   consumedPosts: typeof REQUIRED_INITIAL_CONSUMED_POSTS;
   remainingPosts: number;
@@ -43,13 +46,14 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 function explicitPositiveInteger(env: NodeJS.ProcessEnv, name: string): number {
   const value = required(env, name);
   if (!/^[1-9][0-9]{0,6}$/.test(value)) {
-    throw new Error(`REFUSED: ${name} must be an explicit positive integer cap`);
+    throw new Error(`REFUSED: ${name} must be an explicit positive integer`);
   }
   return Number(value);
 }
 
 function initializationEvidence(ledger: InferenceAuthorizationLedger): AuthorizationLedgerInitializationEvidence {
   if (ledger.matrixVersion !== PHASE0B_MATRIX_VERSION ||
+      ledger.plannedInferencePosts !== CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS ||
       ledger.consumedPosts !== REQUIRED_INITIAL_CONSUMED_POSTS) {
     throw new Error("REFUSED: initialized authorization ledger did not preserve the exact requested grant");
   }
@@ -59,6 +63,7 @@ function initializationEvidence(ledger: InferenceAuthorizationLedger): Authoriza
     modelId: ledger.modelId,
     matrixVersion: PHASE0B_MATRIX_VERSION,
     matrixHash: ledger.matrixHash,
+    plannedInferencePosts: CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS,
     authorizedPosts: ledger.authorizedPosts,
     consumedPosts: REQUIRED_INITIAL_CONSUMED_POSTS,
     remainingPosts: ledger.authorizedPosts - REQUIRED_INITIAL_CONSUMED_POSTS,
@@ -97,6 +102,13 @@ export async function initializeInferenceAuthorizationFromEnvironment(
       `REFUSED: ${AUTHORIZED_INFERENCE_POSTS_ENV} must explicitly equal ${FULL_PROBE_INFERENCE_POST_BUDGET}`,
     );
   }
+  const plannedInferencePosts = explicitPositiveInteger(env, AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV);
+  if (plannedInferencePosts !== CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS) {
+    throw new Error(
+      `REFUSED: ${AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV} must explicitly equal ` +
+      CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS,
+    );
+  }
 
   const ledger = await initializeInferenceAuthorizationLedger({ ledgerPath, superTwinHome }, {
     authorizationId: required(env, AUTHORIZATION_ID_ENV),
@@ -105,6 +117,7 @@ export async function initializeInferenceAuthorizationFromEnvironment(
     modelId: required(env, REQUESTED_PROBE_MODEL_ENV),
     matrixVersion,
     matrixHash: required(env, AUTHORIZATION_MATRIX_HASH_ENV),
+    plannedInferencePosts,
     authorizedPosts,
   }, REQUIRED_INITIAL_CONSUMED_POSTS);
   return initializationEvidence(ledger);

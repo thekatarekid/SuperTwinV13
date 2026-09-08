@@ -36,7 +36,11 @@ import {
   parseDigestV2,
   type DigestResultV2,
 } from "../prompts/digest.v2.js";
-import { resourcePool, type ResourcePool } from "../providers/pool.js";
+import {
+  isPoolOverflow,
+  resourcePool,
+  type ResourcePool,
+} from "../providers/pool.js";
 import {
   requireMaxOutputTokens,
   resolveModelCall,
@@ -71,6 +75,8 @@ export interface DigestPassDeps {
   /** @deprecated Production selection comes from provider-namespaced settings. */
   model?: string;
   timeoutMs?: number;
+  /** Cancels both a queued pool acquire and an in-flight provider request. */
+  signal?: AbortSignal;
   /** Replaces the default propose-only decisions commit (tests). */
   commit?: (bundle: DeltaBundle, result: DigestResult, violations: string[]) => DigestCommit;
 }
@@ -250,31 +256,64 @@ export async function runDigestPass(
               maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
               ...reasoningRequestForResolvedCall(resolved),
               timeoutMs: deps.timeoutMs ?? DIGEST_TIMEOUT_MS,
+              signal: deps.signal,
               onEvent: (e) => {
                 if (e.type === "delta") text += e.text;
               },
             }),
           ),
-          { lane: "understanding" },
+          {
+            lane: "understanding",
+            providerId: resolved.providerId,
+            signal: deps.signal,
+          },
         );
       } catch (err) {
-        const errorCode = providerErrorCode(err) ?? "CLI_ERROR";
+        const errorCode = isPoolOverflow(err)
+          ? "POOL_OVERFLOW"
+          : providerErrorCode(err) ?? "CLI_ERROR";
         res = {
           continuation: null,
           usage: emptyUsage(),
           freshFallback: false,
           status: "error",
-          errorCode,
+          ...(errorCode === "POOL_OVERFLOW" ? {} : { errorCode }),
         };
-        logDigestRun(
-          runId,
-          model,
-          startedAt,
-          res,
-          user.length + instructions.length,
+        // Backpressure is not a provider failure. Every actual transport or
+        // typed provider outcome is classified under the immutable snapshot.
+        if (errorCode !== "POOL_OVERFLOW") {
+          pool.noteFailure(
+            "llm:understanding",
+            { code: errorCode, message: err instanceof Error ? err.message : String(err) },
+            0,
+            resolved.providerId,
+          );
+        }
+        if (errorCode !== "POOL_OVERFLOW") {
+          logDigestRun(
+            runId,
+            model,
+            startedAt,
+            res,
+            user.length + instructions.length,
+            resolved.providerId,
+          );
+        }
+        return { ...base, error: errorCode };
+      }
+      if (res.status === "ok") {
+        pool.noteSuccess(
+          "llm:understanding",
+          resolved.providerId,
+          Math.max(0, Date.now() - Date.parse(startedAt)) || 0,
+        );
+      } else {
+        pool.noteFailure(
+          "llm:understanding",
+          { code: res.errorCode, retryAfterMs: res.retryAfterMs },
+          0,
           resolved.providerId,
         );
-        return { ...base, error: errorCode };
       }
       // S0.9 / T8-1: every digest call has a ledger row — its spend renders
       // and TRC-03 sees the pass alive.

@@ -9,6 +9,7 @@ import { ResourcePool } from "../providers/pool.js";
 import { registerV2, resetProviderRegistryForTests } from "../providers/registry.js";
 import type {
   ProviderErrorCode,
+  ProviderId,
   ProviderModelCatalogue,
   ProviderRequest,
   ProviderV2,
@@ -45,9 +46,9 @@ interface FakeProvider extends ProviderV2 {
   calls: number;
 }
 
-function testCatalogue(): ProviderModelCatalogue {
+function testCatalogue(providerId: ProviderId = "claude-local"): ProviderModelCatalogue {
   return {
-    providerId: "claude-local",
+    providerId,
     mode: "discovered",
     source: "runner-test",
     discoveredAt: "2026-09-08T00:00:00.000Z",
@@ -76,14 +77,17 @@ function testCatalogue(): ProviderModelCatalogue {
   };
 }
 
-function fakeProvider(turns: Turn[]): FakeProvider {
+function fakeProvider(
+  turns: Turn[],
+  providerId: ProviderId = "claude-local",
+): FakeProvider {
   const messages: string[] = [];
   const instructionsSeen: string[] = [];
   const requests: ProviderRequest[] = [];
-  const catalogue = testCatalogue();
+  const catalogue = testCatalogue(providerId);
   let catalogueReads = 0;
   const provider: FakeProvider = {
-    id: "claude-local",
+    id: providerId,
     displayName: "Fake Claude",
     capabilities: {
       functionTools: false,
@@ -142,16 +146,21 @@ function fakeProvider(turns: Turn[]): FakeProvider {
 
 interface Harness {
   deps: RunnerDeps;
+  pool: ResourcePool;
   runs: RecordRunParams[];
   parked: QuarantineRow[];
   provider: FakeProvider;
   clock: () => number;
 }
 
-function harness(turns: Turn[], extra: Partial<RunnerDeps> = {}): Harness {
+function harness(
+  turns: Turn[],
+  extra: Partial<RunnerDeps> = {},
+  providerId: ProviderId = "claude-local",
+): Harness {
   const runs: RecordRunParams[] = [];
   const parked: QuarantineRow[] = [];
-  const provider = fakeProvider(turns);
+  const provider = fakeProvider(turns, providerId);
   let t = 0;
   let n = 0;
   const pool = new ResourcePool({
@@ -164,6 +173,7 @@ function harness(turns: Turn[], extra: Partial<RunnerDeps> = {}): Harness {
     runs,
     parked,
     provider,
+    pool,
     clock: () => t,
     deps: {
       provider,
@@ -266,6 +276,39 @@ describe("the stable prefix", () => {
     expect(sent).not.toHaveProperty("allowedTools");
     expect(sent).not.toHaveProperty("maxTurns");
     expect(sent).not.toHaveProperty("cache");
+  });
+
+  it("routes ChatGPT through its own pool and shares one abort signal with the transport", async () => {
+    const controller = new AbortController();
+    const h = harness(
+      [{ text: CLEAN }],
+      { signal: controller.signal },
+      "chatgpt-oauth",
+    );
+
+    const result = await runPrompt(spec(), h.deps);
+
+    expect(result.status).toBe("ok");
+    expect(h.provider.requests[0]).toMatchObject({
+      signal: controller.signal,
+      maxAgentTurns: 1,
+    });
+    expect(h.pool.peakInFlight("llm", "chatgpt-oauth")).toBe(1);
+    expect(h.pool.peakInFlight("llm", "claude-local")).toBe(0);
+  });
+
+  it("charges typed ChatGPT refusal adaptation only to ChatGPT", async () => {
+    const h = harness(
+      [{ code: "RATE_LIMITED", message: "slow down" }],
+      { maxPauses: 0 },
+      "chatgpt-oauth",
+    );
+
+    const result = await runPrompt(spec(), h.deps);
+
+    expect(result.error?.code).toBe("RATE_LIMITED");
+    expect(h.pool.limitOf("llm", "chatgpt-oauth")).toBe(4);
+    expect(h.pool.limitOf("llm", "claude-local")).toBe(8);
   });
 
   it("omits reasoning when the selected model does not advertise it", async () => {
@@ -505,6 +548,51 @@ describe("nothing the model said is discarded", () => {
 });
 
 describe("provider failures (§4.6)", () => {
+  it("hands pool overflow back without provider work, retry, or quarantine", async () => {
+    const pool = new ResourcePool({ providerLimits: { "claude-local": 2 } });
+    let releaseGate!: () => void;
+    let markEntered!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
+    const active = pool.run(
+      "llm",
+      async () => {
+        markEntered();
+        await gate;
+      },
+      { lane: "understanding", providerId: "claude-local" },
+    );
+    const live = pool.run(
+      "llm",
+      async () => { await gate; },
+      { lane: "live", providerId: "claude-local" },
+    );
+    await entered;
+    await Promise.resolve();
+    const queued = Array.from({ length: 8 }, () =>
+      pool.run(
+        "llm",
+        async () => {},
+        { lane: "understanding", providerId: "claude-local" },
+      ),
+    );
+    await Promise.resolve();
+    expect(pool.waiting("llm")).toBe(8);
+
+    const h = harness([], { pool });
+    const result = await runPrompt(spec(), h.deps);
+
+    expect(result).toMatchObject({ status: "failed", error: { code: "POOL_OVERFLOW" } });
+    expect(result.quarantineReason).toBeUndefined();
+    expect(h.provider.calls).toBe(0);
+    expect(h.parked).toHaveLength(0);
+    expect(h.runs).toHaveLength(0);
+    expect(pool.consecutiveFailures("llm:understanding", "claude-local")).toBe(0);
+
+    releaseGate();
+    await Promise.all([active, live, ...queued]);
+  });
+
   it("retries a TIMEOUT and logs a row for every attempt", async () => {
     const h = harness([{ code: "TIMEOUT", message: "timed out" }, { text: CLEAN }]);
     const result = await runPrompt(spec(), h.deps);

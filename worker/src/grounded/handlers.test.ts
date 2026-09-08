@@ -22,6 +22,7 @@ import {
   registerV2,
   resetProviderRegistryForTests,
 } from "../providers/registry.js";
+import { resourcePool } from "../providers/pool.js";
 import {
   CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET,
   ProviderSelectionError,
@@ -58,6 +59,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   resetProviderRegistryForTests();
   closeDb();
   delete process.env.SUPERTWIN_DB_PATH;
@@ -235,12 +237,15 @@ describe("handleQuestion", () => {
 describe("answerViaModel — provider-neutral grounded request", () => {
   it("dispatches through the resolved provider with exact prompt and closed capabilities", async () => {
     const provider = new GroundedProviderFixture();
+    const poolRun = vi.spyOn(resourcePool, "run");
+    const poolSuccess = vi.spyOn(resourcePool, "noteSuccess");
+    const controller = new AbortController();
     registerV2(provider);
     setActiveProvider(provider.id);
     setProviderModelSelection(provider.id, "chat", "gpt-grounded");
 
     const packed = "<supertwin-context>exact bytes</supertwin-context>\n\nQUESTION where?";
-    await expect(answerViaModel(packed)).resolves.toBe("grounded answer");
+    await expect(answerViaModel(packed, controller.signal)).resolves.toBe("grounded answer");
 
     expect(provider.requests).toHaveLength(1);
     const request = provider.requests[0]!;
@@ -261,10 +266,25 @@ describe("answerViaModel — provider-neutral grounded request", () => {
       maxAgentTurns: 1,
       timeoutMs: 120_000,
       reasoning: { budget: "off" },
+      signal: controller.signal,
     });
     expect(Object.hasOwn(request, "continuation")).toBe(false);
     expect(Object.hasOwn(request, "tools")).toBe(false);
     expect(Object.hasOwn(request, "cache")).toBe(false);
+    expect(poolRun).toHaveBeenCalledWith(
+      "llm",
+      expect.any(Function),
+      expect.objectContaining({
+        lane: "understanding",
+        providerId: "chatgpt-oauth",
+        signal: controller.signal,
+      }),
+    );
+    expect(poolSuccess).toHaveBeenCalledWith(
+      "llm:understanding",
+      "chatgpt-oauth",
+      expect.any(Number),
+    );
 
     const run = getDb().prepare(
       `SELECT role, model, kind, pass, status FROM runs WHERE kind = ?`,

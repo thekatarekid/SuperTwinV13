@@ -22,6 +22,12 @@ import {
   REFUSAL_BACKOFF_BASE_MS,
   REFUSAL_BACKOFF_MAX_MS,
   DB_APPLY_CONCURRENCY,
+  CHATGPT_ADAPTIVE_MIN,
+  CHATGPT_MEMORY_PRESSURE_RATIO,
+  CHATGPT_RAMP_INTERVAL_MS,
+  DEGRADE_WINDOW_MS,
+  PoolCancelledError,
+  PROVIDER_LLM_LIMITS,
 } from "./pool.js";
 
 /** A task that records overlap: returns after `ms`, tracking peak concurrency. */
@@ -58,6 +64,10 @@ describe("the limit table (§4.4.1)", () => {
     });
     // SQLite is a single writer — not a setting.
     expect(DB_APPLY_CONCURRENCY).toBe(1);
+    expect(PROVIDER_LLM_LIMITS).toEqual({
+      "claude-local": { default: 8, max: 16 },
+      "chatgpt-oauth": { default: 8, max: 16 },
+    });
   });
 
   it("clamps a user setting into [1, max] rather than trusting it", () => {
@@ -131,14 +141,223 @@ describe("caps hold under concurrent load", () => {
   });
 });
 
+describe("Phase 5 provider-keyed adaptive LLM pool", () => {
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  it("keeps independent provider ceilings and clamps each to 16", () => {
+    const pool = new ResourcePool({
+      providerLimits: { "claude-local": 3, "chatgpt-oauth": 99 },
+    });
+    expect(pool.limitOf("llm", "claude-local")).toBe(3);
+    expect(pool.limitOf("llm", "chatgpt-oauth")).toBe(16);
+    pool.configureProviderLlm("chatgpt-oauth", 6);
+    expect(pool.limitOf("llm", "chatgpt-oauth")).toBe(6);
+    expect(pool.limitOf("llm", "claude-local")).toBe(3);
+  });
+
+  it("clamps every ChatGPT configuration path to one runnable slot per lane", async () => {
+    const constructed = new ResourcePool({
+      providerLimits: { "claude-local": 1, "chatgpt-oauth": 1 },
+      warmFirst: false,
+    });
+    expect(constructed.limitOf("llm", "claude-local")).toBe(1);
+    expect(constructed.limitOf("llm", "chatgpt-oauth")).toBe(CHATGPT_ADAPTIVE_MIN);
+
+    constructed.configureProviderLlm("chatgpt-oauth", 2);
+    expect(constructed.limitOf("llm", "chatgpt-oauth")).toBe(CHATGPT_ADAPTIVE_MIN);
+    constructed.configure({ llm: 1 });
+    expect(constructed.limitOf("llm", "claude-local")).toBe(1);
+    expect(constructed.limitOf("llm", "chatgpt-oauth")).toBe(CHATGPT_ADAPTIVE_MIN);
+
+    await expect(Promise.all([
+      constructed.run("llm", () => "live", { providerId: "chatgpt-oauth", lane: "live" }),
+      constructed.run("llm", () => "understanding", { providerId: "chatgpt-oauth", lane: "understanding" }),
+      constructed.run("llm", () => "enrichment", { providerId: "chatgpt-oauth", lane: "enrichment" }),
+    ])).resolves.toEqual(["live", "understanding", "enrichment"]);
+  });
+
+  it("sustains eight ChatGPT streams with a reserved live slot and bounded background", async () => {
+    const pool = new ResourcePool({ warmFirst: false });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const running = [
+      pool.run("llm", () => gate, { providerId: "chatgpt-oauth", lane: "live" }),
+      ...Array.from({ length: 3 }, () =>
+        pool.run("llm", () => gate, { providerId: "chatgpt-oauth", lane: "enrichment" })),
+      ...Array.from({ length: 4 }, () =>
+        pool.run("llm", () => gate, { providerId: "chatgpt-oauth", lane: "understanding" })),
+    ];
+    await tick();
+    expect(pool.inFlight("llm", "chatgpt-oauth")).toBe(8);
+    expect(pool.laneLimit("live", "chatgpt-oauth")).toBe(1);
+    expect(pool.lanePeakInFlight("enrichment", "chatgpt-oauth")).toBe(3);
+    expect(pool.lanePeakInFlight("understanding", "chatgpt-oauth")).toBe(4);
+    expect(pool.inFlight("llm", "claude-local")).toBe(0);
+    release();
+    await Promise.all(running);
+    expect(pool.inFlight("llm", "chatgpt-oauth")).toBe(0);
+  });
+
+  it("does not let one provider's saturated queue consume the other's waiters", async () => {
+    const pool = new ResourcePool({ providerLimits: { "claude-local": 3, "chatgpt-oauth": 1 } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const claude = Array.from({ length: 5 }, () =>
+      pool.run("llm", () => gate, { providerId: "claude-local", lane: "understanding" }));
+    await tick();
+    await expect(pool.run("llm", () => "gpt", {
+      providerId: "chatgpt-oauth", lane: "live",
+    })).resolves.toBe("gpt");
+    expect(pool.waiting("llm")).toBeGreaterThan(0);
+    expect(pool.providerMetrics("chatgpt-oauth").waiting).toBe(0);
+    release();
+    await Promise.all(claude);
+  });
+
+  it("reduces only ChatGPT on quota and repeated transport failures", () => {
+    const pool = new ResourcePool();
+    pool.noteFailure("llm:understanding", { code: "TRANSPORT_ERROR" }, 0, "chatgpt-oauth");
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(8);
+    pool.noteFailure("llm:understanding", { code: "TRANSPORT_ERROR" }, 1, "chatgpt-oauth");
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+    pool.noteFailure("llm:enrichment", { code: "QUOTA_EXCEEDED" }, 0, "chatgpt-oauth");
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(3);
+    expect(pool.effectiveLlmLimit("claude-local")).toBe(8);
+  });
+
+  it("keeps one runnable slot per lane at the adaptive floor", async () => {
+    const pool = new ResourcePool();
+    pool.noteFailure("llm:understanding", { code: "RATE_LIMITED" }, 0, "chatgpt-oauth");
+    pool.noteFailure("llm:enrichment", { code: "QUOTA_EXCEEDED" }, 0, "chatgpt-oauth");
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(3);
+    expect(laneCaps(3, false)).toEqual({ live: 1, enrichment: 1, understanding: 1 });
+    pool.resumeLane("llm:understanding", "chatgpt-oauth");
+    pool.resumeLane("llm:enrichment", "chatgpt-oauth");
+
+    await expect(Promise.all([
+      pool.run("llm", () => "live", { providerId: "chatgpt-oauth", lane: "live" }),
+      pool.run("llm", () => "understanding", { providerId: "chatgpt-oauth", lane: "understanding" }),
+      pool.run("llm", () => "enrichment", { providerId: "chatgpt-oauth", lane: "enrichment" }),
+    ])).resolves.toEqual(["live", "understanding", "enrichment"]);
+  });
+
+  it("uses measured memory pressure and waits for a fresh slow-ramp window after relief", () => {
+    let now = 0;
+    const limit = 1_000;
+    const pool = new ResourcePool({ now: () => now, memoryLimitBytes: limit, rssBytes: () => 100 });
+    const pressured = pool.observeProvider({
+      providerId: "chatgpt-oauth",
+      rssBytes: Math.ceil(limit * CHATGPT_MEMORY_PRESSURE_RATIO),
+      queueDepth: 12,
+      latencyMs: 345,
+    });
+    expect(pressured).toMatchObject({ effectiveLimit: 4, memoryPressure: true, lastQueueDepth: 12, lastLatencyMs: 345 });
+    now += DEGRADE_WINDOW_MS * 3;
+    pool.observeProvider({ providerId: "chatgpt-oauth", rssBytes: 100 });
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+    now += DEGRADE_WINDOW_MS;
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(5);
+  });
+
+  it("samples production RSS at pool boundaries and rate-limits repeated pressure reductions", async () => {
+    let now = 0;
+    let rss = 900;
+    const pool = new ResourcePool({
+      now: () => now,
+      rssBytes: () => rss,
+      memoryLimitBytes: 1_000,
+    });
+
+    await pool.run("llm", () => undefined, {
+      providerId: "chatgpt-oauth",
+      lane: "live",
+    });
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+    await pool.run("llm", () => undefined, {
+      providerId: "chatgpt-oauth",
+      lane: "live",
+    });
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+
+    now += DEGRADE_WINDOW_MS;
+    await pool.run("llm", () => undefined, {
+      providerId: "chatgpt-oauth",
+      lane: "live",
+    });
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(3);
+    rss = 100;
+    expect(pool.observeProvider({ providerId: "chatgpt-oauth" })).toMatchObject({
+      memoryPressure: false,
+      lastQueueDepth: 0,
+    });
+  });
+
+  it("ramps only one slot after a long idle period instead of treating time as health", () => {
+    let now = 0;
+    const pool = new ResourcePool({ now: () => now });
+    pool.noteFailure("llm:understanding", { code: "RATE_LIMITED" }, 0, "chatgpt-oauth");
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+
+    now += DEGRADE_WINDOW_MS + 24 * 60 * 60_000;
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(5);
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(5);
+    now += CHATGPT_RAMP_INTERVAL_MS;
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(6);
+  });
+
+  it("honours a bounded Retry-After without spending retry budget", () => {
+    let now = 0;
+    const pool = new ResourcePool({ now: () => now });
+    const decision = pool.noteFailure("llm:understanding", {
+      code: "RATE_LIMITED", retryAfterMs: 123_000,
+    }, 0, "chatgpt-oauth");
+    expect(decision).toMatchObject({ action: "pause", waitMs: 123_000, spendsRetryBudget: false });
+    expect(pool.pausedForMs("llm:understanding", "chatgpt-oauth")).toBe(123_000);
+    expect(pool.isPaused("llm:understanding", "claude-local")).toBe(false);
+    now += 123_000;
+    expect(pool.isPaused("llm:understanding", "chatgpt-oauth")).toBe(false);
+  });
+
+  it("removes an aborted queued caller and releases a cooperatively aborted active slot", async () => {
+    const pool = new ResourcePool({ providerLimits: { "chatgpt-oauth": 1 } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const active = pool.run("llm", () => gate, { providerId: "chatgpt-oauth", lane: "live" });
+    await tick();
+    const queuedAbort = new AbortController();
+    const queued = pool.run("llm", () => "never", {
+      providerId: "chatgpt-oauth", lane: "live", signal: queuedAbort.signal,
+    });
+    await tick();
+    expect(pool.providerMetrics("chatgpt-oauth").waiting).toBe(1);
+    queuedAbort.abort();
+    await expect(queued).rejects.toBeInstanceOf(PoolCancelledError);
+    expect(pool.providerMetrics("chatgpt-oauth").waiting).toBe(0);
+    release();
+    await active;
+    expect(pool.inFlight("llm", "chatgpt-oauth")).toBe(0);
+
+    const activeAbort = new AbortController();
+    const cooperative = pool.run("llm", () => new Promise<void>((_resolve, reject) => {
+      activeAbort.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }), { providerId: "chatgpt-oauth", lane: "live", signal: activeAbort.signal });
+    await tick();
+    expect(pool.inFlight("llm", "chatgpt-oauth")).toBe(1);
+    activeAbort.abort();
+    await expect(cooperative).rejects.toThrow("aborted");
+    expect(pool.inFlight("llm", "chatgpt-oauth")).toBe(0);
+  });
+});
+
 describe("the LLM pool is split by lane (§4.4.1.1)", () => {
   it("splits 40 % enrichment / 60 % understanding", () => {
     // V6 S3.3: one slot is reserved for the live lane; the 40/60 split is over the rest.
     expect(laneCaps(8, false)).toEqual({ live: 1, enrichment: 3, understanding: 4 });
     expect(laneCaps(16, false)).toEqual({ live: 1, enrichment: 6, understanding: 9 });
-    // Neither lane is ever left with nothing outside first paint.
-    expect(laneCaps(2, false).enrichment).toBeGreaterThan(0);
-    expect(laneCaps(2, false).understanding).toBeGreaterThan(0);
+    // At low limits the live reservation still wins. Background work remains
+    // queued instead of occupying the only interactive slot.
+    expect(laneCaps(2, false)).toEqual({ live: 1, enrichment: 0, understanding: 1 });
+    expect(laneCaps(1, false)).toEqual({ live: 1, enrichment: 0, understanding: 0 });
   });
 
   it("a photo backlog cannot starve extraction", async () => {
@@ -342,15 +561,27 @@ describe("error policy (§4.6)", () => {
     expect(pool.noteFailure(lane, { code: "CLI_ERROR", message: "usage limit" }).waitMs).toBe(60_000);
   });
 
-  it("sustained refusals halve the effective LLM concurrency, then ramp back", () => {
+  it("a typed ChatGPT refusal halves concurrency and ramps one slot at a time", () => {
     let now = 0;
     const pool = new ResourcePool({ now: () => now });
+    pool.noteFailure("llm:understanding", { code: "RATE_LIMITED" }, 0, "chatgpt-oauth");
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+    expect(pool.limitOf("llm", "chatgpt-oauth")).toBe(4);
+    expect(pool.effectiveLlmLimit("claude-local")).toBe(8);
+    now += DEGRADE_WINDOW_MS;
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(5);
+    now += CHATGPT_RAMP_INTERVAL_MS;
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(6);
+  });
+
+  it("preserves Claude's two-refusal degradation and timed recovery", () => {
+    let now = 0;
+    const pool = new ResourcePool({ now: () => now });
+    pool.noteFailure("llm:understanding", { code: "CLI_ERROR", message: "rate limit" });
     expect(pool.effectiveLlmLimit()).toBe(8);
     pool.noteFailure("llm:understanding", { code: "CLI_ERROR", message: "rate limit" });
-    pool.noteFailure("llm:understanding", { code: "CLI_ERROR", message: "rate limit" });
     expect(pool.effectiveLlmLimit()).toBe(4);
-    expect(pool.limitOf("llm")).toBe(4);
-    now += 600_001;
+    now += DEGRADE_WINDOW_MS;
     expect(pool.effectiveLlmLimit()).toBe(8);
   });
 
@@ -581,8 +812,9 @@ describe("BND-12 — bounded waiters: 4× capacity queue, the rest rejected", ()
 
   it("10× capacity submitted: capacity runs, 4× waits, the overflow is rejected — and `waiting` is readable", async () => {
     // First paint on a 2-slot pool: one slot is the live lane's reserve (V6
-    // S3.3), so the understanding lane holds exactly one. The class cap (2)
-    // still decides admission: 2 free + 8 waiters admitted, 10 rejected.
+    // S3.3), so the understanding lane holds exactly one. Its one runnable
+    // claim plus the provider's eight waiters are admitted; the other eleven
+    // are rejected without borrowing the live reservation.
     const pool = new ResourcePool({ limits: { llm: 2 }, warmFirst: false, firstPaint: true });
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -595,17 +827,17 @@ describe("BND-12 — bounded waiters: 4× capacity queue, the rest rejected", ()
     );
     // Rejections are synchronous with the submission: nothing was queued.
     await tick();
-    expect(settled.filter((s) => s === "overflow")).toHaveLength(10);
+    expect(settled.filter((s) => s === "overflow")).toHaveLength(11);
     expect(settled).not.toContain("other");
     expect(pool.inFlight("llm")).toBe(1); // the understanding lane's one slot; the other is reserved for live
-    expect(pool.waiting("llm")).toBe(9);
-    expect(pool.laneWaiting("understanding")).toBe(9);
+    expect(pool.waiting("llm")).toBe(8);
+    expect(pool.laneWaiting("understanding")).toBe(8);
     expect(pool.laneWaiting("enrichment")).toBe(0);
     expect(pool.laneWaiting("live")).toBe(0);
 
     release();
     await Promise.all(submissions);
-    expect(settled.filter((s) => s === "ok")).toHaveLength(10);
+    expect(settled.filter((s) => s === "ok")).toHaveLength(9);
     expect(pool.waiting("llm")).toBe(0);
     expect(pool.inFlight("llm")).toBe(0);
     expect(pool.peakInFlight("llm")).toBe(1);
@@ -640,10 +872,11 @@ describe("BND-12 — bounded waiters: 4× capacity queue, the rest rejected", ()
     // Never advance: the pause is permanent for this test.
     const pool = new ResourcePool({ limits: { llm: 1 }, now: clock.now, sleep: () => new Promise(() => {}) });
     pool.pauseLane("llm:understanding", 60_000);
-    // The one free slot's claimant plus a full queue of four — all held by the pause.
-    const held = Array.from({ length: 5 }, () => pool.run("llm", () => "x", { lane: "understanding" }));
+    // The live reservation leaves this lane at zero capacity, so exactly the
+    // four bounded waiters are held by the pause and the fifth is rejected.
+    const held = Array.from({ length: 4 }, () => pool.run("llm", () => "x", { lane: "understanding" }));
     await tick();
-    expect(pool.waiting("llm")).toBe(5);
+    expect(pool.waiting("llm")).toBe(4);
     expect(pool.inFlight("llm")).toBe(0);
     await expect(pool.run("llm", () => "x", { lane: "understanding" })).rejects.toBeInstanceOf(
       PoolOverflowError,

@@ -9,6 +9,7 @@ import {
 } from "../traces/context.js";
 import {
   admitProviderCall,
+  assertProviderQuotaAvailable,
   preflightProviderCall,
   recordCallCost,
 } from "./budget.js";
@@ -109,6 +110,7 @@ export async function runGatedProviderAttempt<
     // The first check establishes the mandated ordering without spending a
     // call. `admitCall` repeats it synchronously before committing the slot.
     preflightProviderCall(opts.providerId);
+    assertProviderQuotaAvailable(opts.providerId);
     opts.checkQuota?.();
     if (opts.authState) assertProviderAuthReady(opts.authState());
     admitProviderCall(opts.providerId);

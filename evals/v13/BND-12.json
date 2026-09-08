@@ -13,9 +13,9 @@
     "20 calls on lane understanding while the pool is parked"
   ],
   "expected": {
-    "overflow_rejected": 10,
+    "overflow_rejected": 11,
     "waiting_readable": true,
-    "waiting": 9,
+    "waiting": 8,
     "in_flight": 1
   },
   "wrong": [

@@ -49,7 +49,12 @@ import {
   type RunOrigin,
   type RunRole,
 } from "../db/run-accounting.js";
-import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
+import {
+  isPoolOverflow,
+  resourcePool,
+  type LlmLane,
+  type ResourcePool,
+} from "../providers/pool.js";
 import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 import {
   ProviderSelectionError,
@@ -238,6 +243,7 @@ interface CallOutcome {
   usage: Usage;
   errorCode?: ProviderErrorCode | string;
   errorMessage?: string;
+  retryAfterMs?: number;
   startedAt: string;
   endedAt: string;
   /** Dispatch → first streamed token, ms. null = no token ever arrived (4.2). */
@@ -424,7 +430,11 @@ export class PromptRunner {
             },
           }),
         ),
-        { lane },
+        {
+          lane,
+          providerId: selection.providerId,
+          signal: this.deps.signal,
+        },
       );
       return {
         runId,
@@ -433,10 +443,11 @@ export class PromptRunner {
         usage: result.usage ?? usage,
         errorCode: result.errorCode ?? failureCode,
         errorMessage: failure,
+        ...(result.retryAfterMs === undefined ? {} : { retryAfterMs: result.retryAfterMs }),
         startedAt,
         endedAt: this.now().toISOString(),
         ttftMs: ttftFrom(startedMs, firstTokenAtMs),
-        providerId: provider.id,
+        providerId: selection.providerId,
         model: selection.model,
         promptChars,
       };
@@ -447,13 +458,15 @@ export class PromptRunner {
         // Whatever streamed before the throw is still the model's words.
         text,
         usage,
-        errorCode: failureCode ?? errorCodeFrom(err) ?? "CLI_ERROR",
+        errorCode: isPoolOverflow(err)
+          ? "POOL_OVERFLOW"
+          : failureCode ?? errorCodeFrom(err) ?? "CLI_ERROR",
         errorMessage: err instanceof Error ? err.message : String(err),
         startedAt,
         endedAt: this.now().toISOString(),
         // Whatever streamed before the throw still has an honest TTFT.
         ttftMs: ttftFrom(startedMs, firstTokenAtMs),
-        providerId: provider.id,
+        providerId: selection.providerId,
         model: selection.model,
         promptChars,
       };
@@ -569,16 +582,41 @@ export class PromptRunner {
       const call = await this.callOnce(spec, userText, resolved);
       sink.push(call);
       if (call.ok) {
-        this.pool.noteSuccess(lane);
+        // A selection error never calls a provider and therefore cannot
+        // produce an ok outcome. Keep the invariant explicit so provider
+        // accounting always uses the immutable resolved snapshot.
+        if (resolved instanceof ProviderSelectionError) {
+          throw new Error("provider selection error produced an ok outcome");
+        }
+        this.pool.noteSuccess(
+          lane,
+          resolved.selection.providerId,
+          Math.max(0, Date.parse(call.endedAt) - Date.parse(call.startedAt)) || 0,
+        );
         // Left unlogged on purpose: only the caller knows whether this answer
         // was clean ("ok"), the round that triggered a repair ("retried"), or
         // the one whose violations survived it ("quarantined").
         return call;
       }
+      // Resolution failures happen before pool/provider work. Preserve the
+      // fail-closed quarantine without charging a synthetic failure to the
+      // legacy Claude default (there is no resolved provider outcome).
+      if (resolved instanceof ProviderSelectionError) {
+        log(call, "quarantined");
+        return call;
+      }
+      // Pool saturation is upstream backpressure: no provider ran, so it must
+      // not advance a retry ladder, refusal streak, adaptive limit or breaker.
+      if (call.errorCode === "POOL_OVERFLOW") return call;
       const decision = this.pool.noteFailure(
         lane,
-        { code: call.errorCode, message: call.errorMessage },
+        {
+          code: call.errorCode,
+          message: call.errorMessage,
+          retryAfterMs: call.retryAfterMs,
+        },
         retriesSpent,
+        resolved.selection.providerId,
       );
       if (decision.hardStop) {
         // FIX-C1. The gate refused before a process was spawned — the budget
@@ -726,6 +764,13 @@ export class PromptRunner {
       }
       if (!first.ok && !firstSoftStop) {
         const code = String(first.errorCode ?? "CLI_ERROR");
+        if (code === "POOL_OVERFLOW") {
+          return this.finish(spec, calls, {
+            status: "failed",
+            outcome: emptyOutcome(),
+            error: { code, message: first.errorMessage ?? "" },
+          });
+        }
         const cancelled = code === "CANCELLED";
         return this.finish(spec, calls, {
           status: cancelled ? "failed" : "quarantined",
@@ -772,6 +817,13 @@ export class PromptRunner {
       if (!second.ok && !(secondSoftStop && second.text.trim().length > 0)) {
         const outcome = singleRound(parse1);
         const code = String(second.errorCode ?? "CLI_ERROR");
+        if (code === "POOL_OVERFLOW") {
+          return this.finish(spec, calls, {
+            status: "failed",
+            outcome,
+            error: { code, message: second.errorMessage ?? "" },
+          });
+        }
         return this.finish(spec, calls, {
           status: "quarantined",
           outcome,
@@ -807,9 +859,11 @@ export class PromptRunner {
         ),
       });
     } finally {
-      // Every call writes a runs row — including one that threw its way out of
-      // the method above. An unattributed call is spend nobody can account for.
-      for (const call of calls) logOnce(call, call.ok ? "ok" : "error");
+      // Every provider invocation writes a row. POOL_OVERFLOW is admission
+      // backpressure before an invocation, so it must not become fake spend.
+      for (const call of calls) {
+        if (call.errorCode !== "POOL_OVERFLOW") logOnce(call, call.ok ? "ok" : "error");
+      }
     }
   }
 

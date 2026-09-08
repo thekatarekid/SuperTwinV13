@@ -40,7 +40,7 @@ import { writeRunLedger } from "../db/index.js";
 import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 import { packTierUser, parseTierV1, TIER_SAMPLE_MAX, TIER_V1_ID, TIER_V1_SYSTEM, type TierV1Result } from "../prompts/tier.v1.js";
 import { reportBackgroundHold } from "../providers/budget.js";
-import { resourcePool, type ResourcePool } from "../providers/pool.js";
+import { isPoolOverflow, resourcePool, type ResourcePool } from "../providers/pool.js";
 import {
   ProviderSelectionError,
   requireMaxOutputTokens,
@@ -50,6 +50,8 @@ import {
 import type {
   NeutralProviderResult,
   ProviderErrorCode,
+  ProviderRequest,
+  ProviderStreamEvent,
   ProviderV2,
 } from "../providers/types.js";
 import { emptyUsage } from "../providers/usage.js";
@@ -245,6 +247,8 @@ export interface TieringDeps {
   provider?: ProviderV2;
   pool?: ResourcePool;
   timeoutMs?: number;
+  /** Cancels both queued pool admission and the provider transport. */
+  signal?: AbortSignal;
   now?: () => number;
   /** How many of the channel's newest messages the model sees. */
   sampleSize?: number;
@@ -341,40 +345,62 @@ export async function runTierCall(
       const startedAt = new Date().toISOString();
       const pool = deps.pool ?? resourcePool;
       let res: NeutralProviderResult;
+      const request: ProviderRequest = {
+        runId,
+        model,
+        instructions: TIER_V1_SYSTEM,
+        input: [{
+          type: "message" as const,
+          role: "user" as const,
+          content: [{ type: "input_text" as const, text: user }],
+        }],
+        toolChoice: "none" as const,
+        text: { format: { type: "text" as const } },
+        plainCompletion: true,
+        skipHostSettings: true,
+        persistContinuation: false,
+        maxOutputTokens,
+        maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
+        ...reasoningRequestForResolvedCall(resolved),
+        timeoutMs: deps.timeoutMs ?? TIER_TIMEOUT_MS,
+        signal: deps.signal,
+        onEvent: (e: ProviderStreamEvent) => {
+          if (e.type === "delta") text += e.text;
+        },
+      };
+      const poolStartedAt = Date.now();
       try {
         res = await pool.run(
           "llm",
-          bindTraceContext(() =>
-            resolved.provider.send({
-              runId,
-              model,
-              instructions: TIER_V1_SYSTEM,
-              input: [{
-                type: "message",
-                role: "user",
-                content: [{ type: "input_text", text: user }],
-              }],
-              toolChoice: "none",
-              text: { format: { type: "text" } },
-              plainCompletion: true,
-              skipHostSettings: true,
-              persistContinuation: false,
-              maxOutputTokens,
-              maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
-              ...reasoningRequestForResolvedCall(resolved),
-              timeoutMs: deps.timeoutMs ?? TIER_TIMEOUT_MS,
-              onEvent: (e) => {
-                if (e.type === "delta") text += e.text;
-              },
-            }),
-          ),
-          { lane: "understanding" },
+          bindTraceContext(() => resolved.provider.send(request)),
+          {
+            lane: "understanding",
+            providerId: resolved.providerId,
+            signal: request.signal,
+          },
         );
       } catch (err) {
+        if (isPoolOverflow(err)) {
+          return { status: "failed", violations: [], error: "POOL_OVERFLOW" };
+        }
         const errorCode = providerErrorCode(err) ?? "CLI_ERROR";
+        pool.noteFailure("llm:understanding", { code: errorCode }, 0, resolved.providerId);
         res = { continuation: null, usage: emptyUsage(), freshFallback: false, status: "error", errorCode };
         logTierRun(runId, model, startedAt, res, user.length + TIER_V1_SYSTEM.length, resolved.providerId);
         return { status: "failed", violations: [], error: errorCode, errorCode };
+      }
+      if (res.status === "ok") {
+        pool.noteSuccess("llm:understanding", resolved.providerId, Math.max(0, Date.now() - poolStartedAt));
+      } else {
+        pool.noteFailure(
+          "llm:understanding",
+          {
+            code: res.errorCode ?? "TRANSPORT_ERROR",
+            retryAfterMs: res.retryAfterMs,
+          },
+          0,
+          resolved.providerId,
+        );
       }
       logTierRun(runId, model, startedAt, res, user.length + TIER_V1_SYSTEM.length, resolved.providerId);
       if (res.status !== "ok") {

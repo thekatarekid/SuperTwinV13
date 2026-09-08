@@ -65,7 +65,9 @@
 //     on, and `waiting()` is readable on /api/ops.
 // ===========================================================================
 
-import type { ProviderErrorCode } from "./types.js";
+import { totalmem } from "node:os";
+
+import type { ProviderErrorCode, ProviderId } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Classes and limits
@@ -94,6 +96,13 @@ export const RESOURCE_LIMITS: Record<ResourceClass, ClassLimit> = {
   scrape: { default: 8, max: 16 },
 };
 
+/** Both providers ship at the deliberately conservative §10 limit. */
+export const PROVIDER_LLM_LIMITS: Readonly<Record<ProviderId, ClassLimit>> =
+  Object.freeze({
+    "claude-local": Object.freeze({ ...RESOURCE_LIMITS.llm }),
+    "chatgpt-oauth": Object.freeze({ ...RESOURCE_LIMITS.llm }),
+  });
+
 /** SQLite is a single writer. Fixed, not a setting. */
 export const DB_APPLY_CONCURRENCY = 1;
 
@@ -114,8 +123,20 @@ export const ENRICHMENT_SHARE = 0.4;
 /** How long sustained refusals halve the effective LLM concurrency (§4.4.1.2). */
 export const DEGRADE_WINDOW_MS = 600_000;
 
-/** Consecutive refusals on one lane before the whole LLM pool is halved. */
+/** Legacy Claude refusal streak before that provider's pool is halved. */
 export const DEGRADE_AFTER_REFUSALS = 2;
+
+/** Repeated transport failures are pressure; one isolated socket failure is not. */
+export const CHATGPT_TRANSPORT_FAILURES_BEFORE_REDUCE = 2;
+
+/** Recovery is deliberately additive: never jump straight back to the ceiling. */
+export const CHATGPT_RAMP_INTERVAL_MS = 5 * 60_000;
+
+/** Above this measured RSS share the HTTP provider sheds concurrency. */
+export const CHATGPT_MEMORY_PRESSURE_RATIO = 0.85;
+
+/** One slot for each lane: adaptive shedding never strands preserved work. */
+export const CHATGPT_ADAPTIVE_MIN = 3;
 
 /** Consecutive NON-refusal failures on one lane that trip its breaker (SPD-07). */
 export const BREAKER_FAILURES = 10;
@@ -160,22 +181,31 @@ export function clampLimit(cls: ResourceClass, n: number): number {
   return Math.min(max, Math.max(1, Math.floor(n)));
 }
 
+/** ChatGPT must retain one runnable slot for every LLM lane. */
+function clampProviderLlmLimit(providerId: ProviderId, n: number): number {
+  const bounded = clampLimit("llm", n);
+  return providerId === "chatgpt-oauth"
+    ? Math.max(CHATGPT_ADAPTIVE_MIN, bounded)
+    : bounded;
+}
+
 /**
  * Lane caps for an effective LLM limit. The live lane takes its reserved slots
  * first; the background lanes split the REST, so their caps sum to at most
  * `limit - LIVE_RESERVED_SLOTS` and a live flush always finds a free pool slot
  * (GATE-09). Under first paint enrichment gets 0 — its acquires simply queue
- * until `setFirstPaint(false)`. Every lane keeps at least one slot; at limits
- * of 1–2 the caps deliberately sum above the pool limit and the shared pool
- * semaphore does the real capping (no reservation is possible there).
+ * until `setFirstPaint(false)`. At limits 1–2 the live reservation remains
+ * load-bearing: background work stays queued rather than borrowing that slot.
  */
 export function laneCaps(
   limit: number,
   firstPaint: boolean,
 ): Record<LlmLane, number> {
-  const live = Math.max(1, Math.min(LIVE_RESERVED_SLOTS, limit));
-  const rest = Math.max(1, limit - live);
+  const live = Math.max(0, Math.min(LIVE_RESERVED_SLOTS, limit));
+  const rest = Math.max(0, limit - live);
+  if (rest === 0) return { live, enrichment: 0, understanding: 0 };
   if (firstPaint) return { live, enrichment: 0, understanding: rest };
+  if (rest === 1) return { live, enrichment: 0, understanding: 1 };
   const enrichment = Math.max(1, Math.round(rest * ENRICHMENT_SHARE));
   return { live, enrichment, understanding: Math.max(1, rest - enrichment) };
 }
@@ -187,11 +217,26 @@ export function laneCaps(
 /** Release a held slot. Idempotent — calling it twice never over-credits. */
 export type Release = () => void;
 
+export class PoolCancelledError extends Error {
+  readonly code = "CANCELLED" as const;
+  constructor() {
+    super("pool wait cancelled");
+    this.name = "PoolCancelledError";
+  }
+}
+
+interface SemaphoreWaiter {
+  grant: () => void;
+  reject: (error: PoolCancelledError) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
 export class Semaphore {
   private limit: number;
   private active = 0;
   private peak = 0;
-  private readonly waiters: Array<() => void> = [];
+  private readonly waiters: SemaphoreWaiter[] = [];
 
   constructor(limit: number) {
     this.limit = Math.max(0, Math.floor(limit));
@@ -216,9 +261,12 @@ export class Semaphore {
     this.pump();
   }
 
-  acquire(): Promise<Release> {
-    return new Promise<Release>((resolve) => {
+  acquire(signal?: AbortSignal): Promise<Release> {
+    if (signal?.aborted) return Promise.reject(new PoolCancelledError());
+    return new Promise<Release>((resolve, reject) => {
+      let waiter: SemaphoreWaiter;
       const grant = () => {
+        signal?.removeEventListener("abort", waiter.onAbort!);
         this.active += 1;
         if (this.active > this.peak) this.peak = this.active;
         let released = false;
@@ -229,8 +277,17 @@ export class Semaphore {
           this.pump();
         });
       };
+      const onAbort = () => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+        reject(new PoolCancelledError());
+      };
+      waiter = { grant, reject, signal, onAbort };
       if (this.active < this.limit) grant();
-      else this.waiters.push(grant);
+      else {
+        signal?.addEventListener("abort", onAbort, { once: true });
+        this.waiters.push(waiter);
+      }
     });
   }
 
@@ -246,7 +303,7 @@ export class Semaphore {
   private pump(): void {
     while (this.active < this.limit && this.waiters.length > 0) {
       const next = this.waiters.shift();
-      next?.();
+      next?.grant();
     }
   }
 }
@@ -272,6 +329,8 @@ export const RETRY_DELAYS_MS = [2_000, 10_000, 30_000] as const;
 export interface ProviderFailure {
   code?: ProviderErrorCode | string;
   message?: string;
+  /** Parsed, bounded backend Retry-After hint. */
+  retryAfterMs?: number;
 }
 
 export type FailureAction = "pause" | "retry" | "quarantine" | "cancelled" | "hold";
@@ -309,6 +368,8 @@ export interface FailureDecision {
 
 /** One tripped breaker — the banner's payload (SPD-07). */
 export interface BreakerTrip {
+  /** Added in Phase 5; absent only on one-release legacy/test fixtures. */
+  providerId?: ProviderId;
   lane: LaneKey;
   /** ISO time of the trip. */
   trippedAt: string;
@@ -510,6 +571,8 @@ export type LaneKey = `llm:${LlmLane}` | ResourceClass;
 
 export interface PoolOptions {
   limits?: Partial<Record<ResourceClass, number>>;
+  /** Optional provider-specific LLM setting; each value is clamped to §10. */
+  providerLimits?: Partial<Record<ProviderId, number>>;
   /** caching.warm_first — default ON (§4.4.3.1). */
   warmFirst?: boolean;
   /** First paint in progress: enrichment gets zero slots. */
@@ -518,11 +581,54 @@ export interface PoolOptions {
   now?: () => number;
   /** Injectable sleep (tests) — used only when waiting out a lane pause. */
   sleep?: (ms: number) => Promise<void>;
+  /** Injectable process RSS sampler for deterministic pressure tests. */
+  rssBytes?: () => number;
+  /** Optional known process memory budget; absent means no inferred pressure. */
+  memoryLimitBytes?: number;
+}
+
+export interface ProviderPoolMetrics {
+  providerId: ProviderId;
+  configuredLimit: number;
+  effectiveLimit: number;
+  inFlight: number;
+  waiting: number;
+  transportFailureStreak: number;
+  lastLatencyMs: number | null;
+  lastQueueDepth: number;
+  rssBytes: number;
+  memoryLimitBytes: number | null;
+  memoryPressure: boolean;
+  nextRampAtMs: number | null;
+}
+
+export interface ProviderObservation {
+  providerId: ProviderId;
+  latencyMs?: number;
+  queueDepth?: number;
+  rssBytes?: number;
+  memoryLimitBytes?: number;
+}
+
+interface AdaptiveProviderState {
+  effectiveLimit: number;
+  transportFailureStreak: number;
+  nextRampAtMs: number;
+  lastLatencyMs: number | null;
+  lastQueueDepth: number;
+  rssBytes: number;
+  memoryLimitBytes: number | null;
+  memoryPressureActive: boolean;
+  lastMemoryReductionAtMs: number | null;
 }
 
 export interface RunOptions {
   /** Which half of the LLM pool this call belongs to. Default: understanding. */
   lane?: LlmLane;
+  /** Required by new LLM callers; omitted retains the one-release Claude seam. */
+  providerId?: ProviderId;
+  /** Cancels a queued acquire without consuming or leaking a slot. */
+  signal?: AbortSignal;
 }
 
 export interface BatchOptions extends RunOptions {
@@ -538,46 +644,60 @@ const defaultSleep = (ms: number): Promise<void> =>
 
 export class ResourcePool {
   private readonly sems: Record<ResourceClass, Semaphore>;
-  private readonly laneSems: Record<LlmLane, Semaphore>;
+  private readonly llmSems: Record<ProviderId, Semaphore>;
+  private readonly laneSems: Record<ProviderId, Record<LlmLane, Semaphore>>;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly rssBytes: () => number;
 
   /** The user's ceiling for the LLM class (before adaptive degradation). */
-  private llmCeiling: number;
+  private readonly llmCeilings: Record<ProviderId, number>;
+  private readonly adaptive: Record<ProviderId, AdaptiveProviderState>;
   private firstPaint: boolean;
   private warmFirst: boolean;
-  private degradedUntil = 0;
-  private readonly pausedUntilMs = new Map<LaneKey, number>();
-  private readonly refusalStreak = new Map<LaneKey, number>();
+  private readonly pausedUntilMs = new Map<string, number>();
+  private readonly refusalStreak = new Map<string, number>();
   /** Consecutive NON-refusal failures per lane — the breaker's counter. */
-  private readonly errorStreak = new Map<LaneKey, number>();
-  private readonly trips = new Map<LaneKey, BreakerTrip>();
+  private readonly errorStreak = new Map<string, number>();
+  private readonly trips = new Map<string, BreakerTrip>();
   private readonly breakerListeners = new Set<(trip: BreakerTrip) => void>();
   /** Callers admitted to `run()` for a class that do not hold a slot yet. */
   private readonly waitingByClass = new Map<ResourceClass, number>();
-  private readonly waitingByLane = new Map<LlmLane, number>();
+  private readonly waitingByProvider = new Map<ProviderId, number>();
+  private readonly waitingByLane = new Map<string, number>();
 
   constructor(opts: PoolOptions = {}) {
     this.now = opts.now ?? Date.now;
     this.sleep = opts.sleep ?? defaultSleep;
+    this.rssBytes = opts.rssBytes ?? (() => process.memoryUsage().rss);
     this.warmFirst = opts.warmFirst ?? true;
     this.firstPaint = opts.firstPaint ?? false;
-    this.llmCeiling = clampLimit("llm", opts.limits?.llm ?? RESOURCE_LIMITS.llm.default);
+    const llmCeiling = clampLimit("llm", opts.limits?.llm ?? RESOURCE_LIMITS.llm.default);
+    this.llmCeilings = {
+      "claude-local": clampProviderLlmLimit("claude-local", opts.providerLimits?.["claude-local"] ?? llmCeiling),
+      "chatgpt-oauth": clampProviderLlmLimit("chatgpt-oauth", opts.providerLimits?.["chatgpt-oauth"] ?? llmCeiling),
+    };
 
     const sems = {} as Record<ResourceClass, Semaphore>;
     for (const cls of Object.keys(RESOURCE_LIMITS) as ResourceClass[]) {
-      const want = cls === "llm" ? this.llmCeiling : opts.limits?.[cls];
+      const want = cls === "llm" ? this.llmCeilings["claude-local"] : opts.limits?.[cls];
       sems[cls] = new Semaphore(
         clampLimit(cls, want ?? RESOURCE_LIMITS[cls].default),
       );
     }
     this.sems = sems;
-
-    const caps = laneCaps(this.llmCeiling, this.firstPaint);
+    this.llmSems = {
+      "claude-local": sems.llm,
+      "chatgpt-oauth": new Semaphore(this.llmCeilings["chatgpt-oauth"]),
+    };
+    const memoryLimitBytes = opts.memoryLimitBytes ?? totalmem();
+    this.adaptive = {
+      "claude-local": this.newAdaptiveState(this.llmCeilings["claude-local"], memoryLimitBytes),
+      "chatgpt-oauth": this.newAdaptiveState(this.llmCeilings["chatgpt-oauth"], memoryLimitBytes),
+    };
     this.laneSems = {
-      enrichment: new Semaphore(caps.enrichment),
-      understanding: new Semaphore(caps.understanding),
-      live: new Semaphore(caps.live),
+      "claude-local": this.newLaneSemaphores(this.llmCeilings["claude-local"]),
+      "chatgpt-oauth": this.newLaneSemaphores(this.llmCeilings["chatgpt-oauth"]),
     };
   }
 
@@ -590,10 +710,29 @@ export class ResourcePool {
       number | undefined,
     ][]) {
       if (typeof n !== "number") continue;
-      if (cls === "llm") this.llmCeiling = clampLimit("llm", n);
+      if (cls === "llm") {
+        for (const providerId of ["claude-local", "chatgpt-oauth"] as const) {
+          const ceiling = clampProviderLlmLimit(providerId, n);
+          const wasAtCeiling = this.adaptive[providerId].effectiveLimit >= this.llmCeilings[providerId];
+          this.llmCeilings[providerId] = ceiling;
+          this.adaptive[providerId].effectiveLimit = wasAtCeiling
+            ? ceiling
+            : Math.min(this.adaptive[providerId].effectiveLimit, ceiling);
+        }
+      }
       else this.sems[cls].setLimit(clampLimit(cls, n));
     }
-    this.refreshLlm();
+    this.refreshAllLlm();
+  }
+
+  configureProviderLlm(providerId: ProviderId, requested: number): void {
+    const ceiling = clampProviderLlmLimit(providerId, requested);
+    const wasAtCeiling = this.adaptive[providerId].effectiveLimit >= this.llmCeilings[providerId];
+    this.llmCeilings[providerId] = ceiling;
+    this.adaptive[providerId].effectiveLimit = wasAtCeiling
+      ? ceiling
+      : Math.min(this.adaptive[providerId].effectiveLimit, ceiling);
+    this.refreshLlm(providerId);
   }
 
   setWarmFirst(on: boolean): void {
@@ -607,27 +746,27 @@ export class ResourcePool {
   /** First paint in progress → enrichment gets zero slots (§4.4.1.1). */
   setFirstPaint(on: boolean): void {
     this.firstPaint = on;
-    this.refreshLlm();
+    this.refreshAllLlm();
   }
 
-  limitOf(cls: ResourceClass): number {
-    return this.sems[cls].capacity;
+  limitOf(cls: ResourceClass, providerId: ProviderId = "claude-local"): number {
+    return cls === "llm" ? this.llmSemaphore(providerId).capacity : this.sems[cls].capacity;
   }
 
-  laneLimit(lane: LlmLane): number {
-    return this.laneSems[lane].capacity;
+  laneLimit(lane: LlmLane, providerId: ProviderId = "claude-local"): number {
+    return this.laneSems[providerId][lane].capacity;
   }
 
-  inFlight(cls: ResourceClass): number {
-    return this.sems[cls].inFlight;
+  inFlight(cls: ResourceClass, providerId: ProviderId = "claude-local"): number {
+    return cls === "llm" ? this.llmSemaphore(providerId).inFlight : this.sems[cls].inFlight;
   }
 
-  peakInFlight(cls: ResourceClass): number {
-    return this.sems[cls].peakInFlight;
+  peakInFlight(cls: ResourceClass, providerId: ProviderId = "claude-local"): number {
+    return cls === "llm" ? this.llmSemaphore(providerId).peakInFlight : this.sems[cls].peakInFlight;
   }
 
-  lanePeakInFlight(lane: LlmLane): number {
-    return this.laneSems[lane].peakInFlight;
+  lanePeakInFlight(lane: LlmLane, providerId: ProviderId = "claude-local"): number {
+    return this.laneSems[providerId][lane].peakInFlight;
   }
 
   /** Callers queued for a class — admitted to `run()`, not yet holding a slot. */
@@ -636,15 +775,15 @@ export class ResourcePool {
   }
 
   /** Queued callers on one LLM lane (a subset of `waiting("llm")`). */
-  laneWaiting(lane: LlmLane): number {
-    return this.waitingByLane.get(lane) ?? 0;
+  laneWaiting(lane: LlmLane, providerId: ProviderId = "claude-local"): number {
+    return this.waitingByLane.get(this.providerLaneKey(providerId, lane)) ?? 0;
   }
 
   /** Most waiters a class admits before `run()` rejects (4× its ceiling). */
-  waiterCap(cls: ResourceClass): number {
+  waiterCap(cls: ResourceClass, providerId: ProviderId = "claude-local"): number {
     // The LLM cap follows the user's ceiling, not the degraded limit: an
     // outage halving concurrency must not also start rejecting the backlog.
-    return waiterCapFor(cls === "llm" ? this.llmCeiling : this.sems[cls].capacity);
+    return waiterCapFor(cls === "llm" ? this.llmCeilings[providerId] : this.sems[cls].capacity);
   }
 
   // ---- running work -------------------------------------------------------
@@ -662,21 +801,47 @@ export class ResourcePool {
     fn: () => Promise<T> | T,
     opts: RunOptions = {},
   ): Promise<T> {
+    const providerId = opts.providerId ?? "claude-local";
+    const lane = opts.lane ?? "understanding";
+    if (cls === "llm") {
+      this.sampleRuntimePressure(providerId);
+      this.refreshLlm(providerId);
+    }
+    const classSemaphore = cls === "llm" ? this.llmSemaphore(providerId) : this.sems[cls];
     // Admission is counted, not observed: a caller is "waiting" from the
     // moment it is admitted until it holds a slot, so a burst submitted in one
     // tick is judged as the queue it WILL form — capacity runs, 4× capacity
     // waits, the rest is rejected before it queues at all.
-    const queued = this.waiting(cls);
-    const cap = this.waiterCap(cls);
-    const free = Math.max(0, this.sems[cls].capacity - this.sems[cls].inFlight);
-    if (queued >= cap + free) throw new PoolOverflowError(cls, queued - free, cap);
+    const admitted = cls === "llm"
+      ? this.waitingByProvider.get(providerId) ?? 0
+      : this.waiting(cls);
+    const cap = this.waiterCap(cls, providerId);
+    const classFree = Math.max(0, classSemaphore.capacity - classSemaphore.inFlight);
+    let queued = admitted;
+    let free = classFree;
+    if (cls === "llm") {
+      const lanes = this.laneSems[providerId];
+      // A lane grant happens synchronously before the provider-wide grant's
+      // promise resumes. During that small window the claimant is still in
+      // `waitingByProvider`, so subtract those reservations or burst admission
+      // would count a capacity claimant as a queued waiter. The paired lane
+      // caps never exceed the provider cap, making the delta exact.
+      const laneInFlight = lanes.live.inFlight + lanes.understanding.inFlight + lanes.enrichment.inFlight;
+      const pendingProviderGrant = Math.max(0, laneInFlight - classSemaphore.inFlight);
+      queued = Math.max(0, admitted - pendingProviderGrant);
+      free = Math.min(
+        Math.max(0, classFree - pendingProviderGrant),
+        Math.max(0, lanes[lane].capacity - lanes[lane].inFlight),
+      );
+    }
+    if (queued >= cap + free) throw new PoolOverflowError(cls, queued, cap);
 
     if (cls !== "llm") {
       this.bumpWaiting(cls, undefined, +1);
       let release: Release | undefined;
       try {
-        await this.awaitResume(cls);
-        release = await this.sems[cls].acquire();
+        await this.awaitResume(cls, providerId, opts.signal);
+        release = await this.sems[cls].acquire(opts.signal);
       } finally {
         this.bumpWaiting(cls, undefined, -1);
       }
@@ -687,29 +852,33 @@ export class ResourcePool {
       }
     }
 
-    const lane = opts.lane ?? "understanding";
-    this.bumpWaiting("llm", lane, +1);
+    this.bumpWaiting("llm", lane, +1, providerId);
     let laneRelease: Release | undefined;
     let slotRelease: Release | undefined;
     try {
       // A pause on the bare "llm" family (the ops surface's "LLM pool" row)
       // holds BOTH lanes; a composite pause holds just its lane. Re-check both
       // until neither is paused — one can be re-paused while the other waits.
-      while (this.isPaused("llm") || this.isPaused(`llm:${lane}`)) {
-        await this.awaitResume("llm");
-        await this.awaitResume(`llm:${lane}`);
+      while (this.isPaused("llm", providerId) || this.isPaused(`llm:${lane}`, providerId)) {
+        if (opts.signal?.aborted) throw new PoolCancelledError();
+        await this.awaitResume("llm", providerId, opts.signal);
+        await this.awaitResume(`llm:${lane}`, providerId, opts.signal);
       }
-      this.refreshLlm();
-      laneRelease = await this.laneSems[lane].acquire();
-      slotRelease = await this.sems.llm.acquire();
+      this.refreshLlm(providerId);
+      laneRelease = await this.laneSems[providerId][lane].acquire(opts.signal);
+      slotRelease = await this.llmSemaphore(providerId).acquire(opts.signal);
     } finally {
-      this.bumpWaiting("llm", lane, -1);
+      this.bumpWaiting("llm", lane, -1, providerId);
+      // If the lane grant succeeded but the provider-wide grant was cancelled,
+      // return the lane credit immediately.
+      if (laneRelease && !slotRelease) laneRelease();
     }
     try {
       return await fn();
     } finally {
       slotRelease!();
       laneRelease!();
+      this.sampleRuntimePressure(providerId);
     }
   }
 
@@ -746,7 +915,9 @@ export class ResourcePool {
     lane: LaneKey,
     err: ProviderFailure,
     retriesSpent = 0,
+    providerId: ProviderId = "claude-local",
   ): FailureDecision {
+    const key = this.providerKey(providerId, lane);
     if (err.code === "CANCELLED") {
       // A cancel is nobody's failure: neither streak moves.
       return classifyFailure(err, retriesSpent, 0);
@@ -765,15 +936,20 @@ export class ResourcePool {
       return classifyFailure(err, retriesSpent, 0);
     }
     if (isRefusal(err)) {
-      const streak = (this.refusalStreak.get(lane) ?? 0) + 1;
-      this.refusalStreak.set(lane, streak);
-      const decision = classifyFailure(err, retriesSpent, streak);
-      this.pausedUntilMs.set(lane, this.now() + decision.waitMs);
-      // Sustained refusals halve the effective LLM concurrency for a window,
-      // then it ramps back on its own (§4.4.1.2).
-      if (streak >= DEGRADE_AFTER_REFUSALS && lane.startsWith("llm:")) {
-        this.degradedUntil = this.now() + DEGRADE_WINDOW_MS;
-        this.refreshLlm();
+      const streak = (this.refusalStreak.get(key) ?? 0) + 1;
+      this.refusalStreak.set(key, streak);
+      let decision = classifyFailure(err, retriesSpent, streak);
+      if (Number.isFinite(err.retryAfterMs) && err.retryAfterMs! > decision.waitMs) {
+        decision = {
+          ...decision,
+          waitMs: Math.min(REFUSAL_BACKOFF_MAX_MS, Math.floor(err.retryAfterMs!)),
+        };
+      }
+      this.pausedUntilMs.set(key, this.now() + decision.waitMs);
+      // Refusals adapt only the failing provider. ChatGPT sheds immediately;
+      // the legacy Claude rail retains its existing two-refusal threshold.
+      if (lane.startsWith("llm:")) {
+        this.observeAdaptiveFailure(providerId, err, streak);
       }
       return decision;
     }
@@ -781,41 +957,49 @@ export class ResourcePool {
     // counts towards its breaker (SPD-07). Ten in a row with no success between
     // them is not ten unlucky units — it is a lane that cannot currently work.
     const decision = classifyFailure(err, retriesSpent, 0);
-    const streak = (this.errorStreak.get(lane) ?? 0) + 1;
+    if (lane.startsWith("llm:")) this.observeAdaptiveFailure(providerId, err);
+    const streak = (this.errorStreak.get(key) ?? 0) + 1;
     if (streak >= BREAKER_FAILURES) {
-      this.errorStreak.delete(lane);
-      this.tripBreaker(lane, streak, err);
+      this.errorStreak.delete(key);
+      this.tripBreaker(lane, streak, err, providerId);
       return { ...decision, breakerTripped: true };
     }
-    this.errorStreak.set(lane, streak);
+    this.errorStreak.set(key, streak);
     return decision;
   }
 
   /** A completed call clears the lane's refusal streak and its breaker count. */
-  noteSuccess(lane: LaneKey): void {
-    this.refusalStreak.delete(lane);
-    this.errorStreak.delete(lane);
+  noteSuccess(lane: LaneKey, providerId: ProviderId = "claude-local", latencyMs?: number): void {
+    const key = this.providerKey(providerId, lane);
+    this.refusalStreak.delete(key);
+    this.errorStreak.delete(key);
+    const adaptive = this.adaptive[providerId];
+    adaptive.transportFailureStreak = 0;
+    if (Number.isFinite(latencyMs) && latencyMs! >= 0) adaptive.lastLatencyMs = Math.floor(latencyMs!);
+    this.refreshLlm(providerId);
   }
 
   /** Consecutive non-refusal failures on `lane` since its last success. */
-  consecutiveFailures(lane: LaneKey): number {
-    return this.errorStreak.get(lane) ?? 0;
+  consecutiveFailures(lane: LaneKey, providerId: ProviderId = "claude-local"): number {
+    return this.errorStreak.get(this.providerKey(providerId, lane)) ?? 0;
   }
 
   /** Every breaker currently holding a lane — the banners (SPD-07). */
-  breakers(): BreakerTrip[] {
+  breakers(providerId?: ProviderId): BreakerTrip[] {
     const now = this.now();
     const live: BreakerTrip[] = [];
-    for (const [lane, trip] of this.trips) {
-      if (trip.untilMs > now && this.isPaused(lane)) live.push(trip);
-      else this.trips.delete(lane);
+    for (const [key, trip] of this.trips) {
+      const tripProvider = trip.providerId ?? "claude-local";
+      if (providerId && tripProvider !== providerId) continue;
+      if (trip.untilMs > now && this.isPaused(trip.lane, tripProvider)) live.push(trip);
+      else this.trips.delete(key);
     }
     return live;
   }
 
   /** The breaker holding `lane`, or null when it is not tripped. */
-  breakerFor(lane: LaneKey): BreakerTrip | null {
-    return this.breakers().find((t) => t.lane === lane) ?? null;
+  breakerFor(lane: LaneKey, providerId: ProviderId = "claude-local"): BreakerTrip | null {
+    return this.breakers(providerId).find((t) => t.lane === lane) ?? null;
   }
 
   /** Be told when a breaker trips (the operator log, a notification). */
@@ -826,10 +1010,16 @@ export class ResourcePool {
     };
   }
 
-  private tripBreaker(lane: LaneKey, failures: number, err: ProviderFailure): void {
+  private tripBreaker(
+    lane: LaneKey,
+    failures: number,
+    err: ProviderFailure,
+    providerId: ProviderId,
+  ): void {
     const now = this.now();
-    this.pauseLane(lane, BREAKER_PAUSE_MS);
+    this.pauseLane(lane, BREAKER_PAUSE_MS, providerId);
     const trip: BreakerTrip = {
+      providerId,
       lane,
       trippedAt: new Date(now).toISOString(),
       untilMs: now + BREAKER_PAUSE_MS,
@@ -837,11 +1027,11 @@ export class ResourcePool {
       lastCode: err.code === undefined ? null : String(err.code),
       lastError: err.message ?? null,
     };
-    this.trips.set(lane, trip);
+    this.trips.set(this.providerKey(providerId, lane), trip);
     // Never a silent retry (SPD-07 wrong mode): the trip is in the operator
     // log the moment it happens, and on /api/ops until the lane resumes.
     console.error(
-      `[breaker] ${lane} paused ${Math.round(BREAKER_PAUSE_MS / 60_000)}m after ` +
+      `[breaker] ${providerId}:${lane} paused ${Math.round(BREAKER_PAUSE_MS / 60_000)}m after ` +
         `${failures} consecutive failures — last: ${trip.lastCode ?? "?"} ${trip.lastError ?? ""}`.trimEnd(),
     );
     for (const listener of this.breakerListeners) {
@@ -854,14 +1044,14 @@ export class ResourcePool {
   }
 
   /** Milliseconds until `lane` may run again; 0 when it is not paused. */
-  pausedForMs(lane: LaneKey): number {
-    const until = this.pausedUntilMs.get(lane);
+  pausedForMs(lane: LaneKey, providerId: ProviderId = "claude-local"): number {
+    const until = this.pausedUntilMs.get(this.providerKey(providerId, lane));
     if (until === undefined) return 0;
     return Math.max(0, until - this.now());
   }
 
-  isPaused(lane: LaneKey): boolean {
-    return this.pausedForMs(lane) > 0;
+  isPaused(lane: LaneKey, providerId: ProviderId = "claude-local"): boolean {
+    return this.pausedForMs(lane, providerId) > 0;
   }
 
   /**
@@ -870,51 +1060,259 @@ export class ResourcePool {
    * coverage meter renders the countdown — but it never touches the refusal
    * streak, so a manual pause cannot degrade the LLM limit.
    */
-  pauseLane(lane: LaneKey, ms: number): void {
-    this.pausedUntilMs.set(lane, this.now() + Math.max(0, ms));
+  pauseLane(lane: LaneKey, ms: number, providerId: ProviderId = "claude-local"): void {
+    this.pausedUntilMs.set(this.providerKey(providerId, lane), this.now() + Math.max(0, ms));
   }
 
   /** Clear a pause early (the limit lifted, or the user retried by hand). */
-  resumeLane(lane: LaneKey): void {
-    this.pausedUntilMs.delete(lane);
-    this.refusalStreak.delete(lane);
-    this.errorStreak.delete(lane);
-    this.trips.delete(lane);
+  resumeLane(lane: LaneKey, providerId: ProviderId = "claude-local"): void {
+    const key = this.providerKey(providerId, lane);
+    this.pausedUntilMs.delete(key);
+    this.refusalStreak.delete(key);
+    this.errorStreak.delete(key);
+    this.trips.delete(key);
   }
 
   /** Effective LLM limit right now — halved while degraded. */
-  effectiveLlmLimit(): number {
-    const degraded = this.degradedUntil > this.now();
-    return degraded
-      ? Math.max(1, Math.floor(this.llmCeiling / 2))
-      : this.llmCeiling;
+  effectiveLlmLimit(providerId: ProviderId = "claude-local"): number {
+    this.maybeRamp(providerId);
+    return this.adaptive[providerId].effectiveLimit;
+  }
+
+  /** Feed bounded runtime telemetry without coupling the pool to one scheduler. */
+  observeProvider(sample: ProviderObservation): ProviderPoolMetrics {
+    const state = this.adaptive[sample.providerId];
+    if (Number.isFinite(sample.latencyMs) && sample.latencyMs! >= 0) {
+      state.lastLatencyMs = Math.floor(sample.latencyMs!);
+    }
+    if (Number.isFinite(sample.queueDepth) && sample.queueDepth! >= 0) {
+      state.lastQueueDepth = Math.floor(sample.queueDepth!);
+    }
+    if (Number.isFinite(sample.rssBytes) && sample.rssBytes! >= 0) state.rssBytes = Math.floor(sample.rssBytes!);
+    else state.rssBytes = this.rssBytes();
+    if (Number.isFinite(sample.memoryLimitBytes) && sample.memoryLimitBytes! > 0) {
+      state.memoryLimitBytes = Math.floor(sample.memoryLimitBytes!);
+    }
+    this.applyMemoryPressure(sample.providerId);
+    this.refreshLlm(sample.providerId);
+    return this.providerMetrics(sample.providerId);
+  }
+
+  providerMetrics(providerId: ProviderId): ProviderPoolMetrics {
+    this.refreshLlm(providerId);
+    const state = this.adaptive[providerId];
+    return Object.freeze({
+      providerId,
+      configuredLimit: this.llmCeilings[providerId],
+      effectiveLimit: state.effectiveLimit,
+      inFlight: this.llmSemaphore(providerId).inFlight,
+      waiting: this.waitingByProvider.get(providerId) ?? 0,
+      transportFailureStreak: state.transportFailureStreak,
+      lastLatencyMs: state.lastLatencyMs,
+      lastQueueDepth: state.lastQueueDepth,
+      rssBytes: state.rssBytes,
+      memoryLimitBytes: state.memoryLimitBytes,
+      memoryPressure: this.hasMemoryPressure(state),
+      nextRampAtMs: state.effectiveLimit < this.llmCeilings[providerId] ? state.nextRampAtMs : null,
+    });
   }
 
   // ---- internals ----------------------------------------------------------
 
-  private bumpWaiting(cls: ResourceClass, lane: LlmLane | undefined, delta: 1 | -1): void {
-    this.waitingByClass.set(cls, Math.max(0, this.waiting(cls) + delta));
-    if (lane) this.waitingByLane.set(lane, Math.max(0, this.laneWaiting(lane) + delta));
+  private newAdaptiveState(limit: number, memoryLimitBytes?: number): AdaptiveProviderState {
+    return {
+      effectiveLimit: limit,
+      transportFailureStreak: 0,
+      nextRampAtMs: 0,
+      lastLatencyMs: null,
+      lastQueueDepth: 0,
+      rssBytes: this.rssBytes(),
+      memoryLimitBytes: Number.isFinite(memoryLimitBytes) && memoryLimitBytes! > 0
+        ? Math.floor(memoryLimitBytes!)
+        : null,
+      memoryPressureActive: false,
+      lastMemoryReductionAtMs: null,
+    };
   }
 
-  private refreshLlm(): void {
-    const limit = this.effectiveLlmLimit();
-    this.sems.llm.setLimit(limit);
+  private newLaneSemaphores(limit: number): Record<LlmLane, Semaphore> {
     const caps = laneCaps(limit, this.firstPaint);
-    this.laneSems.enrichment.setLimit(caps.enrichment);
-    this.laneSems.understanding.setLimit(caps.understanding);
-    this.laneSems.live.setLimit(caps.live);
+    return {
+      enrichment: new Semaphore(caps.enrichment),
+      understanding: new Semaphore(caps.understanding),
+      live: new Semaphore(caps.live),
+    };
   }
 
-  private async awaitResume(lane: LaneKey): Promise<void> {
+  private providerKey(providerId: ProviderId, lane: LaneKey): string {
+    return `${providerId}:${lane}`;
+  }
+
+  private providerLaneKey(providerId: ProviderId, lane: LlmLane): string {
+    return `${providerId}:llm:${lane}`;
+  }
+
+  private llmSemaphore(providerId: ProviderId): Semaphore {
+    return this.llmSems[providerId];
+  }
+
+  private refreshAllLlm(): void {
+    this.refreshLlm("claude-local");
+    this.refreshLlm("chatgpt-oauth");
+  }
+
+  private observeAdaptiveFailure(
+    providerId: ProviderId,
+    err: ProviderFailure,
+    providerRefusalStreak = 0,
+  ): void {
+    const state = this.adaptive[providerId];
+    if (providerId === "claude-local") {
+      if (isRefusal(err) && providerRefusalStreak >= DEGRADE_AFTER_REFUSALS) {
+        state.effectiveLimit = Math.max(1, Math.floor(this.llmCeilings[providerId] / 2));
+        state.nextRampAtMs = this.now() + DEGRADE_WINDOW_MS;
+        this.refreshLlm(providerId);
+      }
+      return;
+    }
+    if (err.code === "TRANSPORT_ERROR") {
+      state.transportFailureStreak += 1;
+      if (state.transportFailureStreak >= CHATGPT_TRANSPORT_FAILURES_BEFORE_REDUCE) {
+        state.transportFailureStreak = 0;
+        this.reduceProvider(providerId);
+      }
+      return;
+    }
+    state.transportFailureStreak = 0;
+    if (err.code === "RATE_LIMITED" || err.code === "QUOTA_EXCEEDED") {
+      this.reduceProvider(providerId);
+    }
+  }
+
+  private reduceProvider(providerId: ProviderId): void {
+    const state = this.adaptive[providerId];
+    const floor = providerId === "chatgpt-oauth"
+      ? Math.min(CHATGPT_ADAPTIVE_MIN, this.llmCeilings[providerId])
+      : 1;
+    state.effectiveLimit = Math.max(floor, Math.floor(state.effectiveLimit / 2));
+    state.nextRampAtMs = this.now() + DEGRADE_WINDOW_MS;
+    this.refreshLlm(providerId);
+  }
+
+  private maybeRamp(providerId: ProviderId): void {
+    const state = this.adaptive[providerId];
+    const ceiling = this.llmCeilings[providerId];
+    if (state.effectiveLimit >= ceiling) {
+      state.effectiveLimit = Math.min(state.effectiveLimit, ceiling);
+      return;
+    }
+    const now = this.now();
+    if (now < state.nextRampAtMs || this.hasMemoryPressure(state)) return;
+    if (providerId === "claude-local") {
+      state.effectiveLimit = ceiling;
+      state.nextRampAtMs = 0;
+      return;
+    }
+    // One observation earns one slot. Do not "catch up" several unobserved
+    // intervals after an idle period: elapsed wall time is not evidence that
+    // the provider or this process is healthy at a higher concurrency.
+    state.effectiveLimit = Math.min(ceiling, state.effectiveLimit + 1);
+    state.nextRampAtMs = state.effectiveLimit < ceiling
+      ? now + CHATGPT_RAMP_INTERVAL_MS
+      : 0;
+  }
+
+  private hasMemoryPressure(state: AdaptiveProviderState): boolean {
+    return state.memoryLimitBytes !== null && state.memoryLimitBytes > 0 &&
+      state.rssBytes / state.memoryLimitBytes >= CHATGPT_MEMORY_PRESSURE_RATIO;
+  }
+
+  private sampleRuntimePressure(providerId: ProviderId): void {
+    const state = this.adaptive[providerId];
+    state.rssBytes = this.rssBytes();
+    state.lastQueueDepth = this.waitingByProvider.get(providerId) ?? 0;
+    this.applyMemoryPressure(providerId);
+  }
+
+  private applyMemoryPressure(providerId: ProviderId): void {
+    const state = this.adaptive[providerId];
+    const pressured = this.hasMemoryPressure(state);
+    const wasPressured = state.memoryPressureActive;
+    state.memoryPressureActive = pressured;
+    if (providerId !== "chatgpt-oauth") return;
+    const now = this.now();
+    if (pressured) {
+      if (
+        !wasPressured ||
+        state.lastMemoryReductionAtMs === null ||
+        now - state.lastMemoryReductionAtMs >= DEGRADE_WINDOW_MS
+      ) {
+        state.lastMemoryReductionAtMs = now;
+        this.reduceProvider(providerId);
+      }
+      return;
+    }
+    if (wasPressured) {
+      state.lastMemoryReductionAtMs = null;
+      state.nextRampAtMs = now + DEGRADE_WINDOW_MS;
+    }
+  }
+
+  private bumpWaiting(
+    cls: ResourceClass,
+    lane: LlmLane | undefined,
+    delta: 1 | -1,
+    providerId: ProviderId = "claude-local",
+  ): void {
+    this.waitingByClass.set(cls, Math.max(0, this.waiting(cls) + delta));
+    if (cls === "llm") {
+      this.waitingByProvider.set(
+        providerId,
+        Math.max(0, (this.waitingByProvider.get(providerId) ?? 0) + delta),
+      );
+      this.adaptive[providerId].lastQueueDepth = this.waitingByProvider.get(providerId) ?? 0;
+    }
+    if (lane) {
+      const key = this.providerLaneKey(providerId, lane);
+      this.waitingByLane.set(key, Math.max(0, this.laneWaiting(lane, providerId) + delta));
+    }
+  }
+
+  private refreshLlm(providerId: ProviderId): void {
+    const limit = this.effectiveLlmLimit(providerId);
+    this.llmSemaphore(providerId).setLimit(limit);
+    const caps = laneCaps(limit, this.firstPaint);
+    this.laneSems[providerId].enrichment.setLimit(caps.enrichment);
+    this.laneSems[providerId].understanding.setLimit(caps.understanding);
+    this.laneSems[providerId].live.setLimit(caps.live);
+  }
+
+  private async awaitResume(lane: LaneKey, providerId: ProviderId, signal?: AbortSignal): Promise<void> {
     // A paused lane is never a silent stall: pausedForMs() is what the coverage
     // meter renders as "paused — resumes in mm:ss" (§4.6.4).
-    let wait = this.pausedForMs(lane);
+    let wait = this.pausedForMs(lane, providerId);
     while (wait > 0) {
-      await this.sleep(wait);
-      wait = this.pausedForMs(lane);
+      await this.abortableSleep(wait, signal);
+      wait = this.pausedForMs(lane, providerId);
     }
-    this.pausedUntilMs.delete(lane);
+    this.pausedUntilMs.delete(this.providerKey(providerId, lane));
+  }
+
+  private async abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) return this.sleep(ms);
+    if (signal.aborted) throw new PoolCancelledError();
+    let onAbort: (() => void) | undefined;
+    try {
+      await Promise.race([
+        this.sleep(ms),
+        new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(new PoolCancelledError());
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    }
   }
 }
 

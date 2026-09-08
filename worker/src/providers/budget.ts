@@ -122,6 +122,10 @@ export const BUDGET_LEDGER_KEY = "budget.ledger";
 export const BUDGET_RESUMED_KEY = "budget.resumed_at";
 /** The kill switch. Value is the ISO time it was thrown; absent = running. */
 export const MODEL_ACTIVITY_PAUSED_KEY = "model_activity_paused";
+export const CHATGPT_QUOTA_CEILING_KEY = "ai.chatgpt.quota_ceiling";
+export const CHATGPT_QUOTA_STATE_KEY = "ai.chatgpt.quota_state";
+export const CHATGPT_QUOTA_TRIPPED_KEY = "ai.chatgpt.quota_tripped_at";
+export const DEFAULT_CHATGPT_QUOTA_SHARE = 0.5;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -175,6 +179,179 @@ function store(): BudgetStore {
 /** Test seam: pin a store (null restores the default selection). */
 export function setBudgetStore(s: BudgetStore | null): void {
   storeOverride = s;
+}
+
+interface StoredQuotaWindow {
+  usedPercent: number;
+  baselinePercent: number;
+  allowedPercent: number;
+  resetAt: string | null;
+}
+
+interface StoredQuotaState {
+  identity: string;
+  windows: Partial<Record<"primary" | "secondary", StoredQuotaWindow>>;
+  observedAt: string;
+  rateLimitedUntil: string | null;
+}
+
+export interface ProviderQuotaStatus {
+  state: "unknown" | "available" | "limited" | "exhausted";
+  resetAt: string | null;
+  ceilingShare: number;
+  consumedShare: number | null;
+  trippedAt: string | null;
+}
+
+function quotaShare(s = store()): number {
+  const parsed = Number(s.get(CHATGPT_QUOTA_CEILING_KEY));
+  return Number.isFinite(parsed) && parsed >= 0.05 && parsed <= 0.9
+    ? parsed
+    : DEFAULT_CHATGPT_QUOTA_SHARE;
+}
+
+function quotaState(s = store()): StoredQuotaState | null {
+  try {
+    const value = JSON.parse(s.get(CHATGPT_QUOTA_STATE_KEY) ?? "null") as Partial<StoredQuotaState> | null;
+    const validWindow = (window: unknown): window is StoredQuotaWindow => {
+      if (!window || typeof window !== "object") return false;
+      const item = window as Partial<StoredQuotaWindow>;
+      return Number.isFinite(item.usedPercent) && item.usedPercent! >= 0 && item.usedPercent! <= 100 &&
+        Number.isFinite(item.baselinePercent) && item.baselinePercent! >= 0 && item.baselinePercent! <= 100 &&
+        Number.isFinite(item.allowedPercent) && item.allowedPercent! >= 0 && item.allowedPercent! <= 100 &&
+        (item.resetAt === null || (typeof item.resetAt === "string" && Number.isFinite(Date.parse(item.resetAt))));
+    };
+    return value && typeof value.identity === "string" && /^[a-f0-9]{64}$/.test(value.identity) &&
+      value.windows !== null && typeof value.windows === "object" &&
+      validWindow(value.windows.primary) &&
+      (value.windows.secondary === undefined || validWindow(value.windows.secondary)) &&
+      typeof value.observedAt === "string" && Number.isFinite(Date.parse(value.observedAt)) &&
+      (value.rateLimitedUntil === null || (typeof value.rateLimitedUntil === "string" && Number.isFinite(Date.parse(value.rateLimitedUntil))))
+      ? value as StoredQuotaState : null;
+  } catch { return null; }
+}
+
+export function setChatGptQuotaCeilingShare(share: number): void {
+  if (!Number.isFinite(share) || share < 0.05 || share > 0.9) throw new Error("quota share must be from 0.05 to 0.9");
+  store().set(CHATGPT_QUOTA_CEILING_KEY, String(share));
+}
+
+/** Feed a bounded authenticated quota poll; no network operation occurs here. */
+export function recordChatGptQuotaSnapshot(
+  snapshot: {
+    identity: string;
+    usedPercent?: number;
+    resetAt?: string | null;
+    windows?: Array<{ kind: "primary" | "secondary"; usedPercent: number; resetAt: string | null }>;
+  },
+  now = Date.now(),
+): ProviderQuotaStatus {
+  const incoming = snapshot.windows ?? [{ kind: "primary" as const, usedPercent: snapshot.usedPercent!, resetAt: snapshot.resetAt ?? null }];
+  if (!/^[a-f0-9]{64}$/.test(snapshot.identity) || incoming.length < 1 || incoming.length > 2 ||
+      new Set(incoming.map((window) => window.kind)).size !== incoming.length || incoming.some((window) =>
+        !Number.isFinite(window.usedPercent) || window.usedPercent < 0 || window.usedPercent > 100 ||
+        (window.resetAt !== null && !Number.isFinite(Date.parse(window.resetAt))))) {
+    throw new Error("invalid ChatGPT quota snapshot");
+  }
+  const s = store();
+  const previous = quotaState(s);
+  const sameIdentity = previous?.identity === snapshot.identity;
+  const windows: StoredQuotaState["windows"] = sameIdentity ? { ...previous!.windows } : {};
+  for (const candidate of incoming) {
+    const prior = sameIdentity ? previous!.windows[candidate.kind] : undefined;
+    if (prior && prior.resetAt === candidate.resetAt) {
+      if (candidate.usedPercent < prior.usedPercent) throw new Error("invalid decreasing ChatGPT quota snapshot");
+      windows[candidate.kind] = { ...prior, usedPercent: candidate.usedPercent };
+      continue;
+    }
+    if (prior) {
+      const priorReset = prior.resetAt === null ? Number.NaN : Date.parse(prior.resetAt);
+      const nextReset = candidate.resetAt === null ? Number.NaN : Date.parse(candidate.resetAt);
+      if (!Number.isFinite(priorReset) || now < priorReset || !Number.isFinite(nextReset) || nextReset <= priorReset) {
+        throw new Error("unverified ChatGPT quota window change");
+      }
+    }
+    windows[candidate.kind] = {
+      usedPercent: candidate.usedPercent,
+      baselinePercent: candidate.usedPercent,
+      allowedPercent: (100 - candidate.usedPercent) * quotaShare(s),
+      resetAt: candidate.resetAt,
+    };
+  }
+  const next: StoredQuotaState = {
+    identity: snapshot.identity,
+    windows,
+    observedAt: new Date(now).toISOString(),
+    rateLimitedUntil: sameIdentity ? previous!.rateLimitedUntil : null,
+  };
+  s.set(CHATGPT_QUOTA_STATE_KEY, JSON.stringify(next));
+  const ratios = Object.values(next.windows).map((window) => window!.allowedPercent > 0
+    ? Math.max(0, window!.usedPercent - window!.baselinePercent) / window!.allowedPercent : 1);
+  if (ratios.some((ratio) => ratio >= 1) && s.get(CHATGPT_QUOTA_TRIPPED_KEY) === null) {
+    s.set(CHATGPT_QUOTA_TRIPPED_KEY, new Date(now).toISOString());
+  }
+  return chatGptQuotaStatus();
+}
+
+export function chatGptQuotaStatus(): ProviderQuotaStatus {
+  const s = store();
+  const state = quotaState(s);
+  const trippedAt = s.get(CHATGPT_QUOTA_TRIPPED_KEY);
+  const strictest = state ? Object.values(state.windows).map((window) => ({
+    window: window!, ratio: window!.allowedPercent > 0
+      ? Math.max(0, window!.usedPercent - window!.baselinePercent) / window!.allowedPercent : 1,
+  })).sort((a, b) => b.ratio - a.ratio)[0] : undefined;
+  const consumedShare = strictest ? Math.min(1, strictest.ratio) : null;
+  const rateLimited = state?.rateLimitedUntil !== null && Date.parse(state?.rateLimitedUntil ?? "") > Date.now();
+  return {
+    state: trippedAt ? "exhausted" : state ? (rateLimited || consumedShare! >= 0.8 ? "limited" : "available") : "unknown",
+    resetAt: strictest?.window.resetAt ?? null,
+    ceilingShare: quotaShare(s), consumedShare, trippedAt,
+  };
+}
+
+export class ProviderQuotaExceededError extends Error {
+  readonly code = "QUOTA_EXCEEDED" as const;
+  constructor() { super("QUOTA_EXCEEDED: SuperTwin's ChatGPT plan-share ceiling is latched; human reset required"); }
+}
+
+export function assertProviderQuotaAvailable(providerId: ProviderId): void {
+  if (providerId === "chatgpt-oauth" && store().get(CHATGPT_QUOTA_TRIPPED_KEY) !== null) {
+    throw new ProviderQuotaExceededError();
+  }
+}
+
+/** Feed a bounded Retry-After signal without turning a transient 429 into the human latch. */
+export function recordChatGptRateLimited(identity: string, retryAfterMs: number | null, now = Date.now()): void {
+  if (!/^[a-f0-9]{64}$/.test(identity) || (retryAfterMs !== null &&
+      (!Number.isSafeInteger(retryAfterMs) || retryAfterMs < 0 || retryAfterMs > 86_400_000))) return;
+  const s = store();
+  const state = quotaState(s);
+  if (!state || state.identity !== identity) return;
+  const until = retryAfterMs === null ? now + 60_000 : now + retryAfterMs;
+  s.set(CHATGPT_QUOTA_STATE_KEY, JSON.stringify({ ...state, rateLimitedUntil: new Date(until).toISOString() }));
+}
+
+/** Credential lifecycle invalidation; the hard latch is scoped to this identity. */
+export function invalidateChatGptQuotaIdentity(identity?: string): void {
+  const s = store();
+  const state = quotaState(s);
+  if (identity === undefined || !state || state.identity !== identity) {
+    s.delete(CHATGPT_QUOTA_STATE_KEY);
+    s.delete(CHATGPT_QUOTA_TRIPPED_KEY);
+  }
+}
+
+/** Human action only; window observations remain as the new baseline. */
+export function resetChatGptQuotaLatch(now = Date.now()): void {
+  const s = store();
+  s.delete(CHATGPT_QUOTA_TRIPPED_KEY);
+  const state = quotaState(s);
+  if (state) s.set(CHATGPT_QUOTA_STATE_KEY, JSON.stringify({ ...state,
+    windows: Object.fromEntries(Object.entries(state.windows).map(([kind, window]) => [kind, {
+      ...window!, baselinePercent: window!.usedPercent,
+      allowedPercent: (100 - window!.usedPercent) * quotaShare(s),
+    }])), rateLimitedUntil: null, observedAt: new Date(now).toISOString() }));
 }
 
 /** Test seam: forget the memory store and any pinned store. */
@@ -462,6 +639,10 @@ export function resetBudgetLatch(now: number = Date.now()): void {
   // call after the reset would re-breach it and re-latch on the spot. The day
   // is not forgiven — see the header.
   s.set(BUDGET_RESUMED_KEY, new Date(now).toISOString());
+  // This route is the existing operator-owned reset control. Keep the
+  // provider plan-share latch human-only as well; merely crossing a plan
+  // reset timestamp or receiving a later quota poll never clears it.
+  resetChatGptQuotaLatch(now);
   holdLoggedAt.clear();
   if (was !== null) {
     const day = totals(loadLedger(s, now), now, DAY_MS);

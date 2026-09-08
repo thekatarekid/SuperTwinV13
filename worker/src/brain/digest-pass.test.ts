@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { DIGEST_V2_ID } from "../prompts/digest.v2.js";
+import { ResourcePool } from "../providers/pool.js";
 import { hasTraceContext } from "../traces/context.js";
 import type { ProviderRequest } from "../providers/types.js";
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
@@ -182,6 +183,52 @@ describe("runDigestPass (digest.v2)", () => {
     // The ledger row names the version.
     const run = db.prepare(`SELECT pass, role, status FROM runs`).get() as { pass: string; role: string; status: string };
     expect(run).toEqual({ pass: DIGEST_V2_ID, role: "digest", status: "ok" });
+  });
+
+  it("routes ChatGPT through its own pool and propagates cancellation", async () => {
+    const controller = new AbortController();
+    const pool = new ResourcePool();
+    pool.noteFailure(
+      "llm:understanding",
+      { code: "TRANSPORT_ERROR", message: "stale failure" },
+      0,
+      "chatgpt-oauth",
+    );
+    let request: ProviderRequest | undefined;
+    const provider = brainTestProvider(async (opts) => {
+      request = opts;
+      opts.onEvent({ type: "delta", text: ANSWER });
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+    }, { providerId: "chatgpt-oauth", model: { id: "haiku" } });
+
+    const report = await runDigestPass(weekBundle(), {
+      provider,
+      pool,
+      signal: controller.signal,
+    });
+
+    expect(report.status).toBe("ok");
+    expect(request).toMatchObject({ signal: controller.signal, maxAgentTurns: 1 });
+    expect(pool.peakInFlight("llm", "chatgpt-oauth")).toBe(1);
+    expect(pool.peakInFlight("llm", "claude-local")).toBe(0);
+    expect(pool.consecutiveFailures("llm:understanding", "chatgpt-oauth")).toBe(0);
+  });
+
+  it("classifies typed digest failures under the resolved provider", async () => {
+    const pool = new ResourcePool();
+    const provider = brainTestProvider(async () => ({
+      continuation: null,
+      usage: ZERO_USAGE,
+      freshFallback: false,
+      status: "error",
+      errorCode: "RATE_LIMITED",
+    }), { providerId: "chatgpt-oauth", model: { id: "haiku" } });
+
+    const report = await runDigestPass(weekBundle(), { provider, pool });
+
+    expect(report.error).toBe("RATE_LIMITED");
+    expect(pool.limitOf("llm", "chatgpt-oauth")).toBe(4);
+    expect(pool.limitOf("llm", "claude-local")).toBe(8);
   });
 
   it("a failed provider run reports failed and commits nothing", async () => {

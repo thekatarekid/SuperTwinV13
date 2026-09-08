@@ -45,7 +45,7 @@ import {
   packAnswerInput,
 } from "../prompts/bar-answer.v1.js";
 import { writeRunLedger } from "../db/index.js";
-import { resourcePool } from "../providers/pool.js";
+import { isPoolOverflow, resourcePool } from "../providers/pool.js";
 import { ProviderGateError } from "../providers/gate.js";
 import {
   ProviderSelectionError,
@@ -54,6 +54,7 @@ import {
   type ResolvedModelCall,
 } from "../providers/selection.js";
 import type {
+  NeutralProviderResult,
   ProviderErrorCode,
   ProviderRequest,
   ProviderStreamEvent,
@@ -73,7 +74,7 @@ import { bornAsked } from "../spaces/birth.js";
 // ---------------------------------------------------------------------------
 
 /** One packed prompt → the model's verbatim text. Injectable for tests. */
-export type BarModelCall = (user: string) => Promise<string>;
+export type BarModelCall = (user: string, signal?: AbortSignal) => Promise<string>;
 
 function mintId(prefix: string): string {
   return `${prefix}_${randomBytes(9).toString("hex")}`;
@@ -196,6 +197,7 @@ export function groundedAnswerRequest(
   user: string,
   resolved: ResolvedModelCall,
   onEvent: (event: ProviderStreamEvent) => void,
+  signal?: AbortSignal,
 ): ProviderRequest {
   if (!resolved.modelSnapshot.inputModalities.includes("text")) {
     throw new ProviderSelectionError(
@@ -228,6 +230,7 @@ export function groundedAnswerRequest(
       ? CLAUDE_GROUNDED_MAX_AGENT_TURNS
       : 1,
     timeoutMs: 120_000,
+    signal,
     onEvent,
     ...reasoningRequestForResolvedCall(resolved),
   };
@@ -264,7 +267,7 @@ export function enforceCitations(
  * the resolved provider directly, inside a trace context (TRC-01) with the
  * versioned prompt supplied as exact instruction bytes.
  */
-export const answerViaModel: BarModelCall = async (user) => {
+export const answerViaModel: BarModelCall = async (user, signal) => {
   let text = "";
   const runId = mintId("run");
   const resolved = resolveModelCall({ source: "role", key: "chat" });
@@ -275,20 +278,59 @@ export const answerViaModel: BarModelCall = async (user) => {
     async () => {
       // S0.9 / T8-3: through the pool — the bar shares the LLM cap with every
       // other call instead of bypassing it.
-      const res = await resourcePool.run(
-        "llm",
-        bindTraceContext(() =>
-          resolved.provider.send(groundedAnswerRequest(
-            runId,
-            user,
-            resolved,
-            (ev) => {
-              if (ev.type === "delta") text += ev.text;
-            },
-          )),
-        ),
-        { lane: "understanding" },
+      const request = groundedAnswerRequest(
+        runId,
+        user,
+        resolved,
+        (ev) => {
+          if (ev.type === "delta") text += ev.text;
+        },
+        signal,
       );
+      const poolStartedAt = Date.now();
+      let res: NeutralProviderResult;
+      try {
+        res = await resourcePool.run(
+          "llm",
+          bindTraceContext(() => resolved.provider.send(request)),
+          {
+            lane: "understanding",
+            providerId: resolved.providerId,
+            ...(request.signal ? { signal: request.signal } : {}),
+          },
+        );
+      } catch (error) {
+        if (!isPoolOverflow(error)) {
+          resourcePool.noteFailure(
+            "llm:understanding",
+            {
+              code: error instanceof Error && "code" in error
+                ? String((error as Error & { code: unknown }).code)
+                : "TRANSPORT_ERROR",
+            },
+            0,
+            resolved.providerId,
+          );
+        }
+        throw error;
+      }
+      if (res.status === "ok") {
+        resourcePool.noteSuccess(
+          "llm:understanding",
+          resolved.providerId,
+          Math.max(0, Date.now() - poolStartedAt),
+        );
+      } else {
+        resourcePool.noteFailure(
+          "llm:understanding",
+          {
+            code: res.errorCode ?? "TRANSPORT_ERROR",
+            retryAfterMs: res.retryAfterMs,
+          },
+          0,
+          resolved.providerId,
+        );
+      }
       // S0.9 / T8-1: the bar answer had no ledger row — its spend was invisible.
       const endedAt = new Date().toISOString();
       const status = res.status === "ok" ? "ok" : "error";
@@ -345,6 +387,7 @@ export async function handleQuestion(
   history: readonly { role: "user" | "twin"; text: string }[] = [],
   answerCall: BarModelCall = answerViaModel,
   resolve: CitationResolver = defaultResolver,
+  signal?: AbortSignal,
 ): Promise<BarAnswer> {
   const block = buildContextBlock(text);
   if (!block) {
@@ -353,7 +396,7 @@ export async function handleQuestion(
   }
   let raw: string;
   try {
-    raw = await answerCall(packAnswerInput(block, text, history));
+    raw = await answerCall(packAnswerInput(block, text, history), signal);
   } catch {
     return { answer: NOTHING_TEXT, citations: [], grounded: false, refused_uncited: false };
   }

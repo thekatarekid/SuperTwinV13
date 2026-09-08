@@ -51,6 +51,7 @@ import {
   type MediaQueueOptions,
 } from "./queue.js";
 import { setEnrichmentReadAllMedia } from "./batch.js";
+import { PoolOverflowError } from "../providers/pool.js";
 import { registerBundleForEnrichment } from "./bundle-pass.js";
 import {
   setMediaBusinessEnabled,
@@ -1279,6 +1280,32 @@ describe("rate limits", () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
     expect(order).toEqual(["read whatsapp:d", "hear whatsapp:a"]);
+  });
+});
+
+describe("pool backpressure", () => {
+  it("keeps a saturated image batch pending without spending attempts or logging a provider call", async () => {
+    const ids = seedImages(3);
+    queue = new MediaQueue({
+      describe: async () => {
+        throw new PoolOverflowError("llm", 32, 32);
+      },
+      describeBatch: async () => {
+        throw new PoolOverflowError("llm", 32, 32);
+      },
+      log: () => {},
+    });
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    for (const id of ids) {
+      expect(stored(id)).toMatchObject({
+        media_desc_status: "pending",
+        media_desc_error: expect.stringContaining("pool \"llm\" is full"),
+      });
+    }
+    expect(getDb().prepare(`SELECT COUNT(*) AS n FROM extraction_runs WHERE kind = 'media'`).get()).toEqual({ n: 0 });
   });
 });
 

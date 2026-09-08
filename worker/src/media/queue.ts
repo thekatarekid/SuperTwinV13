@@ -94,6 +94,7 @@ import {
 } from "../db/settings.js";
 import {
   classifyFailure,
+  isPoolOverflow,
   isRefusal as isProviderRefusal,
 } from "../providers/pool.js";
 import type { ProviderErrorCode } from "../providers/types.js";
@@ -218,7 +219,7 @@ export interface MediaQueueOptions {
 /** True when a failure is the API refusing to serve, not the file being bad. */
 export function isRefusal(
   error: string | null | undefined,
-  code?: ProviderErrorCode,
+  code?: ProviderErrorCode | "POOL_OVERFLOW",
 ): boolean {
   if (code) return isProviderRefusal({ code, message: error ?? "" });
   return error ? REFUSAL.test(error) : false;
@@ -677,10 +678,18 @@ export class MediaQueue {
         status: "error",
         model: "",
         error: (err as Error).message,
+        ...(isPoolOverflow(err) ? { errorCode: "POOL_OVERFLOW" as const } : {}),
       };
     }
     // Stopped while we were reading: leave the row pending, record nothing.
     if (!this.running) return;
+
+    // Pool saturation is upstream backpressure: no provider call ran, no
+    // attempt or ledger row is spent, and the exact row stays pending.
+    if (result.errorCode === "POOL_OVERFLOW") {
+      this.requeue(row.id, result);
+      return;
+    }
 
     this.logRead(runId, result, Date.now() - startedAt);
     const disposition = result.status === "error"
@@ -785,9 +794,21 @@ export class MediaQueue {
         signal: this.abort?.signal,
       });
     } catch (err) {
-      batch = failedBatch([...rows], (err as Error).message);
+      batch = failedBatch(
+        [...rows],
+        (err as Error).message,
+        isPoolOverflow(err) ? "POOL_OVERFLOW" : undefined,
+      );
     }
     if (!this.running) return { results: new Map() };
+
+    if (batch.call.errorCode === "POOL_OVERFLOW") {
+      for (const row of rows) {
+        const result = batch.results.get(row.id);
+        if (result) this.requeue(row.id, result);
+      }
+      return { results: new Map() };
+    }
 
     // One call, one logged run — the batch's spend belongs to the invocation,
     // not to a fraction of each image. The error text carries the echo verdict
@@ -1095,12 +1116,14 @@ function chunkKey(rows: readonly PendingMediaRow[]): string {
 function failedBatch(
   rows: PendingMediaRow[],
   error: string,
+  errorCode?: ProviderErrorCode | "POOL_OVERFLOW",
 ): DescribeBatchResult {
   const verdict: DescribeResult = {
     description: null,
     status: "error",
     model: "",
     error,
+    ...(errorCode ? { errorCode } : {}),
   };
   return {
     results: new Map(rows.map((r) => [r.id, verdict])),

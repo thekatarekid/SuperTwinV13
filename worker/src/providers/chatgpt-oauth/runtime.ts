@@ -4,6 +4,13 @@ import { registerV2 } from "../registry.js";
 import { providerCatalogueCacheKey, type ProviderCatalogueStore } from "../catalogue.js";
 import type { ProviderAuthState, ProviderModelCatalogue, ProviderV2 } from "../types.js";
 import {
+  assertProviderQuotaAvailable,
+  chatGptQuotaStatus,
+  invalidateChatGptQuotaIdentity,
+  recordChatGptQuotaSnapshot,
+  recordChatGptRateLimited,
+} from "../budget.js";
+import {
   BrowserOAuthError,
   BrowserOAuthManager,
   createBrowserOAuthCredentialStore,
@@ -25,6 +32,7 @@ import {
   chatGptProviderCatalogue,
   discoverChatGptAccountModels,
 } from "./models.js";
+import { pollChatGptQuota } from "./quota.js";
 import {
   installChatGptOAuthRouteRuntime,
   type ChatGptOAuthRouteRuntime,
@@ -99,6 +107,12 @@ function tokenExpiry(session: ChatGptTokenSession): string | null {
   }
 }
 
+function quotaResetIso(value: number | string | undefined): string | null {
+  if (value === undefined) return null;
+  const millis = typeof value === "number" ? (value < 1_000_000_000_000 ? value * 1_000 : value) : Date.parse(value);
+  return Number.isFinite(millis) ? new Date(millis).toISOString() : null;
+}
+
 /**
  * Build the home-bound production session even while the feature is off, so
  * Settings can show and clear auth truth. Registration remains strictly flag
@@ -142,6 +156,44 @@ export async function initializeProductionChatGptRuntime(
   let catalogueAbort = new AbortController();
   let shuttingDown = false;
   let lifecyclePaused = false;
+  let quotaIdentity: string | null = null;
+  let quotaCredentialRevision: string | null = null;
+  let quotaFlight: Promise<void> | null = null;
+  const pollQuota = async (signal?: AbortSignal): Promise<void> => {
+    const generation = lifecycleGeneration;
+    let revision: string;
+    try { revision = providerSession.credentialRevision(); } catch { return; }
+    const result = await pollChatGptQuota({
+      session: providerSession, fetch: fetchImpl,
+      userAgent: `SuperTwinV13/${dependencies.appVersion}`, signal,
+    });
+    // The network result is untrusted stale state until the exact lifecycle
+    // ticket and credential pair are revalidated. This check precedes every
+    // persistent and in-memory quota mutation below.
+    if (shuttingDown || lifecyclePaused || generation !== lifecycleGeneration ||
+        session.authState().status !== "ready") return;
+    try { if (providerSession.credentialRevision() !== revision) return; } catch { return; }
+    invalidateChatGptQuotaIdentity(result.identity);
+    quotaIdentity = result.identity;
+    quotaCredentialRevision = revision;
+    recordChatGptQuotaSnapshot({
+      identity: result.identity,
+      windows: [
+        { kind: "primary", usedPercent: result.snapshot.primary.usedPercent,
+          resetAt: quotaResetIso(result.snapshot.primary.resetAt) },
+        ...(result.snapshot.secondary ? [{ kind: "secondary" as const,
+          usedPercent: result.snapshot.secondary.usedPercent,
+          resetAt: quotaResetIso(result.snapshot.secondary.resetAt) }] : []),
+      ],
+    });
+  };
+  const scheduleQuotaPoll = (expectedRevision?: string): void => {
+    if (quotaFlight || shuttingDown || lifecyclePaused || !enabled || session.authState().status !== "ready") return;
+    try { if (expectedRevision !== undefined && providerSession.credentialRevision() !== expectedRevision) return; }
+    catch { return; }
+    const signal = catalogueAbort.signal;
+    quotaFlight = pollQuota(signal).catch(() => undefined).finally(() => { quotaFlight = null; });
+  };
   const invalidateCatalogue = (): void => {
     discoveredCatalogue = null;
     catalogueCredentialRevision = null;
@@ -170,12 +222,22 @@ export async function initializeProductionChatGptRuntime(
       // Same-provider last-known-good cache only; never Claude or a hardcoded list.
     }
   }
+  if (enabled && session.authState().status === "ready") {
+    await pollQuota().catch(() => undefined);
+  }
   const catalogue = dependencies.catalogue ??
     (() => discoveredCatalogue ?? cachedCatalogue(catalogueStore));
   const provider = createChatGptOAuthProvider({
     session: providerSession,
     catalogue,
-    checkQuota: dependencies.checkQuota ?? (() => undefined),
+    checkQuota: dependencies.checkQuota ?? (() => assertProviderQuotaAvailable("chatgpt-oauth")),
+    onRateLimited: (retryMs, revision) => {
+      if (shuttingDown || lifecyclePaused || !quotaIdentity || quotaCredentialRevision !== revision ||
+          session.authState().status !== "ready") return;
+      try { if (providerSession.credentialRevision() !== revision) return; } catch { return; }
+      recordChatGptRateLimited(quotaIdentity, retryMs);
+    },
+    onResponseSettled: scheduleQuotaPoll,
     fetch: fetchImpl,
     appVersion: dependencies.appVersion,
   });
@@ -252,6 +314,7 @@ export async function initializeProductionChatGptRuntime(
         userAgent: `SuperTwinV13/${dependencies.appVersion}`,
         signal,
       });
+      await pollQuota(signal).catch(() => undefined);
       if (!generationIsCurrent(generation, revision)) return;
       discoveredCatalogue = chatGptProviderCatalogue({ discover: () => payload, store: catalogueStore });
       catalogueCredentialRevision = revision;
@@ -287,10 +350,11 @@ export async function initializeProductionChatGptRuntime(
     retryCatalogue: refreshForCredential,
     status: () => {
       const authState: ProviderAuthState = session.authState();
+      const quota = chatGptQuotaStatus();
       return {
         authState,
         plan: null,
-        quota: { state: "unknown", resetAt: null },
+        quota: { state: quota.state, resetAt: quota.resetAt },
         tokenExpiresAt: tokenExpiry(session),
         canary: {
           status: activation.canary === "ready" ? "passed" : activation.canary === "degraded" ? "failed" : "unknown",
@@ -304,7 +368,15 @@ export async function initializeProductionChatGptRuntime(
     start: async () => {
       const started = await auth.start();
       const readiness = { loginId: started.loginId, pending: true, promise: Promise.resolve() };
-      readiness.promise = auth.wait(started.loginId).then(refreshForCredential).catch(() => undefined).finally(() => {
+      readiness.promise = auth.wait(started.loginId).then(() => {
+        // A completed browser login is a new credential generation even when
+        // the user selected the same account. Never carry its prior baseline
+        // or transient 429 state into the new ceremony.
+        invalidateChatGptQuotaIdentity();
+        quotaIdentity = null;
+        quotaCredentialRevision = null;
+        return refreshForCredential();
+      }).catch(() => undefined).finally(() => {
         readiness.pending = false;
       });
       loginReadiness = readiness;
@@ -324,7 +396,11 @@ export async function initializeProductionChatGptRuntime(
       await auth.shutdown();
       provider.killAll();
       await catalogueFlight?.catch(() => undefined);
+      await quotaFlight?.catch(() => undefined);
       await session.logout();
+      invalidateChatGptQuotaIdentity();
+      quotaIdentity = null;
+      quotaCredentialRevision = null;
       successfulCredentialRevision = null;
       loginReadiness = null;
       invalidateCatalogue();
@@ -347,6 +423,7 @@ export async function initializeProductionChatGptRuntime(
       await auth.shutdown();
       provider.killAll();
       await catalogueFlight?.catch(() => undefined);
+      await quotaFlight?.catch(() => undefined);
       discoveredCatalogue = null;
       catalogueCredentialRevision = null;
       loginReadiness = null;

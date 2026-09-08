@@ -10,12 +10,13 @@
 // over a real migrated SQLite DB through the real writers (appendEvents).
 // ===========================================================================
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDb } from "../db/connection.js";
 import { appendEvents } from "../db/eventlog.js";
 import { setProviderModelSelection } from "../db/settings.js";
 import { providerRequestText, providerV2TestDouble } from "../providers/test-support.js";
+import { PoolOverflowError, ResourcePool } from "../providers/pool.js";
 import type { ProviderModelCatalogue, ProviderRequest, ProviderV2 } from "../providers/types.js";
 import { TIER_V1_SYSTEM } from "../prompts/tier.v1.js";
 import { planDigest } from "../scheduler/v6/digest.js";
@@ -41,7 +42,10 @@ let db: ScratchDb;
 beforeEach(() => {
   db = openScratchDb("supertwin-tiering-");
 });
-afterEach(() => db.close());
+afterEach(() => {
+  vi.restoreAllMocks();
+  db.close();
+});
 
 const NOW = Date.parse("2026-08-28T12:00:00.000Z");
 const DAY = 86_400_000;
@@ -151,6 +155,74 @@ describe("the code rules (TIER-01, TIER-02)", () => {
 });
 
 describe("the business split (TIER-03)", () => {
+  it("keys admission and successful adaptation feedback to the resolved ChatGPT provider", async () => {
+    const pool = new ResourcePool({ providerLimits: { "chatgpt-oauth": 8 } });
+    const run = vi.spyOn(pool, "run");
+    const success = vi.spyOn(pool, "noteSuccess");
+    const controller = new AbortController();
+    const provider = providerV2TestDouble(
+      async (request) => {
+        expect(request.signal).toBe(controller.signal);
+        request.onEvent({
+          type: "delta",
+          text: JSON.stringify({ tier: 2, reason: "bills", confidence: 0.9 }),
+        });
+        return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+      },
+      {
+        providerId: "chatgpt-oauth",
+        model: { id: "gpt-tier", maxOutputTokens: 4_096 },
+      },
+    );
+
+    const report = await runTierCall({
+      streamId: "wa:st:bank@s.whatsapp.net",
+      name: "Bank",
+      sample: HDFC_LINES,
+      totalMessages: HDFC_LINES.length,
+      userMessages: 0,
+    }, { provider, pool, signal: controller.signal });
+
+    expect(report.status).toBe("ok");
+    expect(run).toHaveBeenCalledWith(
+      "llm",
+      expect.any(Function),
+      expect.objectContaining({
+        lane: "understanding",
+        providerId: "chatgpt-oauth",
+        signal: controller.signal,
+      }),
+    );
+    expect(success).toHaveBeenCalledWith(
+      "llm:understanding",
+      "chatgpt-oauth",
+      expect.any(Number),
+    );
+  });
+
+  it("hands pool backpressure upstream without a provider call or fake run row", async () => {
+    const pool = new ResourcePool();
+    vi.spyOn(pool, "run").mockRejectedValue(new PoolOverflowError("llm", 32, 32));
+    let calls = 0;
+    const provider = providerV2TestDouble(async () => {
+      calls += 1;
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+    });
+
+    const report = await runTierCall({
+      streamId: "wa:st:bank@s.whatsapp.net",
+      name: "Bank",
+      sample: HDFC_LINES,
+      totalMessages: HDFC_LINES.length,
+      userMessages: 0,
+    }, { provider, pool });
+
+    expect(report).toMatchObject({ status: "failed", error: "POOL_OVERFLOW" });
+    expect(calls).toBe(0);
+    expect(getDb().prepare(`SELECT COUNT(*) AS n FROM runs WHERE pass = 'tier.v1'`).get()).toEqual({ n: 0 });
+    expect(pool.consecutiveFailures("llm:understanding", provider.id)).toBe(0);
+  });
+
   it("uses one immutable neutral selection with exact instructions and no legacy fields", async () => {
     const requests: ProviderRequest[] = [];
     let catalogue: ProviderModelCatalogue;

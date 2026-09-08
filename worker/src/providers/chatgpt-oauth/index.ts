@@ -15,6 +15,7 @@ import type {
   Usage,
 } from "../types.js";
 import { emptyUsage } from "../usage.js";
+import { retryAfterMs } from "./usage.js";
 import type { ChatGptTokenSession } from "./keychain.js";
 import { buildChatGptRequest } from "./request.js";
 import { consumeChatGptSse, ChatGptSseError } from "./sse.js";
@@ -100,6 +101,8 @@ export interface ChatGptOAuthProviderDependencies {
   catalogue: () => ProviderModelCatalogue;
   /** Shared provider quota ceiling; required and invoked by every admission. */
   checkQuota: () => void;
+  onRateLimited?: (retryAfterMs: number | null, credentialRevision: string) => void;
+  onResponseSettled?: (credentialRevision: string) => void;
   fetch: typeof fetch;
   appVersion: string;
   randomUUID?: () => string;
@@ -308,6 +311,8 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
         typeof dependencies.session.refreshAuthorization !== "function" ||
         typeof dependencies.catalogue !== "function" ||
         typeof dependencies.checkQuota !== "function" ||
+        (dependencies.onRateLimited !== undefined && typeof dependencies.onRateLimited !== "function") ||
+        (dependencies.onResponseSettled !== undefined && typeof dependencies.onResponseSettled !== "function") ||
         typeof dependencies.fetch !== "function" ||
         (dependencies.runAttempt !== undefined && typeof dependencies.runAttempt !== "function") ||
         (dependencies.randomUUID !== undefined && typeof dependencies.randomUUID !== "function") ||
@@ -625,7 +630,13 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
           return this.physicalFailure(0, signal.aborted ? abortedCode(signal) : "TRANSPORT_ERROR", onEvent);
         }
         if (!response.ok) {
+          const responseRevision = authorizationRevision(authorization);
+          const retryAfter = response.status === 429
+            ? retryAfterMs(response.headers, this.now())
+            : null;
+          if (response.status === 429) this.dependencies.onRateLimited?.(retryAfter, responseRevision);
           await response.body?.cancel().catch(() => undefined);
+          this.dependencies.onResponseSettled?.(responseRevision);
           const code = httpErrorCode(response.status);
           return this.physicalFailure(
             response.status,
@@ -633,6 +644,7 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
             onEvent,
             suppressUnauthorizedEvent && response.status === 401,
             authorization,
+            retryAfter,
           );
         }
         try {
@@ -659,6 +671,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
             status: parsed.status,
             ...(parsedErrorCode === undefined ? {} : { errorCode: parsedErrorCode }),
           };
+          const responseRevision = authorizationRevision(authorization);
+          if (result.errorCode === "RATE_LIMITED") this.dependencies.onRateLimited?.(null, responseRevision);
+          this.dependencies.onResponseSettled?.(responseRevision);
           if (result.errorCode === "AUTH_EXPIRED") this.markAuthExpired(authorization);
           return {
             usage: result.usage,
@@ -675,6 +690,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
           const code = signal.aborted && parsedCode === "CANCELLED"
             ? abortedCode(signal)
             : parsedCode;
+          const responseRevision = authorizationRevision(authorization);
+          if (code === "RATE_LIMITED") this.dependencies.onRateLimited?.(null, responseRevision);
+          this.dependencies.onResponseSettled?.(responseRevision);
           const result = failureResult(code, onEvent, !(error instanceof ChatGptSseError));
           return {
             usage: result.usage,
@@ -695,9 +713,11 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
     onEvent: (event: ProviderStreamEvent) => void,
     suppressEvent = false,
     authorization?: ChatGptAuthorizationSnapshot,
+    retryAfter: number | null = null,
   ): PhysicalAttempt {
     if (code === "AUTH_EXPIRED" && !suppressEvent) this.markAuthExpired(authorization);
     const result = failureResult(code, onEvent, !suppressEvent);
+    if (retryAfter !== null) result.retryAfterMs = retryAfter;
     return {
       usage: result.usage,
       status: "error",

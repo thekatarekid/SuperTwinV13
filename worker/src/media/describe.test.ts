@@ -7,7 +7,7 @@
 // into a temp media root so the existence check sees what it expects.
 // ===========================================================================
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +28,7 @@ import type {
 } from "../providers/types.js";
 import { emptyUsage } from "../providers/usage.js";
 import { ProviderGateError } from "../providers/gate.js";
+import { PoolOverflowError, ResourcePool } from "../providers/pool.js";
 import { verifyEcho } from "./batch.js";
 import {
   BATCH_MARKER,
@@ -55,6 +56,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   closeDb();
   delete process.env.SUPERTWIN_DB_PATH;
   delete process.env.SUPERTWIN_HOME;
@@ -790,11 +792,14 @@ describe("describeMediaBatch", () => {
 
   it("sends and safely re-associates a ChatGPT image batch without fallback", async () => {
     const rows = images(3);
+    const pool = new ResourcePool({ providerLimits: { "chatgpt-oauth": 8 } });
+    const run = vi.spyOn(pool, "run");
+    const success = vi.spyOn(pool, "noteSuccess");
     const provider = stubProvider(batchAnswer(rows), "ok", "chatgpt-oauth", {
       supportsHostTools: true,
       inputModalities: ["text", "image"],
     });
-    const batch = await describeMediaBatch(rows, { provider });
+    const batch = await describeMediaBatch(rows, { provider, pool });
 
     expect(provider.calls).toHaveLength(1);
     expect(batch.call).toMatchObject({
@@ -807,6 +812,71 @@ describe("describeMediaBatch", () => {
       });
     }
     expect(JSON.stringify(provider.calls[0]!.input)).not.toContain(tmpDir);
+    expect(run).toHaveBeenCalledWith(
+      "llm",
+      expect.any(Function),
+      expect.objectContaining({
+        lane: "enrichment",
+        providerId: "chatgpt-oauth",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(success).toHaveBeenCalledWith(
+      "llm:enrichment",
+      "chatgpt-oauth",
+      expect.any(Number),
+    );
+  });
+
+  it("attributes a ChatGPT rate refusal to that provider and reduces only its pool", async () => {
+    const rows = images(1);
+    const pool = new ResourcePool({
+      providerLimits: { "claude-local": 8, "chatgpt-oauth": 8 },
+      now: () => 0,
+    });
+    const provider = stubProvider("", "ok", "chatgpt-oauth", {
+      inputModalities: ["text", "image"],
+    });
+    provider.send = async (request) => {
+      provider.calls.push(request);
+      return {
+        continuation: null,
+        usage: emptyUsage(),
+        freshFallback: false,
+        status: "error",
+        errorCode: "RATE_LIMITED",
+        retryAfterMs: 123_000,
+      };
+    };
+
+    const batch = await describeMediaBatch(rows, { provider, pool });
+
+    expect(batch.call).toMatchObject({ status: "error", errorCode: "RATE_LIMITED" });
+    expect(pool.effectiveLlmLimit("chatgpt-oauth")).toBe(4);
+    expect(pool.effectiveLlmLimit("claude-local")).toBe(8);
+    expect(pool.isPaused("llm:enrichment", "chatgpt-oauth")).toBe(true);
+    expect(pool.pausedForMs("llm:enrichment", "chatgpt-oauth")).toBe(123_000);
+    expect(pool.isPaused("llm:enrichment", "claude-local")).toBe(false);
+  });
+
+  it("preserves pool backpressure as POOL_OVERFLOW without charging the provider", async () => {
+    const rows = images(1);
+    const pool = new ResourcePool();
+    vi.spyOn(pool, "run").mockRejectedValue(new PoolOverflowError("llm", 32, 32));
+    const noteFailure = vi.spyOn(pool, "noteFailure");
+    const provider = stubProvider("", "ok", "chatgpt-oauth", {
+      inputModalities: ["text", "image"],
+    });
+
+    const batch = await describeMediaBatch(rows, { provider, pool });
+
+    expect(batch.call).toMatchObject({ status: "error", errorCode: "POOL_OVERFLOW" });
+    expect(batch.results.get(rows[0]!.id)).toMatchObject({
+      status: "error",
+      errorCode: "POOL_OVERFLOW",
+    });
+    expect(provider.calls).toHaveLength(0);
+    expect(noteFailure).not.toHaveBeenCalled();
   });
 
   it("chunks ChatGPT batches and preserves global ids across ordered responses", async () => {
@@ -843,9 +913,13 @@ describe("describeMediaBatch", () => {
   it("uses one absolute deadline across ChatGPT chunks and never starts a late chunk", async () => {
     const rows = images(9);
     const provider = stubProvider("", "ok", "chatgpt-oauth", { inputModalities: ["text", "image"] });
+    let now = 10_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     provider.send = async (request) => {
       provider.calls.push(request);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Cross the absolute deadline deterministically. A 5 ms real timer made
+      // whether the first chunk started depend on full-suite CPU contention.
+      now += 501;
       return {
         continuation: null,
         usage: { ...emptyUsage(), inputTokens: 7, outputTokens: 3 },
@@ -853,7 +927,13 @@ describe("describeMediaBatch", () => {
         status: "ok",
       };
     };
-    const batch = await describeMediaBatch(rows, { provider, timeoutMs: 5 });
+    const batch = await (async () => {
+      try {
+        return await describeMediaBatch(rows, { provider, timeoutMs: 500 });
+      } finally {
+        nowSpy.mockRestore();
+      }
+    })();
     expect(provider.calls).toHaveLength(1);
     expect(batch.call).toMatchObject({
       status: "error", errorCode: "TIMEOUT",

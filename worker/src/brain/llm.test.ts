@@ -151,6 +151,8 @@ describe("runJsonPass", () => {
 
   it("uses one ChatGPT response turn and never invents host tools", async () => {
     const requests: ProviderRequest[] = [];
+    const controller = new AbortController();
+    const pool = new ResourcePool();
     const provider = brainTestProvider(async (request) => {
       requests.push(request);
       request.onEvent({ type: "delta", text: '{"ok":true}' });
@@ -159,6 +161,8 @@ describe("runJsonPass", () => {
 
     const result = await runJsonPass(spec(), {
       provider,
+      pool,
+      signal: controller.signal,
       recordRun: () => "r",
       logExtractionRun: () => {},
       addUsage: () => {},
@@ -166,8 +170,38 @@ describe("runJsonPass", () => {
 
     expect(result.status).toBe("ok");
     expect(requests[0]?.maxAgentTurns).toBe(1);
+    expect(requests[0]?.signal).toBe(controller.signal);
     expect(requests[0]?.hostTools).toBeUndefined();
     expect(requests[0]?.tools).toBeUndefined();
+    expect(pool.peakInFlight("llm", "chatgpt-oauth")).toBe(1);
+    expect(pool.peakInFlight("llm", "claude-local")).toBe(0);
+  });
+
+  it("classifies a typed ChatGPT refusal under ChatGPT only", async () => {
+    const pool = new ResourcePool();
+    const provider = brainTestProvider(async (request) => {
+      request.onEvent({ type: "error", code: "RATE_LIMITED", message: "slow down" });
+      return {
+        continuation: null,
+        usage: ZERO_USAGE,
+        freshFallback: false,
+        status: "error",
+        errorCode: "RATE_LIMITED",
+      };
+    }, { providerId: "chatgpt-oauth" });
+
+    const result = await runJsonPass(spec(), {
+      provider,
+      pool,
+      maxPauses: 0,
+      recordRun: () => "r",
+      logExtractionRun: () => {},
+      addUsage: () => {},
+    });
+
+    expect(result.error?.code).toBe("RATE_LIMITED");
+    expect(pool.limitOf("llm", "chatgpt-oauth")).toBe(4);
+    expect(pool.limitOf("llm", "claude-local")).toBe(8);
   });
 
   it("preserves configured Claude reasoning with the isolated plain-completion rail", async () => {
@@ -338,9 +372,10 @@ describe("runJsonPass", () => {
   });
 
   it("BND-12 — a full pool is backpressure: handed back as POOL_OVERFLOW, not retried, not quarantined, not a breaker failure", async () => {
-    // A 1-slot pool whose only slot and whole queue are held by other work.
+    // The understanding slot and its whole queue are held by other work; the
+    // second physical slot stays reserved for live work.
     const clock = fakeClock();
-    const pool = new ResourcePool({ limits: { llm: 1 }, firstPaint: true, now: clock.now, sleep: clock.sleep });
+    const pool = new ResourcePool({ limits: { llm: 2 }, firstPaint: true, now: clock.now, sleep: clock.sleep });
     const hold = new Promise<void>(() => {});
     const held = Array.from({ length: 1 + pool.waiterCap("llm") }, () =>
       pool.run("llm", () => hold, { lane: "understanding" }),
@@ -354,7 +389,7 @@ describe("runJsonPass", () => {
     expect(h.messages).toHaveLength(0); // the provider was never reached
     expect(h.slept).toEqual([]);
     expect(h.parked).toEqual([]);
-    expect(h.runs.map((r) => r.status)).toEqual(["error"]);
+    expect(h.runs).toHaveLength(0); // admission failed; no fake call spend
     expect(pool.consecutiveFailures("llm:understanding")).toBe(0);
     void held;
   });

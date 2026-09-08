@@ -141,6 +141,8 @@ export interface BarTurnInput {
    */
   pending?: { question: string; options: { id: string; label: string }[]; action: ParsedBarAction } | null;
   now?: Date;
+  /** Cancels any provider call admitted for this turn. */
+  signal?: AbortSignal;
 }
 
 export type RoutePlanner = (text: string, now: Date, ctx: { locked: boolean; streams: string[] }) => Promise<RoutePlan | null>;
@@ -407,7 +409,13 @@ export async function runBarTurn(input: BarTurnInput, deps: BarDeps = {}): Promi
     }
     plan = planFromIntent(intent, text, now);
     if (intent === "question" && deps.answerCall) {
-      const legacy = await handleQuestion(text, input.history ?? [], deps.answerCall, deps.resolveCitation);
+      const legacy = await handleQuestion(
+        text,
+        input.history ?? [],
+        deps.answerCall,
+        deps.resolveCitation,
+        input.signal,
+      );
       calls += 1;
       return {
         intent: "question",

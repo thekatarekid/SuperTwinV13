@@ -380,7 +380,7 @@ const bnd12: CaseFn = async (fixture) => {
   const violations: Violation[] = [];
   if (overflow === 0 || typeof waiting !== "number") violations.push({ label: "silent-queue" });
   const expected = rec(fixture.expected);
-  const ok = violations.length === 0 && overflow === num(expected.overflow_rejected, 10) && waiting === num(expected.waiting, 9) && inFlight === num(expected.in_flight, 1);
+  const ok = violations.length === 0 && overflow === num(expected.overflow_rejected, 11) && waiting === num(expected.waiting, 8) && inFlight === num(expected.in_flight, 1);
   return { ok, output: { overflow, waiting, inFlight, settled: settled.filter((s) => s === "ok").length, waiterCap: pool.waiterCap("llm") }, violations, metrics: {} };
 };
 

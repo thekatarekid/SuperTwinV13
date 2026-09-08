@@ -432,6 +432,23 @@ describe("ChatGPT OAuth ProviderV2", () => {
     expect(transport.refreshAuthorization).not.toHaveBeenCalled();
   });
 
+  it("carries a bounded Retry-After hint to provider-neutral refusal policy", async () => {
+    const onRateLimited = vi.fn();
+    const f = fixture({ onRateLimited });
+    await ready(f);
+    f.fetchSpy.mockResolvedValueOnce(new Response(null, {
+      status: 429,
+      headers: { "Retry-After": "123" },
+    }));
+
+    await expect(f.provider.send(userRequest("run-retry-after"))).resolves.toMatchObject({
+      status: "error",
+      errorCode: "RATE_LIMITED",
+      retryAfterMs: 123_000,
+    });
+    expect(onRateLimited).toHaveBeenCalledWith(123_000, expect.stringMatching(/^[a-f0-9]{64}$/));
+  });
+
   it("fails a user call on canary without sending user content and recovers on a later pass", async () => {
     const f = fixture();
     f.fetchSpy.mockResolvedValueOnce(new Response("opaque", { status: 400 }));

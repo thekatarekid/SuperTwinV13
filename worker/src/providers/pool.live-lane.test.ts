@@ -55,6 +55,32 @@ describe("the live lane's reserved slot", () => {
     expect(pool.inFlight("llm")).toBe(0);
   });
 
+  it("keeps the live slot reserved at ChatGPT's three-lane configuration floor", async () => {
+    const pool = new ResourcePool({
+      providerLimits: { "chatgpt-oauth": 2 },
+      warmFirst: false,
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const understanding = pool.run("llm", () => gate, {
+      providerId: "chatgpt-oauth",
+      lane: "understanding",
+    });
+    const enrichment = pool.run("llm", () => gate, {
+      providerId: "chatgpt-oauth",
+      lane: "enrichment",
+    });
+    await tick();
+    expect(pool.limitOf("llm", "chatgpt-oauth")).toBe(3);
+    expect(pool.inFlight("llm", "chatgpt-oauth")).toBe(2);
+    await expect(pool.run("llm", () => "live", {
+      providerId: "chatgpt-oauth",
+      lane: "live",
+    })).resolves.toBe("live");
+    release();
+    await Promise.all([understanding, enrichment]);
+  });
+
   it("the live lane is pausable and breaker-guarded like any other (llm:live)", () => {
     const pool = new ResourcePool({ limits: { llm: 4 }, now: () => 1_000 });
     pool.pauseLane("llm:live", 60_000);

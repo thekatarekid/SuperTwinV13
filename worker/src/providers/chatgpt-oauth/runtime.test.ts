@@ -7,6 +7,9 @@ import type { ChatGptTokenSession } from "./keychain.js";
 import type { ProviderModelCatalogue } from "../types.js";
 import { installChatGptOAuthRouteRuntime, handleChatGptOAuthRoute, retryChatGptCatalogue } from "../../server/chatgpt-oauth-routes.js";
 import { initializeProductionChatGptRuntime } from "./runtime.js";
+import { CHATGPT_ACCOUNT_MODELS_URL } from "./models.js";
+import { CHATGPT_ACCOUNT_QUOTA_URL } from "./quota.js";
+import { resetBudgetForTests } from "../budget.js";
 
 const modelCatalogue: ProviderModelCatalogue = {
   providerId: "chatgpt-oauth", mode: "discovered", source: "fixture",
@@ -57,10 +60,33 @@ async function route(method = "GET", path = "/api/providers/chatgpt-oauth/status
 }
 
 const statusRoute = () => route();
+const modelFetchCount = (spy: ReturnType<typeof vi.fn>) =>
+  spy.mock.calls.filter(([url]) => String(url) === CHATGPT_ACCOUNT_MODELS_URL).length;
 
-afterEach(() => installChatGptOAuthRouteRuntime(null));
+afterEach(() => { installChatGptOAuthRouteRuntime(null); resetBudgetForTests(); });
 
 describe("production ChatGPT runtime lifecycle", () => {
+  it("feeds a bounded authenticated production quota poll into status", async () => {
+    resetBudgetForTests();
+    const fetchSpy = vi.fn<typeof globalThis.fetch>(async (url) => {
+      if (String(url) === CHATGPT_ACCOUNT_QUOTA_URL) {
+        return new Response(JSON.stringify({ plan_type: "plus", rate_limit: {
+          primary_window: { used_percent: 60, reset_at: "2026-09-10T00:00:00.000Z" }, secondary_window: null,
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ default_model: "gpt-live", models: [{ slug: "gpt-live", input_modalities: ["text"] }] }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    });
+    const runtime = await initializeProductionChatGptRuntime({
+      appVersion: "13.12.2", enabled: () => true, activeProvider: () => "claude-local",
+      register: vi.fn(), session: fakeSession("ready"), authManager: fakeAuth(), fetch: fetchSpy,
+      catalogueStore: { get: () => null, set: vi.fn() },
+    });
+    expect(fetchSpy.mock.calls.filter(([url]) => String(url) === CHATGPT_ACCOUNT_QUOTA_URL)).toHaveLength(1);
+    expect((await statusRoute()).body.quota).toEqual({ state: "available", reset_at: "2026-09-10T00:00:00.000Z" });
+    await runtime.shutdown();
+  });
   it("keeps login polling in exchanging until discovery reaches a terminal result", async () => {
     let current: ReturnType<ChatGptTokenSession["current"]> | null = null;
     let loginStatus: "awaiting_browser" | "signed_in" = "awaiting_browser";
@@ -151,7 +177,7 @@ describe("production ChatGPT runtime lifecycle", () => {
       status: 200, headers: { "Content-Type": "application/json" },
     }));
     await Promise.all([retryA, retryB]);
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(modelFetchCount(fetchSpy)).toBe(2));
     await vi.waitFor(() => expect(runtime.provider.catalogue().models[0]?.id).toBe("gpt-b"));
     await runtime.shutdown();
   });
@@ -241,7 +267,7 @@ describe("production ChatGPT runtime lifecycle", () => {
         set: (key, value) => void values.set(key, value),
       },
     });
-    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(modelFetchCount(fetchSpy)).toBe(1);
     expect(runtime.provider.catalogue().models.map((model) => model.id)).toEqual(["gpt-live"]);
     expect([...values.values()].join("\n")).toContain("gpt-live");
     await runtime.shutdown();
@@ -276,9 +302,9 @@ describe("production ChatGPT runtime lifecycle", () => {
     });
     expect(retrying.provider.catalogue().models[0]?.id).toBe("gpt-last-good");
     await statusRoute();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(modelFetchCount(fetchSpy)).toBe(1);
     await retryChatGptCatalogue();
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(modelFetchCount(fetchSpy)).toBe(2);
     expect(retrying.provider.catalogue().models[0]?.id).toBe("gpt-last-good");
     shouldFail = false;
     await retryChatGptCatalogue();
@@ -354,16 +380,16 @@ describe("production ChatGPT runtime lifecycle", () => {
     const first = await route("POST", "/api/providers/chatgpt-oauth/login/start", {});
     current = { accessToken: "access-a", refreshToken: "refresh-a", accountId: "a", expiresAtMs: 2_000_000_000_000 };
     completions.get(first.body.login_id)!.resolve();
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(modelFetchCount(fetchSpy)).toBe(1));
     expect(runtime.provider.catalogue().models[0]!.id).toBe("gpt-a");
     // Status polling while the same generation is current joins/no-ops.
     await Promise.all([statusRoute(), statusRoute(), statusRoute()]);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(modelFetchCount(fetchSpy)).toBe(1);
 
     const second = await route("POST", "/api/providers/chatgpt-oauth/login/start", {});
     current = { accessToken: "access-b", refreshToken: "refresh-b", accountId: "b", expiresAtMs: 2_000_000_000_000 };
     completions.get(second.body.login_id)!.resolve();
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(modelFetchCount(fetchSpy)).toBe(2));
     expect(runtime.provider.catalogue().models[0]!.id).toBe("gpt-b");
     expect([...values.values()].join("\n")).not.toContain("gpt-a");
     await runtime.shutdown();

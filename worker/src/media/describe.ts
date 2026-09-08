@@ -39,7 +39,7 @@ import {
   ModelActivityPausedError,
 } from "../providers/budget.js";
 import { ProviderGateError } from "../providers/gate.js";
-import { resourcePool, type ResourcePool } from "../providers/pool.js";
+import { isPoolOverflow, resourcePool, type ResourcePool } from "../providers/pool.js";
 import {
   ProviderSelectionError,
   requireMaxOutputTokens,
@@ -127,7 +127,7 @@ export interface DescribeResult {
   /** Exact provider snapshot used for the call; absent when no call was needed. */
   provider?: ProviderId;
   /** Typed provider disposition used by the queue; absent for local parse errors. */
-  errorCode?: ProviderErrorCode;
+  errorCode?: ProviderErrorCode | "POOL_OVERFLOW";
   usage?: Usage;
   /** Prompt size for the run log. Absent when no call was made. */
   promptChars?: number;
@@ -701,10 +701,44 @@ async function sendMediaTransport(options: {
       if (event.type === "delta") text += event.text;
       else if (event.type === "error") failure = event.message;
     };
-    const result = await withTraceContext(
-      { pass: "media", caller: options.caller },
-      () => pool.run("llm", bindTraceContext(() => provider.send(request)), { lane: "enrichment" }),
-    );
+    const poolStartedAt = Date.now();
+    let result: NeutralProviderResult;
+    try {
+      result = await withTraceContext(
+        { pass: "media", caller: options.caller },
+        () => pool.run(
+          "llm",
+          bindTraceContext(() => provider.send(request)),
+          { lane: "enrichment", providerId: route.resolved.providerId, signal },
+        ),
+      );
+    } catch (error) {
+      if (!isPoolOverflow(error)) {
+        const code = typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code: unknown }).code)
+          : "TRANSPORT_ERROR";
+        pool.noteFailure("llm:enrichment", { code }, 0, route.resolved.providerId);
+      }
+      throw error;
+    }
+    if (result.status === "ok") {
+      pool.noteSuccess(
+        "llm:enrichment",
+        route.resolved.providerId,
+        Math.max(0, Date.now() - poolStartedAt),
+      );
+    } else {
+      pool.noteFailure(
+        "llm:enrichment",
+        {
+          code: result.errorCode ?? "TRANSPORT_ERROR",
+          message: failure,
+          retryAfterMs: result.retryAfterMs,
+        },
+        0,
+        route.resolved.providerId,
+      );
+    }
     usage = sumUsage(usage, result.usage);
     continuation = result.continuation;
     freshFallback ||= result.freshFallback;
@@ -730,7 +764,9 @@ function mediaFailure(
   resolved?: ResolvedModelCall,
 ): DescribeResult {
   const selection = error instanceof ProviderSelectionError ? error : null;
-  const errorCode: ProviderErrorCode | undefined = selection?.code ??
+  const errorCode: ProviderErrorCode | "POOL_OVERFLOW" | undefined = isPoolOverflow(error)
+    ? "POOL_OVERFLOW"
+    : selection?.code ??
     (error instanceof ProviderGateError ||
       error instanceof BudgetExceededError ||
       error instanceof ModelActivityPausedError ||

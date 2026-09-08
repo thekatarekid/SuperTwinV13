@@ -376,6 +376,8 @@ interface ProviderResultBase {
   freshFallback: boolean;
   status: "ok" | "error";
   errorCode?: ProviderErrorCode;
+  /** Bounded backend refusal hint; absent when no trustworthy hint exists. */
+  retryAfterMs?: number;
 }
 
 /** Provider-neutral result. Stateless calls represent continuation as null. */

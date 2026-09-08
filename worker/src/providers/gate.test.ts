@@ -8,6 +8,7 @@ import {
   MODEL_ACTIVITY_PAUSED_KEY,
   budgetStatus,
   providerCallBudgetStatus,
+  recordChatGptQuotaSnapshot,
   resetBudgetForTests,
   setBudgetStore,
   type BudgetStore,
@@ -157,6 +158,17 @@ describe("shared provider gate", () => {
     expect(fake.calls).toBe(0);
     expect(budgetStatus().hour.calls).toBe(0);
     expect(spendHeartbeatLine(Date.now())).toContain("AUTH_REQUIRED ×1");
+  });
+
+  it("checks the persistent provider quota latch before injected quota, auth, admission, or send", async () => {
+    const identity = "a".repeat(64);
+    recordChatGptQuotaSnapshot({ identity, usedPercent: 0, resetAt: "2026-09-10T00:00:00.000Z" }, 1_000);
+    recordChatGptQuotaSnapshot({ identity, usedPercent: 50, resetAt: "2026-09-10T00:00:00.000Z" }, 2_000);
+    const fake = new GatedFakeProvider("chatgpt-oauth");
+    await expect(sendThroughRegistry(fake)).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+    expect(fake.order).toEqual([]);
+    expect(fake.calls).toBe(0);
+    expect(providerCallBudgetStatus("chatgpt-oauth").hourCalls).toBe(0);
   });
 
   it("admits, streams, accounts, and traces one physical attempt exactly once", async () => {

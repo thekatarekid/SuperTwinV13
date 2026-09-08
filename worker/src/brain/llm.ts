@@ -303,6 +303,7 @@ interface CallOutcome {
   usage: Usage;
   errorCode?: string;
   errorMessage?: string;
+  retryAfterMs?: number;
   startedAt: string;
   endedAt: string;
   providerId: string;
@@ -407,7 +408,11 @@ async function callOnce<T>(
           },
         }),
       ),
-      { lane },
+      {
+        lane,
+        providerId: resolved.providerId,
+        signal: deps.signal,
+      },
     );
     return {
       runId,
@@ -416,9 +421,10 @@ async function callOnce<T>(
       usage: result.usage ?? usage,
       errorCode: result.errorCode ?? failureCode,
       errorMessage: failure,
+      ...(result.retryAfterMs === undefined ? {} : { retryAfterMs: result.retryAfterMs }),
       startedAt,
       endedAt: now().toISOString(),
-      providerId: provider.id,
+      providerId: resolved.providerId,
       promptChars,
     };
   } catch (err) {
@@ -435,7 +441,7 @@ async function callOnce<T>(
       errorMessage: err instanceof Error ? err.message : String(err),
       startedAt,
       endedAt: now().toISOString(),
-      providerId: provider.id,
+      providerId: resolved.providerId,
       promptChars,
     };
   }
@@ -488,14 +494,23 @@ async function dispatch<T>(
     );
     sink.push(call);
     if (call.ok) {
-      pool.noteSuccess(lane);
+      pool.noteSuccess(
+        lane,
+        resolved.providerId,
+        Math.max(0, Date.parse(call.endedAt) - Date.parse(call.startedAt)) || 0,
+      );
       return call;
     }
     if (call.errorCode === "POOL_OVERFLOW") return call;
     const decision = pool.noteFailure(
       lane,
-      { code: call.errorCode, message: call.errorMessage },
+      {
+        code: call.errorCode,
+        message: call.errorMessage,
+        retryAfterMs: call.retryAfterMs,
+      },
       retriesSpent,
+      resolved.providerId,
     );
     // FIX-C2. A turn-cap stop is handed straight back, unlogged: the model's
     // own bytes are in `call.text`, the caller salvages or runs its ONE repair
@@ -681,9 +696,12 @@ async function execute<T>(
   }
   if (!first.ok && !firstSoftStop) {
     const code = String(first.errorCode ?? "CLI_ERROR");
+    if (code === "POOL_OVERFLOW") {
+      return finish("failed", { error: { code, message: first.errorMessage ?? "" } });
+    }
     // A cancel and a full pool are both "not now", not the unit's fault:
     // logged as an error, handed back unquarantined.
-    const handBack = first.hardStop || code === "CANCELLED" || code === "POOL_OVERFLOW";
+    const handBack = first.hardStop || code === "CANCELLED";
     logRun(spec, resolved, first, handBack ? "error" : "quarantined", deps);
     if (handBack) {
       return finish("failed", { error: { code, message: first.errorMessage ?? "" } });
@@ -730,7 +748,10 @@ async function execute<T>(
   const secondSoftStop = !second.ok && String(second.errorCode) === "MAX_TURNS";
   if (!second.ok && !(secondSoftStop && second.text.trim().length > 0)) {
     const code = String(second.errorCode ?? "CLI_ERROR");
-    const handBack = second.hardStop || code === "CANCELLED" || code === "POOL_OVERFLOW";
+    if (code === "POOL_OVERFLOW") {
+      return finish("failed", { error: { code, message: second.errorMessage ?? "" } });
+    }
+    const handBack = second.hardStop || code === "CANCELLED";
     logRun(spec, resolved, second, handBack ? "error" : "quarantined", deps);
     if (handBack) {
       return finish("failed", { error: { code, message: second.errorMessage ?? "" } });

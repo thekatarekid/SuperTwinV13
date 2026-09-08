@@ -32,7 +32,7 @@ import { moduleDir } from "../module-path.js";
 import { bootDegradations } from "../boot-guard.js";
 import { BUILT_THROUGH_PHASE } from "../version.js";
 import { appStateGet, rescanMedia, type RescanType } from "../db/ingest.js";
-import { getV2 as getProviderV2, listV2 as listProvidersV2 } from "../providers/index.js";
+import { getV2 as getProviderV2, listV2 as listProvidersV2, sendProviderRequest } from "../providers/index.js";
 import type {
   NeutralProviderResult,
   ProviderErrorCode,
@@ -1426,7 +1426,7 @@ async function handleChat(
     // records the actual CLI invocation(s) — fresh-fallback included — and the
     // scope flushes them when the send settles.
     result = await withTraceContext({ pass: "chat", caller: "server/chat" }, () =>
-      resolved.provider.send({
+      sendProviderRequest({ provider: resolved.provider, toolHandlers: {}, request: {
       runId,
       model: resolved.model,
       instructions,
@@ -1456,7 +1456,7 @@ async function handleChat(
       timeoutMs: grounded ? 180_000 : 120_000,
       onEvent,
       signal: ac.signal,
-      }),
+      } }),
     );
   } catch (err) {
     abortReservedTurn();

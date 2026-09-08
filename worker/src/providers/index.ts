@@ -4,6 +4,7 @@
 
 export * from "./types.js";
 export * from "./usage.js";
+export * from "./agent-loop.js";
 export {
   register,
   registerProviderFacades,

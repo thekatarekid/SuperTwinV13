@@ -13,9 +13,15 @@
 // reads markers off the stub pass's output. The CLI wires `haikuJudge` in.
 // ===========================================================================
 
-import { claudeLocalProvider } from "../providers/claude-local/index.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
 import { withTraceContext } from "../traces/context.js";
-import type { Provider } from "../providers/types.js";
+import type { ProviderErrorCode, ProviderV2 } from "../providers/types.js";
 import type { Fixture } from "./fixtures.js";
 import type { ExecutorResult } from "./runner.js";
 import { calendarBlock } from "./executors/seeds.js";
@@ -112,41 +118,97 @@ export function parseJudgeReply(text: string, allowedLabels: ReadonlySet<string>
 }
 
 export interface HaikuJudgeOptions {
-  provider?: Provider;
-  model?: string;
+  /** Strict provider injection for isolated tests. Production uses the V2 registry. */
+  provider?: ProviderV2;
   timeoutMs?: number;
 }
 
+export class JudgeCallError extends Error {
+  readonly code: ProviderErrorCode;
+
+  constructor(code: ProviderErrorCode) {
+    super(`judge call failed: ${code}`);
+    this.name = "JudgeCallError";
+    this.code = code;
+  }
+}
+
+const PROVIDER_ERROR_CODES = {
+  TIMEOUT: true,
+  SPAWN_FAILED: true,
+  CLI_ERROR: true,
+  POISONED_SESSION: true,
+  CANCELLED: true,
+  QUOTA_EXCEEDED: true,
+  BUDGET_EXCEEDED: true,
+  MODEL_ACTIVITY_PAUSED: true,
+  MAX_TURNS: true,
+  BAD_REQUEST: true,
+  AUTH_REQUIRED: true,
+  AUTH_EXPIRED: true,
+  PROVIDER_UNAVAILABLE: true,
+  MODEL_UNAVAILABLE: true,
+  CAPABILITY_UNSUPPORTED: true,
+  BACKEND_UNSUPPORTED: true,
+  RATE_LIMITED: true,
+  TRANSPORT_ERROR: true,
+} as const satisfies Record<ProviderErrorCode, true>;
+
+function providerErrorCode(error: unknown): ProviderErrorCode | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && Object.hasOwn(PROVIDER_ERROR_CODES, code)
+    ? code as ProviderErrorCode
+    : undefined;
+}
+
 /**
- * The production judge: one bare haiku completion per case via the local
- * `claude` CLI (plainCompletion — no tools, one turn, no user settings).
- * Retries the call once on an unparseable reply.
+ * The production judge: one provider-neutral classify-role completion per
+ * case (Claude resolves that role to Haiku). It is tool-free and ignores host
+ * settings. Retries the call once on an unparseable reply.
  */
 export function haikuJudge(options: HaikuJudgeOptions = {}): Judge {
-  const provider = options.provider ?? claudeLocalProvider;
-  const model = options.model ?? JUDGE_MODEL;
   const timeoutMs = options.timeoutMs ?? 120_000;
 
-  async function callOnce(prompt: string, runId: string): Promise<string> {
+  async function callOnce(
+    prompt: string,
+    runId: string,
+    resolved: ResolvedModelCall,
+    maxOutputTokens: number,
+  ): Promise<string> {
     let text = "";
     // TRC-01: every model invocation runs inside a trace context — the judge
     // is a model call like any other.
     const result = await withTraceContext(
       { pass: "eval-judge", caller: "evals/judge", promptVersion: "judge.v1" },
       () =>
-        provider.send({
+        resolved.provider.send({
           runId,
-          message: prompt,
-          model,
+          model: resolved.model,
+          instructions: "",
+          input: [{
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: prompt }],
+          }],
+          toolChoice: "none",
+          text: { format: { type: "text" } },
           plainCompletion: true,
+          skipHostSettings: true,
+          persistContinuation: false,
+          maxOutputTokens,
+          maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
+          ...reasoningRequestForResolvedCall(resolved),
           timeoutMs,
           onEvent: (e) => {
             if (e.type === "delta") text += e.text;
           },
         }),
-    );
+    ).catch((error: unknown) => {
+      throw new JudgeCallError(providerErrorCode(error) ?? "TRANSPORT_ERROR");
+    });
     if (result.status !== "ok") {
-      throw new Error(`judge call failed: ${result.errorCode ?? "unknown"}`);
+      throw new JudgeCallError(result.errorCode ?? "TRANSPORT_ERROR");
     }
     return text;
   }
@@ -155,11 +217,25 @@ export function haikuJudge(options: HaikuJudgeOptions = {}): Judge {
     const prompt = buildJudgePrompt(fixture, produced);
     const labels = new Set(fixture.wrong.map((w) => w.label));
     const runId = `eval-judge-${fixture.id}-${Date.now()}`;
-    const first = await callOnce(prompt, runId);
+    // Resolve once per logical verdict; the parse-repair retry reuses the exact
+    // provider, model row, reasoning choice, catalogue revision and output cap.
+    const resolved = resolveModelCall(
+      { source: "role", key: "classify" },
+      options.provider ? { provider: options.provider } : {},
+    );
+    if (!resolved.modelSnapshot.inputModalities.includes("text")) {
+      throw new ProviderSelectionError(
+        "CAPABILITY_UNSUPPORTED",
+        `model ${resolved.model} does not accept judge text input`,
+        { providerId: resolved.providerId, key: resolved.key, model: resolved.model },
+      );
+    }
+    const maxOutputTokens = requireMaxOutputTokens(resolved);
+    const first = await callOnce(prompt, runId, resolved, maxOutputTokens);
     try {
       return parseJudgeReply(first, labels);
     } catch {
-      const second = await callOnce(prompt, `${runId}-retry`);
+      const second = await callOnce(prompt, `${runId}-retry`, resolved, maxOutputTokens);
       return parseJudgeReply(second, labels);
     }
   };

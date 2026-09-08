@@ -24,6 +24,12 @@
 
 import { getDb } from "../../db/connection.js";
 import { appStateGet, appStateSet } from "../../db/ingest.js";
+import {
+  getActiveProvider,
+  getProviderModelSelection,
+  providerModelKey,
+  setProviderModelSelection,
+} from "../../db/settings.js";
 import { markDispatched, type DeltaBundle } from "../../scheduler/v6/bundle.js";
 import { FRESHNESS_PRESETS } from "../../scheduler/v6/cold.js";
 import { Dispatcher, FRESHNESS_KEY, type SinkResult } from "../../scheduler/v6/dispatch.js";
@@ -155,8 +161,11 @@ const set02: CaseFn = async (fixture) => {
     compare: string;
     regressed?: string[];
   }[];
-  const modelKey = `selected_model_${step}`;
+  const provider = getActiveProvider();
+  const modelKey = providerModelKey(provider, step);
+  const legacyModelKey = `selected_model_${step}`;
   const beforeModel = appStateGet(modelKey);
+  const beforeLegacyModel = appStateGet(legacyModelKey);
   const beforeGolden = appStateGet(GOLDEN_STATE_KEY);
   const db = getDb();
   const decisionsSince = (targetId: string, sinceRowid: number): { action: string; reason: string | null }[] =>
@@ -176,14 +185,14 @@ const set02: CaseFn = async (fixture) => {
 
   const startRowid = maxRowid();
   try {
-    appStateSet(modelKey, from);
+    setProviderModelSelection(provider, step, from);
     installGoldenRunner(stub, "SET-02 stub runner");
     const outcomes: unknown[] = [];
     const violations: Violation[] = [];
     let appliedBeforeReturn = false;
     for (let k = 0; k < runs.length; k++) {
       const apply = (): void => {
-        appStateSet(modelKey, to);
+        setProviderModelSelection(provider, step, to);
         db.prepare(`INSERT INTO decisions (id, pass, target_kind, target_id, action, old_json, new_json, reason) VALUES (?, 'user', 'setting', ?, 'update', ?, ?, ?)`).run(
           `set02_${k}_${Date.now().toString(36)}`,
           modelKey,
@@ -194,9 +203,9 @@ const set02: CaseFn = async (fixture) => {
       };
       const proposed = await proposeStepChange({ step, label: step, model: to }, apply);
       // "switch-before-eval": the proposal returns "running" with the OLD model in place.
-      if (appStateGet(modelKey) !== from && k === 0) appliedBeforeReturn = true;
+      if (getProviderModelSelection(provider, step) !== from && k === 0) appliedBeforeReturn = true;
       const settled = await awaitGoldenRun();
-      const selected = appStateGet(modelKey);
+      const selected = getProviderModelSelection(provider, step);
       const gateDecisions = decisionsSince(`golden_gate_${step}`, startRowid);
       const updateDecisions = decisionsSince(modelKey, startRowid);
       outcomes.push({ proposed: proposed.status, gate: settled.status, applied: settled.applied, selected_after: selected, regressed: settled.regressed });
@@ -220,7 +229,7 @@ const set02: CaseFn = async (fixture) => {
     if (calls.length !== runs.length) violations.push({ label: "runner-call-count", note: `${calls.length} ≠ ${runs.length}` });
     return {
       ok: violations.length === 0,
-      output: { step, from, to, runner_asked: runnerAsked, runner_calls: calls.length, outcomes },
+      output: { step, provider, provider_model_key: modelKey, from, to, runner_asked: runnerAsked, runner_calls: calls.length, outcomes },
       violations,
       metrics: { model_calls: 0, runner_calls: calls.length },
       notes: ["deterministic; the golden runner is a stub — zero model calls (settings/golden-gate.ts)"],
@@ -229,6 +238,8 @@ const set02: CaseFn = async (fixture) => {
     installGoldenRunner(null);
     if (beforeModel === null) deleteAppState(modelKey);
     else appStateSet(modelKey, beforeModel);
+    if (beforeLegacyModel === null) deleteAppState(legacyModelKey);
+    else appStateSet(legacyModelKey, beforeLegacyModel);
     if (beforeGolden === null) deleteAppState(GOLDEN_STATE_KEY);
     else appStateSet(GOLDEN_STATE_KEY, beforeGolden);
     db.prepare(`DELETE FROM decisions WHERE rowid > ? AND target_id IN (?, ?)`).run(startRowid, modelKey, `golden_gate_${step}`);

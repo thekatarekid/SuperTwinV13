@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../../db/connection.js";
 import { appStateGet } from "../../db/ingest.js";
+import { providerModelKey } from "../../db/settings.js";
 import { goldenRunnerInstalled, installGoldenRunner } from "../../settings/golden-gate.js";
 import { FRESHNESS_KEY } from "../../scheduler/v6/dispatch.js";
 import { loadFixture } from "../fixtures.js";
@@ -87,6 +88,8 @@ describe("SET executor", () => {
     expect(r.violations).toEqual([]);
     expect(r.ok).toBe(true);
     expect(o.runner_calls).toBe(2);
+    expect(o.provider).toBe("claude-local");
+    expect(o.provider_model_key).toBe(providerModelKey("claude-local", "decide"));
     // The runner was asked for Decide's categories with the candidate as an override.
     expect(o.runner_asked).toEqual({ categories: expect.arrayContaining(["DEC"]), override_model: "sonnet" });
     const outcomes = o.outcomes as {
@@ -109,11 +112,12 @@ describe("SET executor", () => {
     await run("SET-02");
     expect(goldenRunnerInstalled()).toBe(false);
     expect(appStateGet("selected_model_decide")).toBeNull();
+    expect(appStateGet(providerModelKey("claude-local", "decide"))).toBeNull();
     // The gate's own decision rows are cleaned up with the case.
     const n = (
       getDb()
-        .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_id IN ('selected_model_decide','golden_gate_decide')`)
-        .get() as { n: number }
+        .prepare(`SELECT COUNT(*) AS n FROM decisions WHERE target_id IN (?, 'selected_model_decide','golden_gate_decide')`)
+        .get(providerModelKey("claude-local", "decide")) as { n: number }
     ).n;
     expect(n).toBe(0);
   });

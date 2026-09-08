@@ -18,9 +18,7 @@ import type { RecordRunParams } from "../db/run-accounting.js";
 import { resetLegendCache } from "./legend.js";
 import {
   buildSystemPrompt,
-  resetPromptFilesForTests,
   runPrompt,
-  systemPromptPath,
   type PromptCallSpec,
   type QuarantineRow,
   type RunnerDeps,
@@ -216,7 +214,6 @@ function spec(over: Partial<PromptCallSpec> = {}): PromptCallSpec {
 beforeEach(() => {
   resetProviderRegistryForTests();
   resetLegendCache();
-  resetPromptFilesForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -228,19 +225,12 @@ describe("the stable prefix", () => {
     expect(system.endsWith("Extract claims from the episode below.")).toBe(true);
   });
 
-  it("writes it to one content-addressed file and reuses it byte-for-byte", async () => {
+  it("passes it directly and reuses it byte-for-byte", async () => {
     const h = harness([{ text: CLEAN }, { text: CLEAN }]);
     await runPrompt(spec(), h.deps);
     await runPrompt(spec(), h.deps);
     expect(h.provider.instructionsSeen[0]).toBe(h.provider.instructionsSeen[1]);
     expect(h.provider.instructionsSeen[0]).toBe(buildSystemPrompt(spec()));
-  });
-
-  it("gives a different call type a different file", () => {
-    const a = systemPromptPath("P-CL1", "alpha");
-    const b = systemPromptPath("P-TR1", "alpha");
-    expect(a).not.toBe(b);
-    expect(systemPromptPath("P-CL1", "alpha")).toBe(a);
   });
 
   it("keeps the variable half on stdin, out of the cached prefix", async () => {

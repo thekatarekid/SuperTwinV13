@@ -25,7 +25,6 @@ import type {
 import type { RecordRunParams } from "../db/run-accounting.js";
 import { resetLegendCache } from "./legend.js";
 import {
-  resetPromptFilesForTests,
   runPrompt,
   type PromptCallSpec,
   type QuarantineRow,
@@ -123,7 +122,6 @@ function spec(over: Partial<PromptCallSpec> = {}): PromptCallSpec {
 
 beforeEach(() => {
   resetLegendCache();
-  resetPromptFilesForTests();
 });
 
 describe("runPrompt on a turn-cap stop", () => {

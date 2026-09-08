@@ -34,9 +34,6 @@
 // ===========================================================================
 
 import { createHash, randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
 import {
@@ -82,33 +79,6 @@ import {
   type RepairCoverage,
   type RepairOutcome,
 } from "./repair.js";
-
-// ---------------------------------------------------------------------------
-// The stable prefix (§4.4.3.2 / §5.9.4)
-// ---------------------------------------------------------------------------
-
-const promptFiles = new Map<string, string>();
-
-/**
- * @deprecated Compatibility helper for callers not yet on the strict neutral
- * request boundary. PromptRunner passes the instruction bytes directly.
- * Keyed by content hash so a changed legend cannot reuse the previous file.
- */
-export function systemPromptPath(callType: string, text: string): string {
-  const hash = createHash("sha1").update(text).digest("hex").slice(0, 12);
-  const safe = callType.replace(/[^A-Za-z0-9._-]/g, "_");
-  const path = join(tmpdir(), `supertwin-${safe}-${hash}.txt`);
-  if (promptFiles.get(path) !== hash) {
-    writeFileSync(path, text, "utf8");
-    promptFiles.set(path, hash);
-  }
-  return path;
-}
-
-/** Test hook — forces the next call to rewrite its prompt file. */
-export function resetPromptFilesForTests(): void {
-  promptFiles.clear();
-}
 
 /** legend + the prompt's own instructions, in that order, always. */
 export function buildSystemPrompt(spec: PromptCallSpec): string {

@@ -19,6 +19,9 @@ const MAX_TEXT_BYTES = 512 * 1024;
 const MAX_DESCRIPTION_BYTES = 8 * 1024;
 const MAX_CONTINUATION_BYTES = 2 * 1024;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+// Keep continuation acceptance identical to the response IDs admitted by the
+// SSE parser. These values are opaque to callers, but not arbitrary strings.
+const SAFE_RESPONSE_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SAFE_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const SAFE_CACHE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const SAFE_DATA_IMAGE = /^data:image\/(?:png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/;
@@ -210,8 +213,14 @@ function validateJsonSchemaNode(value: ProviderJson, depth = 0): void {
     fail("BAD_REQUEST", "JSON schema reference");
   }
   if (schema.description !== undefined && typeof schema.description !== "string") fail("BAD_REQUEST", "JSON schema description");
+  const isObjectSchema = schema.type === "object" ||
+    Array.isArray(schema.type) && schema.type.includes("object");
   if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean") {
     fail("BAD_REQUEST", "JSON schema additionalProperties");
+  }
+  if (isObjectSchema) {
+    if (schema.additionalProperties === undefined) schema.additionalProperties = false;
+    else if (schema.additionalProperties !== false) fail("BAD_REQUEST", "strict object schema");
   }
   if (schema.properties !== undefined) {
     if (!schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
@@ -229,6 +238,14 @@ function validateJsonSchemaNode(value: ProviderJson, depth = 0): void {
         new Set(schema.required).size !== schema.required.length) fail("BAD_REQUEST", "JSON schema required");
     if (schema.properties && schema.required.some((item) =>
       !Object.hasOwn(schema.properties as ProviderJsonObject, item as string))) fail("BAD_REQUEST", "JSON schema required");
+  }
+  if (isObjectSchema && schema.properties) {
+    const properties = Object.keys(schema.properties as ProviderJsonObject);
+    const required = schema.required;
+    if (properties.length > 0 && (!Array.isArray(required) || required.length !== properties.length ||
+        properties.some((name) => !required.includes(name)))) {
+      fail("BAD_REQUEST", "strict object required properties");
+    }
   }
   if (schema.items !== undefined) validateJsonSchemaNode(schema.items, depth + 1);
   for (const keyword of ["anyOf", "oneOf", "allOf"] as const) {
@@ -270,14 +287,6 @@ function cloneAndValidateJsonSchema(
   const schema = cloneJsonObject(value, "JSON schema");
   validateJsonSchemaNode(schema);
   if (options.requireObjectRoot && schema.type !== "object") fail("BAD_REQUEST", "tool parameter schema");
-  if (schema.type === "object" && schema.additionalProperties === undefined) {
-    // ProviderTool/ProviderTextOutput promise strict output but their neutral
-    // JSON Schema type permits this keyword to be omitted. Close the root here
-    // instead of rejecting an otherwise valid neutral contract.
-    schema.additionalProperties = false;
-  } else if (schema.type === "object" && schema.additionalProperties !== false) {
-    fail("BAD_REQUEST", "strict object schema");
-  }
   return schema;
 }
 
@@ -396,10 +405,15 @@ function mapReasoning(
     return model.reasoningValues.includes("none") ? { effort: "none" } : undefined;
   }
   const orderedEfforts = ["xhigh", "high", "medium", "low", "minimal"] as const;
-  const effort = source.effort ?? (budget === "max"
+  const mappedEffort = budget === "max"
     ? orderedEfforts.find((candidate) => model.reasoningValues.includes(candidate))
-    : budget);
-  if (typeof effort !== "string" || !OUTBOUND_REASONING.has(effort) || effort === "none") {
+    : budget;
+  if (mappedEffort === undefined) fail("CAPABILITY_UNSUPPORTED", "reasoning effort");
+  if (source.effort !== undefined && source.effort !== mappedEffort) {
+    fail("BAD_REQUEST", "reasoning effort mapping");
+  }
+  const effort = mappedEffort;
+  if (!OUTBOUND_REASONING.has(effort)) {
     fail("BAD_REQUEST", "reasoning effort");
   }
   if (!model.reasoningValues.includes(effort)) fail("CAPABILITY_UNSUPPORTED", "reasoning effort");
@@ -591,6 +605,9 @@ function buildChatGptRequestUnchecked(
     item !== null && typeof item === "object" && !Array.isArray(item) &&
     item.type === "function_call_output");
   if (hasFunctionResult && !body.tools) fail("BAD_REQUEST", "function result without tool loop");
+  if (hasFunctionResult && source.continuation === undefined) {
+    fail("BAD_REQUEST", "function result without continuation");
+  }
 
   if (source.reasoning !== undefined) {
     const reasoning = mapReasoning(source.reasoning as NonNullable<ProviderRequest["reasoning"]>, model);
@@ -614,7 +631,7 @@ function buildChatGptRequestUnchecked(
     const continuation = dataRecord(source.continuation, "continuation");
     exactKeys(continuation, ["token"], ["token"], "continuation");
     const token = boundedString(continuation.token, MAX_CONTINUATION_BYTES, "continuation token");
-    if (/\p{Cc}/u.test(token)) fail("BAD_REQUEST", "continuation token");
+    if (!SAFE_RESPONSE_ID.test(token)) fail("BAD_REQUEST", "continuation token");
     body.previous_response_id = token;
   }
 

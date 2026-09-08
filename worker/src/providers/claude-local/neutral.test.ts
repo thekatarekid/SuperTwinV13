@@ -162,9 +162,10 @@ describe("neutral Claude facade", () => {
     try {
       const { claudeLocalProvider } = await import("./index.js");
       const common = { message: "payload", onEvent: () => {} };
+      const exactInstructions = "  EXACT DIRECT INSTRUCTIONS\nनमस्ते 🌱\n  ";
       await claudeLocalProvider.sendWithDirectInstructions(
         { ...common, runId: "direct-nonempty" },
-        "EXACT DIRECT INSTRUCTIONS",
+        exactInstructions,
       );
       await claudeLocalProvider.sendWithDirectInstructions(
         { ...common, runId: "direct-blank" },
@@ -184,8 +185,8 @@ describe("neutral Claude facade", () => {
         return at < 0 ? undefined : args[at + 1];
       };
       expect(argValue(calls[0]!.argv, "--append-system-prompt"))
-        .toBe("EXACT DIRECT INSTRUCTIONS");
-      expect(calls[0]!.argv.filter((arg) => arg === "EXACT DIRECT INSTRUCTIONS")).toHaveLength(1);
+        .toBe(exactInstructions);
+      expect(calls[0]!.argv.filter((arg) => arg === exactInstructions)).toHaveLength(1);
       expect(calls[0]!.stdin).toBe("payload");
       expect(calls[1]!.argv).not.toContain("--append-system-prompt");
       expect(argValue(calls[2]!.argv, "--resume")).toBe(SESSION_ID);

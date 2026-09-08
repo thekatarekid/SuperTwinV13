@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProviderModel, ProviderRequest } from "../types.js";
+import type { ProviderJsonObject, ProviderModel, ProviderRequest } from "../types.js";
 import {
   buildChatGptRequest,
   ChatGptRequestError,
@@ -72,8 +72,23 @@ describe("buildChatGptRequest", () => {
     expect(Object.isFrozen(built)).toBe(true);
   });
 
+  it("preserves exact UTF-8 instruction bytes and input order without wrappers", () => {
+    const instructions = "  first line\nनमस्ते 🌱\nlast line  ";
+    const input: ProviderRequest["input"] = [
+      { type: "message", role: "user", content: [{ type: "input_text", text: "first" }] },
+      { type: "message", role: "user", content: [{ type: "input_text", text: "second" }] },
+    ];
+    const built = buildChatGptRequest(request({ instructions, input }), model());
+    expect(built.instructions).toBe(instructions);
+    expect(built.input).toEqual(input);
+    expect(JSON.parse(JSON.stringify(built)).instructions).toBe(instructions);
+  });
+
   it("maps the complete supported neutral request without forwarding neutral-only fields", () => {
-    const parameters = { type: "object", properties: { value: { type: "string" } }, additionalProperties: false };
+    const parameters = {
+      type: "object", properties: { value: { type: "string" } },
+      required: ["value"], additionalProperties: false,
+    };
     const built = buildChatGptRequest(request({
       input: [
         { type: "message", role: "assistant", content: [{ type: "input_text", text: "prior" }] },
@@ -218,6 +233,23 @@ describe("buildChatGptRequest", () => {
       () => buildChatGptRequest(request({ reasoning: { budget: "medium" } }), model()),
       "CAPABILITY_UNSUPPORTED",
     );
+    expect(buildChatGptRequest(request({ reasoning: { budget: "max" } }), model()).reasoning)
+      .toEqual({ effort: "xhigh" });
+    expectCode(
+      () => buildChatGptRequest(request({ reasoning: { budget: "low", effort: "high" } }), model()),
+      "BAD_REQUEST",
+    );
+    expectCode(
+      () => buildChatGptRequest(request({ reasoning: { budget: "max", effort: "low" } }), model()),
+      "BAD_REQUEST",
+    );
+    expectCode(
+      () => buildChatGptRequest(
+        request({ reasoning: { budget: "max" } }),
+        model({ reasoningValues: ["none"], defaultReasoning: "none" }),
+      ),
+      "CAPABILITY_UNSUPPORTED",
+    );
     expectCode(
       () => buildChatGptRequest(request({ text: { format: { type: "text" }, verbosity: "high" } }), model({ supportsVerbosity: false })),
       "CAPABILITY_UNSUPPORTED",
@@ -319,6 +351,41 @@ describe("buildChatGptRequest", () => {
       additionalProperties: false,
     });
 
+    const nested = buildChatGptRequest(request({
+      text: { format: {
+        type: "json_schema", name: "nested", strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            child: {
+              type: "object", properties: { value: { type: "string" } }, required: ["value"],
+            },
+          },
+          required: ["child"],
+        },
+      } },
+    }), model());
+    const nestedSchema = (nested.text!.format as { schema: {
+      additionalProperties: boolean;
+      properties: { child: { additionalProperties: boolean } };
+    } }).schema;
+    expect(nestedSchema.additionalProperties).toBe(false);
+    expect(nestedSchema.properties.child.additionalProperties).toBe(false);
+
+    const invalidChildren: ProviderJsonObject[] = [
+      { type: "object", properties: { value: { type: "string" } } },
+      { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: true },
+      { type: "object", properties: { a: { type: "string" }, b: { type: "string" } }, required: ["a"] },
+    ];
+    for (const child of invalidChildren) {
+      expectCode(() => buildChatGptRequest(request({
+        text: { format: {
+          type: "json_schema", name: "invalid_nested", strict: true,
+          schema: { type: "object", properties: { child }, required: ["child"] },
+        } },
+      }), model()), "BAD_REQUEST");
+    }
+
     expectCode(() => buildChatGptRequest(request({
       tools: [{
         type: "function",
@@ -331,6 +398,29 @@ describe("buildChatGptRequest", () => {
     expectCode(() => buildChatGptRequest(request({
       input: [{ type: "function_call_output", call_id: "call_1", output: "ok" }],
     }), model()), "BAD_REQUEST");
+    expectCode(() => buildChatGptRequest(request({
+      input: [{ type: "function_call_output", call_id: "call_1", output: "ok" }],
+      tools: [{
+        type: "function", name: "lookup", description: "",
+        parameters: { type: "object", additionalProperties: false }, strict: true,
+      }],
+    }), model()), "BAD_REQUEST");
+  });
+
+  it("preserves explicit history and admits only parser-compatible continuation identifiers", () => {
+    const history: ProviderRequest["input"] = [{
+      type: "message", role: "assistant", content: [{ type: "input_text", text: "prior" }],
+    }];
+    expect(buildChatGptRequest(request({ input: history }), model()).input).toEqual(history);
+    expect(buildChatGptRequest(request({
+      input: history,
+      continuation: { token: "resp_valid_123" },
+    }), model()).previous_response_id).toBe("resp_valid_123");
+    for (const token of ["resp with spaces", "resp.with.dot", "resp/with/slash", "é", "a".repeat(257)]) {
+      expectCode(() => buildChatGptRequest(request({
+        continuation: { token },
+      }), model()), "BAD_REQUEST");
+    }
   });
 
   it("classifies unknown catalogue modalities as unsupported at the request boundary", () => {

@@ -28,7 +28,7 @@ import type {
   Usage,
 } from "../providers/types.js";
 import { resetLegendCache } from "./legend.js";
-import { resetPromptFilesForTests, runPrompt, type PromptCallSpec, type RunnerDeps } from "./runner.js";
+import { runPrompt, type PromptCallSpec, type RunnerDeps } from "./runner.js";
 
 let tmpDir: string;
 
@@ -38,7 +38,6 @@ beforeEach(() => {
   closeDb();
   runMigrations();
   resetLegendCache();
-  resetPromptFilesForTests();
 });
 
 afterEach(() => {

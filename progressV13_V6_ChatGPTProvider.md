@@ -69,4 +69,5 @@
 - 2026-09-08: Corrected cumulative math: 53 attempts remain, so the fresh 46-POST plan fits; after a successful attempt-3 canary checkpoint, the 45-POST resume also fits within the remaining 52.
 - 2026-09-08: Full worker regression passed 4,235 tests with one process-tree sampling race in CNS-01; its immediate isolated 60-second rerun passed, closed the worker port, removed scratch state, and made 0 model calls.
 - 2026-09-08: Initialized the external owner-only `0600` authorization ledger at cap 55 / consumed 2 / planned 46 with the exact live plan hash. Initializer reported `networkCalls: 0`, `createOnce: true`, remaining 53; its empty scratch home was removed.
-- Next: run one attended, ledger-enforced, one-request canary diagnostic.
+- 2026-09-08: Ledger-enforced canary reserved attempt 3 and stopped after exactly 1 inference/0 retries on HTTP 400 JSON-other (53 bytes; no recognized error envelope). Actuals: device 1, polls 72, token 2, models 1, quota 1, inference 1, total 78. No checkpoint/later case; ledger is 3/55, scratch removed.
+- Next: safely classify the bounded JSON-other error shape, then run at most one further ledger-enforced diagnostic canary.

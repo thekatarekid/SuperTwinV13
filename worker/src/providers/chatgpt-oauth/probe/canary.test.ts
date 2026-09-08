@@ -212,12 +212,8 @@ describe("Phase 0b canary-only runner", () => {
   it("projects only allowlisted non-SSE error categories and suppresses hostile strings", async () => {
     const accountId = "acct-canary-json-error";
     const secret = "secret-message-request-id-must-not-appear";
-    const run = async (error: Record<string, unknown>): Promise<string> => {
-      const { fetchMock } = canaryFetch(accountId, true, () => jsonResponse(400, {
-        error,
-        request_id: secret,
-        detail: { identifier: secret },
-      }));
+    const runPayload = async (payload: Record<string, unknown>): Promise<string> => {
+      const { fetchMock } = canaryFetch(accountId, true, () => jsonResponse(400, payload));
       try {
         await runCanaryProbe({
           fetch: fetchMock,
@@ -231,6 +227,11 @@ describe("Phase 0b canary-only runner", () => {
       }
       throw new Error("Expected mocked non-SSE canary to fail");
     };
+    const run = (error: Record<string, unknown>): Promise<string> => runPayload({
+      error,
+      request_id: secret,
+      detail: { identifier: secret },
+    });
 
     const known = await run({
       message: secret,
@@ -285,6 +286,19 @@ describe("Phase 0b canary-only runner", () => {
     });
     expect(nestedParam).toContain('"paramRoot":"input"');
     expect(nestedParam).not.toContain("[0].type");
+
+    const observedDetail = { detail: "Unsupported parameter: max_output_tokens" };
+    expect(Buffer.byteLength(JSON.stringify(observedDetail))).toBe(53);
+    const topLevel = await runPayload(observedDetail);
+    expect(topLevel).toContain('"nonSseBodyCategory":"json-detail-error"');
+    expect(topLevel).toContain('"nonSseResponseBytes":53');
+    expect(topLevel).toContain('"mentionedRequestFields":["max_output_tokens"]');
+    expect(topLevel).not.toContain("Unsupported parameter");
+
+    const restricted = await runPayload({ detail: `account restricted instructions ${secret}` });
+    expect(restricted).toContain("stopped on account restriction");
+    expect(restricted).not.toContain("json-detail-error");
+    expect(restricted).not.toContain(secret);
   });
 
   it("does not refund a durable reservation when the inference fetch throws", async () => {

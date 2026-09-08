@@ -99,7 +99,8 @@ export interface ContractCaseMismatchDiagnostic {
   eventCount: number;
   outputTextBytes: number;
   eventTypes: string[];
-  nonSseBodyCategory?: "empty" | "json-error-envelope" | "json-other" | "non-json";
+  nonSseBodyCategory?: "empty" | "json-error-envelope" | "json-detail-error" |
+    "json-message-error" | "json-error-description" | "json-other" | "non-json";
   nonSseResponseBytes?: number;
   nonSseError?: {
     paramRoot?: (typeof PROBED_ALLOWLIST_FIELDS)[number] | "<unknown>";
@@ -192,6 +193,7 @@ const DIAGNOSTIC_EVENT_TYPES = new Set([
 const MAX_DIAGNOSTIC_EVENT_TYPES = 64;
 const DIAGNOSTIC_ERROR_PARAMS = new Set<string>(PROBED_ALLOWLIST_FIELDS);
 const DIAGNOSTIC_ERROR_TYPE_CATEGORIES = new Map<string, DiagnosticErrorTypeCategory>([
+  ["invalid_request", "invalid-request"],
   ["invalid_request_error", "invalid-request"],
   ["authentication_error", "authentication"],
   ["permission_error", "permission"],
@@ -222,51 +224,25 @@ export function classifyDiagnosticContentType(
   return "other";
 }
 
-function projectNonSseDiagnostic(raw: unknown, includeErrorProjection: boolean): Pick<
-  ContractCaseMismatchDiagnostic,
-  "nonSseBodyCategory" | "nonSseResponseBytes" | "nonSseError"
-> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const candidate = raw as Record<string, unknown>;
-  if (!Object.prototype.hasOwnProperty.call(candidate, "text") ||
-      !Object.prototype.hasOwnProperty.call(candidate, "bytes") ||
-      typeof candidate.text !== "string" || typeof candidate.bytes !== "number" ||
-      !Number.isSafeInteger(candidate.bytes) || candidate.bytes < 0 ||
-      candidate.bytes > MAX_ERROR_RESPONSE_BYTES ||
-      Buffer.byteLength(candidate.text, "utf8") !== candidate.bytes) {
-    return {};
-  }
-  const text = candidate.text;
-  const nonSseResponseBytes = candidate.bytes;
-  if (text.length === 0) return { nonSseBodyCategory: "empty", nonSseResponseBytes };
-  let payload: unknown;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    return { nonSseBodyCategory: "non-json", nonSseResponseBytes };
-  }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
-      !Object.prototype.hasOwnProperty.call(payload, "error")) {
-    return { nonSseBodyCategory: "json-other", nonSseResponseBytes };
-  }
-  const error = (payload as Record<string, unknown>).error;
-  if (!error || typeof error !== "object" || Array.isArray(error)) {
-    return { nonSseBodyCategory: "json-other", nonSseResponseBytes };
-  }
-  const source = error as Record<string, unknown>;
-  const base = { nonSseBodyCategory: "json-error-envelope" as const, nonSseResponseBytes };
-  if (!includeErrorProjection) return base;
+function own(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function projectDiagnosticError(
+  source: Record<string, unknown>,
+  messages: readonly string[],
+): NonNullable<ContractCaseMismatchDiagnostic["nonSseError"]> | undefined {
   const projection: NonNullable<ContractCaseMismatchDiagnostic["nonSseError"]> = {};
-  if (Object.prototype.hasOwnProperty.call(source, "message") && typeof source.message === "string") {
-    const messageTokens = new Set(source.message.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
-    const mentionedRequestFields = [...DIAGNOSTIC_ERROR_PARAMS]
-      .filter((field) => messageTokens.has(field))
-      .sort();
-    if (mentionedRequestFields.length) {
-      projection.mentionedRequestFields = mentionedRequestFields as Array<(typeof PROBED_ALLOWLIST_FIELDS)[number]>;
-    }
+  const messageTokens = new Set(
+    messages.flatMap((message) => message.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []),
+  );
+  const mentionedRequestFields = [...DIAGNOSTIC_ERROR_PARAMS]
+    .filter((field) => messageTokens.has(field))
+    .sort();
+  if (mentionedRequestFields.length) {
+    projection.mentionedRequestFields = mentionedRequestFields as Array<(typeof PROBED_ALLOWLIST_FIELDS)[number]>;
   }
-  if (Object.prototype.hasOwnProperty.call(source, "param") && source.param !== null) {
+  if (own(source, "param") && source.param !== null) {
     const root = typeof source.param === "string"
       ? /^([A-Za-z_][A-Za-z0-9_]*)(?:$|[.[])/.exec(source.param)?.[1]
       : undefined;
@@ -274,19 +250,86 @@ function projectNonSseDiagnostic(raw: unknown, includeErrorProjection: boolean):
       ? root as (typeof PROBED_ALLOWLIST_FIELDS)[number]
       : "<unknown>";
   }
-  if (Object.prototype.hasOwnProperty.call(source, "type") && source.type !== null) {
+  if (own(source, "type") && source.type !== null) {
     projection.typeCategory = typeof source.type === "string"
       ? DIAGNOSTIC_ERROR_TYPE_CATEGORIES.get(source.type) ?? "<unknown>"
       : "<unknown>";
+  } else if (own(source, "error") && source.error !== null) {
+    projection.typeCategory = typeof source.error === "string"
+      ? DIAGNOSTIC_ERROR_TYPE_CATEGORIES.get(source.error) ?? "<unknown>"
+      : "<unknown>";
   }
-  if (Object.prototype.hasOwnProperty.call(source, "code") && source.code !== null) {
+  if (own(source, "code") && source.code !== null) {
     projection.codeCategory = typeof source.code === "string"
       ? DIAGNOSTIC_ERROR_CODE_CATEGORIES.get(source.code) ?? "<unknown>"
       : "<unknown>";
   }
+  return Object.keys(projection).length ? projection : undefined;
+}
+
+function projectNonSseDiagnostic(raw: unknown, includeErrorProjection: boolean): Pick<
+  ContractCaseMismatchDiagnostic,
+  "nonSseBodyCategory" | "nonSseResponseBytes" | "nonSseError"
+> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const candidate = raw as Record<string, unknown>;
+  const textDescriptor = Object.getOwnPropertyDescriptor(candidate, "text");
+  const bytesDescriptor = Object.getOwnPropertyDescriptor(candidate, "bytes");
+  if (!textDescriptor || !("value" in textDescriptor) ||
+      !bytesDescriptor || !("value" in bytesDescriptor) ||
+      typeof textDescriptor.value !== "string" || typeof bytesDescriptor.value !== "number" ||
+      !Number.isSafeInteger(bytesDescriptor.value) || bytesDescriptor.value < 0 ||
+      bytesDescriptor.value > MAX_ERROR_RESPONSE_BYTES ||
+      Buffer.byteLength(textDescriptor.value, "utf8") !== bytesDescriptor.value) {
+    return {};
+  }
+  const text = textDescriptor.value;
+  const nonSseResponseBytes = bytesDescriptor.value;
+  if (text.length === 0) return { nonSseBodyCategory: "empty", nonSseResponseBytes };
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return { nonSseBodyCategory: "non-json", nonSseResponseBytes };
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { nonSseBodyCategory: "json-other", nonSseResponseBytes };
+  }
+  const record = payload as Record<string, unknown>;
+  let source: Record<string, unknown>;
+  let messages: string[];
+  let nonSseBodyCategory: NonNullable<ContractCaseMismatchDiagnostic["nonSseBodyCategory"]>;
+  const error = record.error;
+  if (own(record, "error") && error && typeof error === "object" && !Array.isArray(error)) {
+    source = error as Record<string, unknown>;
+    messages = own(source, "message") && typeof source.message === "string" ? [source.message] : [];
+    nonSseBodyCategory = "json-error-envelope";
+  } else if (own(record, "error_description") && typeof record.error_description === "string") {
+    source = record;
+    messages = [record.error_description];
+    nonSseBodyCategory = "json-error-description";
+  } else if (own(record, "detail") && typeof record.detail === "string") {
+    source = record;
+    messages = [record.detail];
+    nonSseBodyCategory = "json-detail-error";
+  } else if (own(record, "detail") && record.detail && typeof record.detail === "object" &&
+      !Array.isArray(record.detail)) {
+    source = record.detail as Record<string, unknown>;
+    messages = own(source, "message") && typeof source.message === "string" ? [source.message] : [];
+    nonSseBodyCategory = "json-detail-error";
+  } else if (own(record, "message") && typeof record.message === "string") {
+    source = record;
+    messages = [record.message];
+    nonSseBodyCategory = "json-message-error";
+  } else {
+    return { nonSseBodyCategory: "json-other", nonSseResponseBytes };
+  }
+  const base = { nonSseBodyCategory, nonSseResponseBytes };
+  if (!includeErrorProjection) return base;
+  const projection = projectDiagnosticError(source, messages);
   return {
     ...base,
-    ...(Object.keys(projection).length ? { nonSseError: projection } : {}),
+    ...(projection ? { nonSseError: projection } : {}),
   };
 }
 

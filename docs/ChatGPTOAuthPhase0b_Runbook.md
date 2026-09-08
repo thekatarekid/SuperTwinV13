@@ -8,12 +8,12 @@ Status: development acceptance only. These commands are not application runtime 
 - Account fingerprint: `7d41db9e5a28`
 - Model: `gpt-5.6-sol`
 - Authorized cumulative inference attempts: `55`
-- Already consumed: `2`
+- Already consumed: `3`
 - Account-specific planned inference POSTs: `46`
 - Inference retries: `0`
 - Current application version: `13.12.2`
 
-The live account catalogue resolves the 70-case matrix to 46 inference POSTs because 9 unsupported cases are skipped before fetch. The current grant is sufficient: a fresh run needs 46 of the remaining 53 attempts; after one successful checkpointed canary, the resume needs 45 of the remaining 52. Do not use full-contract mode until the request-contract canary succeeds and the ledger contains that exact checkpoint.
+The live account catalogue resolves the 70-case matrix to 46 inference POSTs because 9 unsupported cases are skipped before fetch. The current grant is sufficient: a fresh run needs 46 of the remaining 52 attempts; after one more successful checkpointed canary, the resume needs 45 of the remaining 51. Do not use full-contract mode until the request-contract canary succeeds and the ledger contains that exact checkpoint.
 
 ## 1. Obtain the selected-model plan fingerprint
 
@@ -93,7 +93,7 @@ SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS=46 \
 npm run probe:chatgpt-oauth -- --live-auth --live-canary
 ```
 
-If execution reaches the inference boundary, the ledger durably reserves attempt 3 before the fetch and never refunds it, including on HTTP 400, cancellation, timeout, SIGINT, or process failure. Cancellation before reservation leaves the counter at 2; cancellation after reservation leaves it at 3. The mode hard-refuses a second inference request. Record only its bounded redacted diagnostic and exact endpoint counts.
+If execution reaches the inference boundary, the ledger durably reserves the next attempt before the fetch and never refunds it, including on HTTP 400, cancellation, timeout, SIGINT, or process failure. The mode hard-refuses a second inference request. Record only its bounded redacted diagnostic and exact endpoint counts.
 
 ## Forbidden operations
 

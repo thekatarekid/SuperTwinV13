@@ -232,12 +232,59 @@ describe("ephemeral account and SSE evidence", () => {
     expect(invalidRaw).not.toHaveProperty("nonSseResponseBytes");
     expect(JSON.stringify(invalidRaw)).not.toContain(secret);
 
+    const accessorRaw = Object.defineProperty({ bytes: 2 }, "text", {
+      enumerable: true,
+      get() { throw new Error(secret); },
+    });
+    expect(() => buildContractCaseMismatchDiagnostic(
+      response,
+      "application/json",
+      undefined,
+      accessorRaw,
+    )).not.toThrow();
+
     expect(buildContractCaseMismatchDiagnostic(response, "", undefined, { text: "", bytes: 0 }))
       .toMatchObject({ contentTypeCategory: "absent", nonSseBodyCategory: "empty" });
     expect(buildContractCaseMismatchDiagnostic(response, "text/plain", undefined, { text: "not-json", bytes: 8 }))
       .toMatchObject({ contentTypeCategory: "other", nonSseBodyCategory: "non-json" });
     expect(buildContractCaseMismatchDiagnostic(response, "application/json", undefined, { text: "{}", bytes: 2 }))
       .toMatchObject({ contentTypeCategory: "json", nonSseBodyCategory: "json-other" });
+
+    for (const [payload, expected] of [
+      [
+        { detail: `Unsupported max_output_tokens ${secret}` },
+        { nonSseBodyCategory: "json-detail-error", nonSseError: { mentionedRequestFields: ["max_output_tokens"] } },
+      ],
+      [
+        { message: `Invalid input ${secret}`, param: "input[0].content" },
+        {
+          nonSseBodyCategory: "json-message-error",
+          nonSseError: { paramRoot: "input", mentionedRequestFields: ["input"] },
+        },
+      ],
+      [
+        { error: "invalid_request", error_description: `Unsupported reasoning ${secret}` },
+        {
+          nonSseBodyCategory: "json-error-description",
+          nonSseError: { typeCategory: "invalid-request", mentionedRequestFields: ["reasoning"] },
+        },
+      ],
+      [
+        { detail: { message: `Invalid instructions ${secret}`, param: "instructions.value" } },
+        {
+          nonSseBodyCategory: "json-detail-error",
+          nonSseError: { paramRoot: "instructions", mentionedRequestFields: ["instructions"] },
+        },
+      ],
+    ] as const) {
+      const text = JSON.stringify(payload);
+      const projected = buildContractCaseMismatchDiagnostic(response, "application/json", undefined, {
+        text,
+        bytes: Buffer.byteLength(text),
+      });
+      expect(projected).toMatchObject(expected);
+      expect(JSON.stringify(projected)).not.toContain(secret);
+    }
 
     const knownError = JSON.stringify({ error: { param: "reasoning.effort", type: "invalid_request_error" } });
     expect(buildContractCaseMismatchDiagnostic(response, "APPLICATION/JSON; charset=utf-8", undefined, {

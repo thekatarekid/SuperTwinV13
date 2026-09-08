@@ -1428,8 +1428,97 @@ export interface SourceStatusRow {
 export const fetchSettingsSources = (): Promise<{ sources: SourceStatusRow[] }> =>
   request("/api/settings/sources");
 
+// ---- Provider-aware intelligence settings (ChatGPT V2 §9.3 / P3-A) --------
+
+/** The complete, closed provider set shipped by SuperTwin. */
+export type ProviderId = "claude-local" | "chatgpt-oauth";
+export type IntelligenceProviderId = ProviderId;
+
+export type ProviderAuthStatus =
+  | "ready"
+  | "signed_out"
+  | "expired"
+  | "unavailable"
+  | "degraded";
+
+export interface IntelligenceProviderOption {
+  id: IntelligenceProviderId;
+  label: string;
+  auth_state: ProviderAuthStatus;
+}
+
+export interface IntelligenceProviderSelection {
+  selected: IntelligenceProviderId;
+  options: IntelligenceProviderOption[];
+}
+
+export interface ProviderModel {
+  id: string;
+  displayName: string;
+  isDefault: boolean;
+  hidden: boolean;
+  inputModalities: Array<"text" | "image">;
+  reasoningValues: string[];
+  defaultReasoning: string | null;
+  supportsTools: boolean;
+  supportsHostTools: boolean;
+  supportsParallelToolCalls: boolean;
+  supportsStructuredOutput: boolean;
+  supportsStrictTools: boolean;
+  supportsVerbosity: boolean;
+  supportsPromptCacheKey: boolean;
+  supportsPromptCacheOptions: boolean;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+  billingLabel: string | null;
+}
+
+/** Frontend mirror of the provider-neutral worker catalogue. */
+export interface ProviderModelCatalogue {
+  providerId: ProviderId;
+  mode: "discovered" | "cached" | "fallback";
+  source: string;
+  discoveredAt: string;
+  revision: string;
+  error: string | null;
+  models: ProviderModel[];
+}
+
+/** Stable provider errors exposed by §7.1; never a raw upstream error. */
+export type ProviderApiErrorCode =
+  | "TIMEOUT"
+  | "SPAWN_FAILED"
+  | "CLI_ERROR"
+  | "POISONED_SESSION"
+  | "CANCELLED"
+  | "QUOTA_EXCEEDED"
+  | "BUDGET_EXCEEDED"
+  | "MODEL_ACTIVITY_PAUSED"
+  | "MAX_TURNS"
+  | "BAD_REQUEST"
+  | "AUTH_REQUIRED"
+  | "AUTH_EXPIRED"
+  | "PROVIDER_UNAVAILABLE"
+  | "MODEL_UNAVAILABLE"
+  | "CAPABILITY_UNSUPPORTED"
+  | "BACKEND_UNSUPPORTED"
+  | "RATE_LIMITED"
+  | "TRANSPORT_ERROR";
+
+export interface ProviderApiError {
+  code: ProviderApiErrorCode;
+  message: string;
+}
+
 export interface IntelligenceStepRow {
   key: string;
+  /** Provider-aware fields from §9.3. */
+  selected_model: string;
+  recommended_model: string | null;
+  reasoning: string | null;
+  reasoning_values: string[];
+  available: boolean;
+  /** Legacy presentation aliases retained for the current shell migration. */
   label: string;
   group: string;
   recommended: string;
@@ -1464,6 +1553,9 @@ export interface ModelOptionRow {
 }
 
 export interface IntelligenceSettings {
+  provider: IntelligenceProviderSelection;
+  catalogue: ProviderModelCatalogue;
+  /** Legacy Claude-shaped fields retained for one shell migration release. */
   default_model: string;
   default_thinking?: string;
   /** The 13.4.1 three-string list; kept only so an older shell still renders. */
@@ -1503,6 +1595,11 @@ export interface GoldenState {
 
 export const fetchSettingsIntelligence = (): Promise<IntelligenceSettings> =>
   request("/api/settings/intelligence");
+
+export const saveIntelligenceProvider = (
+  provider: IntelligenceProviderId,
+): Promise<IntelligenceSettings> => request("/api/settings/provider", post({ provider }));
+
 export const saveIntelligenceStep = (patch: {
   step: string;
   model?: string;
@@ -1516,6 +1613,66 @@ export const fetchGoldenState = (): Promise<{
   runner_note: string | null;
   state: GoldenState;
 }> => request("/api/settings/golden");
+
+export type ChatGptLoginState =
+  | "idle"
+  | "awaiting_browser"
+  | "exchanging"
+  | "signed_in"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export interface ChatGptQuotaSummary {
+  state: "unknown" | "available" | "limited" | "exhausted";
+  reset_at: string | null;
+}
+
+export interface ChatGptCanaryResult {
+  status: "unknown" | "passed" | "failed";
+  checked_at: string | null;
+  error: ProviderApiError | null;
+}
+
+/** Redacted provider status. This type deliberately has no credential fields. */
+export interface ChatGptProviderStatus {
+  signed_in: boolean;
+  auth_state: ProviderAuthStatus;
+  plan: string | null;
+  quota: ChatGptQuotaSummary;
+  token_expires_at: string | null;
+  canary: ChatGptCanaryResult;
+}
+
+export interface ChatGptLoginStart {
+  login_id: string;
+  auth_url: string;
+  expires_at: string;
+}
+
+export interface ChatGptLoginStatus {
+  login_id: string | null;
+  status: ChatGptLoginState;
+  expires_at: string | null;
+  error: ProviderApiErrorCode | null;
+}
+
+const CHATGPT_PROVIDER_PATH = "/api/providers/chatgpt-oauth";
+
+export const fetchChatGptProviderStatus = (): Promise<ChatGptProviderStatus> =>
+  request(`${CHATGPT_PROVIDER_PATH}/status`);
+
+export const startChatGptLogin = (): Promise<ChatGptLoginStart> =>
+  request(`${CHATGPT_PROVIDER_PATH}/login/start`, post());
+
+export const fetchChatGptLoginStatus = (loginId: string): Promise<ChatGptLoginStatus> =>
+  request(`${CHATGPT_PROVIDER_PATH}/login/status?login_id=${encodeURIComponent(loginId)}`);
+
+export const cancelChatGptLogin = (loginId: string): Promise<{ cancelled: boolean }> =>
+  request(`${CHATGPT_PROVIDER_PATH}/login/cancel`, post({ login_id: loginId }));
+
+export const logoutChatGpt = (): Promise<{ signed_out: boolean }> =>
+  request(`${CHATGPT_PROVIDER_PATH}/logout`, post());
 
 /**
  * The manual golden run. It SPENDS — the worker refuses with 409 when no eval

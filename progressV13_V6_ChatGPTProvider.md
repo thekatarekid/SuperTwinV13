@@ -33,7 +33,10 @@
 - 2026-09-08: Phase 0b offline acceptance passed: 67/67 focused probe tests, worker typecheck, full worker 4,107 passed/7 intentional skips, diff check, zero live calls; independent final review found no commit blocker.
 - 2026-09-08: Owner login retry expired unapproved after 15 minutes: exact HTTP actuals 1 device request + 169 pending polls; 0 token/model/quota/inference calls, no credentials persisted, scratch homes removed.
 - 2026-09-08: Second fresh owner-login window expired with identical safe actuals: 170 OAuth requests, 0 token/model/quota/inference calls; scratch home removed. Live Phase 0b still blocks Phase 1.
+- 2026-09-08: Phase 0b auth-only subgate passed after the required account security setting was discovered and enabled; safe fingerprint `7d41db9e5a28`.
+- 2026-09-08: Auth exact actuals: device-code 1 + poll 7 + token 1 = 9 HTTP requests; model/catalogue 0, quota 0, inference 0, other 0. Ephemeral tokens were redacted and not persisted.
+- 2026-09-08: Full Phase 0b live contract remains pending; do not use the main account without explicit account-risk acceptance and exact call-count authorization.
 - 2026-09-08: Parallel read-only Phase 1 prep mapped P1-A types/compatibility plus G1 gate/classification seams, tests, ownership and accounting hazards; no gated source changes made.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.
-- Next: run the serial device login on an isolated home/account, then implement and execute the explicitly budgeted contract matrix before Phase 1.
+- Next: obtain explicit dedicated-account risk/call authorization, then execute the already-implemented, budgeted live contract matrix before Phase 1.

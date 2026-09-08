@@ -8,7 +8,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 
 ### Implementation Status (2026-09-08)
 
-- **Overall:** In progress; Phase 0a is accepted and durably seeded. The serial Phase 0b contract probe is implemented offline and remains deliberately disabled until owner-completed live authentication and the final safety review.
+- **Overall:** In progress; Phase 0a is accepted and durably seeded. Phase 0b's auth-only subgate passed on 2026-09-08; the billable live contract matrix remains disabled pending explicit account-risk and call-count authorization.
 - **Baseline:** implementation commits are recorded in the progress log; application version `13.12.2` (no new app build yet).
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
@@ -16,7 +16,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 #### Phase and Task Checklist
 
 - [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved. The three complete records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
-- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted; live authentication and contract execution are not yet completed. `--live-auth` is separately gated at 0 inference calls and at most 302 OAuth HTTP requests, stopping on the first rate-limit signal. The full matrix contains exactly 70 cases, of which 15 invalid shapes reject before fetch, so its ceiling is 55 inference POSTs with no retries. Dedicated-account, ephemeral refresh/rotation/logout, capability, per-case output, cancellation, exact HTTP-accounting, cache, quota and concurrency/resource evidence are implemented offline. Live-contract remains fail-closed pending the owner-completed login and final safety review.
+- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted and the auth-only subgate passed. `--live-auth` completed with 9 OAuth requests and 0 model/catalogue, quota, inference, or other requests. The full matrix contains exactly 70 cases, of which 15 invalid shapes reject before fetch, so its ceiling is 55 inference POSTs with no retries. Dedicated-account, ephemeral refresh/rotation/logout, capability, per-case output, cancellation, exact HTTP-accounting, cache, quota and concurrency/resource evidence are implemented offline. Live-contract remains fail-closed pending explicit account-risk and call-count authorization; do not use the main account without it.
 - [ ] **P1-A — Provider-neutral contract types:** pending Phase 0b exit evidence.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
 - [ ] **P1-F — Provider/model resolver:** pending G1.
@@ -52,6 +52,8 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [ ] Phase 0b live evidence: first device-code attempt reached the owner account-selection screen and was cancelled when unattended; 0 inference calls were made. Exact per-endpoint HTTP accounting is now implemented for the retry.
 - [ ] Phase 0b owner login retry (2026-09-08): the 15-minute device window expired without owner approval. Exact actuals were 1 device-code request + 169 pending polls = 170 OAuth HTTP requests; token/model/catalogue/quota/inference requests were all 0. No credentials were persisted and both empty scratch homes were removed. Generate a fresh code only when the owner is ready to complete the page.
 - [ ] Phase 0b owner login retry 2 (2026-09-08): a fresh 15-minute window also expired unapproved with the same exact 170 OAuth requests (1 device + 169 pending polls), 0 token/model/catalogue/quota/inference requests, no credentials, and scratch-home cleanup. Phase 1 remains blocked by the live exit gate.
+- [x] Phase 0b auth-only subgate (2026-09-08): after discovering and enabling the required account security setting, authentication completed for safe account fingerprint `7d41db9e5a28`. Exact HTTP actuals: 1 device-code request + 7 polls + 1 token exchange = 9 total; model/catalogue, quota, inference, and other requests were all 0. Ephemeral tokens were redacted, never persisted, and cleared after the run.
+- [ ] Phase 0b live contract: still pending. The auth-only pass does not authorize model traffic or prove the 70-case backend contract. Do not run it against the main account without explicit acceptance of the account risk and authorization of the exact live-call budget.
 - [x] Phase 1 preparation audit: P1-A's exact type/compatibility seam and G1's gate/classification ownership/tests are mapped. The shared gate requires a split budget precheck/admission seam, per-physical-attempt accounting, provider-tagged call buckets, unknown-cost preservation, and exhaustive typed failure normalization; no Phase 1 source was changed before Phase 0b exit.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 

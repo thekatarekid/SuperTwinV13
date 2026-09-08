@@ -18,12 +18,15 @@ function intelligence(
 ) {
   const chatGpt = provider === "chatgpt-oauth";
   const model = chatGpt ? "gpt-5.6-sol" : "claude-sonnet-4-5";
+  const alternate = chatGpt ? "gpt-5.6-terra" : "claude-haiku-4-5";
   const models = options.empty
     ? []
-    : [{
-        id: model,
-        displayName: chatGpt ? "GPT-5.6 Sol" : "Sonnet 4.5",
-        isDefault: true,
+    : [model, alternate].map((id, index) => ({
+        id,
+        displayName: index === 0
+          ? (chatGpt ? "GPT-5.6 Sol" : "Sonnet 4.5")
+          : (chatGpt ? "GPT-5.6 Terra" : "Haiku 4.5"),
+        isDefault: index === 0,
         hidden: false,
         inputModalities: ["text"],
         reasoningValues: chatGpt ? ["low", "medium", "high"] : ["off", "high"],
@@ -39,7 +42,7 @@ function intelligence(
         contextWindow: 200_000,
         maxOutputTokens: null,
         billingLabel: chatGpt ? "ChatGPT subscription" : "$3/MTok input · $15/MTok output",
-      }];
+      }));
   return {
     provider: {
       selected: provider,
@@ -58,7 +61,7 @@ function intelligence(
       models,
     },
     default_model: model,
-    options: [model],
+    options: [model, alternate],
     models: [],
     eval_gated: true,
     steps: [
@@ -165,6 +168,13 @@ describe("Settings › Intelligence provider UI (V2 P3-C)", () => {
     expect(screen.getAllByLabelText(/ model$/)).toHaveLength(11);
     expect((screen.getByLabelText("Orient thinking") as HTMLSelectElement).value).toBe("medium");
     expect((screen.getByLabelText("Decide thinking") as HTMLSelectElement).value).toBe("medium");
+    for (const picker of screen.getAllByLabelText(/ model$/) as HTMLSelectElement[]) {
+      expect([...picker.options].map((option) => option.value)).toEqual(["gpt-5.6-sol", "gpt-5.6-terra"]);
+    }
+    expect(screen.getAllByLabelText(/ thinking$/)).toHaveLength(11);
+    for (const picker of screen.getAllByLabelText(/ thinking$/) as HTMLSelectElement[]) {
+      expect([...picker.options].map((option) => option.value)).toEqual(["low", "medium", "high"]);
+    }
     expect(stub.calls.find((call) => call.path === "/api/settings/provider")?.body).toEqual({ provider: "chatgpt-oauth" });
 
     fireEvent.change(screen.getByLabelText("AI provider"), { target: { value: "claude-local" } });
@@ -172,6 +182,12 @@ describe("Settings › Intelligence provider UI (V2 P3-C)", () => {
     expect((screen.getByLabelText("Orient model") as HTMLSelectElement).value).toBe("claude-sonnet-4-5");
     expect((screen.getByLabelText("Orient thinking") as HTMLSelectElement).value).toBe("off");
     expect((screen.getByLabelText("Decide thinking") as HTMLSelectElement).value).toBe("off");
+    for (const picker of screen.getAllByLabelText(/ model$/) as HTMLSelectElement[]) {
+      expect([...picker.options].map((option) => option.value)).toEqual(["claude-sonnet-4-5", "claude-haiku-4-5"]);
+    }
+    for (const picker of screen.getAllByLabelText(/ thinking$/) as HTMLSelectElement[]) {
+      expect([...picker.options].map((option) => option.value)).toEqual(["off", "high"]);
+    }
     expect(screen.getAllByLabelText(/ model$/)).toHaveLength(11);
   });
 

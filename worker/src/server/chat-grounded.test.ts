@@ -24,7 +24,7 @@
 process.env.TZ = "Asia/Kolkata";
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -39,7 +39,8 @@ process.env.SUPERTWIN_SEMANTIC_RETRIEVAL = "0";
 delete process.env.SUPERTWIN_SYSTEM_PROMPT_FILE;
 
 const db = await import("../db/index.js");
-const { register } = await import("../providers/index.js");
+const { registerV2 } = await import("../providers/index.js");
+const { providerV2TestDouble } = await import("../providers/test-support.js");
 const { startServer } = await import("./index.js");
 const {
   GROUNDED_SYSTEM_PROMPT,
@@ -48,11 +49,10 @@ const {
   parseCitationsFromText,
 } = await import("./chat-grounding.js");
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import type {
-  Provider,
+  ProviderRequest,
   ProviderStreamEvent,
-  SendOptions,
 } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -60,21 +60,27 @@ import type {
 // ---------------------------------------------------------------------------
 
 interface Script {
-  sessionId: string;
+  continuation: string;
   reply: string;
+  status?: "ok" | "error";
+  errorCode?: "CANCELLED" | "AUTH_EXPIRED";
+  throwCode?: "TRANSPORT_ERROR";
 }
 
-const sends: SendOptions[] = [];
-let script: Script = { sessionId: randomUUID(), reply: "hello" };
+const sends: ProviderRequest[] = [];
+let script: Script = { continuation: "continuation-initial", reply: "hello" };
+let sendBarrier: Promise<void> | null = null;
 
-const mockProvider: Provider = {
-  id: "claude-local",
-  cancel: () => false,
-  async send(opts: SendOptions) {
+const mockProvider = providerV2TestDouble(
+  async (opts: ProviderRequest) => {
     sends.push(opts);
+    if (sendBarrier) await sendBarrier;
+    if (script.throwCode) {
+      throw Object.assign(new Error("secret provider failure detail"), {
+        code: script.throwCode,
+      });
+    }
     const emit = (e: ProviderStreamEvent) => opts.onEvent(e);
-    const sessionId = opts.sessionId ?? script.sessionId;
-    emit({ type: "session", sessionId });
     for (const chunk of script.reply.match(/[\s\S]{1,20}/g) ?? []) {
       emit({ type: "delta", text: chunk });
     }
@@ -84,10 +90,21 @@ const mockProvider: Provider = {
       cacheReadInputTokens: 3000,
       outputTokens: 5,
     };
-    emit({ type: "done", sessionId, usage });
-    return { sessionId, usage, freshFallback: false, status: "ok" as const };
+    const status = script.status ?? "ok";
+    if (status === "ok") emit({ type: "done", continuation: script.continuation, usage });
+    return {
+      continuation: status === "ok" ? script.continuation : null,
+      usage,
+      freshFallback: false,
+      status,
+      ...(status === "error" ? { errorCode: script.errorCode ?? "CANCELLED" } : {}),
+    };
   },
-};
+  {
+    capabilities: { hostTools: true, continuation: true },
+    model: { supportsHostTools: true },
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,16 +129,13 @@ async function postChat(body: unknown): Promise<Frame[]> {
   return frames;
 }
 
-/**
- * The ungrounded prompt-bundle hash the server computes (no prompt file).
- * NOTE: the server's separator is a NUL byte, not a space.
- */
-function ungroundedBundleHash(): string {
-  const h = createHash("sha256");
-  h.update("claude-local");
-  h.update("\x00");
-  h.update("");
-  return h.digest("hex").slice(0, 16);
+function requestText(request: ProviderRequest): string {
+  return request.input
+    .filter((item) => item.type === "message")
+    .flatMap((item) => item.content)
+    .filter((part) => part.type === "input_text")
+    .map((part) => part.text)
+    .join("\n");
 }
 
 function seedData(): void {
@@ -166,7 +180,7 @@ beforeAll(async () => {
   mkdirSync(process.env.SUPERTWIN_CHAT_CWD as string, { recursive: true });
   db.runMigrations();
   seedData();
-  register(mockProvider); // replaces "claude-local" for this file's registry
+  registerV2(mockProvider); // replaces "claude-local" for this file's registry
   server = await startServer({ port: 0 });
   base = `http://127.0.0.1:${server.port}`;
 });
@@ -179,9 +193,9 @@ afterAll(async () => {
 
 describe("grounded chat (server, mock provider)", () => {
   it("fresh grounded run: cwd=brain, read-only tools, grounded prompt, retrieval injected", async () => {
-    const sessionId = randomUUID();
+    const conversationId = randomUUID();
     script = {
-      sessionId,
+      continuation: "continuation-grounded-1",
       reply:
         'Flights are still pending [1].\nCITATIONS: [{"n":1,"kind":"event","id":"evt_flights","label":"Alice · Goa Trip 2026 · flights pending"}]',
     };
@@ -189,6 +203,7 @@ describe("grounded chat (server, mock provider)", () => {
 
     const frames = await postChat({
       runId: "grounded-1",
+      conversationId,
       message: "what's pending for the goa trip flights?",
     });
 
@@ -196,26 +211,24 @@ describe("grounded chat (server, mock provider)", () => {
     expect(sends.length).toBe(1);
     const opts = sends[0];
     expect(opts.cwd).toBe(resolve(process.env.SUPERTWIN_BRAIN_DIR as string));
-    expect(opts.allowedTools).toEqual(groundedAllowedTools());
+    expect(opts.hostTools).toEqual(groundedAllowedTools());
     // Read-only: no write/edit/bash tools ever.
-    for (const t of opts.allowedTools ?? []) {
+    for (const t of opts.hostTools ?? []) {
       expect(["Read", "Grep", "Glob"]).toContain(t);
     }
-    expect(opts.systemPromptFile).toBeTruthy();
-    expect(readFileSync(opts.systemPromptFile as string, "utf8")).toBe(
-      GROUNDED_SYSTEM_PROMPT,
-    );
+    expect(opts.instructions).toBe(GROUNDED_SYSTEM_PROMPT);
 
     // ---- Retrieval injection: the hit, its chat, and today's date.
-    expect(opts.message).toContain("<supertwin-context>");
-    expect(opts.message).toContain("evt_flights");
-    expect(opts.message).toContain("## Goa Trip 2026 —"); // chat name heads its section
-    expect(opts.message).toMatch(/Today is \w+ \d{4}-\d{2}-\d{2}\./);
+    const sentText = requestText(opts);
+    expect(sentText).toContain("<supertwin-context>");
+    expect(sentText).toContain("evt_flights");
+    expect(sentText).toContain("## Goa Trip 2026 —"); // chat name heads its section
+    expect(sentText).toMatch(/Today is \w+ \d{4}-\d{2}-\d{2}\./);
     // The conversation AROUND the hit, which is what v6 §1 added: the answer to
     // "what's pending" is the next message, and it shares no word with it.
-    expect(opts.message).toContain("evt_hotel");
+    expect(sentText).toContain("evt_hotel");
     // The raw user message is still the trailing part.
-    expect(opts.message.endsWith("what's pending for the goa trip flights?")).toBe(true);
+    expect(sentText.endsWith("what's pending for the goa trip flights?")).toBe(true);
 
     // ---- Nothing was written to the brain folder. The plaintext message dump
     // that used to be materialised there is gone (V2 §3.2): a grounded turn
@@ -223,11 +236,13 @@ describe("grounded chat (server, mock provider)", () => {
     expect(existsSync(join(process.env.SUPERTWIN_BRAIN_DIR as string, "corpus"))).toBe(
       false,
     );
-    expect(opts.message).not.toContain("corpus/");
+    expect(sentText).not.toContain("corpus/");
 
     // ---- Citations frame emitted, after done.
     const types = frames.map((f) => f.type);
-    expect(types).toContain("session");
+    expect(types).not.toContain("session");
+    expect(frames).toContainEqual({ type: "conversation", conversationId });
+    expect(JSON.stringify(frames)).not.toContain(script.continuation);
     expect(types).toContain("done");
     expect(types.indexOf("citations")).toBeGreaterThan(types.indexOf("done"));
     const cframe = frames.find((f) => f.type === "citations") as {
@@ -244,7 +259,7 @@ describe("grounded chat (server, mock provider)", () => {
 
     // ---- Persistence: CITATIONS line stripped; citations_json stored; the
     // persisted user message is the RAW one (no injected context).
-    const messages = db.getMessages(sessionId);
+    const messages = db.getChatMessages(conversationId);
     const user = messages.find((m) => m.role === "user");
     const assistant = messages.find((m) => m.role === "assistant");
     expect(user?.content).toBe("what's pending for the goa trip flights?");
@@ -253,9 +268,9 @@ describe("grounded chat (server, mock provider)", () => {
     expect(JSON.parse(assistant?.citationsJson ?? "[]")).toHaveLength(1);
 
     // ---- Session flagged grounded; detail endpoint exposes citations.
-    const session = db.getSession(sessionId);
+    const session = db.getChatSession(conversationId);
     expect(session?.grounded).toBe(true);
-    const detail = (await (await fetch(`${base}/api/chat/sessions/${sessionId}`)).json()) as {
+    const detail = (await (await fetch(`${base}/api/chat/sessions/${conversationId}`)).json()) as {
       session: { grounded: boolean };
       messages: Array<{ role: string; citations: unknown[] | null }>;
     };
@@ -265,22 +280,22 @@ describe("grounded chat (server, mock provider)", () => {
   });
 
   it("resuming a grounded session keeps the grounded config", async () => {
-    const prior = db.listSessions().find((s) => s.grounded);
+    const prior = db.listChatSessions().find((s) => s.grounded);
     expect(prior).toBeTruthy();
-    script = { sessionId: prior!.sessionId, reply: "still on it\nCITATIONS: []" };
+    script = { continuation: "continuation-grounded-2", reply: "still on it\nCITATIONS: []" };
     sends.length = 0;
 
     const frames = await postChat({
       runId: "grounded-2",
-      sessionId: prior!.sessionId,
+      conversationId: prior!.conversationId,
       message: "any update on flights?",
     });
 
     expect(sends.length).toBe(1);
-    expect(sends[0].sessionId).toBe(prior!.sessionId); // resumed
+    expect(sends[0].continuation).toEqual({ token: "continuation-grounded-1" });
     expect(sends[0].cwd).toBe(resolve(process.env.SUPERTWIN_BRAIN_DIR as string));
-    expect(sends[0].allowedTools).toEqual(groundedAllowedTools());
-    expect(sends[0].message).toContain("<supertwin-context>");
+    expect(sends[0].hostTools).toEqual(groundedAllowedTools());
+    expect(requestText(sends[0])).toContain("<supertwin-context>");
     const cframe = frames.find((f) => f.type === "citations") as {
       citations: unknown[];
     };
@@ -288,48 +303,51 @@ describe("grounded chat (server, mock provider)", () => {
   });
 
   it("old ungrounded sessions resume with the Phase-0 config (no injection, no citations)", async () => {
-    const oldId = randomUUID();
-    db.createSession({
-      sessionId: oldId,
+    const conversationId = randomUUID();
+    db.createChatSession({
+      conversationId,
       provider: "claude-local",
+      model: "claude-test-model",
       cwd: process.env.SUPERTWIN_CHAT_CWD as string,
-      promptBundleHash: ungroundedBundleHash(),
+      promptBundleHash: "0".repeat(64),
       title: "old chat",
       grounded: false,
+      userMessage: { content: "old hello", runId: "old-run" },
     });
-    script = { sessionId: oldId, reply: "plain answer" };
+    script = { continuation: "continuation-ungrounded-1", reply: "plain answer" };
     sends.length = 0;
 
     const frames = await postChat({
       runId: "ungrounded-1",
-      sessionId: oldId,
+      conversationId,
       message: "hello again",
     });
 
     expect(sends.length).toBe(1);
     const opts = sends[0];
-    expect(opts.sessionId).toBe(oldId); // resumed, not fresh-fallback
+    expect(opts.continuation).toBeUndefined(); // mismatched bundle reconstructs
     expect(opts.cwd).toBe(process.env.SUPERTWIN_CHAT_CWD);
-    expect(opts.allowedTools).toEqual([]);
-    expect(opts.message).toBe("hello again"); // no retrieval block
+    expect(opts.hostTools).toEqual([]);
+    expect(requestText(opts)).toContain("hello again"); // no retrieval block
     expect(frames.some((f) => f.type === "citations")).toBe(false);
 
     const assistant = db
-      .getMessages(oldId)
+      .getChatMessages(conversationId)
       .find((m) => m.role === "assistant");
     expect(assistant?.content).toBe("plain answer");
     expect(assistant?.citationsJson).toBeNull();
-    expect(db.getSession(oldId)?.grounded).toBe(false);
+    expect(db.getChatSession(conversationId)?.grounded).toBe(false);
   });
 
   it("fresh chat with grounded:false opts out", async () => {
-    script = { sessionId: randomUUID(), reply: "sandboxed" };
+    const conversationId = randomUUID();
+    script = { continuation: "continuation-optout", reply: "sandboxed" };
     sends.length = 0;
-    await postChat({ runId: "optout-1", message: "hi", grounded: false });
+    await postChat({ runId: "optout-1", conversationId, message: "hi", grounded: false });
     expect(sends[0].cwd).toBe(process.env.SUPERTWIN_CHAT_CWD);
-    expect(sends[0].allowedTools).toEqual([]);
-    expect(sends[0].message).toBe("hi");
-    expect(db.getSession(script.sessionId)?.grounded).toBe(false);
+    expect(sends[0].hostTools).toEqual([]);
+    expect(requestText(sends[0])).toContain("hi");
+    expect(db.getChatSession(conversationId)?.grounded).toBe(false);
   });
 
   // REGRESSION: chat used to dispatch WITHOUT --setting-sources "", so the CLI
@@ -339,27 +357,28 @@ describe("grounded chat (server, mock provider)", () => {
   // settings worth loading, and chat's instructions arrive via the system
   // prompt file instead.
   it("every chat run skips the user's Claude Code settings (grounded + ungrounded)", async () => {
-    script = { sessionId: randomUUID(), reply: "ok" };
+    script = { continuation: "continuation-neutral-1", reply: "ok" };
     sends.length = 0;
     await postChat({ runId: "neutral-1", message: "hi", grounded: false });
-    expect(sends[0].skipUserSettings).toBe(true);
+    expect(sends[0].skipHostSettings).toBe(true);
 
-    script = { sessionId: randomUUID(), reply: "ok" };
+    script = { continuation: "continuation-neutral-2", reply: "ok" };
     sends.length = 0;
     await postChat({ runId: "neutral-2", message: "hi", grounded: true });
-    expect(sends[0].skipUserSettings).toBe(true);
+    expect(sends[0].skipHostSettings).toBe(true);
     // The grounded instructions must still reach the CLI another way.
-    expect(sends[0].systemPromptFile).toBeTruthy();
+    expect(sends[0].instructions).toBe(GROUNDED_SYSTEM_PROMPT);
   });
 
   it("citations of a kind the UI cannot resolve never reach the client", async () => {
     script = {
-      sessionId: randomUUID(),
+      continuation: "continuation-kinds",
       reply:
         'Two sources [1][2].\nCITATIONS: [{"n":1,"kind":"event","id":"evt_hotel","label":"Alice · hotel"},{"n":2,"kind":"space","id":"space_goa","label":"Goa Trip"}]',
     };
     sends.length = 0;
-    const frames = await postChat({ runId: "kinds-1", message: "hotel and goa" });
+    const conversationId = randomUUID();
+    const frames = await postChat({ runId: "kinds-1", conversationId, message: "hotel and goa" });
     const cframe = frames.find((f) => f.type === "citations") as {
       citations: Array<Record<string, unknown>>;
     };
@@ -367,24 +386,143 @@ describe("grounded chat (server, mock provider)", () => {
       { n: 1, kind: "event", id: "evt_hotel", label: "Alice · hotel" },
     ]);
     const assistant = db
-      .getMessages(script.sessionId)
+      .getChatMessages(conversationId)
       .find((m) => m.role === "assistant");
     expect(JSON.parse(assistant?.citationsJson ?? "[]")).toEqual(cframe.citations);
   });
 
   it("a grounded reply WITHOUT a citations line still streams and persists intact", async () => {
-    script = { sessionId: randomUUID(), reply: "I could not find anything." };
+    const conversationId = randomUUID();
+    script = { continuation: "continuation-nocite", reply: "I could not find anything." };
     sends.length = 0;
-    const frames = await postChat({ runId: "nocite-1", message: "obscure question" });
+    const frames = await postChat({ runId: "nocite-1", conversationId, message: "obscure question" });
     const cframe = frames.find((f) => f.type === "citations") as {
       citations: unknown[];
     };
     expect(cframe.citations).toEqual([]); // frame still sent (empty)
     const assistant = db
-      .getMessages(script.sessionId)
+      .getChatMessages(conversationId)
       .find((m) => m.role === "assistant");
     expect(assistant?.content).toBe("I could not find anything.");
     expect(assistant?.citationsJson).toBeNull();
+  });
+
+  it("rejects a concurrent conversation turn before send or user-message append", async () => {
+    const conversationId = randomUUID();
+    script = { continuation: "continuation-concurrent", reply: "first answer" };
+    let unblock!: () => void;
+    sendBarrier = new Promise<void>((resolveBarrier) => { unblock = resolveBarrier; });
+    sends.length = 0;
+    const first = postChat({
+      runId: "concurrent-first",
+      conversationId,
+      message: "first question",
+      grounded: false,
+    });
+    while (sends.length === 0) await new Promise((resolveWait) => setTimeout(resolveWait, 0));
+
+    try {
+      const loser = await postChat({
+        runId: "concurrent-loser",
+        conversationId,
+        message: "must not persist",
+        grounded: false,
+      });
+      expect(loser).toContainEqual(expect.objectContaining({
+        type: "error",
+        code: "CONVERSATION_BUSY",
+      }));
+      expect(sends).toHaveLength(1);
+      expect(db.getChatMessages(conversationId).map((item) => item.content))
+        .toEqual(["first question"]);
+    } finally {
+      unblock();
+      await first;
+      sendBarrier = null;
+    }
+    expect(db.getChatMessages(conversationId).map((item) => item.content))
+      .toEqual(["first question", "first answer"]);
+  });
+
+  it("rejects conflicting public-id aliases before opening a stream", async () => {
+    const res = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversationId: randomUUID(),
+        sessionId: randomUUID(),
+        message: "must not send",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "conversationId and sessionId must match" });
+  });
+
+  it("emits a fixed typed error when a failed result emitted no error event", async () => {
+    const conversationId = randomUUID();
+    script = {
+      continuation: "secret-must-not-stream",
+      reply: "",
+      status: "error",
+      errorCode: "AUTH_EXPIRED",
+    };
+    sends.length = 0;
+    const frames = await postChat({
+      runId: "silent-error",
+      conversationId,
+      message: "hello",
+      grounded: false,
+    });
+    expect(frames).toContainEqual({
+      type: "error",
+      code: "AUTH_EXPIRED",
+      message: "provider request failed (AUTH_EXPIRED)",
+    });
+    expect(JSON.stringify(frames)).not.toContain(script.continuation);
+    expect(db.getChatMessages(conversationId).map((item) => item.role)).toEqual(["user"]);
+    script = { continuation: "continuation-after-error", reply: "ok" };
+  });
+
+  it("aborts a thrown send reservation and permits deterministic reconstruction retry", async () => {
+    const conversationId = randomUUID();
+    script = {
+      continuation: "secret-thrown-continuation",
+      reply: "",
+      throwCode: "TRANSPORT_ERROR",
+    };
+    sends.length = 0;
+    const failed = await postChat({
+      runId: "throw-first",
+      conversationId,
+      message: "failed question",
+      grounded: false,
+    });
+    expect(failed).toContainEqual({
+      type: "error",
+      code: "TRANSPORT_ERROR",
+      message: "provider request failed (TRANSPORT_ERROR)",
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/secret provider failure detail|secret-thrown/);
+    expect(db.getChatContinuation(conversationId)).toMatchObject({
+      continuation: null,
+      generation: expect.any(Number),
+    });
+    expect(db.getChatContinuation(conversationId)!.generation % 2).toBe(1);
+    expect(db.getChatMessages(conversationId).map((item) => item.role)).toEqual(["user"]);
+
+    script = { continuation: "continuation-retry", reply: "retry answer" };
+    const retried = await postChat({
+      runId: "throw-retry",
+      conversationId,
+      message: "retry question",
+      grounded: false,
+    });
+    expect(retried.some((frame) => frame.type === "done")).toBe(true);
+    expect(sends).toHaveLength(2);
+    expect(sends[1].continuation).toBeUndefined();
+    expect(requestText(sends[1])).toContain("failed question");
+    expect(db.getChatMessages(conversationId).map((item) => item.role))
+      .toEqual(["user", "user", "assistant"]);
   });
 
   it("GET /api/events/:id returns citation provenance; 404 on unknown", async () => {

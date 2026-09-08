@@ -27,7 +27,6 @@ import { activeClaim, claimsAbout, closeClaimVersion, writeClaimVersion } from "
 import { getDb } from "../db/connection.js";
 import { markReversed, writeDecision } from "../db/decisions.js";
 import { isCircle } from "../entities/registry.js";
-import { getSelectedModel } from "../db/settings.js";
 import { type ParsedCorrection } from "../prompts/correction-parse.v1.js";
 import {
   CORRECTION_PARSE_V3_INSTRUCTIONS,
@@ -107,8 +106,6 @@ export const parseViaModel: CorrectionParser = async (target, state, utterance) 
     user: packCorrectionInputV3({ ...target, label, state }, utterance),
     role: "classify",
     cohortId: null,
-    // The classify role's picker (defaults to Haiku — build convention).
-    model: getSelectedModel("classify") || undefined,
     unit: { kind: `correction-${target.kind}`, id: target.id },
     validate: (parsed) => {
       const v3 = parseCorrectionOutputV3(JSON.stringify(parsed));

@@ -22,7 +22,8 @@ process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
 process.env.SUPERTWIN_HOME = tmpDir;
 
 const db = await import("../db/index.js");
-const { register } = await import("../providers/index.js");
+const { registerV2 } = await import("../providers/index.js");
+const { providerV2TestDouble } = await import("../providers/test-support.js");
 const { startServer } = await import("./index.js");
 
 type ServerHandle = { port: number; close(): Promise<void> };
@@ -61,31 +62,27 @@ async function chat(message: string): Promise<string> {
   const res = await fetch(`${base}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, grounded: false }),
   });
   return await res.text();
 }
 
 beforeAll(async () => {
   db.runMigrations();
-  register({
-    id: "claude-local",
-    send: async (opts) => {
-      opts.onEvent({ type: "delta", text: "pong" });
-      return {
-        sessionId: "",
-        usage: {
-          inputTokens: 0,
-          cacheCreationInputTokens: 0,
-          cacheReadInputTokens: 0,
-          outputTokens: 0,
-        },
-        freshFallback: false,
-        status: "ok" as const,
-      };
-    },
-    cancel: () => false,
-  });
+  registerV2(providerV2TestDouble(async (opts) => {
+    opts.onEvent({ type: "delta", text: "pong" });
+    return {
+      continuation: "quota-test-continuation",
+      usage: {
+        inputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        outputTokens: 0,
+      },
+      freshFallback: false,
+      status: "ok" as const,
+    };
+  }));
   server = await startServer({ port: 0 });
   base = `http://127.0.0.1:${server.port}`;
 });

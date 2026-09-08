@@ -25,11 +25,12 @@ process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
 process.env.SUPERTWIN_HOME = tmpDir;
 
 const db = await import("../db/index.js");
-const { register } = await import("../providers/index.js");
+const { registerV2 } = await import("../providers/index.js");
+const { providerV2TestDouble } = await import("../providers/test-support.js");
 const { billableTokens } = await import("../providers/usage.js");
 const { startServer } = await import("./index.js");
 
-import type { ProviderResult, Usage } from "../providers/types.js";
+import type { NeutralProviderResult, Usage } from "../providers/types.js";
 
 type ServerHandle = { port: number; close(): Promise<void> };
 
@@ -37,7 +38,7 @@ let server: ServerHandle;
 let base: string;
 
 /** What the next provider run reports. `status` drives the kill-path case. */
-let reported: { usage: Usage; status: ProviderResult["status"] };
+let reported: { usage: Usage; status: NeutralProviderResult["status"] };
 
 /** The measured shape of a real run: fresh input is ~0.03% of what was spent. */
 const CACHE_HEAVY: Usage = {
@@ -96,28 +97,24 @@ async function chat(message: string): Promise<string> {
   const res = await fetch(`${base}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, grounded: false }),
   });
   return await res.text();
 }
 
 beforeAll(async () => {
   db.runMigrations();
-  register({
-    id: "claude-local",
-    send: async (opts) => {
-      opts.onEvent({ type: "delta", text: "pong" });
-      opts.onEvent({ type: "usage", usage: reported.usage });
-      return {
-        sessionId: "",
-        usage: reported.usage,
-        freshFallback: false,
-        status: reported.status,
-        ...(reported.status === "error" ? { errorCode: "CANCELLED" as const } : {}),
-      };
-    },
-    cancel: () => false,
-  });
+  registerV2(providerV2TestDouble(async (opts) => {
+    opts.onEvent({ type: "delta", text: "pong" });
+    opts.onEvent({ type: "usage", usage: reported.usage });
+    return {
+      continuation: reported.status === "ok" ? "accounting-test-continuation" : null,
+      usage: reported.usage,
+      freshFallback: false,
+      status: reported.status,
+      ...(reported.status === "error" ? { errorCode: "CANCELLED" as const } : {}),
+    };
+  }));
   server = await startServer({ port: 0 });
   base = `http://127.0.0.1:${server.port}`;
 });

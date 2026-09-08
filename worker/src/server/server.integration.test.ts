@@ -23,8 +23,8 @@ process.env.SUPERTWIN_DB_PATH = join(tmpDir, "test.db");
 process.env.SUPERTWIN_CHAT_CWD = tmpDir;
 
 const { runMigrations } = await import("../db/index.js");
-const { register } = await import("../providers/index.js");
-const { claudeLocalProvider } = await import("../providers/claude-local/index.js");
+const { registerV2 } = await import("../providers/index.js");
+const { claudeLocalProviderV2 } = await import("../providers/claude-local/neutral.js");
 const { startServer } = await import("./index.js");
 
 type ServerHandle = { port: number; close(): Promise<void> };
@@ -65,7 +65,7 @@ async function readSse(res: Response): Promise<Array<Record<string, unknown>>> {
 describe.skipIf(skipWithoutExplicitLiveOptIn)("worker server (real CLI)", () => {
   beforeAll(async () => {
     runMigrations();
-    register(claudeLocalProvider);
+    registerV2(claudeLocalProviderV2);
     server = await startServer({ port: 0 }); // ephemeral
     base = `http://127.0.0.1:${server.port}`;
   }, 30_000);
@@ -95,29 +95,29 @@ describe.skipIf(skipWithoutExplicitLiveOptIn)("worker server (real CLI)", () => 
       expect(res.headers.get("content-type")).toContain("text/event-stream");
       const events = await readSse(res);
       const types = events.map((e) => e.type);
-      expect(types).toContain("session");
+      expect(types).toContain("conversation");
       expect(types).toContain("delta");
       expect(types).toContain("done");
 
-      const sessionEv = events.find((e) => e.type === "session");
-      expect(sessionEv).toBeTruthy();
-      const sessionId = sessionEv!.sessionId as string;
+      const conversationEv = events.find((e) => e.type === "conversation");
+      expect(conversationEv).toBeTruthy();
+      const conversationId = conversationEv!.conversationId as string;
 
       // /api/chat/sessions shows it.
       const list = await getJson<
-        Array<{ sessionId: string; messageCount: number }>
+        Array<{ conversationId: string; messageCount: number }>
       >(`${base}/api/chat/sessions`);
       expect(Array.isArray(list)).toBe(true);
-      const found = list.find((s) => s.sessionId === sessionId);
+      const found = list.find((s) => s.conversationId === conversationId);
       expect(found).toBeTruthy();
       expect(found!.messageCount).toBeGreaterThanOrEqual(2); // user + assistant
 
       // /api/chat/sessions/:id returns the transcript.
       const detail = await getJson<{
-        session: { sessionId: string };
+        session: { conversationId: string };
         messages: Array<{ role: string }>;
-      }>(`${base}/api/chat/sessions/${sessionId}`);
-      expect(detail.session.sessionId).toBe(sessionId);
+      }>(`${base}/api/chat/sessions/${conversationId}`);
+      expect(detail.session.conversationId).toBe(conversationId);
       const roles = detail.messages.map((m) => m.role);
       expect(roles).toContain("user");
       expect(roles).toContain("assistant");
@@ -154,10 +154,12 @@ describe.skipIf(skipWithoutExplicitLiveOptIn)("worker server (real CLI)", () => 
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/chat/sessions/new returns a null-session marker", async () => {
+  it("POST /api/chat/sessions/new returns an app-owned public UUID", async () => {
     const res = await fetch(`${base}/api/chat/sessions/new`, { method: "POST" });
-    const body = (await res.json()) as { sessionId: string | null };
-    expect(body.sessionId).toBeNull();
+    const body = (await res.json()) as { conversationId: string };
+    expect(body.conversationId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 });
 
@@ -180,9 +182,8 @@ describe("V2 surface routes are mounted and serving", () => {
 
   beforeAll(async () => {
     runMigrations();
-    // startServer rejects unless the default provider is registered. Registering
-    // is a Map.set on a plain object — it does not touch the CLI.
-    register(claudeLocalProvider);
+    // Registration is a Map.set on a plain object — it does not touch the CLI.
+    registerV2(claudeLocalProviderV2);
     v2 = await startServer({ port: 0, media: false });
     v2Base = `http://127.0.0.1:${v2.port}`;
   }, 30_000);

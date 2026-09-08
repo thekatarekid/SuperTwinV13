@@ -5,10 +5,10 @@
 //   GET  /api/health          -> { ok, version }
 //   POST /api/chat            -> SSE stream of ProviderStreamEvent frames
 //   POST /api/cancel          -> { ok }
-//   GET  /api/chat/sessions      -> [{ sessionId, title, cwd, status, ... }]
+//   GET  /api/chat/sessions      -> [{ conversationId, title, cwd, status, ... }]
 //   GET  /api/chat/sessions/:id  -> { session, messages }
 //   GET  /api/quota              -> QuotaSnapshot + media (its own, ungated spend)
-//   POST /api/chat/sessions/new  -> { sessionId: null }
+//   POST /api/chat/sessions/new  -> { conversationId: UUIDv4 }
 //
 // /api/sessions itself belongs to the V2 sessions surface (sessions-routes.ts),
 // which answers with a SessionsPage object rather than this bare array.
@@ -19,7 +19,7 @@
 // quota. The provider stays transport-only.
 // ===========================================================================
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -32,16 +32,21 @@ import { moduleDir } from "../module-path.js";
 import { bootDegradations } from "../boot-guard.js";
 import { BUILT_THROUGH_PHASE } from "../version.js";
 import { rescanMedia, type RescanType } from "../db/ingest.js";
-import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/index.js";
+import { listV2 as listProvidersV2 } from "../providers/index.js";
 import type {
-  Provider,
-  ProviderResult,
+  NeutralProviderResult,
+  ProviderErrorCode,
   ProviderStreamEvent,
   Usage,
 } from "../providers/index.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+} from "../providers/selection.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 import { emptyUsage } from "../providers/usage.js";
 import { withTraceContext } from "../traces/context.js";
-import { isValidSessionId } from "../providers/claude-local/index.js";
 import {
   MODEL_CATALOG,
   MODEL_ROLES,
@@ -50,7 +55,6 @@ import {
 } from "../providers/claude-local/models.js";
 import {
   getDebugExportEnabled,
-  getSelectedModel,
   setSelectedModel,
   getAllSelectedModels,
   getProcessEnabled,
@@ -190,9 +194,24 @@ import {
   parseCitationsFromText,
   type CitationsFrame,
 } from "./chat-grounding.js";
+import {
+  ConversationBusyError,
+  ConversationContinuationConflictError,
+  ConversationInFlightGuard,
+  abortConversationTurn,
+  chatPromptBundleHash,
+  completeConversationTurn,
+  createConversationId,
+  prepareConversationTurn,
+  publicChatEvent,
+  type ConversationBinding,
+  type ConversationContinuationStore,
+  type ConversationMessage,
+  type PreparedConversationTurn,
+} from "./chat-continuation.js";
 
 /** Everything the chat SSE stream can carry: provider frames + citations. */
-type ChatStreamEvent = ProviderStreamEvent | CitationsFrame;
+type ChatStreamEvent = ProviderStreamEvent | CitationsFrame | Record<string, unknown>;
 
 /**
  * Report the real app version at /api/health instead of a hardcoded string.
@@ -335,19 +354,6 @@ export interface StartServerOptions {
   media?: boolean;
 }
 
-/**
- * The prompt-bundle hash pins a session to the exact system-prompt + provider
- * config it was created with. If a later request would run under a different
- * bundle (or cwd), we must NOT resume — we start fresh. Computed cheaply here.
- */
-function promptBundleHash(providerId: string, systemPromptFile?: string): string {
-  const h = createHash("sha256");
-  h.update(providerId);
-  h.update("\x00");
-  h.update(systemPromptFile ?? "");
-  return h.digest("hex").slice(0, 16);
-}
-
 /** Very small CORS: allow localhost (any port) + the Tauri origin. */
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
@@ -384,13 +390,6 @@ function sseSend(res: ServerResponse, event: ChatStreamEvent): void {
 }
 
 export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
-  const provider = getProvider(DEFAULT_PROVIDER_ID);
-  if (!provider) {
-    return Promise.reject(
-      new Error(`default provider "${DEFAULT_PROVIDER_ID}" not registered`),
-    );
-  }
-
   // runId -> AbortController, so POST /api/cancel can abort a live SSE run.
   const inflight = new Map<string, AbortController>();
   const ingestion = opts?.ingestion ?? null;
@@ -424,7 +423,7 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
   }
 
   const server = createServer((req, res) => {
-    handle(req, res, provider, inflight, ingestion, system).catch((err) => {
+    handle(req, res, inflight, ingestion, system).catch((err) => {
       if (!res.headersSent) {
         sendJson(res, 500, { error: (err as Error).message });
       } else {
@@ -468,7 +467,6 @@ export function startServer(opts?: StartServerOptions): Promise<ServerHandle> {
 async function handle(
   req: IncomingMessage,
   res: ServerResponse,
-  provider: Provider,
   inflight: Map<string, AbortController>,
   ingestion: Ingestion | null,
   system: SystemDeps,
@@ -634,16 +632,16 @@ async function handle(
   // chat-session list moved under /api/chat/ where the rest of chat already
   // lives. Nothing derives the path — the one caller is worker-client.ts.
   if (method === "GET" && path === "/api/chat/sessions") {
-    const sessions = db.listSessions();
+    const sessions = db.listChatSessions();
     const out = sessions.map((s) => ({
-      sessionId: s.sessionId,
+      conversationId: s.conversationId,
       title: s.title,
       cwd: s.cwd,
       status: s.status,
       grounded: s.grounded,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
-      messageCount: db.getMessages(s.sessionId).length,
+      messageCount: db.getChatMessages(s.conversationId).length,
     }));
     sendJson(res, 200, out);
     return;
@@ -654,12 +652,12 @@ async function handle(
   // every V2 /api/sessions/* subpath before handleSessionsV2Route could see it.
   if (method === "GET" && path.startsWith("/api/chat/sessions/")) {
     const id = decodeURIComponent(path.slice("/api/chat/sessions/".length));
-    const session = db.getSession(id);
+    const session = db.getChatSession(id);
     if (!session) {
       sendJson(res, 404, { error: "session not found" });
       return;
     }
-    const messages = db.getMessages(id).map((m) => ({
+    const messages = db.getChatMessages(id).map((m) => ({
       role: m.role,
       content: m.content,
       ts: m.ts,
@@ -684,7 +682,7 @@ async function handle(
 
   // --- POST /api/chat/sessions/new (moved with the two reads above)
   if (method === "POST" && path === "/api/chat/sessions/new") {
-    sendJson(res, 200, { sessionId: null });
+    sendJson(res, 200, { conversationId: createConversationId() });
     return;
   }
 
@@ -697,8 +695,9 @@ async function handle(
     }
     const ac = inflight.get(body.runId);
     if (ac) ac.abort();
-    // Also reach the provider directly in case the abort race lost.
-    provider.cancel(body.runId);
+    // Also reach every strict provider in case the abort race lost and the
+    // active setting changed while this run was in flight.
+    for (const provider of listProvidersV2()) provider.cancel(body.runId);
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -712,7 +711,7 @@ async function handle(
 
   // --- POST /api/chat (SSE)
   if (method === "POST" && path === "/api/chat") {
-    await handleChat(req, res, provider, inflight);
+    await handleChat(req, res, inflight);
     return;
   }
 
@@ -991,15 +990,80 @@ async function handle(
   sendJson(res, 404, { error: "not found" });
 }
 
+function chatContinuationStore(): ConversationContinuationStore {
+  const publicState = (state: db.ChatContinuationState | null) => state
+    ? {
+        conversationId: state.conversationId,
+        provider: state.provider,
+        model: state.model,
+        promptBundleHash: state.promptBundleHash,
+        continuation: state.continuation,
+        generation: state.generation,
+      }
+    : null;
+  return {
+    getContinuation: (conversationId) => {
+      const state = publicState(db.getChatContinuation(conversationId));
+      if (state) return state;
+      // A migrated legacy conversation intentionally has no provider binding.
+      // Expose its generation as an unbound reconstruction state so the
+      // helper can CAS-rebind it without ever reviving the old session id.
+      return db.getChatSession(conversationId)
+        ? {
+            conversationId,
+            provider: null,
+            model: null,
+            promptBundleHash: null,
+            continuation: null,
+            generation: 0,
+          }
+        : null;
+    },
+    reserveTurn: ({ conversationId, expectedGeneration, binding }) =>
+      publicState(db.reserveChatTurn({
+        conversationId,
+        expectedGeneration,
+        provider: binding.provider,
+        model: binding.model,
+        promptBundleHash: binding.promptBundleHash,
+      })),
+    abortTurn: ({ conversationId, expectedGeneration, binding }) =>
+      db.abortChatTurn({
+        conversationId,
+        expectedGeneration,
+        provider: binding.provider,
+        model: binding.model,
+        promptBundleHash: binding.promptBundleHash,
+      }),
+    clearContinuation: db.clearChatContinuation,
+    rebindContinuation: ({ conversationId, expectedGeneration, binding }) =>
+      db.rebindChatContinuation({
+        conversationId,
+        expectedGeneration,
+        provider: binding.provider,
+        model: binding.model,
+        promptBundleHash: binding.promptBundleHash,
+      }),
+    // Assistant persistence is supplied at completion; this method is replaced
+    // for that one call below and must never be reached directly.
+    completeTurn: () => {
+      throw new Error("assistant message is required for continuation commit");
+    },
+  };
+}
+
+const chatConversationGuard = new ConversationInFlightGuard();
+
 async function handleChat(
   req: IncomingMessage,
   res: ServerResponse,
-  provider: Provider,
   inflight: Map<string, AbortController>,
 ): Promise<void> {
   const body = (await readBody(req)) as
     | {
         runId?: string;
+        conversationId?: string | null;
+        /** @deprecated One-release alias whose value is the public UUID. */
         sessionId?: string | null;
         message?: string;
         /** Opt-out for fresh sessions; grounding is default-ON otherwise. */
@@ -1016,10 +1080,32 @@ async function handleChat(
       ? body.runId
       : randomUUID();
   const message = body.message;
-  const requestedSessionId =
-    typeof body.sessionId === "string" && body.sessionId.length
-      ? body.sessionId
-      : null;
+  if (
+    typeof body.conversationId === "string" && body.conversationId.length > 0 &&
+    typeof body.sessionId === "string" && body.sessionId.length > 0 &&
+    body.conversationId.toLowerCase() !== body.sessionId.toLowerCase()
+  ) {
+    sendJson(res, 400, { error: "conversationId and sessionId must match" });
+    return;
+  }
+  const requestedConversationId =
+    typeof body.conversationId === "string" && body.conversationId.length
+      ? body.conversationId
+      : typeof body.sessionId === "string" && body.sessionId.length
+        ? body.sessionId
+        : null;
+  let conversationId: string;
+  try {
+    conversationId = requestedConversationId ?? createConversationId();
+    if (requestedConversationId) {
+      // Reuse the same validation without generating or accepting provider ids.
+      createConversationId(() => requestedConversationId);
+      conversationId = requestedConversationId.toLowerCase();
+    }
+  } catch {
+    sendJson(res, 400, { error: "conversationId must be a UUIDv4" });
+    return;
+  }
 
   // Open the SSE stream.
   res.writeHead(200, {
@@ -1052,53 +1138,106 @@ async function handleChat(
     return;
   }
 
-  const providerId = provider.id;
+  let releaseConversation: () => void;
+  try {
+    releaseConversation = chatConversationGuard.acquire(conversationId);
+  } catch (error) {
+    const busy = error instanceof ConversationBusyError;
+    sseSend(res, {
+      type: "error",
+      code: busy ? error.code : "CONVERSATION_BUSY",
+      message: busy ? error.message : "conversation is already in flight",
+    });
+    res.end();
+    return;
+  }
+
+  let abortReservedTurn: (() => void) | null = null;
+  try {
+  let resolved;
+  try {
+    resolved = resolveModelCall({ source: "role", key: "chat" });
+    requireMaxOutputTokens(resolved);
+  } catch (error) {
+    const code = error instanceof ProviderSelectionError ? error.code : "PROVIDER_UNAVAILABLE";
+    const message = error instanceof ProviderSelectionError
+      ? error.message
+      : "provider selection failed";
+    sseSend(res, { type: "error", code, message });
+    res.end();
+    return;
+  }
+  const providerId = resolved.providerId;
 
   // ---- Grounding mode (Phase 2 T4). A saved session keeps whatever mode it
   // was created with (old ungrounded sessions keep working unchanged); a fresh
   // session defaults to grounded unless the caller opts out.
-  const savedSession =
-    requestedSessionId && isValidSessionId(requestedSessionId)
-      ? db.getSession(requestedSessionId)
-      : null;
+  const savedSession = db.getChatSession(conversationId);
   const grounded = savedSession ? savedSession.grounded : body.grounded !== false;
 
   // Grounded runs execute with cwd = brain root (so Read/Grep/Glob resolve
   // against the wiki) under the grounded system prompt; ungrounded runs keep
   // the Phase-0 sandbox config. Each mode has its own prompt-bundle hash, so a
   // session can never be resumed into the wrong mode.
-  const systemPromptFile = grounded
-    ? groundedSystemPromptFile()
-    : SYSTEM_PROMPT_FILE;
-  const bundleHash = promptBundleHash(providerId, systemPromptFile);
+  const systemPromptFile = grounded ? groundedSystemPromptFile() : SYSTEM_PROMPT_FILE;
+  const instructions = systemPromptFile ? readFileSync(systemPromptFile, "utf8") : "";
   let runCwd = grounded ? ensureBrain() : DEFAULT_CWD;
   const allowedTools = grounded ? groundedAllowedTools() : [];
-
-  // ---- Resume guard: only pass sessionId to the adapter if the saved session
-  // exists, is active, and its cwd + bundle hash match. Otherwise fresh.
-  let resumeSessionId: string | null = null;
+  if (savedSession) runCwd = savedSession.cwd;
   if (
-    savedSession &&
-    savedSession.status === "active" &&
-    savedSession.cwd === runCwd &&
-    savedSession.promptBundleHash === bundleHash
+    !resolved.modelSnapshot.inputModalities.includes("text") ||
+    !resolved.provider.capabilities.continuation ||
+    (grounded && (
+      !resolved.provider.capabilities.hostTools ||
+      !resolved.modelSnapshot.supportsHostTools
+    ))
   ) {
-    resumeSessionId = savedSession.sessionId;
-    runCwd = savedSession.cwd;
+    const error = new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      `model ${resolved.model} cannot satisfy the selected chat policy`,
+      { providerId, key: resolved.key, model: resolved.model },
+    );
+    sseSend(res, { type: "error", code: error.code, message: error.message });
+    res.end();
+    return;
   }
-  // If saved but cwd/bundle mismatched, we intentionally start fresh (guard).
-
-  // ---- Persist the user message. If resuming a known session, attach to it;
-  // otherwise we don't know the session id yet — attach once `session` arrives.
-  let currentSessionId: string | null = resumeSessionId;
-  const pendingUserMessage = message;
-  if (currentSessionId) {
-    db.appendMessage({
-      sessionId: currentSessionId,
-      role: "user",
-      content: message,
-      runId,
-    });
+  const maxAgentTurns = grounded && providerId === "claude-local" ? 24 : 1;
+  const policy = JSON.stringify({
+    grounded,
+    cwd: runCwd,
+    hostTools: allowedTools,
+    toolChoice: grounded ? "auto" : "none",
+    skipHostSettings: true,
+    persistContinuation: true,
+    maxAgentTurns,
+  });
+  const binding: ConversationBinding = {
+    provider: providerId,
+    model: resolved.model,
+    promptBundleHash: chatPromptBundleHash({ instructions, policy }),
+  };
+  const priorMessages = savedSession ? db.getChatMessages(conversationId) : [];
+  if (!savedSession) {
+    try {
+      db.createChatSession({
+        conversationId,
+        provider: providerId,
+        model: resolved.model,
+        cwd: runCwd,
+        promptBundleHash: binding.promptBundleHash,
+        title: deriveTitle(message),
+        grounded,
+        userMessage: { content: message, runId },
+      });
+    } catch {
+      sseSend(res, {
+        type: "error",
+        code: "CONTINUATION_CONFLICT",
+        message: "conversation could not be created",
+      });
+      res.end();
+      return;
+    }
   }
 
   const ac = new AbortController();
@@ -1110,52 +1249,25 @@ async function handleChat(
 
   const startedAt = Date.now();
   let assistantText = "";
-  let sawSessionEvent = false;
   let finalUsage: Usage = emptyUsage();
+  let finalStopReason: string | undefined;
+  let sawProviderError = false;
 
   const onEvent = (ev: ProviderStreamEvent): void => {
-    // Stream every event straight to the client.
-    sseSend(res, ev);
-
-    if (ev.type === "session") {
-      const newId = ev.sessionId;
-      const prev = currentSessionId;
-      sawSessionEvent = true;
-
-      if (prev && prev !== newId) {
-        // Fresh-fallback swapped the session id mid-run: poison the old one and
-        // migrate. The old user message row keeps its (now-dead) session id;
-        // we re-anchor the conversation on the new session.
-        db.markSessionPoisoned(prev);
-      }
-
-      // Upsert the new session (validate-before-persist: only real ids here).
-      if (isValidSessionId(newId) && !db.getSession(newId)) {
-        db.createSession({
-          sessionId: newId,
-          provider: providerId,
-          cwd: runCwd,
-          promptBundleHash: bundleHash,
-          title: deriveTitle(pendingUserMessage),
-          grounded,
-        });
-      }
-      currentSessionId = newId;
-
-      // If we hadn't persisted the user message yet (fresh session), do it now.
-      if (!prev && isValidSessionId(newId)) {
-        db.appendMessage({
-          sessionId: newId,
-          role: "user",
-          content: pendingUserMessage,
-          runId,
-        });
-      }
-    } else if (ev.type === "delta") {
+    if (ev.type === "delta") {
       assistantText += ev.text;
     } else if (ev.type === "usage") {
       finalUsage = ev.usage;
+    } else if (ev.type === "done") {
+      finalUsage = ev.usage;
+      finalStopReason = ev.stopReason;
+      // Completion crosses the public boundary only after the DB CAS commits.
+      return;
+    } else if (ev.type === "error") {
+      sawProviderError = true;
     }
+    const safe = publicChatEvent(ev);
+    if (safe) sseSend(res, safe);
   };
 
   // ---- Pre-turn retrieval (grounded only): inject the conversation around the
@@ -1165,20 +1277,72 @@ async function handleChat(
   // what gets dispatched. Awaited because the semantic tier is async; it costs
   // nothing when there is no embedding model, which is its default state.
   const dispatchMessage = grounded ? await augmentMessage(message) : message;
+  const transcript: ConversationMessage[] = priorMessages
+    .filter((item): item is typeof item & { role: "user" | "assistant" } =>
+      item.role === "user" || item.role === "assistant")
+    .map((item) => ({ role: item.role, text: item.content }));
+  const continuationStore = chatContinuationStore();
+  let prepared: PreparedConversationTurn;
+  try {
+    prepared = prepareConversationTurn({
+      conversationId,
+      binding,
+      transcript,
+      currentUserText: dispatchMessage,
+      store: continuationStore,
+    });
+  } catch (error) {
+    const conflict = error instanceof ConversationContinuationConflictError;
+    sseSend(res, {
+      type: "error",
+      code: conflict ? error.code : "CONTINUATION_CONFLICT",
+      message: conflict ? error.message : "conversation continuation could not be reserved",
+    });
+    res.end();
+    return;
+  }
+  abortReservedTurn = (): void => {
+    if (!abortReservedTurn) return;
+    abortReservedTurn = null;
+    try {
+      abortConversationTurn({ prepared, binding, store: continuationStore });
+    } catch {
+      // Another process advanced the exact generation. Never retry or send.
+    }
+  };
+  if (savedSession) {
+    try {
+      // Reservation wins before the append: a cross-process loser writes no
+      // orphan user message and never dispatches the provider.
+      db.appendChatUserMessage({ conversationId, content: message, runId });
+    } catch {
+      abortReservedTurn();
+      sseSend(res, {
+        type: "error",
+        code: "CONTINUATION_CONFLICT",
+        message: "conversation user message could not be appended",
+      });
+      res.end();
+      return;
+    }
+  }
+  // Public application identity replaces the provider-owned session event.
+  sseSend(res, { type: "conversation", conversationId });
 
-  let result: ProviderResult;
+  let result: NeutralProviderResult;
   try {
     // Trace scope (build P0.7): a chat turn is one traced run. The provider
     // records the actual CLI invocation(s) — fresh-fallback included — and the
     // scope flushes them when the send settles.
     result = await withTraceContext({ pass: "chat", caller: "server/chat" }, () =>
-      provider.send({
+      resolved.provider.send({
       runId,
-      message: dispatchMessage,
-      sessionId: resumeSessionId,
+      model: resolved.model,
+      instructions,
+      input: prepared.input,
       cwd: runCwd,
-      allowedTools, // grounded: read-only file tools; plain chat: none.
-      systemPromptFile,
+      hostTools: allowedTools,
+      toolChoice: grounded ? "auto" : "none",
       // Neutral settings (--setting-sources ""). Chat is NOT a coding session:
       // it has no use for the user's global CLAUDE.md, hooks, plugins, MCP
       // servers or skills, and loading them is what made every chat turn time
@@ -1192,21 +1356,27 @@ async function handleChat(
       // carries no CLAUDE.md — every instruction chat needs already arrives via
       // --append-system-prompt (systemPromptFile). Same lever the media reader
       // (media/describe.ts) and plainCompletion already use.
-      skipUserSettings: true,
-      // Selected model for the chat role (raw). "" ⇒ adapter adds no --model
-      // flag (default).
-      model: getSelectedModel("chat"),
+      skipHostSettings: true,
+      persistContinuation: true,
+      maxOutputTokens: requireMaxOutputTokens(resolved),
+      maxAgentTurns,
+      ...reasoningRequestForResolvedCall(resolved),
+      ...(prepared.continuation ? { continuation: prepared.continuation } : {}),
       timeoutMs: grounded ? 180_000 : 120_000,
       onEvent,
       signal: ac.signal,
       }),
     );
   } catch (err) {
-    // Provider should never throw, but never leak a crash into the stream.
+    abortReservedTurn();
+    const code = typeof err === "object" && err !== null && "code" in err &&
+        typeof (err as { code?: unknown }).code === "string"
+      ? (err as { code: ProviderErrorCode }).code
+      : "CLI_ERROR";
     sseSend(res, {
       type: "error",
-      code: "CLI_ERROR",
-      message: (err as Error).message,
+      code,
+      message: `provider request failed (${code})`,
     });
     inflight.delete(runId);
     res.end();
@@ -1215,7 +1385,6 @@ async function handleChat(
 
   inflight.delete(runId);
   const durationMs = Date.now() - startedAt;
-  const finalSessionId = result.sessionId || currentSessionId || null;
 
   // Prefer the usage the provider computed (authoritative).
   if (result.usage) finalUsage = result.usage;
@@ -1232,32 +1401,56 @@ async function handleChat(
     citations = parsed.citations
       ? parsed.citations.filter((c) => isCitableKind(c.kind))
       : null;
-    sseSend(res, { type: "citations", citations: citations ?? [] });
   }
 
-  // ---- Persist assistant reply (only on success + when we have a session).
-  if (
-    result.status === "ok" &&
-    finalSessionId &&
-    isValidSessionId(finalSessionId)
-  ) {
-    if (displayText.length) {
-      db.appendMessage({
-        sessionId: finalSessionId,
-        role: "assistant",
-        content: displayText,
-        runId,
-        usageJson: JSON.stringify(finalUsage),
-        citationsJson: citations ? JSON.stringify(citations) : null,
+  let persistenceError: ConversationContinuationConflictError | null = null;
+  if (result.status === "ok") {
+    const completionStore: ConversationContinuationStore = {
+      ...continuationStore,
+      completeTurn: ({ conversationId: id, expectedGeneration, binding: exact, continuation }) =>
+        db.commitAssistantTurn({
+          conversationId: id,
+          expectedGeneration,
+          provider: exact.provider,
+          model: exact.model,
+          promptBundleHash: exact.promptBundleHash,
+          continuation,
+          assistantMessage: {
+            content: displayText,
+            runId,
+            usageJson: JSON.stringify(finalUsage),
+            citationsJson: citations ? JSON.stringify(citations) : null,
+          },
+        }),
+    };
+    try {
+      completeConversationTurn({
+        prepared,
+        binding,
+        continuation: result.continuation,
+        store: completionStore,
+      });
+      abortReservedTurn = null;
+    } catch {
+      abortReservedTurn?.();
+      persistenceError = new ConversationContinuationConflictError();
+    }
+  } else {
+    abortReservedTurn();
+    if (!sawProviderError) {
+      const code = result.errorCode ?? "CLI_ERROR";
+      sseSend(res, {
+        type: "error",
+        code,
+        message: `provider request failed (${code})`,
       });
     }
-    db.updateSessionTimestamp(finalSessionId);
   }
 
   // ---- Log the run (extraction_runs) — every Claude call logged.
   db.logRun({
     provider: providerId,
-    sessionId: finalSessionId,
+    sessionId: conversationId,
     runId,
     kind: "chat",
     promptChars: dispatchMessage.length,
@@ -1267,10 +1460,10 @@ async function handleChat(
     outputTokens: finalUsage.outputTokens,
     costUsd: finalUsage.costUsd ?? null,
     durationMs,
-    status: result.status,
-    errorCode: result.errorCode ?? null,
+    status: persistenceError ? "error" : result.status,
+    errorCode: persistenceError?.code ?? result.errorCode ?? null,
     role: "chat",
-    model: getSelectedModel("chat"),
+    model: resolved.model,
   });
 
   // ---- Accumulate quota from THIS run's reported usage. Unconditional: the
@@ -1284,12 +1477,27 @@ async function handleChat(
     runCount: 1,
   });
 
-  // Guard against an unterminated stream (no session ever arrived on error).
-  if (!sawSessionEvent && result.status !== "ok") {
-    // error frame was already sent by the provider; nothing else to do.
+  if (persistenceError) {
+    sseSend(res, {
+      type: "error",
+      code: persistenceError.code,
+      message: persistenceError.message,
+    });
+  } else if (result.status === "ok") {
+    sseSend(res, {
+      type: "done",
+      usage: finalUsage,
+      ...(finalStopReason ? { stopReason: finalStopReason } : {}),
+    });
+    if (grounded) sseSend(res, { type: "citations", citations: citations ?? [] });
   }
 
   res.end();
+  } finally {
+    abortReservedTurn?.();
+    inflight.delete(runId);
+    releaseConversation();
+  }
 }
 
 /** The media reader's persisted settings, as GET/POST /api/settings/media serve them. */

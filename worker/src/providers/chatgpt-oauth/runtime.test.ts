@@ -10,6 +10,7 @@ import { initializeProductionChatGptRuntime } from "./runtime.js";
 import { CHATGPT_ACCOUNT_MODELS_URL } from "./models.js";
 import { CHATGPT_ACCOUNT_QUOTA_URL } from "./quota.js";
 import { resetBudgetForTests } from "../budget.js";
+import { withTraceContext } from "../../traces/context.js";
 
 const modelCatalogue: ProviderModelCatalogue = {
   providerId: "chatgpt-oauth", mode: "discovered", source: "fixture",
@@ -333,6 +334,67 @@ describe("production ChatGPT runtime lifecycle", () => {
     expect(order).toEqual(["auth", "kill", "logout"]);
     expect([...values.values()]).toEqual(["", ""]);
     await runtime.shutdown();
+  });
+
+  it("moves a ready runtime to signed out before later provider work and never falls back", async () => {
+    let ready = true;
+    const pair = {
+      accessToken: "access-secret",
+      refreshToken: "refresh-secret",
+      accountId: "account-secret",
+      expiresAtMs: 2_000_000_000_000,
+    };
+    const session = {
+      authState: () => ({ status: ready ? "ready" as const : "signed_out" as const, error: null }),
+      current: () => {
+        if (!ready) throw new Error("signed out");
+        return { ...pair };
+      },
+      accessToken: vi.fn(async () => pair.accessToken),
+      refresh: vi.fn(async () => ({ ...pair })),
+      install: vi.fn(async () => undefined),
+      logout: vi.fn(async () => { ready = false; }),
+      close: vi.fn(() => undefined),
+    } as unknown as ChatGptTokenSession;
+    const fetchSpy = vi.fn(async () => { throw new Error("offline metadata unavailable"); });
+    const register = vi.fn();
+    const runtime = await initializeProductionChatGptRuntime({
+      appVersion: "13.12.2",
+      enabled: () => true,
+      activeProvider: () => "claude-local",
+      register,
+      session,
+      authManager: fakeAuth(),
+      catalogue: () => modelCatalogue,
+      fetch: fetchSpy as unknown as typeof fetch,
+    });
+    try {
+      expect((await statusRoute()).body).toMatchObject({ auth_state: "ready", signed_in: true });
+      expect((await route("POST", "/api/providers/chatgpt-oauth/logout", {}))).toMatchObject({
+        status: 200,
+        body: { signed_out: true },
+      });
+      expect(session.logout).toHaveBeenCalledOnce();
+      expect((await statusRoute()).body).toMatchObject({ auth_state: "signed_out", signed_in: false });
+
+      const fetchesAfterLogout = fetchSpy.mock.calls.length;
+      await expect(withTraceContext(
+        { pass: "chat", caller: "runtime.logout.test" },
+        () => runtime.provider.send({
+          runId: "after-logout",
+          model: "gpt-fixture",
+          instructions: "",
+          input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] }],
+          maxOutputTokens: 1,
+          maxAgentTurns: 1,
+          onEvent: () => undefined,
+        }),
+      )).resolves.toMatchObject({ status: "error", errorCode: "AUTH_REQUIRED" });
+      expect(fetchSpy).toHaveBeenCalledTimes(fetchesAfterLogout);
+      expect(register).toHaveBeenCalledOnce();
+    } finally {
+      await runtime.shutdown();
+    }
   });
 
   it("single-flights post-login discovery and invalidates it on account change", async () => {

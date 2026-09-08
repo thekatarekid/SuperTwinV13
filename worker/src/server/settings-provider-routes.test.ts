@@ -218,6 +218,79 @@ describe("P3-B provider-aware settings routes", () => {
 });
 
 describe("P3-B browser-PKCE auth routes", () => {
+  it.each([
+    ["ready", true],
+    ["degraded", true],
+    ["signed_out", false],
+    ["expired", false],
+    ["unavailable", false],
+  ] as const)("projects the %s auth state without account or error detail", async (state, signedIn) => {
+    installChatGptOAuthRouteRuntime({
+      status: () => ({
+        authState: { status: state, accountLabel: "private-account", error: "private-error" },
+        plan: "Plus",
+        quota: { state: "unknown", resetAt: null },
+        tokenExpiresAt: null,
+        canary: { status: "unknown", checkedAt: null, error: null },
+      }),
+      start: async () => { throw new Error("not used"); },
+      snapshot: () => ({ loginId: null, status: "idle", expiresAt: null, error: null }),
+      cancel: async () => false,
+      logout: async () => undefined,
+    });
+    const response = await call("GET", "/api/providers/chatgpt-oauth/status");
+    expect(response).toMatchObject({ status: 200, body: { auth_state: state, signed_in: signedIn } });
+    expect(JSON.stringify(response.body)).not.toMatch(/private-account|private-error/);
+  });
+  it("rejects hostile simple-request OAuth mutations and withholds CORS on preflight", async () => {
+    let logoutCalls = 0;
+    installChatGptOAuthRouteRuntime({
+      status: () => ({ authState: { status: "ready", error: null }, plan: null,
+        quota: { state: "unknown", resetAt: null }, tokenExpiresAt: null,
+        canary: { status: "unknown", checkedAt: null, error: null } }),
+      start: async () => ({ loginId: "csrf", authUrl: "https://auth.openai.com/oauth/authorize", expiresAt: 1 }),
+      snapshot: () => ({ loginId: null, status: "idle", expiresAt: null, error: null }),
+      cancel: async () => false,
+      logout: async () => { logoutCalls += 1; },
+    });
+    const { startServer } = await import("./index.js");
+    const server = await startServer({ port: 0 });
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const hostile = await fetch(`${base}/api/providers/chatgpt-oauth/logout`, {
+        method: "POST",
+        headers: { Origin: "https://attacker.example", "Content-Type": "text/plain" },
+        body: "{}",
+      });
+      expect(hostile.status).toBe(400);
+      expect(logoutCalls).toBe(0);
+      expect(hostile.headers.get("access-control-allow-origin")).toBeNull();
+
+      const arbitraryLocal = await fetch(`${base}/api/providers/chatgpt-oauth/logout`, {
+        method: "POST", headers: { Origin: "http://localhost:9999", "Content-Type": "text/plain" }, body: "{}",
+      });
+      expect(arbitraryLocal.status).toBe(400);
+      expect(logoutCalls).toBe(0);
+
+      const preflight = await fetch(`${base}/api/providers/chatgpt-oauth/logout`, {
+        method: "OPTIONS",
+        headers: { Origin: "https://attacker.example", "Access-Control-Request-Method": "POST" },
+      });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("access-control-allow-origin")).toBeNull();
+
+      const trusted = await fetch(`${base}/api/providers/chatgpt-oauth/logout`, {
+        method: "POST",
+        headers: { Origin: "tauri://localhost", "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(trusted.status).toBe(200);
+      expect(logoutCalls).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("mounts the provider status route through the real worker dispatcher", async () => {
     installChatGptOAuthRouteRuntime({
       status: () => ({ authState: { status: "signed_out", error: null }, plan: null,

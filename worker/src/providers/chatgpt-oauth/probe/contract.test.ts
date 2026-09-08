@@ -113,7 +113,7 @@ describe("ephemeral account and SSE evidence", () => {
   it("bounds mismatch diagnostics and excludes raw SSE content and identifiers", () => {
     const diagnostic = buildContractCaseMismatchDiagnostic(
       new Response("ignored", { status: 200 }),
-      true,
+      "text/event-stream",
       {
         eventTypes: [
           "response.identifier_shaped_unknown",
@@ -139,6 +139,49 @@ describe("ephemeral account and SSE evidence", () => {
     expect(output).not.toContain("unsafe secret");
     expect(output).not.toContain("identifier_shaped_unknown");
     expect(output).not.toContain("resp-secret");
+  });
+
+  it("classifies bounded non-SSE bodies and re-sanitizes hostile builder input", () => {
+    const response = new Response("ignored", {
+      status: 400,
+      headers: { "content-type": "application/problem+json; charset=utf-8" },
+    });
+    const secret = "secret-arbitrary-diagnostic-value";
+    const diagnostic = buildContractCaseMismatchDiagnostic(
+      response,
+      response.headers.get("content-type") ?? "",
+      undefined,
+      {
+        text: JSON.stringify({
+          error: {
+            param: `input[0].${secret}`,
+            type: secret,
+            code: secret,
+            message: `The input and max_output_tokens fields conflict. ${secret}`,
+          },
+        }),
+        bytes: 999_999_999,
+      },
+    );
+    expect(diagnostic).toMatchObject({
+      contentTypeCategory: "json",
+      nonSseBodyCategory: "json-error-envelope",
+      nonSseResponseBytes: 128 * 1024,
+      nonSseError: {
+        paramRoot: "input",
+        typeCategory: "<unknown>",
+        codeCategory: "<unknown>",
+        mentionedRequestFields: ["input", "max_output_tokens"],
+      },
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain(secret);
+
+    expect(buildContractCaseMismatchDiagnostic(response, "", undefined, { text: "", bytes: 0 }))
+      .toMatchObject({ contentTypeCategory: "absent", nonSseBodyCategory: "empty" });
+    expect(buildContractCaseMismatchDiagnostic(response, "text/plain", undefined, { text: "not-json", bytes: 8 }))
+      .toMatchObject({ contentTypeCategory: "other", nonSseBodyCategory: "non-json" });
+    expect(buildContractCaseMismatchDiagnostic(response, "application/json", undefined, { text: "{}", bytes: 2 }))
+      .toMatchObject({ contentTypeCategory: "json", nonSseBodyCategory: "json-other" });
   });
 
   it("parses fragmented UTF-8 SSE and captures only event types, response ID, and numeric usage", async () => {

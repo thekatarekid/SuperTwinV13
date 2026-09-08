@@ -10,6 +10,7 @@ import {
 import { runDeviceCodeFlow, type DeviceFlowHooks } from "./device-flow.js";
 import {
   buildContractProbeMatrix,
+  PROBED_ALLOWLIST_FIELDS,
   type ContractProbeCase,
   validateProbeRequestBody,
 } from "./matrix.js";
@@ -76,12 +77,26 @@ export interface ContractCaseEvidence {
   activeSockets?: number;
 }
 
+type DiagnosticErrorTypeCategory =
+  "invalid-request" | "authentication" | "permission" | "rate-limit" | "server" | "<unknown>";
+type DiagnosticErrorCodeCategory =
+  "invalid-value" | "invalid-type" | "unknown-parameter" | "missing-required-parameter" |
+  "unsupported-value" | "context-length" | "rate-limit" | "quota" | "<unknown>";
+
 export interface ContractCaseMismatchDiagnostic {
   status: number;
-  contentTypeCategory: "event-stream" | "other";
+  contentTypeCategory: "event-stream" | "json" | "other" | "absent";
   eventCount: number;
   outputTextBytes: number;
   eventTypes: string[];
+  nonSseBodyCategory?: "empty" | "json-error-envelope" | "json-other" | "non-json";
+  nonSseResponseBytes?: number;
+  nonSseError?: {
+    paramRoot?: string;
+    typeCategory?: DiagnosticErrorTypeCategory;
+    codeCategory?: DiagnosticErrorCodeCategory;
+    mentionedRequestFields?: string[];
+  };
   flags: {
     responseOk: boolean;
     eventStream: boolean;
@@ -143,6 +158,77 @@ const DIAGNOSTIC_EVENT_TYPES = new Set([
   "response.failed",
 ]);
 const MAX_DIAGNOSTIC_EVENT_TYPES = 64;
+const DIAGNOSTIC_ERROR_PARAMS = new Set<string>(PROBED_ALLOWLIST_FIELDS);
+const DIAGNOSTIC_ERROR_TYPE_CATEGORIES = new Map<string, DiagnosticErrorTypeCategory>([
+  ["invalid_request_error", "invalid-request"],
+  ["authentication_error", "authentication"],
+  ["permission_error", "permission"],
+  ["rate_limit_error", "rate-limit"],
+  ["server_error", "server"],
+  ["api_error", "server"],
+]);
+const DIAGNOSTIC_ERROR_CODE_CATEGORIES = new Map<string, DiagnosticErrorCodeCategory>([
+  ["invalid_value", "invalid-value"],
+  ["invalid_type", "invalid-type"],
+  ["unknown_parameter", "unknown-parameter"],
+  ["missing_required_parameter", "missing-required-parameter"],
+  ["unsupported_value", "unsupported-value"],
+  ["context_length_exceeded", "context-length"],
+  ["rate_limit_exceeded", "rate-limit"],
+  ["insufficient_quota", "quota"],
+]);
+
+function projectNonSseDiagnostic(text: string, bytes: number): Pick<
+  ContractCaseMismatchDiagnostic,
+  "nonSseBodyCategory" | "nonSseResponseBytes" | "nonSseError"
+> {
+  const nonSseResponseBytes = boundedDiagnosticCount(bytes, MAX_ERROR_RESPONSE_BYTES);
+  if (text.length === 0) return { nonSseBodyCategory: "empty", nonSseResponseBytes };
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return { nonSseBodyCategory: "non-json", nonSseResponseBytes };
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) ||
+      !Object.prototype.hasOwnProperty.call(payload, "error")) {
+    return { nonSseBodyCategory: "json-other", nonSseResponseBytes };
+  }
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return { nonSseBodyCategory: "json-other", nonSseResponseBytes };
+  }
+  const source = error as Record<string, unknown>;
+  const projection: NonNullable<ContractCaseMismatchDiagnostic["nonSseError"]> = {};
+  if (Object.prototype.hasOwnProperty.call(source, "message") && typeof source.message === "string") {
+    const messageTokens = new Set(source.message.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
+    const mentionedRequestFields = [...DIAGNOSTIC_ERROR_PARAMS]
+      .filter((field) => messageTokens.has(field))
+      .sort();
+    if (mentionedRequestFields.length) projection.mentionedRequestFields = mentionedRequestFields;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "param") && source.param !== null) {
+    const root = typeof source.param === "string"
+      ? /^([A-Za-z_][A-Za-z0-9_]*)(?:$|[.[])/.exec(source.param)?.[1]
+      : undefined;
+    projection.paramRoot = root && DIAGNOSTIC_ERROR_PARAMS.has(root) ? root : "<unknown>";
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "type") && source.type !== null) {
+    projection.typeCategory = typeof source.type === "string"
+      ? DIAGNOSTIC_ERROR_TYPE_CATEGORIES.get(source.type) ?? "<unknown>"
+      : "<unknown>";
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "code") && source.code !== null) {
+    projection.codeCategory = typeof source.code === "string"
+      ? DIAGNOSTIC_ERROR_CODE_CATEGORIES.get(source.code) ?? "<unknown>"
+      : "<unknown>";
+  }
+  return {
+    nonSseBodyCategory: "json-error-envelope",
+    nonSseResponseBytes,
+    ...(Object.keys(projection).length ? { nonSseError: projection } : {}),
+  };
+}
 
 function boundedDiagnosticCount(value: unknown, maximum: number): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -152,18 +238,27 @@ function boundedDiagnosticCount(value: unknown, maximum: number): number {
 
 export function buildContractCaseMismatchDiagnostic(
   response: Pick<Response, "status" | "ok" | "body">,
-  eventStream: boolean,
+  contentType: string,
   stream?: SseProbeEvidence,
+  rawNonSse?: { text: string; bytes: number },
 ): ContractCaseMismatchDiagnostic {
   const eventTypes = stream?.eventTypes ?? [];
+  const normalizedContentType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  const contentTypeCategory = normalizedContentType === "text/event-stream"
+    ? "event-stream"
+    : normalizedContentType === "application/json" || normalizedContentType.endsWith("+json")
+      ? "json"
+      : normalizedContentType.length === 0 ? "absent" : "other";
+  const eventStream = contentTypeCategory === "event-stream";
   return {
     status: response.status,
-    contentTypeCategory: eventStream ? "event-stream" : "other",
+    contentTypeCategory,
     eventCount: boundedDiagnosticCount(stream?.eventCount, 10_000),
     outputTextBytes: boundedDiagnosticCount(stream?.outputTextBytes, 2 * 1024 * 1024),
     eventTypes: eventTypes.slice(0, MAX_DIAGNOSTIC_EVENT_TYPES).map(
       (type) => DIAGNOSTIC_EVENT_TYPES.has(type) ? type : "<unknown>",
     ),
+    ...(rawNonSse ? projectNonSseDiagnostic(rawNonSse.text, rawNonSse.bytes) : {}),
     flags: {
       responseOk: response.ok,
       eventStream,
@@ -374,6 +469,7 @@ export async function executeContractProbeCase(
     const contentType = response.headers.get("content-type") ?? "";
     let stream: SseProbeEvidence | undefined;
     let responseBytes: number | undefined;
+    let rawNonSse: { text: string; bytes: number } | undefined;
     if (contentType.includes("text/event-stream") && response.body) {
       stream = await consumeBoundedSse(response, {
         stopAfterFirstSubstantiveDelta: probe.expectation === "cancelled",
@@ -393,6 +489,7 @@ export async function executeContractProbeCase(
         for (const active of controllers) active.abort();
         throw new ContractRestrictionError(`Contract probe stopped on account restriction (HTTP ${response.status})`);
       }
+      rawNonSse = bounded;
     }
 
     const measuredEnd = hooks.measureNow?.() ?? performance.now();
@@ -416,8 +513,9 @@ export async function executeContractProbeCase(
     if (!evidence.matchedExpectation) {
       const diagnostic = buildContractCaseMismatchDiagnostic(
         response,
-        contentType.includes("text/event-stream"),
+        contentType,
         stream,
+        rawNonSse,
       );
       throw new Error(
         `Contract case ${probe.name} did not match its declared expectation; ` +

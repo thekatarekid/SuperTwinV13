@@ -53,7 +53,7 @@ function sseResponse(substantive = true): Response {
   });
 }
 
-function canaryFetch(accountId: string, substantive = true): {
+function canaryFetch(accountId: string, substantive = true, inferenceResponse?: () => Response): {
   fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
   inferenceBodies: string[];
 } {
@@ -81,7 +81,7 @@ function canaryFetch(accountId: string, substantive = true): {
     });
     if (url === CODEX_RESPONSES_URL) {
       inferenceBodies.push(String(init?.body));
-      return sseResponse(substantive);
+      return inferenceResponse?.() ?? sseResponse(substantive);
     }
     throw new Error(`Unexpected mocked URL: ${url}`);
   });
@@ -181,6 +181,84 @@ describe("Phase 0b canary-only runner", () => {
       },
       logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
     }));
+  });
+
+  it("projects only allowlisted non-SSE error categories and suppresses hostile strings", async () => {
+    const accountId = "acct-canary-json-error";
+    const secret = "secret-message-request-id-must-not-appear";
+    const run = async (error: Record<string, unknown>): Promise<string> => {
+      const { fetchMock } = canaryFetch(accountId, true, () => jsonResponse(400, {
+        error,
+        request_id: secret,
+        detail: { identifier: secret },
+      }));
+      try {
+        await runCanaryProbe({
+          fetch: fetchMock,
+          sleep: vi.fn(async () => undefined),
+          now: vi.fn(() => 0),
+          onUserCode: vi.fn(),
+          env: env(accountId),
+        });
+      } catch (failure) {
+        return failure instanceof Error ? failure.message : String(failure);
+      }
+      throw new Error("Expected mocked non-SSE canary to fail");
+    };
+
+    const known = await run({
+      message: secret,
+      param: "input",
+      type: "invalid_request_error",
+      code: "unsupported_value",
+      detail: { identifier: secret },
+    });
+    expect(known).toContain('"contentTypeCategory":"json"');
+    expect(known).toContain('"nonSseBodyCategory":"json-error-envelope"');
+    expect(known).toMatch(/"nonSseResponseBytes":\d+/);
+    expect(known).toContain(
+      '"nonSseError":{"paramRoot":"input","typeCategory":"invalid-request","codeCategory":"unsupported-value"}',
+    );
+    expect(known).not.toContain(secret);
+    expect(known).not.toContain("message");
+    expect(known).not.toContain("detail");
+
+    const mentioned = await run({
+      message: `Fields instructions and max_output_tokens are incompatible; ${secret}`,
+      param: null,
+      type: "invalid_request_error",
+      code: "unsupported_value",
+    });
+    expect(mentioned).toContain(
+      '"mentionedRequestFields":["instructions","max_output_tokens"]',
+    );
+    expect(mentioned).not.toContain(secret);
+    expect(mentioned).not.toContain("incompatible");
+
+    const unknownParam = "identifier_shaped_but_untrusted_param";
+    const unknownType = "identifier_shaped_but_untrusted_type";
+    const unknownCode = "identifier_shaped_but_untrusted_code";
+    const unknown = await run({
+      message: secret,
+      param: unknownParam,
+      type: unknownType,
+      code: unknownCode,
+    });
+    expect(unknown).toContain(
+      '"nonSseError":{"paramRoot":"<unknown>","typeCategory":"<unknown>","codeCategory":"<unknown>"}',
+    );
+    for (const unsafe of [secret, unknownParam, unknownType, unknownCode]) {
+      expect(unknown).not.toContain(unsafe);
+    }
+
+    const nestedParam = await run({
+      message: secret,
+      param: "input[0].type",
+      type: "invalid_request_error",
+      code: "invalid_value",
+    });
+    expect(nestedParam).toContain('"paramRoot":"input"');
+    expect(nestedParam).not.toContain("[0].type");
   });
 
   it("hard-refuses a second inference request", async () => {

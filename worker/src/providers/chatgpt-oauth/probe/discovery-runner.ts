@@ -5,12 +5,21 @@ import {
 } from "./accounting.js";
 import { CODEX_MODELS_URL, CODEX_USAGE_URL } from "./constants.js";
 import { runDeviceCodeFlow, type DeviceFlowHooks } from "./device-flow.js";
-import { parseProbeModelCatalogue, type ProbeModelCapabilities } from "./models.js";
+import {
+  parseProbeModelCatalogue,
+  requestedProbeModelId,
+  selectRequestedProbeModel,
+  type ProbeModelCapabilities,
+} from "./models.js";
 import { parseProbeQuota, type ProbeQuotaWindow } from "./quota.js";
 import { EphemeralProbeTokenSession, type SafeSessionEvidence } from "./refresh.js";
 import { buildBackendHeaders } from "./requests.js";
 import { hasModelCatalogueRestrictionSignal } from "./restriction.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
+import {
+  buildPhase0bAuthorizationPlan,
+  type Phase0bAuthorizationPlan,
+} from "./authorization-plan.js";
 import {
   assertLiveDiscoveryProbeAccount,
   assertLiveDiscoveryProbePreflight,
@@ -19,6 +28,7 @@ import {
 const MAX_DISCOVERY_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 export interface DiscoveryProbeHooks extends DeviceFlowHooks {
+  emitAuthorizationPlan?: true;
   onFinalized?(evidence: {
     httpActuals: ProbeHttpCounts;
     logout: SafeSessionEvidence;
@@ -37,6 +47,10 @@ export interface DiscoveryProbeEvidence {
     status: number;
     responseBytes: number;
     visible: Array<{ id: string; capabilities: ProbeModelCapabilities }>;
+  };
+  planFingerprint?: Phase0bAuthorizationPlan & {
+    accountFingerprint: string;
+    modelId: string;
   };
   quota: {
     status: number;
@@ -112,6 +126,7 @@ export async function runDiscoveryProbe(
 ): Promise<DiscoveryProbeEvidence> {
   const env = { ...(hooks.env ?? process.env) };
   assertLiveDiscoveryProbePreflight(env);
+  const requestedPlanModel = hooks.emitAuthorizationPlan ? requestedProbeModelId(env) : undefined;
   return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = listeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_DISCOVERY_HTTP_LIMITS);
@@ -139,6 +154,9 @@ export async function runDiscoveryProbe(
     if (!catalogue.models.length) {
       throw new Error("Phase 0b discovery model catalogue contains no safe visible model IDs");
     }
+    const selectedPlanModel = requestedPlanModel === undefined
+      ? undefined
+      : selectRequestedProbeModel(catalogue, requestedPlanModel, env);
     const quotaResponse = await fetchMetadata(CODEX_USAGE_URL, headers, probeHooks);
     const quota = parseProbeQuota(quotaResponse.value);
     if (!quota.healthy) throw new Error("Phase 0b discovery found a quota or account restriction");
@@ -165,6 +183,13 @@ export async function runDiscoveryProbe(
         responseBytes: modelResponse.bytes,
         visible: catalogue.models.map(({ id, capabilities }) => ({ id, capabilities })),
       },
+      ...(selectedPlanModel ? {
+        planFingerprint: {
+          accountFingerprint: account.fingerprint,
+          modelId: selectedPlanModel.id,
+          ...buildPhase0bAuthorizationPlan(catalogue, selectedPlanModel.id, env),
+        },
+      } : {}),
       quota: {
         status: quotaResponse.status,
         responseBytes: quotaResponse.bytes,

@@ -349,6 +349,79 @@ describe("Phase 0b offline safety", () => {
     expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
   });
 
+  it("requires an exact discovery-only plan modifier and forwards it without fetching in the CLI layer", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const discoveryRunner = vi.fn<typeof runDiscoveryProbe>(async (hooks) => {
+      expect(hooks.emitAuthorizationPlan).toBe(true);
+      expect(hooks.env?.[REQUESTED_PROBE_MODEL_ENV]).toBe("gpt-safe");
+      return {
+        mode: "discovery",
+        evidenceCompleteness: "partial-metadata-only",
+        scratchHomeProof: "no-residual-artifacts",
+        persistedCredentials: false,
+        inferenceCalls: 0,
+        accountFingerprint: "7d41db9e5a28",
+        models: { status: 200, responseBytes: 1, visible: [] },
+        planFingerprint: {
+          accountFingerprint: "7d41db9e5a28",
+          modelId: "gpt-safe",
+          matrixVersion: "phase0b-contract-matrix-v1",
+          matrixHash: "b".repeat(64),
+          caseCount: 70,
+          inferencePostCount: 55,
+          inferenceRetries: 0,
+        },
+        quota: {
+          status: 200,
+          responseBytes: 1,
+          planType: "plus",
+          primary: { usedPercent: 1, resetAt: 1 },
+          healthy: true,
+          restrictionSignal: false,
+        },
+        httpActuals: {
+          deviceCode: 0, devicePoll: 0, token: 0, models: 0,
+          quota: 0, inference: 0, other: 0, total: 0,
+        },
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        localListeningSocketsCreated: false,
+      };
+    });
+    const env = {
+      ...cliDiscoveryEnv(),
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-safe",
+    };
+
+    for (const args of [
+      ["--emit-authorization-plan"],
+      ["--live-auth", "--emit-authorization-plan"],
+      ["--live-auth", "--live-canary", "--emit-authorization-plan"],
+      ["--live-auth", "--live-discover", "--emit-authorization-plan", "--unknown"],
+      ["--live-auth", "--live-discover", "--emit-authorization-plan", "--emit-authorization-plan"],
+    ]) {
+      await expect(runProbeCli(args, env, { runDiscoveryProbe: discoveryRunner })).rejects.toThrow(
+        /requires exactly the live discovery mode/,
+      );
+    }
+    expect(discoveryRunner).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await expect(runProbeCli(
+      ["--live-auth", "--live-discover", "--emit-authorization-plan"],
+      env,
+      { runDiscoveryProbe: discoveryRunner },
+    )).resolves.toBe(0);
+    expect(discoveryRunner).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(output).toContain('"planFingerprint"');
+    expect(output).toContain("b".repeat(64));
+    expect(output).not.toContain('"authorizationPlan"');
+    expect(stderrSpy).toHaveBeenCalled();
+  });
+
   it("prints finalized discovery failure actuals exactly once with no stdout", async () => {
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);

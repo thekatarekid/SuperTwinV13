@@ -24,12 +24,15 @@ import {
   formatLiveDeclaration,
 } from "./safety.js";
 import { prepareLiveInferenceAuthorization } from "./live-authorization.js";
+import { initializeInferenceAuthorizationFromEnvironment } from "./authorization-ledger-init.js";
+import { requestedProbeModelId } from "./models.js";
 
 export interface ProbeCliDependencies {
   runAuthFlow?: typeof runDeviceCodeFlow;
   runCanaryProbe?: typeof runCanaryProbe;
   runContractProbe?: typeof runContractProbeScaffold;
   runDiscoveryProbe?: typeof runDiscoveryProbe;
+  initializeAuthorizationLedger?: typeof initializeInferenceAuthorizationFromEnvironment;
 }
 
 const ZERO_HTTP_COUNTS: Readonly<ProbeHttpCounts> = Object.freeze({
@@ -53,6 +56,26 @@ export async function runProbeCli(
   const liveContract = args.includes("--live-contract");
   const liveDiscover = args.includes("--live-discover");
   const liveCanary = args.includes("--live-canary");
+  const initializeAuthorizationLedger = args.includes("--initialize-authorization-ledger");
+  if (initializeAuthorizationLedger) {
+    if (args.length !== 1 || args[0] !== "--initialize-authorization-ledger") {
+      throw new Error("REFUSED: --initialize-authorization-ledger must be the only CLI argument");
+    }
+    const evidence = await (
+      dependencies.initializeAuthorizationLedger ?? initializeInferenceAuthorizationFromEnvironment
+    )(env);
+    process.stdout.write(`${redactedJson(evidence)}\n`);
+    return 0;
+  }
+  const emitAuthorizationPlan = args.includes("--emit-authorization-plan");
+  if (emitAuthorizationPlan && (
+    args.length !== 3 || new Set(args).size !== 3 ||
+    !liveAuth || !liveDiscover || liveCanary || liveContract
+  )) {
+    throw new Error(
+      "REFUSED: --emit-authorization-plan requires exactly the live discovery mode",
+    );
+  }
   if (!liveAuth && !liveContract && !liveDiscover && !liveCanary) {
     process.stdout.write(`${redactedJson(dryRunSnapshot(env))}\n`);
     return 0;
@@ -76,7 +99,10 @@ export async function runProbeCli(
   if (liveDiscover && !liveAuth) {
     throw new Error("REFUSED: --live-discover additionally requires --live-auth");
   }
-  if (liveDiscover) return runLiveDiscoveryProbe(env, dependencies);
+  if (liveDiscover) {
+    if (emitAuthorizationPlan) requestedProbeModelId(env);
+    return runLiveDiscoveryProbe(env, dependencies, emitAuthorizationPlan);
+  }
   const accounting = new ProbeHttpAccounting(LIVE_AUTH_HTTP_LIMITS);
   const abortController = new AbortController();
   let session: EphemeralProbeTokenSession | undefined;
@@ -173,6 +199,7 @@ async function runLiveCanaryProbe(
 async function runLiveDiscoveryProbe(
   env: NodeJS.ProcessEnv,
   dependencies: ProbeCliDependencies,
+  emitAuthorizationPlan: boolean,
 ): Promise<number> {
   const abortController = new AbortController();
   let httpActuals: ProbeHttpCounts = { ...ZERO_HTTP_COUNTS };
@@ -187,6 +214,7 @@ async function runLiveDiscoveryProbe(
       sleep: (milliseconds: number, signal?: AbortSignal) => sleep(milliseconds, undefined, { signal }),
       now: Date.now,
       env,
+      ...(emitAuthorizationPlan ? { emitAuthorizationPlan: true as const } : {}),
       signal: abortController.signal,
       onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
         process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);

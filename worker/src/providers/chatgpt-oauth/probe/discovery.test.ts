@@ -8,11 +8,15 @@ import { LIVE_DISCOVERY_HTTP_LIMITS } from "./accounting.js";
 import {
   CODEX_DEVICE_CODE_URL,
   CODEX_DEVICE_TOKEN_URL,
+  FULL_PROBE_CASE_BUDGET,
   CODEX_MODELS_URL,
   CODEX_OAUTH_TOKEN_URL,
   CODEX_USAGE_URL,
 } from "./constants.js";
+import { buildPhase0bAuthorizationPlan } from "./authorization-plan.js";
 import { runDiscoveryProbe } from "./discovery-runner.js";
+import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
+import { redactedJson } from "./redact.js";
 import { LIVE_DISCOVERY_PROBE_ENV } from "./safety.js";
 
 afterEach(() => vi.restoreAllMocks());
@@ -224,6 +228,92 @@ describe("Phase 0b metadata-only discovery runner", () => {
     });
     expect(existsSync(scratchHome)).toBe(false);
     expect(process.listeners("SIGINT")).toEqual(listenersBefore);
+  });
+
+  it("emits one selected-model plan fingerprint without inference or sensitive content", async () => {
+    const accountId = "acct-plan-projection-secret";
+    const fetchMock = mockedDiscoveryFetch(accountId);
+    const env = {
+      ...discoveryEnv(accountId),
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-safe",
+    };
+    const evidence = await runDiscoveryProbe({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      emitAuthorizationPlan: true,
+      env,
+    });
+
+    const exactPlan = buildPhase0bAuthorizationPlan({
+      models: [{
+        id: "gpt-safe",
+        capabilities: {
+          inputModalities: ["text", "image"],
+          reasoningEfforts: ["low", "high"],
+          maxOutputTokens: 8192,
+          tools: true,
+        },
+      }],
+    }, "gpt-safe", env);
+
+    expect(evidence.planFingerprint).toEqual({
+      accountFingerprint: accountFingerprint(accountId),
+      modelId: "gpt-safe",
+      ...exactPlan,
+    });
+    expect(evidence.planFingerprint?.caseCount).toBe(FULL_PROBE_CASE_BUDGET);
+    expect(evidence.planFingerprint?.matrixHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(evidence.httpActuals.inference).toBe(0);
+    expect(evidence.httpActuals.other).toBe(0);
+    expect(fetchMock.mock.calls.every(([input]) => String(input) !== "https://chatgpt.com/backend-api/codex/responses"))
+      .toBe(true);
+
+    const rendered = redactedJson(evidence);
+    expect(rendered).toContain(evidence.planFingerprint!.matrixHash);
+    expect(rendered).toContain('"planFingerprint"');
+    for (const sensitive of [
+      accountId,
+      "device-secret",
+      "authorization-secret",
+      "verifier-secret",
+      "refresh-secret",
+      "previous_response_id",
+      "resp_probe_previous",
+      "Acknowledge receipt",
+    ]) {
+      expect(rendered).not.toContain(sensitive);
+    }
+  });
+
+  it("validates plan-model selection before OAuth and refuses an unavailable model without inference", async () => {
+    const accountId = "acct-plan-validation";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(runDiscoveryProbe({
+      fetch,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      emitAuthorizationPlan: true,
+      env: discoveryEnv(accountId),
+    })).rejects.toThrow(new RegExp(REQUESTED_PROBE_MODEL_ENV));
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const unavailableFetch = mockedDiscoveryFetch(accountId);
+    await expect(runDiscoveryProbe({
+      fetch: unavailableFetch,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      emitAuthorizationPlan: true,
+      env: {
+        ...discoveryEnv(accountId),
+        [REQUESTED_PROBE_MODEL_ENV]: "gpt-unavailable",
+      },
+    })).rejects.toThrow(/unavailable or hidden/);
+    expect(unavailableFetch.mock.calls.some(([input]) => String(input) === CODEX_USAGE_URL)).toBe(false);
+    expect(unavailableFetch.mock.calls.some(([input]) => String(input).includes("/responses"))).toBe(false);
   });
 
   it("rejects an authenticated account mismatch before all metadata calls and logs out", async () => {

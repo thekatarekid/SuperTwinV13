@@ -51,6 +51,7 @@ import {
   cancelChatGptLogin,
   logoutChatGpt,
   runGoldenSet,
+  retrySettingsIntelligence,
   saveIntelligenceProvider,
   saveIntelligenceStep,
   startChatGptLogin,
@@ -263,11 +264,17 @@ export function IntelligencePanel(): JSX.Element {
     const isLatest = () => isCurrentAuth(generation) && mutationTicket.current === ticket;
     setProviderBusy(true);
     try {
-      await refreshAuthIntelligence(generation, ticket);
+      const next = await retrySettingsIntelligence();
+      if (isLatest()) {
+        setS(next);
+        setProviderError(null);
+      }
+    } catch (err) {
+      if (isLatest()) setProviderError(describeWorkerError(err));
     } finally {
       if (isLatest()) setProviderBusy(false);
     }
-  }, [isCurrentAuth, refreshAuthIntelligence]);
+  }, [isCurrentAuth, setS]);
 
   const saveProviderStep = useCallback(async (patch: {
     step: string;

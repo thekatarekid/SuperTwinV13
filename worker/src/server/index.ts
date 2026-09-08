@@ -31,8 +31,8 @@ import { DEFAULT_WORKER_PORT } from "../home.js";
 import { moduleDir } from "../module-path.js";
 import { bootDegradations } from "../boot-guard.js";
 import { BUILT_THROUGH_PHASE } from "../version.js";
-import { rescanMedia, type RescanType } from "../db/ingest.js";
-import { listV2 as listProvidersV2 } from "../providers/index.js";
+import { appStateGet, rescanMedia, type RescanType } from "../db/ingest.js";
+import { getV2 as getProviderV2, listV2 as listProvidersV2 } from "../providers/index.js";
 import type {
   NeutralProviderResult,
   ProviderErrorCode,
@@ -55,6 +55,9 @@ import {
 } from "../providers/claude-local/models.js";
 import {
   getDebugExportEnabled,
+  getActiveProvider,
+  getProviderModelSelection,
+  setProviderModelSelection,
   setSelectedModel,
   getAllSelectedModels,
   getProcessEnabled,
@@ -372,9 +375,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
+async function readBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    size += chunk.byteLength;
+    if (size > maxBytes) return undefined;
+    chunks.push(chunk);
+  }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   if (!raw) return {};
   try {
@@ -518,8 +527,56 @@ async function handle(
   // --- GET /api/settings/models -> per-role selections + catalog + role list
   // + per-role on/off (enabledByRole). V8 serves exactly one role — chat.
   if (method === "GET" && path === "/api/settings/models") {
+    if ([...url.searchParams.keys()].length > 0) {
+      sendJson(res, 400, { error: { code: "BAD_REQUEST", message: "invalid query" } });
+      return;
+    }
     const enabledByRole: Record<string, boolean> = {};
     for (const r of MODEL_ROLES) enabledByRole[r.key] = getProcessEnabled(r.key);
+    const activeProvider = getActiveProvider();
+    if (activeProvider === "chatgpt-oauth") {
+      let catalogue;
+      try {
+        catalogue = appStateGet("ai.chatgpt.enabled") === "1"
+          ? getProviderV2(activeProvider)?.catalogue()
+          : undefined;
+      } catch {
+        catalogue = undefined;
+      }
+      const defaultModel = catalogue?.models.find((model) => model.isDefault && !model.hidden)?.id ?? "";
+      const selections = Object.fromEntries(MODEL_ROLES.map((role) => [
+        role.key,
+        getProviderModelSelection(activeProvider, role.key) ?? defaultModel,
+      ]));
+      sendJson(res, 200, {
+        models: (catalogue?.models ?? []).filter((model) => !model.hidden).map((model) => ({
+          id: model.id,
+          label: model.displayName,
+          family: "chatgpt",
+          alias: false,
+          resolves_to: null,
+          input_per_mtok: null,
+          output_per_mtok: null,
+          thinking_levels: model.reasoningValues,
+          default_thinking: model.defaultReasoning,
+          effort: model.reasoningValues.length > 0,
+          context_window: model.contextWindow,
+        })),
+        roles: MODEL_ROLES,
+        selections,
+        enabledByRole,
+        catalogue: catalogue ?? {
+          providerId: activeProvider,
+          mode: "fallback",
+          source: "ChatGPT provider registration",
+          discoveredAt: new Date().toISOString(),
+          revision: "unavailable",
+          error: "PROVIDER_UNAVAILABLE",
+          models: [],
+        },
+      });
+      return;
+    }
     sendJson(res, 200, {
       models: MODEL_CATALOG,
       roles: MODEL_ROLES,
@@ -532,7 +589,11 @@ async function handle(
   // --- POST /api/settings/models/enabled { role, enabled } -> per-process on/off.
   // Validates the role (isValidRole) and flips its toggle.
   if (method === "POST" && path === "/api/settings/models/enabled") {
-    const body = (await readBody(req)) as
+    if ([...url.searchParams.keys()].length > 0) {
+      sendJson(res, 400, { error: { code: "BAD_REQUEST", message: "invalid query" } });
+      return;
+    }
+    const body = (await readBody(req, 16 * 1024)) as
       | { role?: unknown; enabled?: unknown }
       | undefined;
     const role = typeof body?.role === "string" ? body.role : "";
@@ -551,13 +612,40 @@ async function handle(
 
   // --- POST /api/settings/models { role, model } -> persist one role's choice.
   if (method === "POST" && path === "/api/settings/models") {
-    const body = (await readBody(req)) as
+    if ([...url.searchParams.keys()].length > 0) {
+      sendJson(res, 400, { error: { code: "BAD_REQUEST", message: "invalid query" } });
+      return;
+    }
+    const body = (await readBody(req, 16 * 1024)) as
       | { role?: unknown; model?: unknown }
       | undefined;
+    if (!body || Array.isArray(body) ||
+        Object.keys(body).some((key) => key !== "role" && key !== "model")) {
+      sendJson(res, 400, { error: "invalid body" });
+      return;
+    }
     const role = typeof body?.role === "string" ? body.role : "";
     const model = typeof body?.model === "string" ? body.model : "";
     if (!isValidRole(role)) {
       sendJson(res, 400, { error: "invalid role" });
+      return;
+    }
+    const activeProvider = getActiveProvider();
+    if (activeProvider === "chatgpt-oauth") {
+      let available = false;
+      try {
+        available = appStateGet("ai.chatgpt.enabled") === "1" &&
+          (getProviderV2(activeProvider)?.catalogue().models
+          .some((candidate) => candidate.id === model && !candidate.hidden) ?? false);
+      } catch {
+        available = false;
+      }
+      if (!available) {
+        sendJson(res, 400, { error: "invalid model" });
+        return;
+      }
+      setProviderModelSelection(activeProvider, role, model);
+      sendJson(res, 200, { role, selected: model });
       return;
     }
     if (!isValidModelId(model)) {
@@ -925,6 +1013,9 @@ async function handle(
     path.startsWith("/api/settings/sources") ||
     path.startsWith("/api/settings/graduation") ||
     path.startsWith("/api/settings/intelligence") ||
+    path === "/api/settings/provider" ||
+    path === "/api/settings/models" ||
+    path.startsWith("/api/providers/chatgpt-oauth/") ||
     path.startsWith("/api/settings/assist") ||
     path.startsWith("/api/settings/retrieval") ||
     path.startsWith("/api/settings/connector") ||

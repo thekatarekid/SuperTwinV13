@@ -1596,6 +1596,10 @@ export interface GoldenState {
 export const fetchSettingsIntelligence = (): Promise<IntelligenceSettings> =>
   request("/api/settings/intelligence");
 
+/** Explicitly retry account-visible model discovery, then return one snapshot. */
+export const retrySettingsIntelligence = (): Promise<IntelligenceSettings> =>
+  request("/api/settings/intelligence?refresh=models");
+
 export const saveIntelligenceProvider = (
   provider: IntelligenceProviderId,
 ): Promise<IntelligenceSettings> => request("/api/settings/provider", post({ provider }));

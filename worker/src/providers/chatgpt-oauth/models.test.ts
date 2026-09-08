@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHATGPT_ACCOUNT_MODELS_URL,
   chatGptProviderCatalogue,
+  discoverChatGptAccountModels,
   normalizeChatGptModelCatalogue,
 } from "./models.js";
 import {
@@ -21,6 +23,66 @@ function memoryStore(): ProviderCatalogueStore & { values: Map<string, string> }
 }
 
 describe("ChatGPT account model catalogue", () => {
+  it("fetches the fixed account endpoint once with one coherent auth snapshot", async () => {
+    const authorization = vi.fn(async () => ({ accessToken: "access-secret", accountId: "account-safe" }));
+    const fetchSpy = vi.fn(async (
+      _input: Parameters<typeof fetch>[0],
+      _init?: Parameters<typeof fetch>[1],
+    ) => new Response(JSON.stringify({
+      default_model: "gpt-safe",
+      models: [{ slug: "gpt-safe", input_modalities: ["text"] }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const payload = await discoverChatGptAccountModels({
+      session: { authorization }, fetch: fetchSpy as unknown as typeof fetch,
+      userAgent: "SuperTwinV13/13.12.2",
+    });
+    expect(payload).toMatchObject({ default_model: "gpt-safe" });
+    expect(authorization).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe(CHATGPT_ACCOUNT_MODELS_URL);
+    expect(init).toMatchObject({ method: "GET", redirect: "error" });
+    expect(init!.headers).toMatchObject({
+      Authorization: "Bearer access-secret",
+      "ChatGPT-Account-ID": "account-safe",
+      originator: "supertwinv13",
+    });
+  });
+
+  it("bounds discovery and never retries a failed metadata response", async () => {
+    const fetchSpy = vi.fn(async (
+      _input: Parameters<typeof fetch>[0],
+      _init?: Parameters<typeof fetch>[1],
+    ) => new Response("x".repeat(1024 * 1024 + 1), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(discoverChatGptAccountModels({
+      session: { authorization: async () => ({ accessToken: "access", accountId: "account" }) },
+      fetch: fetchSpy as unknown as typeof fetch,
+      userAgent: "SuperTwinV13/13.12.2",
+    })).rejects.toThrow("ChatGPT model discovery failed");
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it("times out stalled authorization before fetch and ignores its late resolution", async () => {
+    let resolveAuthorization!: (value: { accessToken: string; accountId: string }) => void;
+    const authorization = new Promise<{ accessToken: string; accountId: string }>((resolve) => {
+      resolveAuthorization = resolve;
+    });
+    const fetchSpy = vi.fn(async () => new Response("{}", {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    await expect(discoverChatGptAccountModels({
+      session: { authorization: () => authorization },
+      fetch: fetchSpy as unknown as typeof fetch,
+      userAgent: "SuperTwinV13/13.12.2",
+      timeoutMs: 10,
+    })).rejects.toBeDefined();
+    resolveAuthorization({ accessToken: "late", accountId: "late" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("normalizes explicit account-visible capabilities without price data", () => {
     const catalogue = normalizeChatGptModelCatalogue({
       default_model: "gpt-safe",

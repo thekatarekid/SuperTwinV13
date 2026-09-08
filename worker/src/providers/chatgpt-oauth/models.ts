@@ -37,6 +37,105 @@ export interface LoadChatGptCatalogueOptions extends NormalizeChatGptCatalogueOp
   store?: ProviderCatalogueStore;
 }
 
+export const CHATGPT_ACCOUNT_MODELS_URL =
+  "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0";
+export const CHATGPT_MODELS_MAX_RESPONSE_BYTES = 1024 * 1024;
+
+export interface ChatGptModelDiscoveryAuthorization {
+  authorization(signal: AbortSignal): Promise<{ accessToken: string; accountId: string }>;
+}
+
+export interface DiscoverChatGptAccountModelsOptions {
+  session: ChatGptModelDiscoveryAuthorization;
+  fetch: typeof fetch;
+  userAgent: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error("ChatGPT model discovery failed"));
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new Error("ChatGPT model discovery failed"));
+    signal.addEventListener("abort", stop, { once: true });
+    operation.then(
+      (value) => { signal.removeEventListener("abort", stop); resolve(value); },
+      () => { signal.removeEventListener("abort", stop); reject(new Error("ChatGPT model discovery failed")); },
+    );
+  });
+}
+
+/** One bounded authenticated metadata request. No retry and no inference. */
+export async function discoverChatGptAccountModels(
+  options: DiscoverChatGptAccountModelsOptions,
+): Promise<unknown> {
+  if (!/^SuperTwinV13\/[0-9A-Za-z.+-]{1,128}$/.test(options.userAgent)) {
+    throw new Error("ChatGPT model discovery configuration is invalid");
+  }
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 15_000) {
+    throw new Error("ChatGPT model discovery configuration is invalid");
+  }
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const authorization = await abortable(options.session.authorization(signal), signal);
+  let response: Response;
+  try {
+    response = await options.fetch(CHATGPT_ACCOUNT_MODELS_URL, {
+      method: "GET",
+      redirect: "error",
+      signal,
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${authorization.accessToken}`,
+        "ChatGPT-Account-ID": authorization.accountId,
+        "User-Agent": options.userAgent,
+        originator: "supertwinv13",
+      },
+    });
+  } catch {
+    throw new Error("ChatGPT model discovery failed");
+  }
+  if (!response.ok || !response.body) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("ChatGPT model discovery failed");
+  }
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    await response.body.cancel().catch(() => undefined);
+    throw new Error("ChatGPT model discovery failed");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > CHATGPT_MODELS_MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("ChatGPT model discovery failed");
+      }
+      chunks.push(chunk.value);
+    }
+  } catch {
+    throw new Error("ChatGPT model discovery failed");
+  } finally {
+    reader.releaseLock();
+  }
+  let value: unknown;
+  try {
+    const joined = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(joined));
+  } catch {
+    throw new Error("ChatGPT model discovery failed");
+  }
+  // Normalize here as the boundary validation; callers cache only this result.
+  normalizeChatGptModelCatalogue(value);
+  return value;
+}
+
 function record(value: unknown): JsonRecord | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as JsonRecord

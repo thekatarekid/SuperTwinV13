@@ -43,9 +43,24 @@ import { writeDecision } from "../db/decisions.js";
 import { appStateGet, appStateSet, pausedKey } from "../db/ingest.js";
 import { CAPTURE_LIST_KEYS, readCaptureList, setCaptureList } from "../db/capture-filter.js";
 import {
+  getActiveProvider,
+  getProviderModelSelection,
+  getProviderReasoningSelection,
   getNotificationsEnabled,
+  isProviderId,
+  setActiveProvider,
+  setProviderModelSelection,
+  setProviderReasoningSelection,
   setNotificationsEnabled,
 } from "../db/settings.js";
+import { claudeProviderCatalogue, findProviderModel } from "../providers/catalogue.js";
+import { getV2 } from "../providers/registry.js";
+import type { ProviderId, ProviderModelCatalogue } from "../providers/types.js";
+import {
+  chatGptSettingsAuthState,
+  handleChatGptOAuthRoute,
+  retryChatGptCatalogue,
+} from "./chatgpt-oauth-routes.js";
 import {
   assistCooldownMinutes,
   assistQuietHours,
@@ -69,13 +84,11 @@ import { homeRoot } from "../home.js";
 import { dayFilePath } from "../traces/store.js";
 import {
   discoverClaudeModels,
-  type ClaudeModelInfo,
   type ModelCatalog,
 } from "../providers/claude-local/discovery.js";
 import {
   DEFAULT_STEP_THINKING,
   isThinkingLevel,
-  thinkingKeyFor,
 } from "../brain/reasoning.js";
 import {
   awaitGoldenRun,
@@ -207,11 +220,6 @@ export function modelCatalog(): ModelCatalog {
   return live;
 }
 
-/** The catalogue row for an id, or null. Ids are catalogue keys, never free text. */
-function findModel(catalog: ModelCatalog, id: string): ClaudeModelInfo | null {
-  return catalog.models.find((m) => m.id === id) ?? null;
-}
-
 // ---- helpers ---------------------------------------------------------------
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -219,9 +227,104 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown> | undefined> {
+function hasExactKeys(body: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(body).every((key) => allowed.includes(key));
+}
+
+function featureEnabled(): boolean {
+  return appStateGet("ai.chatgpt.enabled") === "1";
+}
+
+function selectedProviderCatalogue(providerId: ProviderId): ProviderModelCatalogue {
+  if (providerId === "chatgpt-oauth" && !featureEnabled()) {
+    return {
+      providerId,
+      mode: "fallback",
+      source: "ChatGPT provider registration",
+      discoveredAt: new Date().toISOString(),
+      revision: "unavailable",
+      error: "PROVIDER_UNAVAILABLE",
+      models: [],
+    };
+  }
+  const registered = getV2(providerId);
+  if (registered) {
+    try {
+      return registered.catalogue();
+    } catch {
+      // Never expose provider exception text: it may contain upstream data.
+    }
+  }
+  if (providerId === "claude-local") return claudeProviderCatalogue();
+  return {
+    providerId,
+    mode: "fallback",
+    source: "ChatGPT provider registration",
+    discoveredAt: new Date().toISOString(),
+    revision: "unavailable",
+    error: "PROVIDER_UNAVAILABLE",
+    models: [],
+  };
+}
+
+function legacyCatalogueView(catalogue: ProviderModelCatalogue): ModelCatalog {
+  return {
+    mode: catalogue.mode,
+    source: catalogue.source,
+    error: catalogue.error,
+    discoveredAt: catalogue.discoveredAt,
+    defaultModelId: catalogue.models.find((model) => model.isDefault && !model.hidden)?.id ?? null,
+    models: catalogue.models.filter((model) => !model.hidden).map((model) => ({
+      id: model.id,
+      label: model.displayName,
+      family: catalogue.providerId === "chatgpt-oauth" ? "chatgpt" : "claude",
+      alias: false,
+      resolvesTo: null,
+      inputPerMTok: null,
+      outputPerMTok: null,
+      thinkingLevels: model.reasoningValues.filter(isThinkingLevel),
+      defaultThinking: isThinkingLevel(model.defaultReasoning) ? model.defaultReasoning : null,
+      effort: model.reasoningValues.some(isThinkingLevel),
+      contextWindow: model.contextWindow,
+      maxOutputTokens: model.maxOutputTokens,
+      hidden: model.hidden,
+    })),
+  };
+}
+
+function providerOptions() {
+  const safeStatus = (value: unknown): "ready" | "signed_out" | "expired" | "unavailable" | "degraded" =>
+    value === "ready" || value === "signed_out" || value === "expired" ||
+    value === "unavailable" || value === "degraded" ? value : "unavailable";
+  let claudeStatus: "ready" | "signed_out" | "expired" | "unavailable" | "degraded" = "ready";
+  try {
+    claudeStatus = safeStatus(getV2("claude-local")?.authState().status ?? "ready");
+  } catch {
+    claudeStatus = "unavailable";
+  }
+  const chatgpt = chatGptSettingsAuthState();
+  return [
+    { id: "claude-local" as const, label: "Claude — Claude subscription", auth_state: claudeStatus },
+    {
+      id: "chatgpt-oauth" as const,
+      label: "ChatGPT — ChatGPT subscription",
+      auth_state: featureEnabled() ? safeStatus(chatgpt.status) : "unavailable" as const,
+    },
+  ];
+}
+
+async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes = 1024 * 1024,
+): Promise<Record<string, unknown> | undefined> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+    size += chunk.byteLength;
+    if (size > maxBytes) return undefined;
+    chunks.push(chunk);
+  }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   if (!raw) return {};
   try {
@@ -369,6 +472,18 @@ export async function handleSettingsRoute(
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
 
+  if (path.startsWith("/api/providers/chatgpt-oauth")) {
+    return handleChatGptOAuthRoute(req, res);
+  }
+  const intelligenceRefresh = method === "GET" && path === "/api/settings/intelligence" &&
+    url.searchParams.size === 1 && url.searchParams.getAll("refresh").length === 1 &&
+    url.searchParams.get("refresh") === "models";
+  if (["/api/settings/provider", "/api/settings/intelligence", "/api/settings/models"].includes(path) &&
+      [...url.searchParams.keys()].length > 0 && !intelligenceRefresh) {
+    sendJson(res, 400, { error: { code: "BAD_REQUEST", message: "invalid query" } });
+    return true;
+  }
+
   // ======================= General ========================================
 
   if (method === "GET" && path === "/api/settings/general") {
@@ -472,15 +587,51 @@ export async function handleSettingsRoute(
 
   // ======================= Intelligence (V13 steps) =======================
 
+  if (method === "POST" && path === "/api/settings/provider") {
+    const body = await readJsonBody(req, 16 * 1024);
+    if (!body || !hasExactKeys(body, ["provider"]) || !isProviderId(body.provider)) {
+      sendJson(res, 400, {
+        error: { code: "BAD_REQUEST", message: "provider must be claude-local or chatgpt-oauth" },
+      });
+      return true;
+    }
+    setActiveProvider(body.provider);
+    // Return the same complete snapshot as GET intelligence. The shell swaps
+    // this object into state immediately, so a partial provider-only response
+    // would transiently erase every picker and legacy compatibility field.
+    return handleSettingsRoute(
+      { method: "GET", url: "/api/settings/intelligence" } as IncomingMessage,
+      res,
+    );
+  }
+
+  if (method === "GET" && path === "/api/settings/models") {
+    const providerId = getActiveProvider();
+    sendJson(res, 200, selectedProviderCatalogue(providerId));
+    return true;
+  }
+
   if (method === "GET" && path === "/api/settings/intelligence") {
+    if (intelligenceRefresh && getActiveProvider() === "chatgpt-oauth") {
+      await retryChatGptCatalogue();
+    }
     const db = getDb();
     const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
     const costFor = db.prepare(
       `SELECT COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS calls
          FROM traces WHERE created_at >= ? AND (pass = ? OR pass LIKE ?)`,
     );
-    const catalog = modelCatalog();
+    const providerId = getActiveProvider();
+    const providerCatalog = selectedProviderCatalogue(providerId);
+    // The one-release legacy projection follows the active catalogue. A
+    // ChatGPT selection must never probe Claude's CLI as an accidental
+    // discovery fallback merely to populate compatibility fields.
+    const catalog = providerId === "claude-local"
+      ? modelCatalog()
+      : legacyCatalogueView(providerCatalog);
     sendJson(res, 200, {
+      provider: { selected: providerId, options: providerOptions() },
+      catalogue: providerCatalog,
       default_model: DEFAULT_STEP_MODEL,
       default_thinking: DEFAULT_STEP_THINKING,
       // The old three-string list, still sent so an older shell keeps working.
@@ -517,16 +668,26 @@ export async function handleSettingsRoute(
       steps: INTELLIGENCE_STEPS.map((s) => {
         const stem = s.key.split(".")[0]!;
         const c = costFor.get(since, s.key, `${stem}.%`) as { cost: number; calls: number };
-        const selected = appStateGet(`selected_model_${s.key}`) ?? DEFAULT_STEP_MODEL;
-        const levels = findModel(catalog, selected)?.thinkingLevels ?? [];
-        const stored = appStateGet(thinkingKeyFor(s.key));
+        const providerDefault = providerCatalog.models.find((model) => model.isDefault && !model.hidden);
+        const selected = getProviderModelSelection(providerId, s.key) ??
+          (providerId === "claude-local" ? DEFAULT_STEP_MODEL : providerDefault?.id ?? "");
+        const providerModel = findProviderModel(providerCatalog, selected);
+        const levels = providerModel?.reasoningValues ?? [];
+        const stored = getProviderReasoningSelection(providerId, s.key);
+        const reasoning = stored && levels.includes(stored)
+          ? stored
+          : providerModel?.defaultReasoning ?? null;
         return {
           ...s,
           selected,
+          selected_model: selected,
+          recommended_model: providerId === "claude-local" ? s.recommended : providerDefault?.id ?? null,
+          reasoning,
+          reasoning_values: levels,
+          available: providerModel !== null,
           // A level the current model does not offer reads as "off" rather
           // than as a selection the runner would silently drop.
-          thinking:
-            isThinkingLevel(stored) && levels.includes(stored) ? stored : DEFAULT_STEP_THINKING,
+          thinking: reasoning ?? DEFAULT_STEP_THINKING,
           thinking_levels: levels,
           enabled: appStateGet(`${PROCESS_ENABLED_PREFIX}${s.key}`) !== "0",
           cost_7d_usd: c.cost,
@@ -544,97 +705,90 @@ export async function handleSettingsRoute(
   }
 
   if (method === "POST" && path === "/api/settings/intelligence") {
-    const body = await readJsonBody(req);
+    const body = await readJsonBody(req, 16 * 1024);
+    if (!body || !hasExactKeys(body, ["step", "model", "thinking", "enabled"]) ||
+        typeof body.step !== "string" ||
+        !["model", "thinking", "enabled"].some((key) => Object.hasOwn(body, key)) ||
+        (body.model !== undefined && typeof body.model !== "string") ||
+        (body.thinking !== undefined && typeof body.thinking !== "string") ||
+        (body.enabled !== undefined && typeof body.enabled !== "boolean")) {
+      sendJson(res, 400, { error: { code: "BAD_REQUEST", message: "invalid intelligence setting" } });
+      return true;
+    }
     const step = INTELLIGENCE_STEPS.find((s) => s.key === body?.step);
     if (!step) {
       sendJson(res, 400, { error: "unknown step" });
       return true;
     }
-    if (typeof body?.enabled === "boolean") {
-      // A step turned off queues, never drops (SET-01): the dispatcher reads
-      // this key before every hand-off (scheduler/v6/dispatch.ts submit) and
-      // holds the lane; here we only persist and record it.
-      appStateSet(`${PROCESS_ENABLED_PREFIX}${step.key}`, body.enabled ? "1" : "0");
+    const providerId = getActiveProvider();
+    const providerCatalog = selectedProviderCatalogue(providerId);
+    const providerDefault = providerCatalog.models.find((model) => model.isDefault && !model.hidden);
+    const savedModel = getProviderModelSelection(providerId, step.key);
+    const previousModel = savedModel ??
+      (providerId === "claude-local" ? DEFAULT_STEP_MODEL : providerDefault?.id ?? "");
+    const nextModel = body.model ?? previousModel;
+    const nextModelRow = findProviderModel(providerCatalog, nextModel);
+    if (body.model !== undefined && !nextModelRow) {
+      sendJson(res, 400, { error: `model must be one this build can reach: ${nextModel}` });
+      return true;
     }
-    const catalog = modelCatalog();
-    let gate: { status: string; state: unknown } | null = null;
-    if (body?.model !== undefined) {
-      const model = String(body.model);
-      // Validated against the list the picker was SERVED, not against three
-      // hardcoded family names — otherwise every real model the CLI can reach
-      // is rejected at the edge, which is half of what defect 6 was.
-      if (!findModel(catalog, model)) {
-        sendJson(res, 400, { error: `model must be one this build can reach: ${model}` });
-        return true;
-      }
-      const before = appStateGet(`selected_model_${step.key}`) ?? DEFAULT_STEP_MODEL;
-      if (before !== model) {
-        // SET-02: the golden set runs FIRST. `apply` is called only when the
-        // gate lets the change through — at once when no runner is installed
-        // (recorded as skipped), after a green compare when one is. A red
-        // compare leaves `before` in place and writes a "blocked" decision.
-        const apply = (): void => {
-          appStateSet(`selected_model_${step.key}`, model);
-          // A model change can invalidate the reasoning level: the new model may
-          // not offer the one that was set. Clearing it here is what keeps the
-          // stored pair (model, level) one the runner can actually send.
-          const kept = findModel(catalog, model)?.thinkingLevels ?? [];
-          const heldLevel = appStateGet(thinkingKeyFor(step.key));
-          if (isThinkingLevel(heldLevel) && !kept.includes(heldLevel)) {
-            appStateSet(thinkingKeyFor(step.key), DEFAULT_STEP_THINKING);
-          }
-          // Every model change is a decision row AND marks the golden set due
-          // for the next full pass (spec §18).
-          writeDecision({
-            pass: "user",
-            targetKind: "setting",
-            targetId: `selected_model_${step.key}`,
-            action: "update",
-            old: { model: before },
-            new: { model },
-            reason: `user picked ${model} for ${step.label} (rec: ${step.recommended})`,
-          });
-          appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
-        };
-        const r = await proposeStepChange({ step: step.key, label: step.label, model }, apply);
-        gate = { status: r.status, state: r.state };
-      }
+    const savedThinking = getProviderReasoningSelection(providerId, step.key);
+    const previousThinking = savedThinking ?? DEFAULT_STEP_THINKING;
+    const nextThinking = body.thinking ?? previousThinking;
+    if (body.thinking !== undefined && !nextModelRow?.reasoningValues.includes(nextThinking)) {
+      const levels = nextModelRow?.reasoningValues ?? [];
+      sendJson(res, 400, {
+        error: levels.length === 0
+          ? `${nextModel} has no reasoning levels`
+          : `thinking must be one of ${levels.join(", ")}`,
+      });
+      return true;
     }
-    if (body?.thinking !== undefined) {
-      const thinking = String(body.thinking);
-      const model = appStateGet(`selected_model_${step.key}`) ?? DEFAULT_STEP_MODEL;
-      const levels = findModel(catalog, model)?.thinkingLevels ?? [];
-      if (!isThinkingLevel(thinking) || !levels.includes(thinking)) {
-        sendJson(res, 400, {
-          error:
-            levels.length === 0
-              ? `${model} has no reasoning levels`
-              : `thinking must be one of ${levels.join(", ")}`,
+
+    const modelChanged = body.model !== undefined && body.model !== savedModel;
+    const thinkingChanged = body.thinking !== undefined && body.thinking !== savedThinking;
+    const enabledChanged = body.enabled !== undefined &&
+      body.enabled !== (appStateGet(`${PROCESS_ENABLED_PREFIX}${step.key}`) !== "0");
+    const apply = (): void => {
+      if (modelChanged) {
+        setProviderModelSelection(providerId, step.key, nextModel);
+        writeDecision({
+          pass: "user", targetKind: "setting",
+          targetId: providerId === "claude-local"
+            ? `selected_model_${step.key}` : `ai.model.${providerId}.${step.key}`,
+          action: "update", old: { model: previousModel }, new: { model: nextModel },
+          reason: `user picked ${nextModel} for ${step.label} (rec: ${step.recommended})`,
         });
-        return true;
       }
-      const before = appStateGet(thinkingKeyFor(step.key)) ?? DEFAULT_STEP_THINKING;
-      if (before !== thinking) {
-        // Same gate as the model: how hard a step thinks changes what it
-        // answers, so it runs the golden set first, is a decision row, and
-        // marks the set due.
-        const apply = (): void => {
-          appStateSet(thinkingKeyFor(step.key), thinking);
-          writeDecision({
-            pass: "user",
-            targetKind: "setting",
-            targetId: thinkingKeyFor(step.key),
-            action: "update",
-            old: { thinking: before },
-            new: { thinking },
-            reason: `user set ${step.label} reasoning to ${thinking} on ${model}`,
-          });
-          appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
-        };
-        const r = await proposeStepChange({ step: step.key, label: step.label, thinking }, apply);
-        gate = { status: r.status, state: r.state };
+      if (thinkingChanged) {
+        setProviderReasoningSelection(providerId, step.key, nextThinking);
+        writeDecision({
+          pass: "user", targetKind: "setting",
+          targetId: providerId === "claude-local"
+            ? `selected_thinking_${step.key}` : `ai.reasoning.${providerId}.${step.key}`,
+          action: "update", old: { thinking: previousThinking }, new: { thinking: nextThinking },
+          reason: `user set ${step.label} reasoning to ${nextThinking} on ${nextModel}`,
+        });
+      } else if (modelChanged && previousThinking !== "off" &&
+          !nextModelRow?.reasoningValues.includes(previousThinking)) {
+        setProviderReasoningSelection(providerId, step.key, "off");
       }
-    }
+      if (enabledChanged) {
+        // A disabled step holds queued work; the dispatcher reads this key.
+        appStateSet(`${PROCESS_ENABLED_PREFIX}${step.key}`, body.enabled ? "1" : "0");
+      }
+      if (modelChanged || thinkingChanged) appStateSet(T3_EVAL_DUE_KEY, new Date().toISOString());
+    };
+
+    let gate: { status: string; state: unknown } | null = null;
+    if (modelChanged || thinkingChanged) {
+      const r = await proposeStepChange({
+        step: step.key, label: step.label,
+        ...(modelChanged ? { model: nextModel } : {}),
+        ...(thinkingChanged ? { thinking: nextThinking } : {}),
+      }, apply);
+      gate = { status: r.status, state: r.state };
+    } else if (enabledChanged) apply();
     sendJson(res, 200, { step: step.key, ok: true, gate });
     return true;
   }

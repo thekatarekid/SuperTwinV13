@@ -199,6 +199,28 @@ describe("ChatGPT rotating token session", () => {
     expect(session.previousRecoveryPair()?.accessToken).toBe("access-old");
   });
 
+  it("aborted authorization cannot persist a refresh result that resolves late", async () => {
+    const fake = fakeKeychain();
+    const subject = store(fake, "/tmp/metadata-timeout");
+    await subject.save(pair("old", 100));
+    let resolveRefresh!: (value: ChatGptTokenPair) => void;
+    const refresh = vi.fn(() => new Promise<ChatGptTokenPair>((resolve) => {
+      resolveRefresh = resolve;
+    }));
+    const session = await ChatGptTokenSession.open(subject, refresh, { now: () => 1_000 });
+    const controller = new AbortController();
+    const pending = session.accessToken(controller.signal);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: "TRANSPORT_ERROR" });
+    resolveRefresh(pair("late", 9_000));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const persisted = JSON.parse(fake.value!) as { current: ChatGptTokenPair };
+    expect(persisted.current.accessToken).toBe("access-old");
+    expect(() => session.current()).not.toThrow();
+    expect(session.current().accessToken).toBe("access-old");
+  });
+
   it("single-flights concurrent refresh and returns isolated copies", async () => {
     const fake = fakeKeychain();
     const subject = store(fake, "/tmp/concurrent");

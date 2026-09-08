@@ -214,6 +214,8 @@ export type CreateBrowserOAuthCallbackListener = (
 
 export interface BrowserOAuthManagerDependencies {
   openBrowser(url: string, signal: AbortSignal): Promise<void>;
+  /** `caller` means the Settings shell opens the returned authUrl exactly once. */
+  browserOwner?: "manager" | "caller";
   credentialStore: BrowserOAuthCredentialStore;
   tokenSession: BrowserOAuthTokenSession;
   fetch?: typeof fetch;
@@ -800,7 +802,9 @@ export class BrowserOAuthManager {
     });
     clearPkce(material);
     try {
-      await abortable(this.dependencies.openBrowser(authUrl, controller.signal), controller.signal);
+      if (this.dependencies.browserOwner !== "caller") {
+        await abortable(this.dependencies.openBrowser(authUrl, controller.signal), controller.signal);
+      }
       attempt.markBrowserReady();
     } catch {
       if (attempt.stopReason === "expired") {

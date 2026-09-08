@@ -291,6 +291,14 @@ describe("browser OAuth PKCE contract", () => {
 });
 
 describe("BrowserOAuthManager", () => {
+  it("returns the URL without opening a second browser when the shell owns navigation", async () => {
+    const fixture = makeFixture({ browserOwner: "caller" });
+    const started = await fixture.manager.start();
+    expect(started.authUrl).toMatch(/^https:\/\/auth\.openai\.com\/oauth\/authorize\?/);
+    expect(fixture.openBrowser).not.toHaveBeenCalled();
+    await fixture.manager.cancel(started.loginId);
+  });
+
   it("holds the callback until validation and durable persistence, then exchanges exact fields", async () => {
     const persist = deferred<void>();
     const fixture = makeFixture({

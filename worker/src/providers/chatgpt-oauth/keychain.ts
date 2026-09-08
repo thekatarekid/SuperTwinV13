@@ -365,7 +365,10 @@ export class ChatGptKeychainStore {
   }
 }
 
-export type ChatGptTokenRefresher = (refreshToken: string) => Promise<ChatGptTokenPair>;
+export type ChatGptTokenRefresher = (
+  refreshToken: string,
+  signal?: AbortSignal,
+) => Promise<ChatGptTokenPair>;
 
 export interface ChatGptOAuthRefreshOptions {
   fetch: typeof fetch;
@@ -415,7 +418,7 @@ export function createChatGptOAuthRefresher(options: ChatGptOAuthRefreshOptions)
   if (!options.userAgent || byteLength(options.userAgent) > 512) {
     throw new ChatGptCredentialError("TRANSPORT_ERROR", "ChatGPT refresh configuration is invalid");
   }
-  return async (refreshToken) => {
+  return async (refreshToken, callSignal) => {
     if (!boundedString(refreshToken, MAX_TOKEN_BYTES)) {
       throw new ChatGptCredentialError("AUTH_EXPIRED", "ChatGPT sign-in expired; sign in again");
     }
@@ -425,7 +428,11 @@ export function createChatGptOAuthRefresher(options: ChatGptOAuthRefreshOptions)
       response = await options.fetch(OAUTH_TOKEN_URL, {
         method: "POST",
         redirect: "error",
-        signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
+        signal: AbortSignal.any([
+          timeout,
+          ...(options.signal ? [options.signal] : []),
+          ...(callSignal ? [callSignal] : []),
+        ]),
         headers: {
           Accept: "application/json",
           "Content-Type": "application/x-www-form-urlencoded",
@@ -559,13 +566,17 @@ export class ChatGptTokenSession {
     return pair?.expiresAtMs !== undefined && pair.expiresAtMs - this.#now() <= REFRESH_SKEW_MS;
   }
 
-  async accessToken(): Promise<string> {
+  async accessToken(signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) throw new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation cancelled");
     this.current();
-    if (this.shouldRefresh()) return (await this.refresh()).accessToken;
+    if (this.shouldRefresh()) return (await this.refresh(signal)).accessToken;
     return this.current().accessToken;
   }
 
-  refresh(): Promise<ChatGptTokenPair> {
+  refresh(signal?: AbortSignal): Promise<ChatGptTokenPair> {
+    if (signal?.aborted) return Promise.reject(
+      new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation cancelled"),
+    );
     this.current();
     const account = this.store.account;
     const shared = accountRefreshes.get(account);
@@ -581,7 +592,7 @@ export class ChatGptTokenSession {
         throw error;
       });
     }
-    const pending = withAccountLock(account, () => this.#performRefresh());
+    const pending = withAccountLock(account, () => this.#performRefresh(signal));
     accountRefreshes.set(account, pending);
     void pending.finally(() => {
       if (accountRefreshes.get(account) === pending) accountRefreshes.delete(account);
@@ -589,7 +600,7 @@ export class ChatGptTokenSession {
     return pending.then(clonePair);
   }
 
-  async #performRefresh(): Promise<ChatGptTokenPair> {
+  async #performRefresh(signal?: AbortSignal): Promise<ChatGptTokenPair> {
     // Reload under the account-wide lock. Another manager instance may have
     // completed a rotation since this instance opened.
     const envelope = await this.store.loadEnvelope();
@@ -601,9 +612,22 @@ export class ChatGptTokenSession {
       this.#terminalExpired = true;
       throw new ChatGptCredentialError("AUTH_EXPIRED", "ChatGPT sign-in expired; sign in again");
     }
+    const refreshToken = previous.refreshToken;
     let next: ChatGptTokenPair;
     try {
-      next = await this.refreshToken(previous.refreshToken);
+      next = await new Promise<ChatGptTokenPair>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation cancelled"));
+          return;
+        }
+        const aborted = () => reject(
+          new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation cancelled"),
+        );
+        signal?.addEventListener("abort", aborted, { once: true });
+        this.refreshToken(refreshToken, signal).then(resolve, reject).finally(() => {
+          signal?.removeEventListener("abort", aborted);
+        });
+      });
     } catch (error) {
       if (error instanceof ChatGptCredentialError) {
         if (error.code === "AUTH_EXPIRED") this.#terminalExpired = true;
@@ -622,7 +646,8 @@ export class ChatGptTokenSession {
       throw new ChatGptCredentialError("AUTH_EXPIRED", "ChatGPT refresh failed; sign in again");
     }
     try {
-      await this.store.commit(normalized, previous);
+      if (signal?.aborted) throw new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation cancelled");
+      await this.store.commit(normalized, previous, signal);
     } catch {
       // The server may already have invalidated the old refresh token. Never
       // expose the unpersisted access token or pretend that retry is safe.
@@ -655,6 +680,16 @@ export class ChatGptTokenSession {
       accountEpochs.set(this.store.account, epoch);
       this.#epoch = epoch;
     });
+  }
+
+  /** Release this process-local view without deleting the durable Keychain item. */
+  close(): void {
+    this.#current = undefined;
+    this.#previous = undefined;
+    this.#terminalExpired = false;
+    const sessions = accountSessions.get(this.store.account);
+    sessions?.delete(this);
+    if (sessions?.size === 0) accountSessions.delete(this.store.account);
   }
 }
 

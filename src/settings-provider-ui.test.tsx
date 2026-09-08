@@ -99,13 +99,13 @@ function status(auth: "ready" | "signed_out" | "unavailable" | "degraded") {
 function install(initial: ReturnType<typeof intelligence>, options: { cancelResult?: boolean; terminalStatusFailsOnce?: boolean; stepSave?: Promise<unknown> } = {}) {
   let current = initial;
   let loginPoll = 0;
-  const calls: Array<{ path: string; method: string; body: unknown }> = [];
+  const calls: Array<{ path: string; query: string; method: string; body: unknown }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const path = url.pathname;
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ path, method, body });
+    calls.push({ path, query: url.search, method, body });
     let response: unknown;
     if (path === "/api/settings/intelligence" && method === "GET") response = current;
     else if (path === "/api/settings/intelligence" && method === "POST") {
@@ -205,13 +205,17 @@ describe("Settings › Intelligence provider UI (V2 P3-C)", () => {
   });
 
   it("renders cached, empty, and unavailable states with retry controls", async () => {
-    install(intelligence("chatgpt-oauth", { auth: "unavailable", mode: "cached", empty: true, error: "catalogue offline" }));
+    const stub = install(intelligence("chatgpt-oauth", { auth: "unavailable", mode: "cached", empty: true, error: "catalogue offline" }));
     render(<IntelligencePanel />);
     expect(await screen.findByText(/cached ChatGPT models.*catalogue offline/)).toBeTruthy();
     expect(screen.getByText("No models are available for this provider.")).toBeTruthy();
     expect(screen.getByText("ChatGPT is unavailable in this build.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /retry/i }).length).toBeGreaterThanOrEqual(2);
     expect((screen.getByLabelText("Orient model") as HTMLSelectElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(stub.calls.some((call) =>
+      call.path === "/api/settings/intelligence" && call.query === "?refresh=models",
+    )).toBe(true));
   });
 
   it("ignores a stale ChatGPT status completion after switching to Claude", async () => {

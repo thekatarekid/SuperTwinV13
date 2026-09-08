@@ -73,13 +73,13 @@ export function createChatGptProviderSession(
       if (signal.aborted) throw new ChatGptProviderError("CANCELLED", "ChatGPT request cancelled");
       // accessToken() performs a due refresh under the Keychain session lock.
       // current() then takes one coherent post-refresh token/account snapshot.
-      await session.accessToken();
+      await session.accessToken(signal);
       if (signal.aborted) throw new ChatGptProviderError("CANCELLED", "ChatGPT request cancelled");
       return snapshot(session.current());
     },
     async refreshAuthorization(signal) {
       if (signal.aborted) throw new ChatGptProviderError("CANCELLED", "ChatGPT request cancelled");
-      const refreshed = await session.refresh();
+      const refreshed = await session.refresh(signal);
       if (signal.aborted) throw new ChatGptProviderError("CANCELLED", "ChatGPT request cancelled");
       return snapshot(refreshed);
     },

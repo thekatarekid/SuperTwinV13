@@ -69,6 +69,13 @@ import {
   sweepStaleWorkers,
 } from "./process-guard.js";
 import { degradedSubsystems, optionalStep, optionalStepAsync } from "./boot-guard.js";
+import {
+  initializeProductionChatGptRuntime,
+  installUnavailableChatGptRuntime,
+  type ChatGptRuntimeHandle,
+} from "./providers/chatgpt-oauth/runtime.js";
+
+let chatGptRuntimeForFatal: ChatGptRuntimeHandle | null = null;
 
 async function main(): Promise<void> {
   // Every subsystem logs through the same sink; teeConsole() below duplicates
@@ -97,6 +104,17 @@ async function main(): Promise<void> {
 
   runMigrations();
   bootstrapBuiltInProviders();
+  try {
+    chatGptRuntimeForFatal = await initializeProductionChatGptRuntime({
+      appVersion: process.env.SUPERTWIN_WORKER_VERSION?.trim() ||
+        process.env.npm_package_version?.trim() || "13.12.2",
+    });
+  } catch {
+    // ChatGPT is optional and feature-off on a fresh install. Keep its status
+    // route present and honest without exposing Keychain/transport details.
+    chatGptRuntimeForFatal = installUnavailableChatGptRuntime();
+    console.error("[worker] ChatGPT authentication runtime unavailable");
+  }
 
   // ---- Logs: create ~/SuperTwinV13/logs (+ /runs) and tee the node console
   // into a durable file next to the per-run transcripts. Best-effort by design
@@ -351,6 +369,8 @@ async function main(): Promise<void> {
       } catch (error) {
         console.error("[worker] one or more providers failed to stop cleanly:", error);
       }
+      await chatGptRuntimeForFatal?.shutdown();
+      chatGptRuntimeForFatal = null;
       // Each handle is null when its subsystem never started (W1).
       parentWatch?.stop();
       dispatcher?.stop();
@@ -395,7 +415,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("[worker] fatal:", err);
   try {
     killAllRegisteredProviders();
@@ -404,5 +424,8 @@ main().catch((err) => {
     // the registry has already attempted every other V2 provider.
     console.error("[worker] one or more providers failed during fatal cleanup:", error);
   }
+  await chatGptRuntimeForFatal?.shutdown().finally(() => {
+    chatGptRuntimeForFatal = null;
+  });
   process.exit(1);
 });

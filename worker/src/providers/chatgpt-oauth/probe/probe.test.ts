@@ -21,11 +21,13 @@ import {
 import { runProbeCli } from "./cli.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
 import { runDiscoveryProbe } from "./discovery-runner.js";
+import { runCanaryProbe } from "./canary-runner.js";
 import {
   formatHttpAccounting,
   LIVE_AUTH_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_REQUEST_BUDGET,
+  LIVE_CANARY_HTTP_REQUEST_BUDGET,
   LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
   ProbeHttpAccounting,
 } from "./accounting.js";
@@ -45,6 +47,7 @@ import {
   assertLiveProbeOptIn,
   formatLiveDeclaration,
   LIVE_CONTRACT_PROBE_ENV,
+  LIVE_CANARY_PROBE_ENV,
   LIVE_DISCOVERY_PROBE_ENV,
 } from "./safety.js";
 
@@ -77,6 +80,17 @@ function cliDiscoveryEnv(): NodeJS.ProcessEnv {
     [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
     SUPERTWIN_APP_VERSION: "13.12.2",
     SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-discovery"),
+  };
+}
+
+function cliCanaryEnv(): NodeJS.ProcessEnv {
+  return {
+    SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+    [LIVE_CANARY_PROBE_ENV]: "1",
+    [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+    [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
+    SUPERTWIN_APP_VERSION: "13.12.2",
+    SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-canary"),
   };
 }
 
@@ -194,6 +208,7 @@ describe("Phase 0b offline safety", () => {
     expect(FULL_PROBE_INFERENCE_POST_BUDGET).toBe(55);
     expect(LIVE_CONTRACT_HTTP_REQUEST_BUDGET).toBe(361);
     expect(LIVE_DISCOVERY_HTTP_REQUEST_BUDGET).toBe(304);
+    expect(LIVE_CANARY_HTTP_REQUEST_BUDGET).toBe(307);
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=302");
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
@@ -203,6 +218,10 @@ describe("Phase 0b offline safety", () => {
     expect(formatLiveDeclaration("contract")).toContain("1 token exchange + 1 refresh");
     expect(formatLiveDeclaration("discover")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
+    expect(formatLiveDeclaration("canary")).toContain("PHASE_0B_LIVE_CANARY_DECLARATION");
+    expect(formatLiveDeclaration("canary")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=1");
+    expect(formatLiveDeclaration("canary")).toContain("MAX_LIVE_CANARY_HTTP_REQUESTS=307");
+    expect(formatLiveDeclaration("canary")).toContain("1 token exchange + 1 refresh");
   });
 
   it("prints the declaration, refuses missing opt-in, and never fetches", async () => {
@@ -375,6 +394,158 @@ describe("Phase 0b offline safety", () => {
     await expect(runProbeCli(["--live-auth", "--live-discover"], cliDiscoveryEnv(), {
       runDiscoveryProbe: discoveryRunner,
     })).rejects.toThrow(/discovery probe cancelled by SIGINT/);
+
+    expect(process.listeners("SIGINT")).toEqual(listenersBefore);
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+    expect(stdoutSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps canary-only pairwise exclusive and refuses every missing gate before fetch", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const canaryRunner = vi.fn<typeof runCanaryProbe>();
+    const base = {
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-canary-gates"),
+    };
+
+    await expect(runProbeCli(["--live-canary"], base, {
+      runCanaryProbe: canaryRunner,
+    })).rejects.toThrow(/additionally requires --live-auth/);
+    await expect(runProbeCli(["--live-auth", "--live-canary", "--live-discover"], base, {
+      runCanaryProbe: canaryRunner,
+    })).rejects.toThrow(/mutually exclusive/);
+    await expect(runProbeCli(["--live-auth", "--live-canary", "--live-contract"], base, {
+      runCanaryProbe: canaryRunner,
+    })).rejects.toThrow(/mutually exclusive/);
+    await expect(runProbeCli(["--live-auth", "--live-canary"], base, {
+      runCanaryProbe: canaryRunner,
+    })).rejects.toThrow(/live OAuth\/network access requires/);
+    await expect(runProbeCli(["--live-auth", "--live-canary"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+    }, { runCanaryProbe: canaryRunner })).rejects.toThrow(new RegExp(LIVE_CANARY_PROBE_ENV));
+    await expect(runProbeCli(["--live-auth", "--live-canary"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CANARY_PROBE_ENV]: "1",
+    }, { runCanaryProbe: canaryRunner })).rejects.toThrow(
+      new RegExp(EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
+    );
+    await expect(runProbeCli(["--live-auth", "--live-canary"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CANARY_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+    }, { runCanaryProbe: canaryRunner })).rejects.toThrow(new RegExp(REQUESTED_PROBE_MODEL_ENV));
+
+    const contractRunner = vi.fn<typeof runContractProbeScaffold>();
+    await expect(runProbeCli(["--live-auth", "--live-contract"], cliCanaryEnv(), {
+      runContractProbe: contractRunner,
+    })).rejects.toThrow(new RegExp(LIVE_CONTRACT_PROBE_ENV));
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(canaryRunner).not.toHaveBeenCalled();
+    expect(contractRunner).not.toHaveBeenCalled();
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PHASE_0B_LIVE_CANARY_DECLARATION");
+  });
+
+  it("delegates canary-only once and prints redacted safe evidence plus exact actuals", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const actuals = {
+      deviceCode: 1, devicePoll: 1, token: 2, models: 1,
+      quota: 2, inference: 1, other: 0, total: 8,
+    };
+    const canaryRunner = vi.fn<typeof runCanaryProbe>(async (hooks) => {
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      return {
+        mode: "canary-only",
+        evidenceCompleteness: "single-canary-only",
+        actualInferencePosts: 1,
+        accountFingerprint: "7d41db9e5a28",
+        canary: { status: 200, flags: { completed: true, substantiveOutput: true } },
+        accessToken: "must-not-print-canary-token",
+      } as unknown as Awaited<ReturnType<typeof runCanaryProbe>>;
+    });
+
+    await expect(runProbeCli(["--live-auth", "--live-canary"], cliCanaryEnv(), {
+      runCanaryProbe: canaryRunner,
+    })).resolves.toBe(0);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(canaryRunner).toHaveBeenCalledOnce();
+    const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(output).toContain('"mode": "canary-only"');
+    expect(output).toContain('"actualInferencePosts": 1');
+    expect(output).toContain('"substantiveOutput": true');
+    expect(output).not.toContain("must-not-print-canary-token");
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+  });
+
+  it("surfaces the canary safe diagnostic on failure and prints final actuals once", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const actuals = {
+      deviceCode: 1, devicePoll: 1, token: 2, models: 1,
+      quota: 1, inference: 1, other: 0, total: 7,
+    };
+    const canaryRunner = vi.fn<typeof runCanaryProbe>(async (hooks) => {
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      throw new Error(
+        'Contract case canary.blank-context did not match its declared expectation; ' +
+        'safe_diagnostic={"status":200,"eventTypes":["response.completed"],"flags":{"substantiveOutput":false}}',
+      );
+    });
+
+    await expect(runProbeCli(["--live-auth", "--live-canary"], cliCanaryEnv(), {
+      runCanaryProbe: canaryRunner,
+    })).rejects.toThrow(/safe_diagnostic=.*substantiveOutput.*false/);
+
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+    expect(stdoutSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts canary-only on SIGINT, removes its listener, and prints final actuals once", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const listenersBefore = process.listeners("SIGINT");
+    const actuals = {
+      deviceCode: 1, devicePoll: 2, token: 0, models: 0,
+      quota: 0, inference: 0, other: 0, total: 3,
+    };
+    const canaryRunner = vi.fn<typeof runCanaryProbe>(async (hooks) => {
+      const prior = new Set(listenersBefore);
+      const added = process.listeners("SIGINT").filter((listener) => !prior.has(listener));
+      expect(added).toHaveLength(1);
+      added[0]!("SIGINT");
+      expect(hooks.signal?.aborted).toBe(true);
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      throw hooks.signal?.reason ?? new Error("expected canary-only SIGINT abort");
+    });
+
+    await expect(runProbeCli(["--live-auth", "--live-canary"], cliCanaryEnv(), {
+      runCanaryProbe: canaryRunner,
+    })).rejects.toThrow(/canary-only probe cancelled by SIGINT/);
 
     expect(process.listeners("SIGINT")).toEqual(listenersBefore);
     const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");

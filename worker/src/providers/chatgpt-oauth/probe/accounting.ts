@@ -51,12 +51,26 @@ export const LIVE_CONTRACT_HTTP_LIMITS: ProbeHttpLimits = {
   other: 0,
 };
 
+export const LIVE_CANARY_HTTP_LIMITS: ProbeHttpLimits = {
+  deviceCode: 1,
+  devicePoll: 300,
+  token: 2,
+  models: 1,
+  quota: 2,
+  inference: 1,
+  other: 0,
+};
+
 export const LIVE_CONTRACT_HTTP_REQUEST_BUDGET = Object.values(
   LIVE_CONTRACT_HTTP_LIMITS,
 ).reduce((sum, count) => sum + count, 0);
 
 export const LIVE_DISCOVERY_HTTP_REQUEST_BUDGET = Object.values(
   LIVE_DISCOVERY_HTTP_LIMITS,
+).reduce((sum, count) => sum + count, 0);
+
+export const LIVE_CANARY_HTTP_REQUEST_BUDGET = Object.values(
+  LIVE_CANARY_HTTP_LIMITS,
 ).reduce((sum, count) => sum + count, 0);
 
 export class ProbeHttpAccounting {

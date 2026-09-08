@@ -13,10 +13,12 @@ import {
 } from "./accounting.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
 import { runDiscoveryProbe } from "./discovery-runner.js";
+import { runCanaryProbe } from "./canary-runner.js";
 import { EphemeralProbeTokenSession } from "./refresh.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
 import {
   assertLiveContractProbePreflight,
+  assertLiveCanaryProbePreflight,
   assertLiveDiscoveryProbePreflight,
   assertLiveProbeOptIn,
   formatLiveDeclaration,
@@ -24,6 +26,7 @@ import {
 
 export interface ProbeCliDependencies {
   runAuthFlow?: typeof runDeviceCodeFlow;
+  runCanaryProbe?: typeof runCanaryProbe;
   runContractProbe?: typeof runContractProbeScaffold;
   runDiscoveryProbe?: typeof runDiscoveryProbe;
 }
@@ -48,20 +51,27 @@ export async function runProbeCli(
   const liveAuth = args.includes("--live-auth");
   const liveContract = args.includes("--live-contract");
   const liveDiscover = args.includes("--live-discover");
-  if (!liveAuth && !liveContract && !liveDiscover) {
+  const liveCanary = args.includes("--live-canary");
+  if (!liveAuth && !liveContract && !liveDiscover && !liveCanary) {
     process.stdout.write(`${redactedJson(dryRunSnapshot(env))}\n`);
     return 0;
   }
 
   // This declaration must precede the opt-in checks and every possible network operation.
-  process.stderr.write(`${formatLiveDeclaration(liveContract ? "contract" : liveDiscover ? "discover" : "auth")}\n`);
-  if (liveContract && liveDiscover) {
-    throw new Error("REFUSED: --live-contract and --live-discover are mutually exclusive");
+  process.stderr.write(`${formatLiveDeclaration(
+    liveContract ? "contract" : liveCanary ? "canary" : liveDiscover ? "discover" : "auth",
+  )}\n`);
+  if ([liveContract, liveDiscover, liveCanary].filter(Boolean).length > 1) {
+    throw new Error("REFUSED: --live-contract, --live-canary, and --live-discover are mutually exclusive");
   }
   if (liveContract && !liveAuth) {
     throw new Error("REFUSED: --live-contract additionally requires --live-auth");
   }
   if (liveContract) return runLiveContractProbe(env, dependencies);
+  if (liveCanary && !liveAuth) {
+    throw new Error("REFUSED: --live-canary additionally requires --live-auth");
+  }
+  if (liveCanary) return runLiveCanaryProbe(env, dependencies);
   if (liveDiscover && !liveAuth) {
     throw new Error("REFUSED: --live-discover additionally requires --live-auth");
   }
@@ -116,6 +126,45 @@ export async function runProbeCli(
   } finally {
     process.off("SIGINT", onSigint);
     printAccounting();
+  }
+}
+
+async function runLiveCanaryProbe(
+  env: NodeJS.ProcessEnv,
+  dependencies: ProbeCliDependencies,
+): Promise<number> {
+  const abortController = new AbortController();
+  let httpActuals: ProbeHttpCounts = { ...ZERO_HTTP_COUNTS };
+  const onSigint = (): void => {
+    abortController.abort(new Error("Phase 0b canary-only probe cancelled by SIGINT"));
+  };
+  process.once("SIGINT", onSigint);
+  try {
+    const runner = dependencies.runCanaryProbe ?? runCanaryProbe;
+    const execute = () => runner({
+      fetch,
+      sleep: (milliseconds: number, signal?: AbortSignal) => sleep(milliseconds, undefined, { signal }),
+      now: Date.now,
+      env,
+      signal: abortController.signal,
+      onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
+        process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);
+      },
+      onFinalized: (finalized) => {
+        httpActuals = finalized.httpActuals;
+      },
+    });
+    const evidence = dependencies.runCanaryProbe
+      ? await enforceScratchHomeInvariant(env, async () => {
+        assertLiveCanaryProbePreflight(env);
+        return execute();
+      })
+      : await execute();
+    process.stdout.write(`${redactedJson(evidence)}\n`);
+    return 0;
+  } finally {
+    process.off("SIGINT", onSigint);
+    process.stderr.write(`${formatHttpAccounting(httpActuals)}\n`);
   }
 }
 

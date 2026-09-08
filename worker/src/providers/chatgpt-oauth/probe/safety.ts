@@ -12,6 +12,7 @@ import {
 } from "./account.js";
 import {
   LIVE_CONTRACT_HTTP_REQUEST_BUDGET,
+  LIVE_CANARY_HTTP_REQUEST_BUDGET,
   LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
 } from "./accounting.js";
 import { requestedProbeModelId } from "./models.js";
@@ -19,12 +20,15 @@ import { assertEmptyScratchHome } from "./scratch.js";
 
 export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
 export const LIVE_DISCOVERY_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_DISCOVERY_PROBE";
+export const LIVE_CANARY_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CANARY_PROBE";
 
 export interface LiveProbeDeclaration {
   liveAuthInferencePostBudget: number;
   liveAuthHttpRequestBudget: number;
   liveDiscoveryInferencePostBudget: 0;
   liveDiscoveryHttpRequestBudget: number;
+  liveCanaryInferencePostBudget: 1;
+  liveCanaryHttpRequestBudget: number;
   plannedFullProbeInferencePostBudget: number;
   plannedFullProbeCaseBudget: number;
   retryPolicy: "none";
@@ -35,6 +39,8 @@ export const LIVE_PROBE_DECLARATION: LiveProbeDeclaration = {
   liveAuthHttpRequestBudget: LIVE_AUTH_HTTP_REQUEST_BUDGET,
   liveDiscoveryInferencePostBudget: 0,
   liveDiscoveryHttpRequestBudget: LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
+  liveCanaryInferencePostBudget: 1,
+  liveCanaryHttpRequestBudget: LIVE_CANARY_HTTP_REQUEST_BUDGET,
   plannedFullProbeInferencePostBudget: FULL_PROBE_INFERENCE_POST_BUDGET,
   plannedFullProbeCaseBudget: FULL_PROBE_CASE_BUDGET,
   retryPolicy: "none",
@@ -90,6 +96,24 @@ export function assertLiveDiscoveryProbeAccount(
   return assertExpectedProbeAccount(accessToken, env);
 }
 
+export function assertLiveCanaryProbePreflight(env: NodeJS.ProcessEnv = process.env): string {
+  const scratchHome = assertLiveProbeOptIn(env);
+  if (env[LIVE_CANARY_PROBE_ENV] !== "1") {
+    throw new Error(`REFUSED: live canary probing requires ${LIVE_CANARY_PROBE_ENV}=1`);
+  }
+  expectedProbeAccountFingerprint(env);
+  requestedProbeModelId(env);
+  return scratchHome;
+}
+
+export function assertLiveCanaryProbeAccount(
+  accessToken: string,
+  env: NodeJS.ProcessEnv = process.env,
+): DedicatedProbeAccount {
+  assertLiveCanaryProbePreflight(env);
+  return assertExpectedProbeAccount(accessToken, env);
+}
+
 /** Run after OAuth exchange and before model, quota, or inference requests. */
 export function assertLiveContractProbeAccount(
   accessToken: string,
@@ -99,14 +123,18 @@ export function assertLiveContractProbeAccount(
   return assertExpectedProbeAccount(accessToken, env);
 }
 
-export function formatLiveDeclaration(mode: "auth" | "discover" | "contract" = "auth"): string {
+export function formatLiveDeclaration(mode: "auth" | "discover" | "canary" | "contract" = "auth"): string {
   const inferencePosts =
     mode === "contract"
       ? LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget
-      : LIVE_PROBE_DECLARATION.liveAuthInferencePostBudget;
+      : mode === "canary"
+        ? LIVE_PROBE_DECLARATION.liveCanaryInferencePostBudget
+        : LIVE_PROBE_DECLARATION.liveAuthInferencePostBudget;
   return [
     mode === "contract"
       ? "PHASE_0B_LIVE_CONTRACT_DECLARATION"
+      : mode === "canary"
+        ? "PHASE_0B_LIVE_CANARY_DECLARATION"
       : mode === "discover"
         ? "PHASE_0B_LIVE_DISCOVERY_DECLARATION"
         : "PHASE_0B_LIVE_AUTH_DECLARATION",
@@ -115,11 +143,13 @@ export function formatLiveDeclaration(mode: "auth" | "discover" | "contract" = "
     `MAX_LIVE_AUTH_HTTP_REQUESTS=${LIVE_PROBE_DECLARATION.liveAuthHttpRequestBudget}`,
     `MAX_LIVE_DISCOVERY_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.liveDiscoveryInferencePostBudget}`,
     `MAX_LIVE_DISCOVERY_HTTP_REQUESTS=${LIVE_PROBE_DECLARATION.liveDiscoveryHttpRequestBudget}`,
+    `MAX_LIVE_CANARY_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.liveCanaryInferencePostBudget}`,
+    `MAX_LIVE_CANARY_HTTP_REQUESTS=${LIVE_PROBE_DECLARATION.liveCanaryHttpRequestBudget}`,
     `PLANNED_FULL_PHASE_0B_CASES=${LIVE_PROBE_DECLARATION.plannedFullProbeCaseBudget}`,
     `PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget}`,
     `MAX_LIVE_CONTRACT_HTTP_REQUESTS=${LIVE_CONTRACT_HTTP_REQUEST_BUDGET}`,
     "PREFLIGHT_REJECTIONS=15",
-    mode === "contract"
+    mode === "contract" || mode === "canary"
       ? "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange + 1 refresh"
       : "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange",
     "INFERENCE_RETRIES=0",

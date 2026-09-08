@@ -213,7 +213,7 @@ async function readBoundedText(response: Response, limit: number): Promise<{ tex
   }
 }
 
-async function fetchJson(
+export async function fetchContractMetadataJson(
   url: string,
   headers: Record<string, string>,
   hooks: ContractProbeHooks,
@@ -274,7 +274,7 @@ function defaultResourceSnapshot(): { rssBytes: number; heapUsedBytes: number; a
   return { rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, activeSockets };
 }
 
-function listeningSocketCount(): number {
+export function contractListeningSocketCount(): number {
   const processWithHandles = process as typeof process & { _getActiveHandles?: () => unknown[] };
   return (processWithHandles._getActiveHandles?.() ?? []).filter((handle) =>
     Boolean(handle && typeof handle === "object" &&
@@ -315,7 +315,7 @@ function unsupportedEvidence(probe: ContractProbeCase): ContractCaseEvidence {
   };
 }
 
-async function executeCase(
+export async function executeContractProbeCase(
   probe: ContractProbeCase,
   headers: Record<string, string>,
   hooks: ContractProbeHooks,
@@ -451,7 +451,7 @@ async function executeMatrix(
       ? unsupportedEvidence(probe)
       : probe.expectation === "rejected"
         ? preflightRejectionEvidence(probe)
-        : await executeCase(probe, headers, hooks, controllers, previousResponseId);
+        : await executeContractProbeCase(probe, headers, hooks, controllers, previousResponseId);
     evidence.push(result);
     if (result.stream?.eventTypes.includes("response.completed") && result.stream.responseId) {
       previousResponseId = result.stream.responseId;
@@ -462,7 +462,7 @@ async function executeMatrix(
     const stage = cases.filter(
       (probe) => probe.category === "ladder" && probe.concurrency === concurrency,
     );
-    const pending = stage.map((probe) => executeCase(probe, headers, hooks, controllers));
+    const pending = stage.map((probe) => executeContractProbeCase(probe, headers, hooks, controllers));
     let results: ContractCaseEvidence[];
     try {
       results = await Promise.all(pending);
@@ -486,7 +486,7 @@ export async function runContractProbeScaffold(
   const env = { ...(hooks.env ?? process.env) };
   assertLiveContractProbePreflight(env);
   return enforceScratchHomeInvariant(env, async () => {
-  const listeningSocketsBefore = listeningSocketCount();
+  const listeningSocketsBefore = contractListeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_CONTRACT_HTTP_LIMITS);
   const probeAbort = new AbortController();
   const signals = [hooks.signal, probeAbort.signal].filter(
@@ -506,7 +506,7 @@ export async function runContractProbeScaffold(
   const accountId = account.accountId;
   let headers = buildBackendHeaders(session.current().accessToken, accountId, probeHooks.env ?? process.env);
 
-  const modelsResponse = await fetchJson(CODEX_MODELS_URL, headers, probeHooks);
+  const modelsResponse = await fetchContractMetadataJson(CODEX_MODELS_URL, headers, probeHooks);
   if (hasModelCatalogueRestrictionSignal(modelsResponse.value)) {
     throw new ContractRestrictionError(
       `Contract probe stopped on upstream restriction (HTTP ${modelsResponse.status})`,
@@ -515,7 +515,7 @@ export async function runContractProbeScaffold(
   const catalogue = parseProbeModelCatalogue(modelsResponse.value);
   if (!catalogue.models.length) throw new Error("Authenticated model catalogue contains no usable model IDs");
   const selectedModel = selectRequestedProbeModel(catalogue, undefined, probeHooks.env ?? process.env);
-  const quotaResponse = await fetchJson(CODEX_USAGE_URL, headers, probeHooks);
+  const quotaResponse = await fetchContractMetadataJson(CODEX_USAGE_URL, headers, probeHooks);
   const quotaEvidence = parseProbeQuota(quotaResponse.value);
   if (!quotaEvidence.healthy) throw new Error("Phase 0b account is quota-limited or restricted at start");
   const refreshed = await session.refresh(probeHooks);
@@ -589,7 +589,7 @@ export async function runContractProbeScaffold(
       };
     })()
     : { supported: false as const, reason: "selected model does not declare all cache modes" };
-  const finalQuotaResponse = await fetchJson(CODEX_USAGE_URL, headers, probeHooks);
+  const finalQuotaResponse = await fetchContractMetadataJson(CODEX_USAGE_URL, headers, probeHooks);
   const finalQuotaEvidence = parseProbeQuota(finalQuotaResponse.value);
   const quotaComparison = compareProbeQuota(quotaEvidence, finalQuotaEvidence);
   const finalHttpActuals = accounting.snapshot();
@@ -606,7 +606,7 @@ export async function runContractProbeScaffold(
   } catch (error) {
     if (!(error instanceof ProbeAuthError) || error.code !== "AUTH_REQUIRED") throw error;
   }
-  const listeningSocketsAfter = listeningSocketCount();
+  const listeningSocketsAfter = contractListeningSocketCount();
   if (listeningSocketsAfter > listeningSocketsBefore) {
     throw new Error("Phase 0b probe unexpectedly created a local listening socket");
   }

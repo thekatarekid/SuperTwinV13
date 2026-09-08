@@ -75,4 +75,8 @@
 - 2026-09-08: Reconciled amended V2: browser Authorization Code + PKCE with automatic loopback callback is the only shipped login; device code stays probe-only. No current provider/transport change conflicts.
 - 2026-09-08: Added append-only A.1.1 decision row; original three decisions and compact-error evidence remain unchanged, and cumulative inference remains 3/55.
 - 2026-09-08: P1-A, P1-B, P1-C and P1-D passed focused tests/review and were committed separately; no app build or live call.
-- Next: finish P1-E, zero-inference browser-auth smoke, and revised request/ledger revision offline before any separately authorized live request.
+- 2026-09-08: P1-E provider catalogue/reasoning and P1-F immutable provider/model resolver passed focused tests and independent review; no provider/model fallback was introduced.
+- 2026-09-08: Added the zero-inference browser Authorization Code + PKCE smoke rail: exact loopback/state/PKCE/callback controls, 1 navigation + 1 exchange + 1 refresh, and hard zero device/model/quota/inference/other admission. Offline 53/53 passed; no browser or network call was made.
+- 2026-09-08: Revised the request contract to matrix v2 after the compact HTTP-400 evidence: omit `max_output_tokens` unless account capabilities declare it. The `gpt-5.6-sol` plan is now 45 POSTs / 10 skips with hash `a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09`.
+- 2026-09-08: Ledger schema v4 appended the matrix-v2 revision without rewriting the root, attempt 3, or cumulative 3/55 state. Reservation transactions bind revision/transition/digest, including A→B→A stale-process refusal. Probe 270/270, worker typecheck, diff check and independent review passed with zero live calls.
+- Next: add the strict neutral Claude adapter/parallel registry, then migrate non-chat callers before separating public conversation IDs from provider continuations and cutting over server chat.

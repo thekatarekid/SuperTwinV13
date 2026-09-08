@@ -9,11 +9,11 @@ Status: development acceptance only. These commands are not application runtime 
 - Model: `gpt-5.6-sol`
 - Authorized cumulative inference attempts: `55`
 - Already consumed: `3`
-- Account-specific planned inference POSTs: `46`
+- Active account-specific planned inference POSTs: `45`
 - Inference retries: `0`
 - Current application version: `13.12.2`
 
-The live account catalogue resolves the 70-case matrix to 46 inference POSTs because 9 unsupported cases are skipped before fetch. The current grant is sufficient: a fresh run needs 46 of the remaining 52 attempts; after one more successful checkpointed canary, the resume needs 45 of the remaining 51. Do not use full-contract mode until the request-contract canary succeeds and the ledger contains that exact checkpoint.
+The original live catalogue evidence resolved matrix v1 to 46 inference POSTs and 9 unsupported skips. The compact HTTP-400 evidence showed that the backend rejects `max_output_tokens` when support is not declared, so the append-only active matrix-v2 revision omits that field and resolves to 45 POSTs with 10 skips. The cumulative grant remains 3/55: a fresh run needs 45 of the remaining 52 attempts; after one more successful checkpointed canary, the resume needs 44 of the remaining 51. Do not use full-contract mode until the request-contract canary succeeds and the ledger contains that exact checkpoint.
 
 ## 1. Obtain the selected-model plan fingerprint
 
@@ -41,7 +41,7 @@ Acceptance:
 
 Stop on any account mismatch, token-exchange or metadata 401/403, any 429, CAPTCHA, warning, restriction, unhealthy quota, missing model, malformed response, or nonzero inference/other count. Bounded device-poll 403/404 responses mean authorization is still pending and are expected.
 
-## 2. Initialize the cumulative ledger offline
+## 2. Historical create-once ledger initialization
 
 Create a persistent external directory. It must be owned by the current user, mode `0700`, and outside `SUPERTWIN_HOME`:
 
@@ -71,7 +71,35 @@ npm run probe:chatgpt-oauth -- --initialize-authorization-ledger
 
 Acceptance: output reports `plannedInferencePosts: 46`, `authorizedPosts: 55`, `consumedPosts: 2`, `remainingPosts: 53`, `networkCalls: 0`, and `createOnce: true`. The command refuses if the ledger already exists; never delete, replace, or edit it to reset the counter.
 
-## 3. Run one bounded field-diagnostic canary
+This step has already completed. Do not rerun it or create a replacement ledger. The existing ledger subsequently charged attempt 3, leaving the cumulative state at 3/55.
+
+## 3. Append the reviewed matrix-v2 successor offline
+
+The successor changes only the transport request matrix. It preserves the existing grant, root plan, attempt 3 and cumulative 3/55 state. Run this sole-argument command only against that existing ledger:
+
+```sh
+SUPERTWIN_HOME="$probe_scratch" \
+SUPERTWIN_CHATGPT_AUTHORIZATION_LEDGER_PATH="$ledger_dir/inference-authorization.sqlite" \
+SUPERTWIN_CHATGPT_AUTHORIZATION_ID=phase0b-2026-09-08-gpt-5.6-sol-55 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER="Aditya Katare" \
+SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT=7d41db9e5a28 \
+SUPERTWIN_CHATGPT_PROBE_MODEL=gpt-5.6-sol \
+SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS=55 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PREDECESSOR_REVISION=1 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PREDECESSOR_MATRIX_VERSION=phase0b-contract-matrix-v1 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PREDECESSOR_MATRIX_HASH=b02baf6834d23ad8fbaf5df4f693f3f924ce6f8787cc9173f1668995e96cac88 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PREDECESSOR_PLANNED_INFERENCE_POSTS=46 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_EXPECTED_CONSUMED_POSTS=3 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_SUCCESSOR_TRANSITION_ID=transport-only-request-matrix-v2 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_SUCCESSOR_MATRIX_VERSION=phase0b-contract-matrix-v2 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_SUCCESSOR_MATRIX_HASH=a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS=45 \
+npm run probe:chatgpt-oauth -- --append-authorization-plan-successor
+```
+
+Acceptance: output reports revision `2`, transition `transport-only-request-matrix-v2`, 45 planned POSTs, 55 authorized, 3 consumed, 52 remaining, `networkCalls: 0`, and `appendOnly: true`. The command refuses replay or any predecessor, counter, grant or successor mismatch. Never edit the database to make it pass.
+
+## 4. Run one bounded field-diagnostic canary
 
 Only after step 2 passes and the owner is ready at the device page:
 
@@ -89,7 +117,11 @@ SUPERTWIN_CHATGPT_AUTHORIZATION_LEDGER_PATH="$ledger_dir/inference-authorization
 SUPERTWIN_CHATGPT_AUTHORIZATION_ID=phase0b-2026-09-08-gpt-5.6-sol-55 \
 SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER="Aditya Katare" \
 SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS=55 \
-SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS=46 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_VERSION=phase0b-contract-matrix-v2 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_HASH=a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09 \
+SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS=45 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_REVISION=2 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID=transport-only-request-matrix-v2 \
 npm run probe:chatgpt-oauth -- --live-auth --live-canary
 ```
 

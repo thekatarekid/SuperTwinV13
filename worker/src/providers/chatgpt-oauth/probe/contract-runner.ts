@@ -10,6 +10,7 @@ import {
 import { runDeviceCodeFlow, type DeviceFlowHooks } from "./device-flow.js";
 import {
   buildContractProbeMatrix,
+  isPostedProbeCase,
   PROBED_ALLOWLIST_FIELDS,
   type ContractProbeCase,
   validateProbeRequestBody,
@@ -447,11 +448,14 @@ export async function executeContractProbeCase(
 ): Promise<ContractCaseEvidence> {
   const controller = new AbortController();
   controllers.add(controller);
-  const requestBody = probe.name === "allowlist.previous_response_id.accepted"
-    ? { ...probe.body, previous_response_id: previousResponseId }
-    : probe.body;
-  if (probe.name === "allowlist.previous_response_id.accepted" && !previousResponseId) {
-    throw new Error("Continuation probe requires a completed response ID from the canary");
+  let requestBody = probe.body;
+  if (probe.name === "allowlist.previous_response_id.accepted") {
+    if (probe.body.previous_response_id !== "resp_probe_previous" ||
+        typeof previousResponseId !== "string" || previousResponseId.length < 1 ||
+        previousResponseId.length > 512 || /[\u0000-\u001f\u007f]/.test(previousResponseId)) {
+      throw new Error("Continuation probe requires one bounded completed response ID from this run");
+    }
+    requestBody = { ...probe.body, previous_response_id: previousResponseId };
   }
   const bodyText = JSON.stringify(requestBody);
   if (Buffer.byteLength(bodyText, "utf8") > MAX_REQUEST_BODY_BYTES) {
@@ -576,9 +580,11 @@ async function executeMatrix(
   for (const probe of serial) {
     const result = probe.disposition === "unsupported-skip"
       ? unsupportedEvidence(probe)
-      : probe.expectation === "rejected"
+      : probe.disposition === "preflight-reject"
         ? preflightRejectionEvidence(probe)
-        : await executeContractProbeCase(probe, headers, hooks, controllers, previousResponseId);
+        : isPostedProbeCase(probe)
+          ? await executeContractProbeCase(probe, headers, hooks, controllers, previousResponseId)
+          : (() => { throw new Error(`Probe ${probe.name} has an invalid disposition`); })();
     evidence.push(result);
     if (result.stream?.eventTypes.includes("response.completed") && result.stream.responseId) {
       previousResponseId = result.stream.responseId;
@@ -589,6 +595,9 @@ async function executeMatrix(
     const stage = cases.filter(
       (probe) => probe.category === "ladder" && probe.concurrency === concurrency,
     );
+    if (stage.some((probe) => !isPostedProbeCase(probe))) {
+      throw new Error(`Phase 0b ladder-${concurrency} contains a non-posted case`);
+    }
     const pending = stage.map((probe) => executeContractProbeCase(probe, headers, hooks, controllers));
     let results: ContractCaseEvidence[];
     try {

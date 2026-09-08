@@ -24,6 +24,10 @@ export interface ContractProbeCase {
   unsupportedReason?: string;
 }
 
+export function isPostedProbeCase(probe: ContractProbeCase): boolean {
+  return probe.disposition === "post";
+}
+
 export const PROBED_ALLOWLIST_FIELDS = [
   "model",
   "instructions",
@@ -393,7 +397,23 @@ export function assertContractProbeMatrix(cases: readonly ContractProbeCase[]): 
       throw new Error(`Phase 0b matrix is missing control ${control}`);
     }
   }
-  for (const probe of cases) {
+  const names = new Set<string>();
+  for (const [index, probe] of cases.entries()) {
+    if (probe.sequence !== index + 1) throw new Error("Phase 0b matrix sequence is not exact");
+    if (names.has(probe.name)) throw new Error(`Phase 0b matrix contains duplicate case ${probe.name}`);
+    names.add(probe.name);
+    if (probe.category === "ladder" && !isPostedProbeCase(probe)) {
+      throw new Error(`Ladder fixture ${probe.name} must be posted`);
+    }
+    if (probe.expectation === "rejected") {
+      if (probe.disposition !== "preflight-reject") {
+        throw new Error(`Rejected fixture ${probe.name} has an invalid disposition`);
+      }
+    } else if (probe.disposition === "unsupported-skip") {
+      if (!probe.unsupportedReason) throw new Error(`Unsupported fixture ${probe.name} has no reason`);
+    } else if (!isPostedProbeCase(probe) || probe.unsupportedReason !== undefined) {
+      throw new Error(`Posted fixture ${probe.name} has an invalid disposition`);
+    }
     const errors = validateProbeRequestBody(probe.body);
     if (probe.expectation === "rejected" && errors.length === 0) {
       throw new Error(`Rejected fixture ${probe.name} passed preflight validation`);

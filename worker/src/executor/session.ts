@@ -23,16 +23,19 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
-import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
-import type { Provider, ProviderStreamEvent, Usage } from "../providers/types.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+} from "../providers/selection.js";
+import type { Provider, ProviderStreamEvent, ProviderV2, Usage } from "../providers/types.js";
 import { annotateTrace, withTraceContext } from "../traces/context.js";
-import { extractJson, modelForPass, stableSystemPrompt } from "../brain/llm.js";
-import { reasoningForPass } from "../brain/reasoning.js";
+import { extractJson, stableSystemPrompt } from "../brain/llm.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 import {
   DEFAULT_EXECUTOR_BUDGET,
   EXECUTOR_V1,
@@ -201,8 +204,8 @@ export interface TaskRow {
 }
 
 export interface ExecutorRunDeps {
-  provider?: Provider;
-  providerId?: string;
+  /** Exact test seam; production resolves the active provider from settings. */
+  provider?: ProviderV2 | Provider;
   registry?: ToolRegistry;
   budget?: ExecutorBudget;
   /** Single-use approval token forwarded to gated tool invocations. */
@@ -231,6 +234,25 @@ const ZERO_USAGE: Usage = {
   cacheReadInputTokens: 0,
   outputTokens: 0,
 };
+
+const PROVIDER_HARD_STOPS = new Set([
+  "AUTH_REQUIRED",
+  "AUTH_EXPIRED",
+  "PROVIDER_UNAVAILABLE",
+  "BACKEND_UNSUPPORTED",
+  "BUDGET_EXCEEDED",
+  "MODEL_ACTIVITY_PAUSED",
+]);
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function providerFailure(code: string): Error & { code: string } {
+  return Object.assign(new Error(`${code}: provider call was refused`), { code });
+}
 
 /** Map an envelope status to the tasks.status vocabulary (spec §11.1). */
 export function taskStatusFor(status: EnvelopeStatus): string {
@@ -279,18 +301,6 @@ export function packTaskContext(task: TaskRow): string {
   return lines.join("\n");
 }
 
-const promptFiles = new Map<string, string>();
-
-function systemPromptFileFor(text: string): string {
-  const hash = createHash("sha1").update(text).digest("hex").slice(0, 12);
-  const path = join(tmpdir(), `supertwinv13-executor.v1-${hash}.txt`);
-  if (promptFiles.get(path) !== hash) {
-    writeFileSync(path, text, "utf8");
-    promptFiles.set(path, hash);
-  }
-  return path;
-}
-
 /**
  * Execute ONE task in one tool-enabled Claude Code session.
  * Traced end-to-end; tool_use dispatches through the registry choke point;
@@ -310,6 +320,36 @@ export async function runExecutorTask(
     executorSystemPrompt(budget),
   );
   const promptVersion = createHash("sha1").update(system).digest("hex").slice(0, 12);
+  const injected = deps.provider && "catalogue" in deps.provider
+    ? deps.provider as ProviderV2
+    : undefined;
+  if (deps.provider && !injected) {
+    throw new ProviderSelectionError(
+      "PROVIDER_UNAVAILABLE",
+      "legacy provider injection is not accepted by the provider-neutral executor",
+      { key: EXECUTOR_V1.pass },
+    );
+  }
+  const resolved = resolveModelCall(
+    { source: "step", key: EXECUTOR_V1.pass },
+    injected ? { provider: injected } : {},
+  );
+  const maxOutputTokens = requireMaxOutputTokens(resolved);
+  if (
+    !resolved.provider.capabilities.hostTools ||
+    !resolved.modelSnapshot.supportsHostTools ||
+    !resolved.modelSnapshot.inputModalities.includes("text")
+  ) {
+    throw new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      `model ${resolved.model} cannot perform the executor's required host-tool call`,
+      {
+        providerId: resolved.providerId,
+        key: resolved.key,
+        model: resolved.model,
+      },
+    );
+  }
 
   return withTraceContext(
     { pass: EXECUTOR_V1.pass, caller: "executor/session", promptVersion },
@@ -339,6 +379,7 @@ export async function runExecutorTask(
       let usage: Usage = { ...ZERO_USAGE };
       let stopReason: string | undefined;
       let errorMessage: string | undefined;
+      let hardStop: unknown;
       const pendingTools: Promise<void>[] = [];
 
       const onEvent = (e: ProviderStreamEvent): void => {
@@ -383,27 +424,29 @@ export async function runExecutorTask(
             break;
           case "error":
             errorMessage = `${e.code}: ${e.message}`;
+            if (PROVIDER_HARD_STOPS.has(e.code)) hardStop = providerFailure(e.code);
             break;
           default:
             break;
         }
       };
 
-      const provider = deps.provider ?? getProvider(deps.providerId ?? DEFAULT_PROVIDER_ID);
-      if (!provider) {
-        errorMessage = `provider "${deps.providerId ?? DEFAULT_PROVIDER_ID}" is not registered`;
-      } else {
-        try {
-          const res = await provider.send({
+      try {
+          const res = await resolved.provider.send({
             runId,
-            message: packTaskContext(task),
-            sessionId: null,
+            model: resolved.model,
+            instructions: system,
+            input: [{
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: packTaskContext(task) }],
+            }],
             cwd: workspaceDir,
-            allowedTools: registry.allowedToolNames(),
-            systemPromptFile: systemPromptFileFor(system),
-            maxTurns: budget.maxTurns,
-            ...reasoningForPass(EXECUTOR_V1.pass, modelForPass(EXECUTOR_V1.pass)),
-            model: modelForPass(EXECUTOR_V1.pass),
+            hostTools: registry.allowedToolNames(),
+            toolChoice: "auto",
+            maxOutputTokens,
+            maxAgentTurns: budget.maxTurns,
+            ...reasoningRequestForResolvedCall(resolved),
             timeoutMs: deps.timeoutMs,
             onEvent,
             signal: deps.signal,
@@ -411,11 +454,22 @@ export async function runExecutorTask(
           if (res.status === "error" && !errorMessage) {
             errorMessage = res.errorCode ?? "provider error";
           }
-        } catch (err) {
-          errorMessage = (err as Error).message;
-        }
+          if (res.errorCode && PROVIDER_HARD_STOPS.has(res.errorCode)) {
+            hardStop = providerFailure(res.errorCode);
+          }
+      } catch (err) {
+        if (PROVIDER_HARD_STOPS.has(errorCode(err) ?? "")) hardStop = err;
+        else errorMessage = (err as Error).message;
       }
       await Promise.all(pendingTools);
+      if (hardStop) {
+        db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(
+          task.status,
+          nowIso(),
+          task.id,
+        );
+        throw hardStop;
+      }
 
       // ---- terminate in an envelope, whatever happened ---------------------
       let envelope = errorMessage ? null : parseEnvelope(finalText);

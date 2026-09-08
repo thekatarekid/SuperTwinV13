@@ -16,12 +16,13 @@ import { join } from "node:path";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { mintApprovalToken, readApprovalToken } from "../approvals/tokens.js";
 import type {
-  Provider,
-  ProviderResult,
+  NeutralProviderResult,
+  ProviderRequest,
   ProviderStreamEvent,
-  SendOptions,
+  ProviderV2,
   Usage,
 } from "../providers/types.js";
+import { TEST_PROVIDER_MAX_OUTPUT_TOKENS } from "../providers/test-support.js";
 import { resetStableSystemPromptsForTests } from "../brain/llm.js";
 import { defaultToolRegistry } from "./tools.js";
 import { bestPartialEnvelope, parseEnvelope, runExecutorTask, taskStatusFor } from "./session.js";
@@ -33,19 +34,40 @@ const USAGE: Usage = {
   outputTokens: 5,
 };
 
-/** Scripted provider: replays events, records the SendOptions it was given. */
-class StubProvider implements Provider {
-  id = "stub";
-  sent: SendOptions[] = [];
+/** Scripted strict provider: replays events and records its neutral request. */
+class StubProvider implements ProviderV2 {
+  readonly id: "claude-local" = "claude-local";
+  readonly displayName = "Executor test provider";
+  readonly capabilities = { functionTools: false, hostTools: true, continuation: true, requiresAuthentication: false };
+  sent: ProviderRequest[] = [];
   constructor(
     private events: ProviderStreamEvent[],
-    private result: Partial<ProviderResult> = {},
+    private result: Partial<NeutralProviderResult> = {},
   ) {}
-  async send(opts: SendOptions): Promise<ProviderResult> {
+  authState() { return { status: "ready" as const, error: null }; }
+  catalogue() {
+    return {
+      providerId: this.id,
+      mode: "discovered" as const,
+      source: "offline-test",
+      discoveredAt: "2026-09-08T00:00:00.000Z",
+      revision: "executor-test-r1",
+      error: null,
+      models: [{
+        id: "executor-test-model", displayName: "Executor Test", isDefault: true, hidden: false,
+        inputModalities: ["text" as const], reasoningValues: ["off"], defaultReasoning: "off",
+        supportsTools: false, supportsHostTools: true, supportsParallelToolCalls: false,
+        supportsStructuredOutput: false, supportsStrictTools: false, supportsVerbosity: false,
+        supportsPromptCacheKey: false, supportsPromptCacheOptions: false,
+        contextWindow: 200_000, maxOutputTokens: TEST_PROVIDER_MAX_OUTPUT_TOKENS, billingLabel: null,
+      }],
+    };
+  }
+  async send(opts: ProviderRequest): Promise<NeutralProviderResult> {
     this.sent.push(opts);
     for (const e of this.events) opts.onEvent(e);
     return {
-      sessionId: "s1",
+      continuation: "s1",
       usage: USAGE,
       freshFallback: false,
       status: "ok",
@@ -55,11 +77,12 @@ class StubProvider implements Provider {
   cancel(): boolean {
     return false;
   }
+  killAll(): void {}
 }
 
 const doneEvent = (stopReason?: string): ProviderStreamEvent => ({
   type: "done",
-  sessionId: "s1",
+  continuation: "s1",
   usage: USAGE,
   ...(stopReason ? { stopReason } : {}),
 });
@@ -140,14 +163,21 @@ describe("session protocol", () => {
     await runExecutorTask("tsk_1", { provider, budget: { maxTurns: 7, costUsd: 2 } });
     expect(provider.sent).toHaveLength(1);
     const opts = provider.sent[0];
-    expect(opts.maxTurns).toBe(7);
-    expect(opts.allowedTools?.sort()).toEqual(
+    expect(opts.maxAgentTurns).toBe(7);
+    expect(opts.hostTools?.sort()).toEqual(
       ["draft_save", "file_read", "file_save", "world_model_read"].sort(),
     );
-    expect(opts.sessionId).toBeNull(); // one FRESH session per task
-    expect(opts.systemPromptFile).toBeTruthy();
-    expect(opts.message).toContain("Shortlist 3 villas near Anjuna");
-    expect(opts.message).toContain("space: Goa trip — goal: book villa");
+    expect(opts).not.toHaveProperty("continuation"); // one FRESH session per task
+    expect(opts.instructions).toContain("Execute ONE task");
+    const input = opts.input[0];
+    expect(input?.type).toBe("message");
+    const text = input?.type === "message" && input.content[0]?.type === "input_text"
+      ? input.content[0].text
+      : "";
+    expect(text).toContain("Shortlist 3 villas near Anjuna");
+    expect(text).toContain("space: Goa trip — goal: book villa");
+    expect(opts.model).toBe("executor-test-model");
+    expect(opts.maxOutputTokens).toBe(TEST_PROVIDER_MAX_OUTPUT_TOKENS);
   });
 
   it("needs_input with a question pauses the task at needs_input (EXE-02)", async () => {
@@ -236,6 +266,34 @@ describe("EXE-05: budget exhaustion → best partial, never silent death", () =>
     expect(res.envelope.status).toBe("partial");
     expect(res.envelope.gaps[0]).toMatch(/session error: TIMEOUT/);
     expect(taskRow().status).toBe("needs_input");
+  });
+
+  it("preserves a typed pre-transport provider hold and restores the task", async () => {
+    const provider = new StubProvider(
+      [{ type: "error", code: "AUTH_REQUIRED", message: "sign in" }],
+      { status: "error", errorCode: "AUTH_REQUIRED" },
+    );
+    await expect(runExecutorTask("tsk_1", { provider })).rejects.toMatchObject({
+      code: "AUTH_REQUIRED",
+    });
+    expect(taskRow().status).toBe("open");
+  });
+
+  it("fails capability admission without sending or falling back providers", async () => {
+    const provider = new StubProvider([]);
+    const catalogue = provider.catalogue();
+    provider.catalogue = () => ({
+      ...catalogue,
+      models: catalogue.models.map((model) => ({ ...model, supportsHostTools: false })),
+    });
+
+    await expect(runExecutorTask("tsk_1", { provider })).rejects.toMatchObject({
+      code: "CAPABILITY_UNSUPPORTED",
+      providerId: "claude-local",
+      model: "executor-test-model",
+    });
+    expect(provider.sent).toHaveLength(0);
+    expect(taskRow().status).toBe("open");
   });
 });
 

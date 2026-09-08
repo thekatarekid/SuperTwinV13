@@ -18,12 +18,13 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { resetStableSystemPromptsForTests } from "../brain/llm.js";
 import type { Ingestion } from "../ingest/index.js";
 import type {
-  Provider,
-  ProviderResult,
+  NeutralProviderResult,
+  ProviderRequest,
   ProviderStreamEvent,
-  SendOptions,
+  ProviderV2,
   Usage,
 } from "../providers/types.js";
+import { TEST_PROVIDER_MAX_OUTPUT_TOKENS } from "../providers/test-support.js";
 import { executeRegistryFor, handleExecutorRoute, type ExecutorRouteDeps } from "./executor-routes.js";
 
 const USAGE: Usage = {
@@ -33,21 +34,39 @@ const USAGE: Usage = {
   outputTokens: 5,
 };
 
-class StubProvider implements Provider {
-  id = "stub";
-  sent: SendOptions[] = [];
+class StubProvider implements ProviderV2 {
+  readonly id: "claude-local" = "claude-local";
+  readonly displayName = "Executor route test provider";
+  readonly capabilities = { functionTools: false, hostTools: true, continuation: true, requiresAuthentication: false };
+  sent: ProviderRequest[] = [];
   constructor(private events: ProviderStreamEvent[]) {}
-  async send(opts: SendOptions): Promise<ProviderResult> {
+  authState() { return { status: "ready" as const, error: null }; }
+  catalogue() {
+    return {
+      providerId: this.id, mode: "discovered" as const, source: "offline-test",
+      discoveredAt: "2026-09-08T00:00:00.000Z", revision: "executor-route-r1", error: null,
+      models: [{
+        id: "executor-route-model", displayName: "Executor Route", isDefault: true, hidden: false,
+        inputModalities: ["text" as const], reasoningValues: ["off"], defaultReasoning: "off",
+        supportsTools: false, supportsHostTools: true, supportsParallelToolCalls: false,
+        supportsStructuredOutput: false, supportsStrictTools: false, supportsVerbosity: false,
+        supportsPromptCacheKey: false, supportsPromptCacheOptions: false,
+        contextWindow: 200_000, maxOutputTokens: TEST_PROVIDER_MAX_OUTPUT_TOKENS, billingLabel: null,
+      }],
+    };
+  }
+  async send(opts: ProviderRequest): Promise<NeutralProviderResult> {
     this.sent.push(opts);
     for (const e of this.events) opts.onEvent(e);
-    return { sessionId: "s1", usage: USAGE, freshFallback: false, status: "ok" };
+    return { continuation: "s1", usage: USAGE, freshFallback: false, status: "ok" };
   }
   cancel(): boolean {
     return false;
   }
+  killAll(): void {}
 }
 
-const doneEvent: ProviderStreamEvent = { type: "done", sessionId: "s1", usage: USAGE };
+const doneEvent: ProviderStreamEvent = { type: "done", continuation: "s1", usage: USAGE };
 
 const draftEnvelope = JSON.stringify({
   status: "needs_approval",

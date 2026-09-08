@@ -25,12 +25,10 @@ import { Ingestion } from "../ingest/index.js";
 import { WhatsAppAdapter } from "../adapters/whatsapp/adapter.js";
 import type { StatusUpdate } from "../adapters/types.js";
 import type {
-  Provider,
-  ProviderResult,
-  ProviderStreamEvent,
-  SendOptions,
+  ProviderV2,
   Usage,
 } from "../providers/types.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
 import { handleSourceRoute } from "./whatsapp-routes.js";
 import { handleExecutorRoute, type ExecutorRouteDeps } from "./executor-routes.js";
 import { buildDaemon, goAvailable } from "../testing/go-daemon.js";
@@ -44,18 +42,27 @@ const USAGE: Usage = {
   outputTokens: 5,
 };
 
-function stubProvider(responses: string[]): Provider {
+function stubProvider(responses: string[]): ProviderV2 {
   let n = 0;
-  return {
-    id: "stub",
-    cancel: () => false,
-    async send(opts: SendOptions): Promise<ProviderResult> {
+  return providerV2TestDouble(async (opts) => {
       const text = responses[Math.min(n++, responses.length - 1)] ?? "{}";
-      opts.onEvent({ type: "delta", text } as ProviderStreamEvent);
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "delta", text });
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }, {
+    capabilities: { hostTools: true },
+    model: { supportsHostTools: true },
+  });
+}
+
+function stubProviderV2(responses: string[]) {
+  let n = 0;
+  return providerV2TestDouble(async (opts) => {
+    const text = responses[Math.min(n++, responses.length - 1)] ?? "{}";
+    opts.onEvent({ type: "delta", text });
+    opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+    return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  });
 }
 
 // ---- http harness over the route handlers ---------------------------------
@@ -191,7 +198,7 @@ describe.skipIf(!goAvailable)("P3.5 demo path (stubbed models + real --mock daem
       // 1. Chat message → task (Decide with a scripted transport).
       seedChatMessage();
       const decide = await runDecidePass("sp_goa", ["ep_1"], {
-        provider: stubProvider([DECIDE_ANSWER]),
+        provider: stubProviderV2([DECIDE_ANSWER]),
       });
       expect(decide.status).toBe("ok");
       expect(decide.applied.tasksCreated).toBe(1);

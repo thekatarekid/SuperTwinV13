@@ -48,13 +48,12 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createArtifact, contentKeyFor, type ArtifactRow } from "../surfaces/artifacts.js";
 import { extractJson, stableSystemPrompt } from "../brain/llm.js";
 import { PREPARED_ACTION_KIND, listPreparedActions, type PreparedActionPayload, type PreparedActionRow } from "../brain/live.js";
-import { reasoningForPass } from "../brain/reasoning.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 import { getDb } from "../db/connection.js";
 import { writeDecision } from "../db/decisions.js";
 import {
@@ -64,10 +63,14 @@ import {
   liteSystemPrompt,
   type LiteBudget,
 } from "../prompts/lite.v1.js";
-import { modelForVersionedPass } from "../prompts/versions.js";
-import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/registry.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
 import { untrustedArgumentQuestion, worldModelToolArgCheck } from "../safety/tool-args.js";
-import type { Provider, ProviderStreamEvent, Usage } from "../providers/types.js";
+import type { Provider, ProviderStreamEvent, ProviderV2, Usage } from "../providers/types.js";
 import { annotateTrace, withTraceContext } from "../traces/context.js";
 import type { TraceRecord } from "../traces/store.js";
 import {
@@ -157,8 +160,10 @@ export interface LiteRunResult {
 }
 
 export interface LiteRunDeps {
-  provider?: Provider;
-  providerId?: string;
+  /** Exact test seam; production resolves the active provider from settings. */
+  provider?: ProviderV2 | Provider;
+  /** Internal queue seam: one immutable resolution is shared by one drain. */
+  resolvedCall?: ResolvedModelCall;
   /** Injectable fetch (evals and tests stub it; the default is global fetch). */
   fetchImpl?: typeof fetch;
   budget?: Partial<LiteBudget>;
@@ -677,15 +682,23 @@ export function groundArtifact(
 
 const ZERO_USAGE: Usage = { inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 };
 
-const promptFiles = new Map<string, string>();
-function systemPromptFileFor(text: string): string {
-  const hash = createHash("sha1").update(text).digest("hex").slice(0, 12);
-  const path = join(tmpdir(), `supertwinv13-lite.v1-${hash}.txt`);
-  if (promptFiles.get(path) !== hash) {
-    writeFileSync(path, text, "utf8");
-    promptFiles.set(path, hash);
-  }
-  return path;
+const PROVIDER_HARD_STOPS = new Set([
+  "AUTH_REQUIRED",
+  "AUTH_EXPIRED",
+  "PROVIDER_UNAVAILABLE",
+  "BACKEND_UNSUPPORTED",
+  "BUDGET_EXCEEDED",
+  "MODEL_ACTIVITY_PAUSED",
+]);
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function providerFailure(code: string): Error & { code: string } {
+  return Object.assign(new Error(`${code}: provider call was refused`), { code });
 }
 
 /** The user block: the prepared action, its inputs, its grounding, the clock. */
@@ -709,6 +722,66 @@ export function packPreparedAction(prepared: PreparedActionRow, budget: LiteBudg
   lines.push(`grounded_in: ${p.groundedEventIds.join(", ") || "(none)"}`);
   lines.push("", "Write your acceptance criteria first, then work. world_read before you assume.");
   return lines.join("\n");
+}
+
+/** Resolve and validate the immutable provider/model snapshot for one lite run. */
+export function resolveLiteModelCall(deps: LiteRunDeps = {}): ResolvedModelCall {
+  const injected = deps.provider && "catalogue" in deps.provider
+    ? deps.provider as ProviderV2
+    : undefined;
+  if (deps.provider && !injected) {
+    throw new ProviderSelectionError(
+      "PROVIDER_UNAVAILABLE",
+      "legacy provider injection is not accepted by provider-neutral executor-lite",
+      { key: LITE_V1.pass },
+    );
+  }
+  if (
+    deps.resolvedCall &&
+    (!Object.isFrozen(deps.resolvedCall) || !Object.isFrozen(deps.resolvedCall.modelSnapshot))
+  ) {
+    throw new ProviderSelectionError(
+      "BAD_REQUEST",
+      "executor-lite received a mutable model resolution",
+      { key: LITE_V1.pass },
+    );
+  }
+  if (deps.resolvedCall && injected && deps.resolvedCall.provider !== injected) {
+    throw new ProviderSelectionError(
+      "BAD_REQUEST",
+      "executor-lite provider injection does not match its model resolution",
+      {
+        providerId: deps.resolvedCall.providerId,
+        key: LITE_V1.pass,
+        model: deps.resolvedCall.model,
+      },
+    );
+  }
+  const resolved = deps.resolvedCall ?? resolveModelCall(
+    {
+      source: "step",
+      key: LITE_V1.pass,
+      fallbackKeys: [LITE_V1.settingsKey],
+    },
+    injected ? { provider: injected } : {},
+  );
+  if (
+    !resolved.provider.capabilities.hostTools ||
+    !resolved.modelSnapshot.supportsHostTools ||
+    !resolved.modelSnapshot.inputModalities.includes("text")
+  ) {
+    throw new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      `model ${resolved.model} cannot perform executor-lite's required host-tool call`,
+      {
+        providerId: resolved.providerId,
+        key: resolved.key,
+        model: resolved.model,
+      },
+    );
+  }
+  requireMaxOutputTokens(resolved);
+  return resolved;
 }
 
 /** Per-prepared-action workspace under <home>/executor/lite-<id>/. */
@@ -779,6 +852,8 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
   }
 
   // ---- 2. the bounded session -------------------------------------------
+  const resolved = resolveLiteModelCall(deps);
+  const maxOutputTokens = requireMaxOutputTokens(resolved);
   const system = stableSystemPrompt(`${LITE_V1.pass}:${budget.maxTurns}c$${budget.costUsd}`, liteSystemPrompt(budget));
   const promptVersion = createHash("sha1").update(system).digest("hex").slice(0, 12);
 
@@ -818,6 +893,7 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
     let finalText = "";
     let stopReason: string | undefined;
     let errorMessage: string | undefined;
+    let hardStop: unknown;
     let modelCalls = 0;
 
     const log = (inv: ToolInvocation): void => void invocations.push(inv);
@@ -890,38 +966,47 @@ export async function runPreparedAction(prepared: PreparedActionRow, deps: LiteR
           break;
         case "error":
           errorMessage = `${e.code}: ${e.message}`;
+          if (PROVIDER_HARD_STOPS.has(e.code)) hardStop = providerFailure(e.code);
           break;
         default:
           break;
       }
     };
 
-    const provider = deps.provider ?? getProvider(deps.providerId ?? DEFAULT_PROVIDER_ID);
-    if (!provider) {
-      errorMessage = `provider "${deps.providerId ?? DEFAULT_PROVIDER_ID}" is not registered`;
-    } else {
-      modelCalls = 1;
-      try {
-        const res = await provider.send({
+    modelCalls = 1;
+    try {
+        const res = await resolved.provider.send({
           runId,
-          message: packPreparedAction(prepared, budget, nowIso),
-          sessionId: null,
+          model: resolved.model,
+          instructions: system,
+          input: [{
+            type: "message",
+            role: "user",
+            content: [{
+              type: "input_text",
+              text: packPreparedAction(prepared, budget, nowIso),
+            }],
+          }],
           cwd: workspaceDir,
-          allowedTools: registry.allowedToolNames(),
-          systemPromptFile: systemPromptFileFor(system),
-          maxTurns: budget.maxTurns,
-          ...reasoningForPass(LITE_V1.pass, modelForVersionedPass(LITE_V1)),
-          model: modelForVersionedPass(LITE_V1),
+          hostTools: registry.allowedToolNames(),
+          toolChoice: "auto",
+          maxOutputTokens,
+          maxAgentTurns: budget.maxTurns,
+          ...reasoningRequestForResolvedCall(resolved),
           timeoutMs: deps.timeoutMs,
           onEvent,
           signal: deps.signal,
         });
         if (res.status === "error" && !errorMessage) errorMessage = res.errorCode ?? "provider error";
-      } catch (err) {
-        errorMessage = (err as Error).message;
-      }
+        if (res.errorCode && PROVIDER_HARD_STOPS.has(res.errorCode)) {
+          hardStop = providerFailure(res.errorCode);
+        }
+    } catch (err) {
+      if (PROVIDER_HARD_STOPS.has(errorCode(err) ?? "")) hardStop = err;
+      else errorMessage = (err as Error).message;
     }
     await chain;
+    if (hardStop) throw hardStop;
 
     // ---- 3. what came back, judged by code ------------------------------
     const out = errorMessage ? null : parseLiteOutput(finalText);

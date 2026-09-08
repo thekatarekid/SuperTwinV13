@@ -35,7 +35,13 @@
 
 import { listPreparedActions } from "../brain/live.js";
 import { isBudgetTripped, isModelActivityPaused } from "../providers/budget.js";
-import { runPreparedQueue, type LiteRunDeps, type LiteRunResult } from "./lite.js";
+import { assertProviderAuthReady } from "../providers/gate.js";
+import {
+  resolveLiteModelCall,
+  runPreparedQueue,
+  type LiteRunDeps,
+  type LiteRunResult,
+} from "./lite.js";
 
 /** Every two minutes: prepared work is not urgent, but it is not next week. */
 export const PREPARED_QUEUE_INTERVAL_MS = 120_000;
@@ -67,6 +73,17 @@ const EMPTY = (status: PreparedQueueStatus, queued: number, reason: string | nul
   modelCalls: 0,
 });
 
+function permanentProviderHold(error: unknown): string | null {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  return code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED" ||
+      code === "PROVIDER_UNAVAILABLE" || code === "BACKEND_UNSUPPORTED" ||
+      code === "BUDGET_EXCEEDED" || code === "MODEL_ACTIVITY_PAUSED"
+    ? `${code}: active provider is not runnable — the queue is kept, not burned`
+    : null;
+}
+
 /**
  * One tick: look, decide, maybe drain. Never throws for a queue reason — a
  * failing action is executor-lite's business and comes back on its result.
@@ -80,7 +97,27 @@ export async function preparedQueueTick(
   if (isModelActivityPaused()) return EMPTY("held", queued, "model activity is paused — the queue is kept, not burned");
   if (isBudgetTripped()) return EMPTY("held", queued, "budget latch is set — the queue is kept until an operator resets it");
 
-  const results = await runPreparedQueue({ ...(opts.deps ?? {}), limit });
+  // Resolve once for this drain and pass the immutable snapshot through every
+  // action. Auth is a lookup here, before any row is activated; the shared
+  // provider gate repeats it immediately before transport.
+  let resolvedCall;
+  try {
+    resolvedCall = resolveLiteModelCall(opts.deps);
+    assertProviderAuthReady(resolvedCall.provider.authState());
+  } catch (error) {
+    const reason = permanentProviderHold(error);
+    if (reason) return EMPTY("held", queued, reason);
+    throw error;
+  }
+
+  let results: LiteRunResult[];
+  try {
+    results = await runPreparedQueue({ ...(opts.deps ?? {}), resolvedCall, limit });
+  } catch (error) {
+    const reason = permanentProviderHold(error);
+    if (reason) return EMPTY("held", queued, reason);
+    throw error;
+  }
   return {
     status: "drained",
     queued,

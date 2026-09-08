@@ -17,7 +17,8 @@ import { resetStableSystemPromptsForTests } from "../brain/llm.js";
 import type { PreparedActionPayload, PreparedActionRow } from "../brain/live.js";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { clampLiteBudget, LITE_MAX_TURNS, LITE_MIN_TURNS } from "../prompts/lite.v1.js";
-import type { Provider, ProviderResult, ProviderStreamEvent, SendOptions, Usage } from "../providers/types.js";
+import type { NeutralProviderResult, ProviderRequest, ProviderStreamEvent, ProviderV2, Usage } from "../providers/types.js";
+import { TEST_PROVIDER_MAX_OUTPUT_TOKENS, providerRequestText } from "../providers/test-support.js";
 import { recordProviderInvocation } from "../traces/context.js";
 import type { TraceRecord } from "../traces/store.js";
 import {
@@ -36,21 +37,42 @@ const USAGE: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadIn
 const NOW_MS = Date.parse("2026-09-05T10:40:00.000Z");
 
 /** Replays scripted events and records a provider invocation, like the adapter. */
-class StubProvider implements Provider {
-  id = "stub-lite";
-  sent: SendOptions[] = [];
+class StubProvider implements ProviderV2 {
+  readonly id: "claude-local" = "claude-local";
+  readonly displayName = "Executor-lite test provider";
+  readonly capabilities = { functionTools: false, hostTools: true, continuation: true, requiresAuthentication: false };
+  sent: ProviderRequest[] = [];
   constructor(
     private events: ProviderStreamEvent[],
     private costUsd = 0.001,
   ) {}
-  async send(opts: SendOptions): Promise<ProviderResult> {
+  authState() { return { status: "ready" as const, error: null }; }
+  catalogue() {
+    return {
+      providerId: this.id,
+      mode: "discovered" as const,
+      source: "offline-test",
+      discoveredAt: "2026-09-08T00:00:00.000Z",
+      revision: "lite-test-r1",
+      error: null,
+      models: [{
+        id: "lite-test-model", displayName: "Lite Test", isDefault: true, hidden: false,
+        inputModalities: ["text" as const], reasoningValues: ["off"], defaultReasoning: "off",
+        supportsTools: false, supportsHostTools: true, supportsParallelToolCalls: false,
+        supportsStructuredOutput: false, supportsStrictTools: false, supportsVerbosity: false,
+        supportsPromptCacheKey: false, supportsPromptCacheOptions: false,
+        contextWindow: 200_000, maxOutputTokens: TEST_PROVIDER_MAX_OUTPUT_TOKENS, billingLabel: null,
+      }],
+    };
+  }
+  async send(opts: ProviderRequest): Promise<NeutralProviderResult> {
     this.sent.push(opts);
     recordProviderInvocation({
       runId: opts.runId,
       attempt: 1,
       model: opts.model ?? null,
       systemPrompt: "lite.v1",
-      packedContext: opts.message,
+      packedContext: providerRequestText(opts),
       rawOutput: "",
       usage: { ...USAGE, costUsd: this.costUsd },
       latencyMs: 1,
@@ -58,16 +80,17 @@ class StubProvider implements Provider {
       ts: new Date(NOW_MS).toISOString(),
     });
     for (const e of this.events) opts.onEvent(e);
-    return { sessionId: "s1", usage: { ...USAGE, costUsd: this.costUsd }, freshFallback: false, status: "ok" };
+    return { continuation: "s1", usage: { ...USAGE, costUsd: this.costUsd }, freshFallback: false, status: "ok" };
   }
   cancel(): boolean {
     return false;
   }
+  killAll(): void {}
 }
 
 const done = (usage: Partial<Usage> = {}): ProviderStreamEvent => ({
   type: "done",
-  sessionId: "s1",
+  continuation: "s1",
   usage: { ...USAGE, ...usage },
 });
 const toolUse = (name: string, input: unknown): ProviderStreamEvent => ({ type: "tool_use", name, input });
@@ -190,7 +213,11 @@ describe("the ceilings are refusals, and both are in the trace (EXE-01)", () => 
       fetchImpl: stubFetch({}),
     });
 
-    expect(provider.sent[0]!.maxTurns).toBe(4);
+    expect(provider.sent[0]!.maxAgentTurns).toBe(4);
+    expect(provider.sent[0]!.hostTools?.sort()).toEqual([...LITE_TOOL_NAMES].sort());
+    expect(provider.sent[0]!.toolChoice).toBe("auto");
+    expect(provider.sent[0]!.maxOutputTokens).toBe(TEST_PROVIDER_MAX_OUTPUT_TOKENS);
+    expect(provider.sent[0]).not.toHaveProperty("continuation");
     expect(res.turns.ceiling).toBe(4);
     expect(res.turns.used).toBeLessThanOrEqual(4);
     expect(res.turns.used).toBeLessThanOrEqual(LITE_MAX_TURNS);
@@ -272,6 +299,31 @@ describe("thin context stops before it spends (EXE-02)", () => {
   it("an explicit needs[] slot the live pass left empty is a gap too", () => {
     const gaps = liteGaps({ action: "brief", inputs: { needs: ["recipient"], recipient: "unknown" } });
     expect(gaps.map((g) => g.field)).toEqual(["recipient"]);
+  });
+});
+
+describe("provider-neutral admission", () => {
+  it("keeps a hard provider refusal typed and leaves the prepared row deferred", async () => {
+    const row = seedPrepared(prepared());
+    const provider = new StubProvider(
+      [{ type: "error", code: "AUTH_EXPIRED", message: "sign in again" }],
+    );
+    const originalSend = provider.send.bind(provider);
+    provider.send = async (request) => ({
+      ...(await originalSend(request)),
+      status: "error",
+      errorCode: "AUTH_EXPIRED",
+    });
+
+    await expect(runPreparedAction(row, {
+      provider,
+      nowMs: NOW_MS,
+      fetchImpl: stubFetch({}),
+    })).rejects.toMatchObject({ code: "AUTH_EXPIRED" });
+    const stored = getDb()
+      .prepare(`SELECT status FROM deferred_outputs WHERE id = ?`)
+      .get(row.id) as { status: string };
+    expect(stored.status).toBe("deferred");
   });
 });
 

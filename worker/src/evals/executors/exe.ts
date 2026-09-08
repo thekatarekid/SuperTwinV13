@@ -33,7 +33,8 @@ import { writeClaimVersion } from "../../claims/store.js";
 import { getDb } from "../../db/connection.js";
 import { PREPARED_ACTION_KIND, type PreparedActionPayload, type PreparedActionRow } from "../../brain/live.js";
 import { runPreparedAction, type FetchRecord, type LiteRunResult } from "../../executor/lite.js";
-import type { Provider, ProviderResult, ProviderStreamEvent, SendOptions, Usage } from "../../providers/types.js";
+import type { NeutralProviderResult, ProviderRequest, ProviderStreamEvent, ProviderV2, Usage } from "../../providers/types.js";
+import { TEST_PROVIDER_MAX_OUTPUT_TOKENS, providerRequestText } from "../../providers/test-support.js";
 import { recordProviderInvocation } from "../../traces/context.js";
 import type { TraceRecord } from "../../traces/store.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
@@ -64,21 +65,38 @@ function strs(v: unknown): string[] {
 
 /** Replays the fixture's script and records one provider invocation (so the
  *  trace scope has something to flush and EXE-01 can read the ceilings off it). */
-class ScriptedProvider implements Provider {
-  id = "eval-lite-stub";
-  sent: SendOptions[] = [];
+class ScriptedProvider implements ProviderV2 {
+  readonly id: "claude-local" = "claude-local";
+  readonly displayName = "Executor eval provider";
+  readonly capabilities = { functionTools: false, hostTools: true, continuation: true, requiresAuthentication: false };
+  sent: ProviderRequest[] = [];
   constructor(
     private readonly events: ProviderStreamEvent[],
     private readonly costUsd: number,
   ) {}
-  async send(opts: SendOptions): Promise<ProviderResult> {
+  authState() { return { status: "ready" as const, error: null }; }
+  catalogue() {
+    return {
+      providerId: this.id, mode: "discovered" as const, source: "offline-eval",
+      discoveredAt: EXE_NOW_ISO, revision: "executor-eval-r1", error: null,
+      models: [{
+        id: "executor-eval-model", displayName: "Executor Eval", isDefault: true, hidden: false,
+        inputModalities: ["text" as const], reasoningValues: ["off"], defaultReasoning: "off",
+        supportsTools: false, supportsHostTools: true, supportsParallelToolCalls: false,
+        supportsStructuredOutput: false, supportsStrictTools: false, supportsVerbosity: false,
+        supportsPromptCacheKey: false, supportsPromptCacheOptions: false,
+        contextWindow: 200_000, maxOutputTokens: TEST_PROVIDER_MAX_OUTPUT_TOKENS, billingLabel: null,
+      }],
+    };
+  }
+  async send(opts: ProviderRequest): Promise<NeutralProviderResult> {
     this.sent.push(opts);
     recordProviderInvocation({
       runId: opts.runId,
       attempt: 1,
       model: opts.model ?? null,
       systemPrompt: "lite.v1",
-      packedContext: opts.message,
+      packedContext: providerRequestText(opts),
       rawOutput: "",
       usage: { ...USAGE, costUsd: this.costUsd },
       latencyMs: 1,
@@ -86,11 +104,12 @@ class ScriptedProvider implements Provider {
       ts: EXE_NOW_ISO,
     });
     for (const e of this.events) opts.onEvent(e);
-    return { sessionId: "eval", usage: { ...USAGE, costUsd: this.costUsd }, freshFallback: false, status: "ok" };
+    return { continuation: "eval", usage: { ...USAGE, costUsd: this.costUsd }, freshFallback: false, status: "ok" };
   }
   cancel(): boolean {
     return false;
   }
+  killAll(): void {}
 }
 
 /** The fixture's `pages`: url → [status, body][] replayed in order. */
@@ -125,7 +144,7 @@ function scriptEvents(script: Record<string, unknown>): { events: ProviderStream
     }
   }
   events.push({ type: "delta", text: JSON.stringify(script.final ?? {}) });
-  events.push({ type: "done", sessionId: "eval", usage: { ...USAGE, costUsd } });
+  events.push({ type: "done", continuation: "eval", usage: { ...USAGE, costUsd } });
   return { events, costUsd };
 }
 

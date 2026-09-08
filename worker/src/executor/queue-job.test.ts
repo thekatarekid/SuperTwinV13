@@ -23,6 +23,8 @@ import { resetStableSystemPromptsForTests } from "../brain/llm.js";
 import { listPreparedActions, type PreparedActionPayload, type PreparedActionRow } from "../brain/live.js";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { resetBudgetLatch, setModelActivityPaused, tripBudget } from "../providers/budget.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
+import { registerV2, resetProviderRegistryForTests } from "../providers/registry.js";
 import {
   PREPARED_QUEUE_BOOT_DELAY_MS,
   PREPARED_QUEUE_INTERVAL_MS,
@@ -80,12 +82,17 @@ beforeEach(() => {
   closeDb();
   runMigrations();
   resetStableSystemPromptsForTests();
+  const provider = providerV2TestDouble(async () => {
+    throw new Error("thin queue fixture must never send");
+  }, { model: { supportsHostTools: true } });
+  registerV2({ ...provider, capabilities: { ...provider.capabilities, hostTools: true } });
   getDb().prepare(`INSERT INTO spaces (id, label, goal, status) VALUES ('sp1','Goa trip','villa under 6k','active')`).run();
 });
 
 afterEach(() => {
   setModelActivityPaused(false);
   resetBudgetLatch();
+  resetProviderRegistryForTests();
   closeDb();
   delete process.env.SUPERTWIN_DB_PATH;
   delete process.env.SUPERTWIN_HOME;
@@ -143,6 +150,27 @@ describe("preparedQueueTick", () => {
     expect(queued()).toEqual(["prep_1"]);
     resetBudgetLatch();
     expect((await preparedQueueTick()).drained).toBe(1);
+  });
+
+  it("a signed-out active provider holds the row without sending or activating it", async () => {
+    thin("prep_1", "2026-09-05T10:00:00.000Z");
+    let sends = 0;
+    const ready = providerV2TestDouble(async () => {
+      sends += 1;
+      throw new Error("must not send");
+    }, { model: { supportsHostTools: true } });
+    registerV2({
+      ...ready,
+      capabilities: { ...ready.capabilities, hostTools: true },
+      authState: () => ({ status: "signed_out", error: null }),
+    });
+
+    const r = await preparedQueueTick();
+    expect(r.status).toBe("held");
+    expect(r.reason).toContain("AUTH_REQUIRED");
+    expect(r.drained).toBe(0);
+    expect(sends).toBe(0);
+    expect(queued()).toEqual(["prep_1"]);
   });
 });
 

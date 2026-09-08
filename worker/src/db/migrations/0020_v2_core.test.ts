@@ -169,6 +169,9 @@ describe("0020_v2_core applies", () => {
       // P1-D: copies legacy model/reasoning rows into the Claude provider
       // namespace without deleting or overwriting settings.
       "0212_provider_settings_namespace",
+      // Phase 0a amendment: appends browser Authorization Code + PKCE as the
+      // shipped product ceremony without changing the original probe record.
+      "0213_chatgpt_browser_pkce_decision",
     ]);
 
     expect(

@@ -8,17 +8,18 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 
 ### Implementation Status (2026-09-08)
 
-- **Overall:** In progress; Phase 0a is accepted and durably seeded. Phase 0b's auth and zero-inference account-metadata subgates passed on 2026-09-08. The live contract reached three fail-closed canaries (3/55 authorized inference attempts consumed). Account-specific discovery resolved the matrix to 46 inference POSTs, so the remaining budget is sufficient; execution is pending a successful request-contract canary.
+- **Overall:** In progress; Phase 0a's original three decisions and the append-only A.1.1 browser-PKCE amendment are accepted and durably seeded. Browser Authorization Code + PKCE with automatic loopback callback is the only shipped product-login ceremony; device code remains probe-only historical evidence. The zero-inference browser-auth smoke still gates P2-A. The live contract reached three fail-closed canaries (3/55 authorized inference attempts consumed); compatible transport evidence and the compact-error diagnosis are preserved.
 - **Baseline:** implementation commits are recorded in the progress log; application version `13.12.2` (no new app build yet).
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
 
 #### Phase and Task Checklist
 
-- [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved. The three complete records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
+- [x] **Phase 0a — Original Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible client identity and direct private-backend transport, explicitly accept the documented private-backend/account risk, and use the approved consent copy. The three original records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
+- [x] **Phase 0a — Product Login Amendment:** browser Authorization Code + PKCE with an automatic loopback callback is accepted as the only shipped ChatGPT login ceremony. The append-only A.1.1 decision row preserves the original Hermes/device-probe history and the 3/55 inference state. Production P2-A and OAuth UI/routes remain blocked on the zero-inference browser-auth fixture.
 - [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted and the auth-only subgate passed. `--live-auth` completed with 9 OAuth requests and 0 model/catalogue, quota, inference, or other requests. The 70-case matrix has a 55-POST absolute ceiling with no retries; the selected account/model capabilities reduce the exact live plan to 46 POSTs and 9 unsupported skips. Dedicated-account, ephemeral refresh/rotation/logout, capability, per-case output, cancellation, exact HTTP-accounting, cache, quota and concurrency/resource evidence are implemented offline. Three fail-closed canaries consumed 3/55 authorized attempts; the remaining 52 are sufficient for the 46-POST fresh plan, or 45 after a successful checkpointed canary.
-- [ ] **P1-A — Provider-neutral contract types:** pending Phase 0b exit evidence.
-- [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
+- [x] **P1-A — Provider-neutral contract types:** strict neutral contract landed with a one-release legacy compatibility seam.
+- [ ] **P1-B–P1-E — G1 foundations:** P1-B shared gate, P1-C exhaustive failure classification, and P1-D provider settings namespace are complete; P1-E catalogue integration is implemented and under review.
 - [ ] **P1-F — Provider/model resolver:** pending G1.
 - [ ] **P1-G/P1-H — Call-site migration, registry and shutdown:** pending P1-F.
 - [ ] **P2-A–P2-E — G4 ChatGPT OAuth modules:** pending Phase 0b fixtures and Phase 1 seams.
@@ -41,6 +42,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Bundled-executable verifier: every required program must be executable and match the DMG architecture. Focused 12/12 and full 147/147 script checks pass; the existing 13.12.2 artifact is arm64-compatible throughout (with universal `yt-dlp`) and remains local-only.
 - [x] Release identity hardening: version bumps now prevalidate and update the application stanza in `Cargo.lock`; release CI checks both lockfiles; duplicate detection covers canonical Tauri and historical phase-prefixed DMG names.
 - [x] Phase 0a durable decision seed: exact OAuth identity/endpoints/headers/mechanics, terms risk posture, and approved consumer-data consent are stored as three additive governance rows. Fresh/upgrade/idempotence/amendment-preservation tests pass.
+- [x] Phase 0a browser-login amendment: A.1.1 is a fourth append-only governance row with exact browser-PKCE authorize/exchange/refresh/callback semantics, explicit no-fallback boundaries, permanent separate Claude provider status, and preserved 3/55 evidence. Upgrade, replay, local-amendment and exact-field tests pass.
 - [x] Latest complete offline worker gate: 335 files passed, 4,064 tests passed, 7 intentionally skipped, zero live-model calls; the 60-second scratch-home boot test closed its port and removed its home.
 - [x] Phase 0b probe scaffold: pinned Hermes device endpoints/client ID, honest SuperTwin identity, bounded polling/timeouts, redacted dry-run fixtures, temp-home opt-in, exact endpoint accounting and hard HTTP ceilings. The 70-case/55-POST matrix, bounded SSE parser, dedicated-account rail, model/capability selection, quota health, ephemeral refresh, strict output/tool/usage predicates, and cancellation proof have offline coverage. Live execution requires explicit mode-specific opt-ins and account binding.
 - [x] Phase 0b dedicated-account rail: a separate contract opt-in and predeclared 12-hex account fingerprint are both required; the decoded OAuth account is compared timing-safely before model, quota, or inference traffic. Live-auth reports only the safe fingerprint for a later run.
@@ -70,6 +72,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 - [x] Phase 0b successful-canary checkpoint/resume: ledger schema v3 atomically tags the sequence-1 reservation and cumulative charge and binds the immutable planned count. Only the exact reservation may be marked matched, and only after strict response acceptance, final healthy quota/accounting, logout, abort recheck and the outer no-residual scratch proof. HTTP errors, restrictions, cancellation, SIGINT, final-quota failure, contamination, crashes, fabricated claims and conflicting concurrent writers remain charged but non-reusable. A validated resume emits explicit `checkpoint-reused` evidence, never reuses a persisted response ID, skips only sequence 1, and enforces the exact capability-resolved HTTP ceiling before fetch (45 for the current plan; 54 for the fully capable fixture). Probe 196/196, worker typecheck, diff check and independent review pass with zero live calls.
 - [x] Phase 0b metadata evidence (2026-09-08): the latest owner-attended zero-inference plan discovery passed on fingerprint `7d41db9e5a28`. Exact actuals were device-code 1 + polls 39 + token 1 + models 1 + quota 1 = 43, with inference/other 0. The selected `gpt-5.6-sol` advertised text/image input and parallel tool calls; absent capability metadata stays unsupported. The resulting 70-case plan has 46 inference POSTs, 9 unsupported skips, version `phase0b-contract-matrix-v1`, and SHA-256 `b02baf6834d23ad8fbaf5df4f693f3f924ce6f8787cc9173f1668995e96cac88`. Quota reported plan `prolite`, 24% primary usage, healthy state and no restriction signal. Ephemeral credentials were cleared, no listener was created, and the empty scratch home was removed.
 - [ ] Phase 0b ledger-enforced canary (2026-09-08): the owner-approved ledger started at 2/55 and durably reserved attempt 3 immediately before the single inference fetch. The response was HTTP 400 JSON with no recognized error envelope (`json-other`, 53 bytes), so strict acceptance failed and no checkpoint was created. Exact actuals were device-code 1 + polls 72 + token 2 + models 1 + quota 1 + inference 1 = 78, other 0; no later case ran. The ledger now records 3/55 consumed and the attempt as reserved/non-reusable; logout completed and the empty scratch home was removed.
+- [ ] Phase 0b compact-error diagnostic retry (2026-09-08): the fresh device window expired unapproved after 15 minutes. Exact actuals were device-code 1 + polls 169 = 170; token/models/quota/inference/other were 0. The ledger remains 3/55 and the empty scratch home was removed. Offline evidence strongly identifies the 53-byte response as a top-level `detail` rejection of `max_output_tokens`; the revised request/plan remains subject to offline review and a later attended one-request confirmation.
 - [x] Phase 1 preparation audit: P1-A's exact type/compatibility seam and G1's gate/classification ownership/tests are mapped. The shared gate requires a split budget precheck/admission seam, per-physical-attempt accounting, provider-tagged call buckets, unknown-cost preservation, and exhaustive typed failure normalization; no Phase 1 source was changed before Phase 0b exit.
 - [x] Release-workflow artifact gate: macOS CI mounts and verifies the just-built DMG before any upload. Pending manifest rows require the independently computed build SHA; completed manifest rows cannot be overridden.
 
@@ -136,6 +139,14 @@ The direct backend is not a public API. Reaching it requires an OAuth client and
 
 V1 §4.7 allowed "user agent" in the header allowlist and never named a value, which left this decision implicit in the code. Record the choice, the header values, and who accepted the risk. If the answer is (2) or (3), record explicitly that every user's ChatGPT account is the collateral and that the feature ships flagged off by default.
 
+#### 2.1.1 Product Login Ceremony Amendment
+
+1. Keep the accepted Hermes-compatible client identity and direct private-backend transport.
+2. Use the browser Authorization Code flow with PKCE (`S256`) and an automatic loopback callback for the shipped `chatgpt-oauth` login, following the inspected Muesli ceremony at pinned commit `31fb39b40ce7224d48aefeb1d6807ea39b5a9052`.
+3. The user clicks **Sign in with ChatGPT**, grants access in the browser, and returns automatically. The product UI never asks the user to copy or enter an authorization code.
+4. Device-code support already built under `chatgpt-oauth/probe/` remains probe-only historical evidence. It is not wired into production `auth.ts`, routes or UI, and is not a product fallback in V2.
+5. This amendment changes only authentication. It does not change the provider count, direct HTTP/SSE model transport, request contract, concurrency design, model discovery, Keychain design, or the rule against API keys and Codex CLI.
+
 ### 2.2 Terms of Service
 
 Record a written position on whether driving a ChatGPT subscription from a non-Codex client, at 8+ concurrent streams, for continuous background processing, is permitted. Name the clause relied on or the risk accepted. A "distribution review" deferred to Phase 6 (V1 §9.7.6) arrives after the code is written, which is when a review can no longer say no.
@@ -148,7 +159,7 @@ Record: what the retention posture actually is, whether it differs from the Clau
 
 ### 2.4 Exit Criterion
 
-Three decision rows exist, each naming the decision, the rationale, the residual risk, and the accepting owner. If any is "unresolved", the build stops here and `claude-local` continues to ship alone.
+The original three decision rows plus the append-only product-login amendment row exist, each naming the decision, the rationale, the residual risk, and the accepting owner. If any is "unresolved", production ChatGPT work stops and `claude-local` continues to ship alone. Existing transport-contract probes may continue only where A.1.1 explicitly preserves their evidence and call budget.
 
 ## 3. Architecture
 
@@ -161,13 +172,14 @@ Three decision rows exist, each naming the decision, the rationale, the residual
 ```text
                          LOGIN AND TOKEN PATH
 
-                 login/status                         browser/device
-+-------------+ <-------------> +------------------+ <----------------> +---------------+
-| Settings UI |                 | OAuth Controller |        flow        | ChatGPT OAuth |
-+-------------+                 +---------+--------+                    +---------------+
-                                          |
-                                          | store and rotate tokens
-                                          v
+                 login/status                   open authorization URL
++-------------+ <-------------> +------------------+ --------------------> +---------------+
+| Settings UI |                 | OAuth Controller |                       | ChatGPT OAuth |
++-------------+                 +----+--------+----+ <-------------------- +---------------+
+                                      ^        |       code + state to
+                                      |        |       loopback callback
+                         status/cancel|        | store and rotate tokens
+                                      |        v
                                   +-------+---------------+
                                   | macOS Keychain        |
                                   | account namespaced by |
@@ -327,7 +339,15 @@ Accepted input items, tool definitions and text output values are V1 §4.1, §4.
 ### 5.3 OAuth, Keychain and Transport
 
 1. Create `worker/src/providers/chatgpt-oauth/` with modules for login, Keychain storage, refresh, model discovery, request building, SSE parsing, usage, and the provider interface.
-2. Implement the pinned Hermes device-code flow: request a user code, open or link to the browser verification page, poll the correlated device authorization, and exchange its authorization code plus returned verifier. Show progress, plan type, quota state, expiry, and sign-out. Do not add a loopback listener, a separate `/authorize` request, or an invented `scope`; none is part of the selected contract.
+2. Implement the browser Authorization Code + PKCE login as the only shipped login ceremony. Follow the inspected Muesli flow, with SuperTwin's honest identity and the security hardening below:
+   1. Generate a high-entropy `code_verifier`, its SHA-256 base64url `code_challenge`, and a separate high-entropy single-use `state`.
+   2. Bind the temporary callback server only to IPv4 loopback and use redirect URI `http://localhost:1455/auth/callback`. Treat port-in-use as a typed login error. An alternate port may be used only after a zero-inference live test proves the registered OAuth client accepts it.
+   3. Open `https://auth.openai.com/oauth/authorize` with exactly: `client_id=app_EMoamEEZ73f0CkXaXp7hrann`, the exact `redirect_uri`, `response_type=code`, `scope=openid profile email offline_access`, the generated `state`, the generated `code_challenge`, `code_challenge_method=S256`, `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, and `originator=supertwinv13`.
+   4. Accept only one bounded `GET /auth/callback` request. Require an exact, timing-safe `state` match and a nonempty code; reject wrong paths, methods, malformed encoding, oversized headers/targets, duplicate callbacks, and OAuth error callbacks without exposing their raw values.
+   5. Exchange the code at `https://auth.openai.com/oauth/token` with `grant_type=authorization_code`, the client ID, exact redirect URI, and `code_verifier`. Never send the verifier in the authorization URL.
+   6. Stop the listener on success, rejection, cancellation, timeout, window close, worker shutdown, or exception. Return a minimal `Connection: close` success/failure page containing no token, code, account ID or callback URL.
+   7. The Settings UI shows progress, success/error, plan type, quota state, expiry, and sign-out; it never displays or asks the user to paste an authorization code.
+   8. Keep the existing device-code implementation only under the Phase 0b probe directory. Do not import it from production code or expose it as a Settings option or automatic fallback.
 3. **The Keychain account name is namespaced by home.** Derive it as `supertwin.chatgpt-oauth.<sha256(resolved SUPERTWIN_HOME)[0..15]>`. Keychain is not home-scoped, but every dev worker (CLAUDE.md §1.3.1) and every eval run (`evals/home.ts` `establishEvalHome`) is. Without namespacing, a scratch-home worker or a golden eval shares one **rotating** refresh token with the user's real session, and one refresh in the scratch process signs the user out of the app. Document the chosen access method (`security` CLI shellout vs. native module) and what happens to the Keychain ACL when Tauri re-signs the binary on update.
 4. Give SuperTwin its own OAuth session. Do not share or copy `~/.codex/auth.json`.
 5. **Refresh-token rotation protocol.** One process-wide refresh promise is necessary and not sufficient — rotation kills the old token when the new one is issued, and a crash between "server rotated" and "we persisted" locks the user out permanently. Required: persist the new pair **before** the first request uses it; keep the previous pair for one rotation as a recovery candidate; on `401` refresh once, retry the original request once; on a refresh that fails with a rotation-shaped error, surface `AUTH_EXPIRED` (a hold, §7) and require re-login rather than retrying.
@@ -614,7 +634,7 @@ Keys:
 2. `POST /api/settings/provider` accepts only `{ "provider": "claude-local" | "chatgpt-oauth" }`.
 3. `POST /api/settings/intelligence` keeps `{ step, model?, thinking?, enabled? }` and validates against the active provider's catalogue.
 4. `GET /api/providers/chatgpt-oauth/status` returns signed-in state, plan/quota summary, token expiry, canary result. Never tokens.
-5. `POST .../login/start`, `GET .../login/status`, `POST .../login/cancel`, `POST .../logout`.
+5. `POST .../login/start` creates one browser-PKCE attempt and returns only `{ login_id, auth_url, expires_at }`; `GET .../login/status` returns a bounded state (`idle | awaiting_browser | exchanging | signed_in | failed | cancelled | expired`); `POST .../login/cancel` stops the matching listener and clears ephemeral verifier/state/code data; `POST .../logout` clears the home-scoped credential. The callback listener is loopback-only and is not a public worker API route. On success it serves a fixed minimal **Signed in to SuperTwin** page containing no token, code, account ID, or reflected query value.
 6. Errors use the §7.1 code set verbatim.
 7. `GET /api/settings/models` keeps working for one release, derived from the new service.
 
@@ -663,18 +683,19 @@ Phases run in order. **Within** a phase, tasks marked with the same parallel gro
 
 ### 11.1 Phase 0a — Decision Gate (serial, human, blocking)
 
-§2. Three decision rows: client identity, terms, data posture. No implementation task starts until all three exist. Not parallelisable and not delegable to a subagent.
+§2 and Appendix A. Keep the three original rows for client identity/transport, terms and data posture. Add A.1.1 as a fourth append-only row for the browser-PKCE product login; never overwrite the original device-probe record. Production OAuth task P2-A and its UI/routes cannot start until all four rows exist. The already-authorized Phase 0b request-contract work may continue because the transport, account, model, ledger and inference budget are unchanged. This decision work is not parallelisable or delegable to a subagent.
 
 ### 11.2 Phase 0b — Confirm the Direct Backend Contract (mostly serial, live account)
 
 1. Add an opt-in probe under `worker/src/providers/chatgpt-oauth/probe/`, not connected to application traffic.
-2. Verify the browser-completed device-code login, refresh, account selection, model listing, quota listing, request URL, required headers, SSE event types, cancellation, and logout. Confirm no loopback port is opened.
-3. **Probe every §5.1 field serially at concurrency 1 first.** Record a redacted fixture for each accepted and rejected shape.
-4. Probe blank instructions, omitted tools, cache modes, strict JSON output, images, tool calls and usage — still at concurrency 1.
-5. **Only then** run the concurrency ladder, and stop it at the shipped ceiling: 1, 4, 8, 16. V1's 32 and 64 against an undocumented backend on a real subscription is the abuse-detection signature, and it buys a number §10.3 will not ship anyway.
-6. Measure the call rate at concurrency 8 and the observed prompt-cache behaviour. These two numbers set §8.3.1's ceiling and settle §10.6.
-7. Write the canary request and its degraded-state handling (§5.3.9).
-8. **Exit criteria:** repeatable login, model list, blank-context response, stream completion, refresh and cancellation; no secret in logs or SQLite; a measured call rate; **and the test account is not rate-limited, flagged, or CAPTCHA-walled at the end of the run.** State the expected probe call count before starting and report the actual count (CLAUDE.md rule 5).
+2. Preserve the completed device-code runs and their exact HTTP accounting as historical evidence for token shape, account binding, refresh, model/quota discovery, and direct-backend transport. The device-code probe does not satisfy production login acceptance and must not be connected to product code.
+3. Add a separate zero-inference browser-auth smoke mode. Verify the exact authorization URL fields, PKCE verifier/challenge correlation, automatic loopback callback, exact state validation, account/workspace selection, code exchange, refresh, cancellation, timeout, port-in-use behavior, logout, listener cleanup, and secret absence. It must hard-cap model, quota, inference and other backend calls at zero unless separately authorized.
+4. **Probe every §5.1 field serially at concurrency 1 first.** Record a redacted fixture for each accepted and rejected shape.
+5. Probe blank instructions, omitted tools, cache modes, strict JSON output, images, tool calls and usage — still at concurrency 1.
+6. **Only then** run the concurrency ladder, and stop it at the shipped ceiling: 1, 4, 8, 16. V1's 32 and 64 against an undocumented backend on a real subscription is the abuse-detection signature, and it buys a number §10.3 will not ship anyway.
+7. Measure the call rate at concurrency 8 and the observed prompt-cache behaviour. These two numbers set §8.3.1's ceiling and settle §10.6.
+8. Write the canary request and its degraded-state handling (§5.3.9).
+9. **Exit criteria:** the zero-inference browser login smoke passes; model list, blank-context response, stream completion, refresh and cancellation are repeatable; no secret appears in logs or SQLite; the call rate is measured; **and the test account is not rate-limited, flagged, or CAPTCHA-walled at the end of the run.** Do not repeat an inference case solely because the login ceremony changed. State the expected probe call count before starting and report the actual count (CLAUDE.md rule 5).
 
 Parallel: none against the live backend. Fixture write-up and parser scaffolding (P2-D below) may proceed concurrently from the fixtures already captured.
 
@@ -712,7 +733,7 @@ The critical path. One serial task, then a wide fan-out, then a wider one.
 
 | Task | Owns | Depends on | Group |
 |---|---|---|---|
-| **P2-A** `auth.ts` + `keychain.ts`: Hermes-compatible device-code start/poll/exchange, poll correlation + returned verifier validation, home-namespaced Keychain account, refresh lock, rotation protocol (§5.3.5), logout | `chatgpt-oauth/auth.ts`, `chatgpt-oauth/keychain.ts` | P1-A, 0b | **G4** |
+| **P2-A** `auth.ts` + `keychain.ts`: Muesli-referenced browser Authorization Code + PKCE start/callback/exchange; bounded loopback listener, state validation, timeout/cancel/cleanup and minimal success page; home-namespaced Keychain account, refresh lock, rotation protocol (§5.3.5), logout; device-code probe code is not imported | `chatgpt-oauth/auth.ts`, `chatgpt-oauth/keychain.ts` | P1-A, 0b browser-auth fixture | **G4** |
 | **P2-B** `models.ts`: discovery, normalization, cache, capability flags | `chatgpt-oauth/models.ts` | P1-A, P1-E, 0b fixtures | **G4** |
 | **P2-C** `request.ts`: strict §5.1 allowlist, unknown-field rejection, per-field validation | `chatgpt-oauth/request.ts` | P1-A, 0b fixtures | **G4** |
 | **P2-D** `sse.ts`: bounded incremental parser, fragmented chunks, Unicode boundaries, malformed events | `chatgpt-oauth/sse.ts` | 0b fixtures | **G4** |
@@ -732,7 +753,7 @@ A/B/C/D/E have no shared files and can run as five concurrent agents against the
 |---|---|---|---|
 | **P3-A** Shared API types in `src/lib/api.ts` | `src/lib/api.ts` | P1-A | **serial — blocks B and C** |
 | **P3-B** Worker routes: provider-aware `modelCatalog()`, §9.3 endpoints, OAuth routes | `server/settings-routes.ts`, new provider routes | P3-A, P2-F | **G5** |
-| **P3-C** UI: provider dropdown, auth state, sign-in/out, per-provider dropdown rebuild, loading/signed-out/cached/unavailable/empty/retry states, provider-aware pricing copy, §2.3 consent copy | `src/screens/settings/IntelligencePanel.tsx`, `ModelList.tsx` | P3-A | **G5** |
+| **P3-C** UI: provider dropdown, browser-PKCE sign-in/out state, automatic success after callback, per-provider dropdown rebuild, loading/signed-out/cached/unavailable/empty/retry states, provider-aware pricing copy, §2.3 consent copy; never show a code-entry UI | `src/screens/settings/IntelligencePanel.tsx`, `ModelList.tsx` | P3-A | **G5** |
 
 Preserve the existing step enabled toggles, seven-day usage, pending golden status and embedding-model section.
 
@@ -784,7 +805,7 @@ V1 treated this as a routing change. It is a second implementation.
 | **P6-A** Unit tests beside each new module | Phase 2 | **G9** |
 | **P6-B** Server tests: provider selection, auth states, model validation, legacy route compatibility, logout, no-fallback | Phase 3 | **G9** |
 | **P6-C** React tests: provider changes and dropdown contents across all step groups | Phase 3 | **G9** |
-| **P6-D** Security review: device-code flow, poll correlation and returned verifier validation, confirmation that no loopback listener exists, Keychain access and ACL, token rotation, log redaction, CSRF | Phase 2 | **G9** |
+| **P6-D** Security review: Authorization Code + PKCE correlation, high-entropy verifier/state, exact callback validation, loopback-only binding, single-use listener, timeout/cancel/shutdown cleanup, bounded HTTP parsing, minimal success page, Keychain access and ACL, token rotation, log redaction and CSRF | Phase 2 | **G9** |
 | **P6-E** Secret-absence scanner over the trace/log/snapshot corpus (§13.8 is otherwise unfalsifiable) | Phase 2 | **G9** |
 | **P6-F** Golden runs: once with Claude, once with ChatGPT, provider and model recorded per result; the ChatGPT run uses a separately authenticated eval home and never bypasses home-namespaced Keychain isolation | **all of G9**, and §9.5.4 | **serial, live, costed** |
 
@@ -845,7 +866,7 @@ The waiver never reports the artifact as distribution-ready. Native install, lau
 2. **No fallback:** ChatGPT signed out, expired or throttled returns its own error and never invokes Claude or asks for an API key.
 3. **Blank context:** `instructions: ""`, no tools, no history, no cache hint, one user input, one turn, `store: false` reach the request builder unchanged.
 4. **Custom context:** exact instructions, tools, JSON schema, continuation, reasoning, cache and turn cap are sent only when requested.
-5. **OAuth:** device-code poll correlation, returned verifier validation, no loopback listener, refresh rotation, concurrent refresh, crash-between-rotate-and-persist recovery, expiry, cancel, logout, Keychain failure, **and home-namespacing** (a scratch-home worker cannot touch the production entry).
+5. **OAuth:** browser Authorization Code + PKCE, exact state/callback validation, loopback-only single-use listener, bounded callback parsing, timeout/cancel/shutdown cleanup, automatic success without user code entry, refresh rotation, concurrent refresh, crash-between-rotate-and-persist recovery, expiry, logout, Keychain failure, **and home-namespacing** (a scratch-home worker cannot touch the production entry). Production code has no import or route to the device-code probe.
 6. **Streaming:** fragmented SSE, multiple events per chunk, Unicode boundaries, usage, tool calls, refusal, cancellation, malformed events, bounded buffers.
 7. **Catalogue:** live, cached, fallback, hidden, empty, unavailable saved model, per-model reasoning and capability flags.
 8. **Gate:** the fake-provider test (§8.1); kill switch, budget latch and feature flag tested independently; a signed-out provider consumes no budget admission.
@@ -893,33 +914,47 @@ The waiver never reports the artifact as distribution-ready. Native install, lau
 
 1. OpenAI: [Responses request fields](https://developers.openai.com/api/reference/cli/resources/responses/methods/create)
 2. OpenAI: [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
-3. OpenAI: [Codex App Server authentication and quota behavior](https://learn.chatgpt.com/es-419/docs/app-server)
+3. OpenAI: [Codex App Server browser and device-code authentication](https://learn.chatgpt.com/docs/app-server)
 4. Hermes: [Direct ChatGPT Codex transport](https://github.com/NousResearch/hermes-agent/blob/main/agent/transports/codex.py)
 5. Hermes: [Separate OAuth token storage and refresh](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/auth_codex.py)
-6. SuperTwin: [Claude CLI adapter](../worker/src/providers/claude-local/index.ts)
-7. SuperTwin: [Budget, kill switch and background hold](../worker/src/providers/budget.ts)
-8. SuperTwin: [Resource pool and failure classification](../worker/src/providers/pool.ts)
-9. SuperTwin: [Per-role model selection](../worker/src/db/settings.ts)
-10. SuperTwin: [Intelligence steps and catalogue](../worker/src/server/settings-routes.ts)
-11. SuperTwin: [Media enrichment via the Read tool](../worker/src/media/describe.ts)
-12. SuperTwin: [Golden gate and step overrides](../worker/src/settings/golden-gate.ts)
-13. SuperTwin: [Eval home isolation](../worker/src/evals/home.ts)
-14. Predecessor: [V1 implementation doc](./SuperTwinV13_ChatGPTCodexImplementation_V1.md)
+6. Muesli: [Browser Authorization Code + PKCE and loopback callback](https://github.com/Muesli-HQ/muesli/blob/31fb39b40ce7224d48aefeb1d6807ea39b5a9052/native/MuesliNative/Sources/MuesliNativeApp/ChatGPTAuthManager.swift)
+7. SuperTwin: [Claude CLI adapter](../worker/src/providers/claude-local/index.ts)
+8. SuperTwin: [Budget, kill switch and background hold](../worker/src/providers/budget.ts)
+9. SuperTwin: [Resource pool and failure classification](../worker/src/providers/pool.ts)
+10. SuperTwin: [Per-role model selection](../worker/src/db/settings.ts)
+11. SuperTwin: [Intelligence steps and catalogue](../worker/src/server/settings-routes.ts)
+12. SuperTwin: [Media enrichment via the Read tool](../worker/src/media/describe.ts)
+13. SuperTwin: [Golden gate and step overrides](../worker/src/settings/golden-gate.ts)
+14. SuperTwin: [Eval home isolation](../worker/src/evals/home.ts)
+15. Predecessor: [V1 implementation doc](./SuperTwinV13_ChatGPTCodexImplementation_V1.md)
 
 ## Appendix A — Phase 0a Decision Record
 
-Status: **accepted by Aditya Katare on 2026-09-07; Phase 0b may proceed.** The durable, owner-approved entries below are the source for idempotent per-install decision rows. Never write these manually into the user's production database.
+Status: A.1–A.3 were **accepted by Aditya Katare on 2026-09-07**. The A.1.1 product-login amendment was **accepted on 2026-09-08** and must be added as a new append-only decision row before P2-A; it does not rewrite the earlier record. The durable, owner-approved entries below are the source for idempotent per-install decision rows. Never write these manually into the user's production database.
 
-### A.1 Client Identity — Accepted: Hermes-Compatible Pattern
+### A.1 Client Identity and Transport — Accepted: Hermes-Compatible Pattern
 
 - Decision: **follow the ChatGPT OAuth integration pattern implemented by [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) at pinned commit `e9bccc90a5e314ddf6dd4bd3772d50cb40027275`.** Reuse its Codex OAuth public-client identity and private Codex backend contract, but identify SuperTwin honestly instead of copying Hermes's or Codex's user agent.
 - Exact OAuth client ID: `app_EMoamEEZ73f0CkXaXp7hrann`.
-- Exact endpoints: issuer `https://auth.openai.com`; device authorization page `https://auth.openai.com/codex/device`; device-code request `/api/accounts/deviceauth/usercode`; device poll `/api/accounts/deviceauth/token`; token endpoint `https://auth.openai.com/oauth/token`; token-exchange redirect URI `https://auth.openai.com/deviceauth/callback`; inference base `https://chatgpt.com/backend-api/codex`.
-- Exact identity headers: refresh requests use `User-Agent: SuperTwinV13/<app-version>` and `Accept: application/json`; Codex backend requests use `User-Agent: SuperTwinV13/<app-version>` and `originator: supertwinv13`; `ChatGPT-Account-ID` is derived from `chatgpt_account_id` inside the OAuth JWT's `https://api.openai.com/auth` claim. Device-code and token-exchange requests use the required JSON/form content type. Per-call `session_id` and `x-client-request-id` are permitted only as bounded request identifiers, not as client-identity impersonation.
-- Auth mechanics to mirror: device-code flow with no loopback listener or requested scope, exchange of the server-returned authorization code and verifier, refresh 120 seconds before expiry, refresh-token rotation persisted before use, one refresh retry after a 401, process-level refresh locking, and credentials stored only in SuperTwin's Keychain namespace—never in or imported from Hermes/Codex stores.
+- Exact endpoints accepted for the original probe: issuer `https://auth.openai.com`; device authorization page `https://auth.openai.com/codex/device`; device-code request `/api/accounts/deviceauth/usercode`; device poll `/api/accounts/deviceauth/token`; token endpoint `https://auth.openai.com/oauth/token`; device token-exchange redirect URI `https://auth.openai.com/deviceauth/callback`; inference base `https://chatgpt.com/backend-api/codex`. A.1.1 supersedes only the shipped login endpoints and ceremony.
+- Exact identity headers: refresh requests use `User-Agent: SuperTwinV13/<app-version>` and `Accept: application/json`; Codex backend requests use `User-Agent: SuperTwinV13/<app-version>` and `originator: supertwinv13`; `ChatGPT-Account-ID` is derived from `chatgpt_account_id` inside the OAuth JWT's `https://api.openai.com/auth` claim. OAuth and token-exchange requests use the required query/form content type. Per-call `session_id` and `x-client-request-id` are permitted only as bounded request identifiers, not as client-identity impersonation.
+- Original probe mechanics: the Phase 0b device-code flow exchanged the server-returned authorization code and verifier without a loopback listener. This remains valid historical probe evidence but is not the shipped login. Shared mechanics still required in production are refresh 120 seconds before expiry, refresh-token rotation persisted before use, one refresh retry after a 401, process-level refresh locking, and credentials stored only in SuperTwin's Keychain namespace—never in or imported from Hermes/Codex stores.
 - Rationale: this follows the owner's requested, working open-source precedent while keeping SuperTwin's product identity explicit on the wire. OpenAI's official documentation supports ChatGPT sign-in for Codex clients and documents SDK/App Server integrations, but does not document this direct private-backend contract for general third-party personal-assistant traffic.
 - Residual risk: the reused client ID and private endpoints can change or be rejected without notice; OpenAI may rate-limit, revoke tokens, suspend accounts, or treat the traffic as outside the intended Codex-client scope. Every signed-in user's ChatGPT account is collateral. The feature therefore remains flagged off by default and guarded by canary, quota, logout, and kill-switch controls.
 - Accepting owner: **Aditya Katare (repository owner; explicit task decision on 2026-09-07).**
+
+#### A.1.1 Product Login Ceremony — Accepted: Muesli-Referenced Browser PKCE
+
+- Decision: **keep A.1's client identity and private-backend transport, but replace the shipped device-code ceremony with the browser Authorization Code + PKCE flow demonstrated by [Muesli](https://github.com/Muesli-HQ/muesli/blob/31fb39b40ce7224d48aefeb1d6807ea39b5a9052/native/MuesliNative/Sources/MuesliNativeApp/ChatGPTAuthManager.swift).** This is one login ceremony inside the single `chatgpt-oauth` provider, not a Codex CLI adapter or second ChatGPT provider.
+- Exact shipped OAuth endpoints and redirect: authorize at `https://auth.openai.com/oauth/authorize`; exchange and refresh at `https://auth.openai.com/oauth/token`; redirect to `http://localhost:1455/auth/callback`. The inference base and honest SuperTwin headers remain those in A.1.
+- Exact authorization parameters: `client_id=app_EMoamEEZ73f0CkXaXp7hrann`, exact redirect URI, `response_type=code`, `scope=openid profile email offline_access`, independent high-entropy `state` and PKCE verifier/challenge, `code_challenge_method=S256`, `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, and `originator=supertwinv13`.
+- Exact exchange parameters: `grant_type=authorization_code`, client ID, returned code, exact redirect URI, and `code_verifier`. Refresh uses `grant_type=refresh_token`, client ID, and the current refresh token under A.1's rotation protocol.
+- User experience: one **Sign in with ChatGPT** action opens the browser; the user selects an account/workspace and grants access; the loopback callback completes exchange automatically; a fixed success page says **Signed in to SuperTwin**. No authorization-code entry UI exists.
+- Security: bind only IPv4 loopback; match the exact method/path; validate state timing-safely; accept one bounded callback; reject malformed, oversized, duplicate and OAuth-error requests without reflecting secrets; close on success, failure, cancellation, timeout, window close and shutdown; never log codes, tokens, verifier, state or full callback URLs.
+- Existing work disposition: retain device-code implementation only inside the opt-in Phase 0b probe as historical/diagnostic evidence. Production `auth.ts`, routes and UI must not import, expose or automatically fall back to it. The 3/55 inference ledger and all compatible request-contract evidence remain unchanged; the ceremony amendment authorizes no additional inference request.
+- Rationale: this gives the requested grant-access experience and removes manual code entry while preserving V2's stronger Keychain isolation, refresh locking, model discovery, request control and concurrency design. Official OpenAI documentation also describes browser callback and device-code login as separate ceremonies; it does not make SuperTwin's direct private-backend use a supported public API.
+- Residual risk: the reused OAuth client registration may change, reject the redirect or disallow a third-party originator; local security software may block the callback port; another process may occupy port 1455. These failures return a typed auth error and never trigger an API-key, Claude or device-code fallback.
+- Accepting owner: **Aditya Katare (repository owner; explicit product requirement update on 2026-09-08).**
 
 ### A.2 Terms of Service — Accepted Private-Integration Risk
 

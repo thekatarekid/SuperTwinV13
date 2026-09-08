@@ -40,6 +40,7 @@ import { V6_LIBRARY_PERF } from "./migrations/0209_v6_library_perf.js";
 import { V6_EXTRACT_QUEUE } from "./migrations/0210_v6_extract_queue.js";
 import { CHATGPT_PROVIDER_DECISIONS } from "./migrations/0211_chatgpt_provider_decisions.js";
 import { PROVIDER_SETTINGS_NAMESPACE } from "./migrations/0212_provider_settings_namespace.js";
+import { CHATGPT_BROWSER_PKCE_DECISION } from "./migrations/0213_chatgpt_browser_pkce_decision.js";
 
 export interface Migration {
   id: string;
@@ -1033,4 +1034,7 @@ export const MIGRATIONS: Migration[] = [
   // Copy every legacy step/role model and reasoning choice into the Claude
   // provider namespace. Legacy rows stay in place for one compatibility release.
   { id: "0212_provider_settings_namespace", sql: PROVIDER_SETTINGS_NAMESPACE },
+  // Append the accepted browser Authorization Code + PKCE product-login
+  // amendment without rewriting the original device-probe decision history.
+  { id: "0213_chatgpt_browser_pkce_decision", sql: CHATGPT_BROWSER_PKCE_DECISION },
 ];

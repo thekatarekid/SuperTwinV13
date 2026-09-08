@@ -58,7 +58,7 @@ function seededRows(): Array<ProviderDecisionSeed & { payload: ProviderDecisionP
 }
 
 describe("0211_chatgpt_provider_decisions", () => {
-  it("seeds exactly the three accepted Appendix A decisions into the canonical ledger", () => {
+  it("keeps the three original accepted Appendix A decisions in the canonical ledger", () => {
     runMigrations();
 
     const ids = MIGRATIONS.map((migration) => migration.id);
@@ -69,7 +69,8 @@ describe("0211_chatgpt_provider_decisions", () => {
     const count = getDb()
       .prepare(`SELECT COUNT(*) AS count FROM decisions WHERE target_kind = 'provider_rollout'`)
       .get() as { count: number };
-    expect(count.count).toBe(3);
+    // The append-only A.1.1 browser-PKCE amendment is a fourth, separate row.
+    expect(count.count).toBe(4);
 
     const rows = seededRows();
     expect(rows.map((row) => row.targetId)).toEqual([
@@ -183,6 +184,6 @@ describe("0211_chatgpt_provider_decisions", () => {
       db
         .prepare(`SELECT COUNT(*) AS count FROM decisions WHERE target_kind = 'provider_rollout'`)
         .get(),
-    ).toEqual({ count: 3 });
+    ).toEqual({ count: 4 });
   });
 });

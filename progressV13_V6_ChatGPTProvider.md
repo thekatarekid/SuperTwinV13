@@ -70,4 +70,9 @@
 - 2026-09-08: Full worker regression passed 4,235 tests with one process-tree sampling race in CNS-01; its immediate isolated 60-second rerun passed, closed the worker port, removed scratch state, and made 0 model calls.
 - 2026-09-08: Initialized the external owner-only `0600` authorization ledger at cap 55 / consumed 2 / planned 46 with the exact live plan hash. Initializer reported `networkCalls: 0`, `createOnce: true`, remaining 53; its empty scratch home was removed.
 - 2026-09-08: Ledger-enforced canary reserved attempt 3 and stopped after exactly 1 inference/0 retries on HTTP 400 JSON-other (53 bytes; no recognized error envelope). Actuals: device 1, polls 72, token 2, models 1, quota 1, inference 1, total 78. No checkpoint/later case; ledger is 3/55, scratch removed.
-- Next: safely classify the bounded JSON-other error shape, then run at most one further ledger-enforced diagnostic canary.
+- 2026-09-08: Compact-error retry expired unapproved after 1 device + 169 polls = 170 OAuth requests; token/model/quota/inference/other 0. Ledger remains 3/55; scratch removed.
+- 2026-09-08: Offline evidence strongly matches the 53-byte body to top-level `detail: Unsupported parameter: max_output_tokens`; pinned Hermes omits that field on the official Codex backend. Building a single-variable revised plan and append-only ledger revision before any further live request.
+- 2026-09-08: Reconciled amended V2: browser Authorization Code + PKCE with automatic loopback callback is the only shipped login; device code stays probe-only. No current provider/transport change conflicts.
+- 2026-09-08: Added append-only A.1.1 decision row; original three decisions and compact-error evidence remain unchanged, and cumulative inference remains 3/55.
+- 2026-09-08: P1-A, P1-B, P1-C and P1-D passed focused tests/review and were committed separately; no app build or live call.
+- Next: finish P1-E, zero-inference browser-auth smoke, and revised request/ledger revision offline before any separately authorized live request.

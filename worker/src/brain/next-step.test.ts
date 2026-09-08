@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
 import {
   applyFollowups,
   applySchedule,
@@ -18,6 +18,7 @@ import {
   replayDeferredOutputs,
 } from "./decide-apply.js";
 import { drainNextStepQueue, enqueueNextStep, noteExecutorCompletion } from "./next-step.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -41,20 +42,15 @@ const USAGE: Usage = {
   outputTokens: 5,
 };
 
-function stubProvider(responses: string[]): Provider & { calls: string[] } {
+function stubProvider(responses: string[]): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "stub",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
+  return Object.assign(brainTestProvider(async (opts) => {
+      calls.push(providerRequestText(opts));
       const text = responses[Math.min(calls.length - 1, responses.length - 1)] ?? "{}";
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { calls });
 }
 
 function seedSpace(): void {

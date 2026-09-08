@@ -26,7 +26,8 @@ import {
   withTraceContext,
 } from "../traces/context.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, ProviderResult, SendOptions } from "../providers/types.js";
+import type { NeutralProviderResult, ProviderRequest, ProviderV2 } from "../providers/types.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
 import { emptyUsage } from "../providers/usage.js";
 import { runJsonPass, resetStableSystemPromptsForTests } from "../brain/llm.js";
 import { runDigestPass } from "../brain/digest-pass.js";
@@ -119,27 +120,25 @@ function invocation(runId: string, attempt = 1) {
 /** Provider stub — never spawns anything; records the sends. */
 function stubProvider(
   reply: string,
-  opts: { status?: ProviderResult["status"]; onSend?: () => void } = {},
-): Provider & { calls: SendOptions[] } {
-  const calls: SendOptions[] = [];
-  return {
-    id: "stub",
-    calls,
-    cancel: () => false,
-    async send(o: SendOptions): Promise<ProviderResult> {
+  opts: { status?: NeutralProviderResult["status"]; onSend?: () => void } = {},
+): ProviderV2 & { calls: ProviderRequest[] } {
+  const calls: ProviderRequest[] = [];
+  return Object.assign(providerV2TestDouble(async (o): Promise<NeutralProviderResult> => {
       calls.push(o);
       opts.onSend?.();
       if (reply) o.onEvent({ type: "delta", text: reply });
       const status = opts.status ?? "ok";
       return {
-        sessionId: "",
+        continuation: null,
         usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 20 },
         freshFallback: false,
         status,
         errorCode: status === "error" ? "CLI_ERROR" : undefined,
       };
-    },
-  };
+  }, {
+    capabilities: { hostTools: true },
+    model: { id: "claude-haiku-4-5-20251001", supportsHostTools: true },
+  }), { calls });
 }
 
 // ---------------------------------------------------------------------------

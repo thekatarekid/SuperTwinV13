@@ -14,7 +14,7 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { collectTick } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
 import { PROMPT_VERSION_ENV } from "../prompts/versions.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";
 import { runOrient, type OrientOutput } from "./orient.js";
@@ -26,6 +26,7 @@ import {
   renderMechanicalBlock,
   runCritic,
 } from "./critic.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 const aliases = new Map([
   ["e1", "id1"],
@@ -170,19 +171,15 @@ function waMessage(i: number, text: string, actor = "contact:rohan"): EventEnvel
 function stubDeps(answers: string[]): JsonPassDeps & { users: string[]; passes: string[] } {
   const users: string[] = [];
   const passes: string[] = [];
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
-      users.push(opts.message);
-      passes.push(opts.systemPromptFile ?? "");
+  const provider = brainTestProvider(async (opts) => {
+      users.push(providerRequestText(opts));
+      passes.push(opts.instructions);
       const text = answers[users.length - 1] ?? "{}";
       opts.onEvent({ type: "delta", text });
       const usage: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 };
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   return {
     provider,
     pool: new ResourcePool({ now: () => 0, sleep: async () => {} }),

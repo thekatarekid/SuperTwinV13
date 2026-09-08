@@ -28,7 +28,8 @@ import { addEpisodeEvents } from "../../db/v6core.js";
 import { claimTypedFields, SELF_ENTITY_ID, setClaimTypedFields, type TypedFields } from "../../db/v6graph.js";
 import { writeClaimVersion, type ClaimKind } from "../../claims/store.js";
 import { runExtractPass, type ExtractPassResult } from "../../brain/extract-pass.js";
-import type { Provider, Usage } from "../../providers/types.js";
+import type { ProviderV2, Usage } from "../../providers/types.js";
+import { providerV2TestDouble } from "../../providers/test-support.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 
 const T0 = "2026-09-05T10:00:00+05:30";
@@ -42,20 +43,15 @@ function str(v: unknown): string | null {
 }
 
 /** Answers the one extract call with the recorded output; a second call is a loud failure. */
-function recordedProvider(text: string): Provider & { calls: number } {
-  const p = {
-    id: "fact-recorded",
-    calls: 0,
-    cancel: () => false,
-    async send(opts) {
-      p.calls += 1;
-      if (p.calls > 1) throw new Error("FACT/TYP: the extract pass called the model twice");
+function recordedProvider(text: string): ProviderV2 & { calls: number } {
+  const state = { calls: 0 };
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      state.calls += 1;
+      if (state.calls > 1) throw new Error("FACT/TYP: the extract pass called the model twice");
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" as const };
-    },
-  } as Provider & { calls: number };
-  return p;
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" as const };
+  }), state);
 }
 
 export interface ClaimsRun {

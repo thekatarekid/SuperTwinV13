@@ -10,8 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, runMigrations } from "../../db/connection.js";
-import { register } from "../../providers/registry.js";
-import type { Provider, Usage } from "../../providers/types.js";
+import { registerV2 } from "../../providers/registry.js";
+import { providerRequestText, providerV2TestDouble } from "../../providers/test-support.js";
+import type { ProviderV2, Usage } from "../../providers/types.js";
 import { resetStableSystemPromptsForTests } from "../../brain/llm.js";
 import { loadFixture } from "../fixtures.js";
 import { assessCri, criExecutor, isStructuredCriFixture, parseCriCase, renderCriPack, renderCriUser, runCriCase } from "./cri.js";
@@ -22,19 +23,15 @@ let tmpDir: string;
 let calls: string[] = [];
 let answers: string[] = [];
 
-function stubProvider(): Provider {
-  return {
-    id: "claude-local",
-    cancel: () => true,
-    async send(opts: Parameters<Provider["send"]>[0]) {
-      calls.push(opts.message);
+function stubProvider(): ProviderV2 {
+  return providerV2TestDouble(async (opts) => {
+      calls.push(providerRequestText(opts));
       const text = answers.shift() ?? "{}";
       opts.onEvent({ type: "delta", text });
       const usage: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 };
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  } as unknown as Provider;
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
 }
 
 beforeEach(() => {
@@ -45,7 +42,7 @@ beforeEach(() => {
   resetStableSystemPromptsForTests();
   calls = [];
   answers = [];
-  register(stubProvider());
+  registerV2(stubProvider());
 });
 
 afterEach(() => {

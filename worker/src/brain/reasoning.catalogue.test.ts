@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveReasoningCapability } from "./reasoning.js";
+import {
+  reasoningRequestForResolvedCall,
+  resolveReasoningCapability,
+} from "./reasoning.js";
 import type {
   ProviderId,
   ProviderModel,
@@ -72,5 +75,20 @@ describe("provider-aware reasoning capability mapping", () => {
     expect(
       resolveReasoningCapability("max", entry, catalogue("chatgpt-oauth", entry)),
     ).toBeNull();
+  });
+});
+
+describe("provider-neutral reasoning request projection", () => {
+  it("omits reasoning only when the resolved catalogue has no reasoning state", () => {
+    expect(reasoningRequestForResolvedCall({ reasoning: null })).toEqual({});
+  });
+
+  it("preserves the resolver's exact effective level without Claude flags", () => {
+    expect(reasoningRequestForResolvedCall({ reasoning: "high" })).toEqual({
+      reasoning: { budget: "high" },
+    });
+    expect(reasoningRequestForResolvedCall({ reasoning: "off" })).toEqual({
+      reasoning: { budget: "off" },
+    });
   });
 });

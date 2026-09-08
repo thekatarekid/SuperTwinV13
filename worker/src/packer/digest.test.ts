@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvent, contentHash, type EventEnvelope } from "../db/eventlog.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider } from "../providers/types.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "../brain/llm.js";
 import {
   digestLineFor,
@@ -64,10 +64,7 @@ function pageEvent(url = "https://www.goibibo.com/hotels/goa"): EventEnvelope {
 
 function stubDeps(): JsonPassDeps & { calls: () => number } {
   let calls = 0;
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
+  const provider = providerV2TestDouble(async (opts) => {
       calls++;
       opts.onEvent({
         type: "delta",
@@ -79,10 +76,9 @@ function stubDeps(): JsonPassDeps & { calls: () => number } {
         cacheReadInputTokens: 0,
         outputTokens: 5,
       };
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   return {
     provider,
     pool: new ResourcePool({ now: () => 0, sleep: async () => {} }),

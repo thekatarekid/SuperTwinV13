@@ -63,7 +63,8 @@ import { activeLiveMode } from "../../prompts/versions.js";
 import { LITE_TOOL_NAMES, runPreparedAction, type LiteRunResult } from "../../executor/lite.js";
 import { packOrientContext } from "../../packer/pack.js";
 import type { ThinPolicy } from "../../packer/thin.js";
-import type { Provider, ProviderStreamEvent, Usage } from "../../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../../providers/test-support.js";
+import type { ProviderStreamEvent, ProviderV2, Usage } from "../../providers/types.js";
 import type { BundleEvent, DeltaBundle } from "../../scheduler/v6/bundle.js";
 import { scriptedFetch } from "./exe.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
@@ -101,23 +102,19 @@ function list(v: unknown): Record<string, unknown>[] {
  */
 export function stubProvider(
   liveAnswer: string,
-): Provider & { calls: { live: number; critic: number; decide: number } } {
-  const p = {
-    id: "eval-live-stub",
-    calls: { live: 0, critic: 0, decide: 0 },
-    cancel: () => false,
-    async send(opts: Parameters<Provider["send"]>[0]) {
-      const critic = opts.message.includes("\n[DECISIONS]\n");
-      const decide = !critic && opts.message.includes("\n[UNDERSTANDING]\n");
-      if (critic) p.calls.critic += 1;
-      else if (decide) p.calls.decide += 1;
-      else p.calls.live += 1;
+): ProviderV2 & { calls: { live: number; critic: number; decide: number } } {
+  const calls = { live: 0, critic: 0, decide: 0 };
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      const message = providerRequestText(opts);
+      const critic = message.includes("\n[DECISIONS]\n");
+      const decide = !critic && message.includes("\n[UNDERSTANDING]\n");
+      if (critic) calls.critic += 1;
+      else if (decide) calls.decide += 1;
+      else calls.live += 1;
       opts.onEvent({ type: "delta", text: critic ? '{"verdicts":[]}' : liveAnswer });
-      opts.onEvent({ type: "done", sessionId: "eval", usage: USAGE });
-      return { sessionId: "eval", usage: USAGE, freshFallback: false, status: "ok" as const };
-    },
-  };
-  return p;
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" as const };
+  }), { calls });
 }
 
 export interface LivSeeded {
@@ -483,25 +480,24 @@ function resolveScriptAliases(script: Record<string, unknown>, alias: ReadonlyMa
 }
 
 /** Executor-lite's provider for LIV-09: replays the fixture's `script`. */
-function liteScriptProvider(script: Record<string, unknown>): Provider & { calls: number } {
+function liteScriptProvider(script: Record<string, unknown>): ProviderV2 & { calls: number } {
   const events: ProviderStreamEvent[] = [];
   for (const t of list(script.turns)) {
-    events.push({ type: "tool_use", name: str(t.tool) ?? "world_read", input: str(t.input) ?? "" });
+    events.push({ type: "tool_use", callId: `eval-tool-${events.length + 1}`, name: str(t.tool) ?? "world_read", input: str(t.input) ?? "" });
   }
   events.push({ type: "delta", text: JSON.stringify(script.final ?? {}) });
   const usage: Usage = { ...USAGE, costUsd: num(script.cost_usd, 0.004) };
-  events.push({ type: "done", sessionId: "eval", usage });
-  const p = {
-    id: "eval-liv-lite-stub",
-    calls: 0,
-    cancel: () => false,
-    async send(opts: Parameters<Provider["send"]>[0]) {
-      p.calls += 1;
+  events.push({ type: "done", continuation: null, usage });
+  let calls = 0;
+  const provider = providerV2TestDouble(async (opts) => {
+      calls += 1;
       for (const e of events) opts.onEvent(e);
-      return { sessionId: "eval", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
-  return p;
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  }, {
+    capabilities: { hostTools: true },
+    model: { supportsHostTools: true },
+  });
+  return Object.defineProperty(provider, "calls", { get: () => calls }) as ProviderV2 & { calls: number };
 }
 
 /** How many approval tokens exist right now (0 when the table was never made). */

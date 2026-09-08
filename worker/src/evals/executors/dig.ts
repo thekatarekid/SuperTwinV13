@@ -20,7 +20,8 @@
 import { runDigestPass, type DigestPassDeps, type DigestPassReport } from "../../brain/digest-pass.js";
 import { getDb } from "../../db/connection.js";
 import { DIGEST_FORBIDDEN_KEYS } from "../../prompts/digest.v2.js";
-import type { Provider, ProviderResult, SendOptions } from "../../providers/types.js";
+import { providerV2TestDouble } from "../../providers/test-support.js";
+import type { ProviderV2 } from "../../providers/types.js";
 import { markDispatched, type DeltaBundle } from "../../scheduler/v6/bundle.js";
 import { planDigest, weekKey } from "../../scheduler/v6/digest.js";
 import { append, MIN, msgAt, setStreamTier, streamIdOf } from "../../scheduler/v6/testutil.js";
@@ -214,21 +215,17 @@ function cleanupDecisions(w: CaseWorld): void {
  * contains nothing of — so claims resolve to nothing and only the summary
  * lands; the COUNT of calls is the assertion, not the prose.
  */
-export function cannedDigestProvider(): Provider {
+export function cannedDigestProvider(): ProviderV2 {
   const answer = JSON.stringify({ summary: "Society notices for the week.\nNothing needed a reply.", claims: [], recurrences: [] });
-  return {
-    id: "dig-canned",
-    async send(opts: SendOptions): Promise<ProviderResult> {
+  return providerV2TestDouble(async (opts) => {
       opts.onEvent({ type: "delta", text: answer });
       return {
-        sessionId: "canned",
+        continuation: null,
         usage: { inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 },
         freshFallback: false,
-        status: "ok",
+        status: "ok" as const,
       };
-    },
-    cancel: () => false,
-  };
+  });
 }
 
 /** One DIG case; `deps` lets a test hand in a stub provider (the CLI passes none → the real one for live cases, the canned stub for code cases). */

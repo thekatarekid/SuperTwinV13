@@ -23,7 +23,8 @@ import { BRIEF_PARTS, type BriefLedger } from "../../brief/ledger.js";
 import { DEFAULT_TZ, localDate } from "../../calendar/clocks.js";
 import { getDb } from "../../db/connection.js";
 import { figuresNotInLedger } from "../../prompts/brief.v2.js";
-import type { Provider, Usage } from "../../providers/types.js";
+import type { ProviderV2, Usage } from "../../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../../providers/test-support.js";
 import type { Fixture } from "../fixtures.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 
@@ -44,19 +45,15 @@ function rec(v: unknown): Record<string, unknown> {
  * ledger can never invent a figure — so `brief_inflation > 0` in a BRF run
  * means the code that packs or checks the ledger is wrong, not the model.
  */
-export function cannedBriefProvider(): Provider & { calls: string[] } {
+export function cannedBriefProvider(): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "brf-canned",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
-      opts.onEvent({ type: "delta", text: JSON.stringify({ text: proseFromLedger(opts.message) }) });
-      opts.onEvent({ type: "done", sessionId: "canned", usage: USAGE });
-      return { sessionId: "canned", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      const message = providerRequestText(opts);
+      calls.push(message);
+      opts.onEvent({ type: "delta", text: JSON.stringify({ text: proseFromLedger(message) }) });
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { calls });
 }
 
 /** Turn the packed ledger block back into P-13's markdown. */

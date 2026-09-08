@@ -25,7 +25,7 @@ import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
 import { addEpisodeEvents } from "../../db/v6core.js";
 import { collectTick, type DeltaBundle } from "../../scheduler/v6/bundle.js";
 import { runOrient } from "../../brain/orient.js";
-import type { Provider } from "../../providers/types.js";
+import { providerV2TestDouble } from "../../providers/test-support.js";
 import {
   packOrientContext,
   EVENT_TEXT_CEILING,
@@ -53,12 +53,9 @@ function str(v: unknown, dflt: string): string {
 }
 
 /** The model is never reached from this executor; a call is a loud failure, not a spend. */
-const forbiddenProvider = {
-  id: "pck-forbidden",
-  send: () => {
+const forbiddenProvider = providerV2TestDouble(async () => {
     throw new Error("PCK: the packer path reached the model");
-  },
-} as unknown as Provider;
+});
 
 // ---- Seeding on case-prefixed ids ------------------------------------------
 

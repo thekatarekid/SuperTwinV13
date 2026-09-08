@@ -17,8 +17,9 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { createEntity } from "../entities/registry.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
 import type { JsonPassDeps } from "./llm.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 import { runExtractPass } from "./extract-pass.js";
 import { runDecidePass, CLOSE_CONFIDENCE_FLOOR } from "./decide-pass.js";
 import { runReduce } from "./reduce.js";
@@ -45,23 +46,18 @@ const USAGE: Usage = {
 };
 
 /** Stub provider: answers each call with the next canned text (last repeats). */
-function stubProvider(responses: string[]): Provider & { calls: string[] } {
+function stubProvider(responses: string[]): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "stub",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
+  return Object.assign(brainTestProvider(async (opts) => {
+      calls.push(providerRequestText(opts));
       const text = responses[Math.min(calls.length - 1, responses.length - 1)] ?? "{}";
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { calls });
 }
 
-function deps(provider: Provider): JsonPassDeps {
+function deps(provider: ProviderV2): JsonPassDeps {
   return { provider };
 }
 

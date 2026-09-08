@@ -14,7 +14,7 @@ import { addEpisodeEvents } from "../db/v6core.js";
 import { claimTypedFields, SELF_ENTITY_ID } from "../db/v6graph.js";
 import { createEntity } from "../entities/registry.js";
 import { writeClaimVersion } from "../claims/store.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
 import { EXTRACT_V6_SYSTEM, validateExtractV6Output } from "../prompts/extract.v6.js";
 import {
   literalAmounts,
@@ -24,6 +24,7 @@ import {
   sanitizeTypedFields,
   thirdPartySensitive,
 } from "./extract-pass.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -42,19 +43,14 @@ afterEach(() => {
 
 const USAGE: Usage = { inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 1 };
 
-function stub(output: unknown): Provider & { messages: string[] } {
+function stub(output: unknown): ProviderV2 & { messages: string[] } {
   const messages: string[] = [];
-  return {
-    id: "stub",
-    messages,
-    cancel: () => false,
-    async send(opts) {
-      messages.push(opts.message);
+  return Object.assign(brainTestProvider(async (opts) => {
+      messages.push(providerRequestText(opts));
       opts.onEvent({ type: "delta", text: JSON.stringify(output) });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { messages });
 }
 
 const NULLF = { amount: null, currency: null, date: null, status: null, merchant: null, order_id: null, location: null, duration_s: null };

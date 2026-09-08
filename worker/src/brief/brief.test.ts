@@ -19,7 +19,8 @@ import { decisionsFor } from "../db/decisions.js";
 import { PROCESS_ENABLED_PREFIX } from "../settings/steps.js";
 import { BRIEF_TIMES_KEY as ROUTE_BRIEF_TIMES_KEY, DEFAULT_BRIEF_TIMES as ROUTE_DEFAULTS } from "../server/settings-routes.js";
 import { figuresNotInLedger, parseBriefV2 } from "../prompts/brief.v2.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../providers/test-support.js";
 import {
   BRIEF_LAST_SLOT_KEY,
   BRIEF_TIMES_KEY,
@@ -61,19 +62,14 @@ afterEach(() => {
 
 const USAGE: Usage = { inputTokens: 8, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 4 };
 
-function cannedProvider(text = "**Needs you** · one thing"): Provider & { calls: string[] } {
+function cannedProvider(text = "**Needs you** · one thing"): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "brief-test",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      calls.push(providerRequestText(opts));
       opts.onEvent({ type: "delta", text: JSON.stringify({ text }) });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { calls });
 }
 
 // ---- seeds ------------------------------------------------------------------
@@ -324,15 +320,11 @@ describe("runBrief", () => {
       status: "needs_approval",
       updatedAt: "2026-09-05T19:00:00.000Z",
     });
-    const broken: Provider = {
-      id: "broken",
-      cancel: () => false,
-      async send(opts) {
+    const broken = providerV2TestDouble(async (opts) => {
         opts.onEvent({ type: "delta", text: "not json at all" });
-        opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-        return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-      },
-    };
+        opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+        return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+    });
     const report = await runBrief({
       now: new Date("2026-09-06T03:00:00.000Z"),
       tz: IST,

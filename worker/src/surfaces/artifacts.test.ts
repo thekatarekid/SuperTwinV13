@@ -26,7 +26,8 @@ import { join } from "node:path";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import type { JsonPassDeps } from "../brain/llm.js";
 import { resetStableSystemPromptsForTests } from "../brain/llm.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../providers/test-support.js";
 import {
   contentKeyFor,
   createArtifact,
@@ -62,11 +63,8 @@ const MIN = 60_000;
 /** A provider that answers every call with `text` and records the prompts. */
 function stubProvider(text: string) {
   const messages: string[] = [];
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
-      messages.push(opts.message);
+  const provider = providerV2TestDouble(async (opts) => {
+      messages.push(providerRequestText(opts));
       const usage: Usage = {
         inputTokens: 10,
         cacheCreationInputTokens: 0,
@@ -74,10 +72,9 @@ function stubProvider(text: string) {
         outputTokens: 5,
       };
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   const deps: JsonPassDeps = { provider, recordRun: () => "run-1", quarantine: () => {} };
   return { deps, messages };
 }

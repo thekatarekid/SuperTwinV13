@@ -13,9 +13,10 @@ import { join } from "node:path";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { DIGEST_V2_ID } from "../prompts/digest.v2.js";
 import { hasTraceContext } from "../traces/context.js";
-import type { Provider, ProviderResult, SendOptions } from "../providers/types.js";
+import type { ProviderRequest } from "../providers/types.js";
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { bundleWeek, runDigestPass } from "./digest-pass.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -39,19 +40,28 @@ const ZERO_USAGE = {
   outputTokens: 0,
 };
 
-function stubProvider(answer: string, seen: { traced?: boolean; model?: string; message?: string; system?: string }): Provider {
-  return {
-    id: "stub",
-    async send(opts: SendOptions): Promise<ProviderResult> {
+function stubProvider(
+  answer: string,
+  seen: {
+    traced?: boolean;
+    model?: string;
+    message?: string;
+    system?: string;
+    request?: ProviderRequest;
+  },
+) {
+  return brainTestProvider(
+    async (opts) => {
       seen.traced = hasTraceContext();
+      seen.request = opts;
       seen.model = opts.model;
-      seen.message = opts.message;
-      seen.system = opts.systemPromptFile;
+      seen.message = providerRequestText(opts);
+      seen.system = opts.instructions;
       opts.onEvent({ type: "delta", text: answer });
-      return { sessionId: "s", usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
     },
-    cancel: () => false,
-  };
+    { model: { id: "haiku" } },
+  );
 }
 
 /** One tier-3 society group, one week (Mon 2026-08-24 … Sun 2026-08-30). */
@@ -113,15 +123,33 @@ const ANSWER = JSON.stringify({
 
 describe("runDigestPass (digest.v2)", () => {
   it("runs traced, on Haiku by default, packs the week inside <untrusted>, and commits propose-only", async () => {
-    const seen: { traced?: boolean; model?: string; message?: string; system?: string } = {};
+    const seen: {
+      traced?: boolean;
+      model?: string;
+      message?: string;
+      system?: string;
+      request?: ProviderRequest;
+    } = {};
     const report = await runDigestPass(weekBundle(), { provider: stubProvider(ANSWER, seen) });
 
     expect(seen.traced).toBe(true); // the call happened INSIDE a trace scope
     expect(seen.model).toBe("haiku"); // build convention 1.7
-    expect(seen.system).toContain(DIGEST_V2_ID);
+    expect(seen.system).toContain("Summarize one week of a low-engagement stream");
     expect(seen.message).toContain("week of 2026-08-24");
     expect(seen.message).toContain("<untrusted>");
     expect(seen.message).toContain("e1 2026-08-25T09:00:00Z contact:secretary:");
+    expect(seen.request).toMatchObject({
+      toolChoice: "none",
+      plainCompletion: true,
+      skipHostSettings: true,
+      persistContinuation: false,
+      maxOutputTokens: 8_192,
+      maxAgentTurns: 2,
+      reasoning: { budget: "off" },
+    });
+    expect(seen.request?.tools).toBeUndefined();
+    expect(seen.request?.hostTools).toBeUndefined();
+    expect(seen.request?.continuation).toBeUndefined();
 
     expect(report.status).toBe("ok");
     expect(report.bundle.week).toBe("2026-08-24");
@@ -157,19 +185,18 @@ describe("runDigestPass (digest.v2)", () => {
   });
 
   it("a failed provider run reports failed and commits nothing", async () => {
-    const provider: Provider = {
-      id: "stub",
-      async send(): Promise<ProviderResult> {
+    const provider = brainTestProvider(
+      async () => {
         return {
-          sessionId: "s",
+          continuation: null,
           usage: ZERO_USAGE,
           freshFallback: false,
           status: "error",
           errorCode: "TIMEOUT",
         };
       },
-      cancel: () => false,
-    };
+      { model: { id: "haiku" } },
+    );
     const report = await runDigestPass(weekBundle(), { provider });
     expect(report.status).toBe("failed");
     expect(report.error).toBe("TIMEOUT");
@@ -181,6 +208,20 @@ describe("runDigestPass (digest.v2)", () => {
     expect(n).toBe(0);
   });
 
+  it("preserves a typed provider exception in the ledger", async () => {
+    const provider = brainTestProvider(
+      async () => {
+        throw Object.assign(new Error("sign in required"), { code: "AUTH_REQUIRED" });
+      },
+      { model: { id: "haiku" } },
+    );
+    const report = await runDigestPass(weekBundle(), { provider });
+    expect(report).toMatchObject({ status: "failed", error: "AUTH_REQUIRED" });
+    expect(getDb().prepare(`SELECT error_code FROM runs`).get()).toEqual({
+      error_code: "AUTH_REQUIRED",
+    });
+  });
+
   it("unparseable output fails closed", async () => {
     const seen = {};
     const report = await runDigestPass(weekBundle(), {
@@ -189,6 +230,19 @@ describe("runDigestPass (digest.v2)", () => {
     expect(report.status).toBe("failed");
     expect(report.violations).toEqual(["unparseable"]);
     expect(report.proposals).toBe(0);
+  });
+
+  it("fails before provider work when the selected model has no output bound", async () => {
+    let sends = 0;
+    const provider = brainTestProvider(async () => {
+      sends += 1;
+      throw new Error("must not send");
+    }, { model: { id: "haiku", maxOutputTokens: null } });
+
+    const report = await runDigestPass(weekBundle(), { provider });
+    expect(report.status).toBe("failed");
+    expect(report.error).toContain("CAPABILITY_UNSUPPORTED");
+    expect(sends).toBe(0);
   });
 
   it("bundleWeek is the Monday of the first event's week", () => {

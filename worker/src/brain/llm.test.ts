@@ -15,8 +15,9 @@ import {
   ResourcePool,
   RETRY_DELAYS_MS,
 } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderRequest, ProviderV2, Usage } from "../providers/types.js";
 import type { RecordRunParams } from "../db/run-accounting.js";
+import { STEP_OVERRIDES_ENV } from "../settings/overrides.js";
 import { hasTraceContext } from "../traces/context.js";
 import {
   extractJson,
@@ -25,12 +26,20 @@ import {
   stableSystemPrompt,
   type JsonPassDeps,
 } from "./llm.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 interface Turn {
   text?: string;
-  code?: "TIMEOUT" | "CLI_ERROR" | "CANCELLED" | "QUOTA_EXCEEDED";
+  code?: "TIMEOUT" | "CLI_ERROR" | "CANCELLED" | "QUOTA_EXCEEDED" | "AUTH_REQUIRED";
   message?: string;
 }
+
+const ZERO_USAGE: Usage = {
+  inputTokens: 0,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+  outputTokens: 0,
+};
 
 /** A clock the pool's sleeps advance, so a paused lane is waited out instantly. */
 function fakeClock() {
@@ -47,13 +56,12 @@ function harness(turns: Turn[], opts: { pool?: ResourcePool } = {}) {
   const runs: RecordRunParams[] = [];
   const parked: { errorCode: string; unitId: string }[] = [];
   const messages: string[] = [];
+  const requests: ProviderRequest[] = [];
   const slept: number[] = [];
   let sawTrace = true;
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
-      messages.push(opts.message);
+  const provider = brainTestProvider(async (opts) => {
+      requests.push(opts);
+      messages.push(providerRequestText(opts));
       sawTrace = sawTrace && hasTraceContext();
       const turn = turns[messages.length - 1] ?? { text: "" };
       const usage: Usage = {
@@ -66,17 +74,16 @@ function harness(turns: Turn[], opts: { pool?: ResourcePool } = {}) {
       if (turn.code) {
         opts.onEvent({ type: "error", code: turn.code, message: turn.message ?? "boom" });
         return {
-          sessionId: "s",
+          continuation: null,
           usage,
           freshFallback: false,
           status: "error" as const,
           errorCode: turn.code,
         };
       }
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   const clock = fakeClock();
   const pool = opts.pool ?? new ResourcePool({ now: clock.now, sleep: clock.sleep });
   const deps: JsonPassDeps = {
@@ -91,7 +98,7 @@ function harness(turns: Turn[], opts: { pool?: ResourcePool } = {}) {
       slept.push(ms);
     },
   };
-  return { deps, pool, runs, parked, messages, slept, sawTrace: () => sawTrace };
+  return { deps, pool, runs, parked, messages, requests, slept, sawTrace: () => sawTrace };
 }
 
 function spec(overrides: Partial<Parameters<typeof runJsonPass>[0]> = {}) {
@@ -114,6 +121,119 @@ function spec(overrides: Partial<Parameters<typeof runJsonPass>[0]> = {}) {
 beforeEach(() => resetStableSystemPromptsForTests());
 
 describe("runJsonPass", () => {
+  it("sends the exact strict, stateless request from one resolved model snapshot", async () => {
+    const h = harness([{ text: '{"ok":true}' }]);
+    const controller = new AbortController();
+    await runJsonPass(spec({ model: "legacy-model-must-not-win", timeoutMs: 12_345 }), {
+      ...h.deps,
+      signal: controller.signal,
+    });
+
+    const request = h.requests[0]!;
+    expect(request).toMatchObject({
+      model: "claude-test-model",
+      instructions: "You answer JSON.",
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "input" }] }],
+      toolChoice: "none",
+      plainCompletion: true,
+      skipHostSettings: true,
+      persistContinuation: false,
+      maxOutputTokens: 8_192,
+      maxAgentTurns: 2,
+      reasoning: { budget: "off" },
+      timeoutMs: 12_345,
+      signal: controller.signal,
+    });
+    expect(request.tools).toBeUndefined();
+    expect(request.hostTools).toBeUndefined();
+    expect(request.continuation).toBeUndefined();
+  });
+
+  it("uses one ChatGPT response turn and never invents host tools", async () => {
+    const requests: ProviderRequest[] = [];
+    const provider = brainTestProvider(async (request) => {
+      requests.push(request);
+      request.onEvent({ type: "delta", text: '{"ok":true}' });
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+    }, { providerId: "chatgpt-oauth" });
+
+    const result = await runJsonPass(spec(), {
+      provider,
+      recordRun: () => "r",
+      logExtractionRun: () => {},
+      addUsage: () => {},
+    });
+
+    expect(result.status).toBe("ok");
+    expect(requests[0]?.maxAgentTurns).toBe(1);
+    expect(requests[0]?.hostTools).toBeUndefined();
+    expect(requests[0]?.tools).toBeUndefined();
+  });
+
+  it("preserves configured Claude reasoning with the isolated plain-completion rail", async () => {
+    const previous = process.env[STEP_OVERRIDES_ENV];
+    process.env[STEP_OVERRIDES_ENV] = JSON.stringify({
+      "test.v1": { provider: "claude-local", thinking: "high" },
+    });
+    try {
+      const h = harness([{ text: '{"ok":true}' }]);
+      const result = await runJsonPass(spec(), h.deps);
+      expect(result.status).toBe("ok");
+      expect(h.requests[0]).toMatchObject({
+        plainCompletion: true,
+        maxAgentTurns: 2,
+        reasoning: { budget: "high" },
+        toolChoice: "none",
+      });
+      expect(h.requests[0]?.hostTools).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env[STEP_OVERRIDES_ENV];
+      else process.env[STEP_OVERRIDES_ENV] = previous;
+    }
+  });
+
+  it("fails before pool/provider work when the selected snapshot has no output bound", async () => {
+    let sends = 0;
+    const provider = brainTestProvider(async () => {
+      sends += 1;
+      throw new Error("must not send");
+    }, { model: { maxOutputTokens: null } });
+
+    await expect(runJsonPass(spec(), { provider })).rejects.toMatchObject({
+      code: "CAPABILITY_UNSUPPORTED",
+      model: "claude-test-model",
+    });
+    expect(sends).toBe(0);
+  });
+
+  it("resolves one catalogue snapshot for both the answer and repair call", async () => {
+    let catalogueCalls = 0;
+    let sends = 0;
+    const base = brainTestProvider(async (request) => {
+      sends += 1;
+      request.onEvent({ type: "delta", text: sends === 1 ? "junk" : '{"ok":true}' });
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+    });
+    const originalCatalogue = base.catalogue;
+    const provider: ProviderV2 = {
+      ...base,
+      catalogue: () => {
+        catalogueCalls += 1;
+        return originalCatalogue();
+      },
+    };
+
+    const result = await runJsonPass(spec(), {
+      provider,
+      recordRun: () => "r",
+      logExtractionRun: () => {},
+      addUsage: () => {},
+    });
+    expect(result.status).toBe("repaired");
+    expect(sends).toBe(2);
+    expect(catalogueCalls).toBe(1);
+  });
+
   it("parses a clean JSON answer inside a trace scope, one runs row", async () => {
     const h = harness([{ text: '{"ok":true}' }]);
     const result = await runJsonPass(spec(), h.deps);
@@ -178,6 +298,29 @@ describe("runJsonPass", () => {
     expect(result.status).toBe("failed");
     expect(result.error?.code).toBe("CANCELLED");
     expect(h.messages).toHaveLength(1);
+    expect(h.slept).toEqual([]);
+    expect(h.parked).toEqual([]);
+  });
+
+  it("an authentication hold is handed back without retrying or quarantining", async () => {
+    const h = harness([{ code: "AUTH_REQUIRED", message: "sign in required" }]);
+    const result = await runJsonPass(spec(), h.deps);
+    expect(result.status).toBe("failed");
+    expect(result.error?.code).toBe("AUTH_REQUIRED");
+    expect(h.messages).toHaveLength(1);
+    expect(h.slept).toEqual([]);
+    expect(h.parked).toEqual([]);
+    expect(h.runs.map((run) => run.status)).toEqual(["error"]);
+  });
+
+  it("preserves a typed provider exception as a hold instead of rewriting it to CLI_ERROR", async () => {
+    const h = harness([]);
+    h.deps.provider = brainTestProvider(async () => {
+      throw Object.assign(new Error("sign in required"), { code: "AUTH_REQUIRED" });
+    });
+    const result = await runJsonPass(spec(), h.deps);
+    expect(result.status).toBe("failed");
+    expect(result.error?.code).toBe("AUTH_REQUIRED");
     expect(h.slept).toEqual([]);
     expect(h.parked).toEqual([]);
   });

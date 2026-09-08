@@ -22,7 +22,7 @@ import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { addEpisodeEvents } from "../db/v6core.js";
 import { collectTick, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { runOrient } from "../brain/orient.js";
-import type { Provider } from "../providers/types.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
 import { candidateSpaces, MAX_CANDIDATE_SPACES } from "./spaces.js";
 import { threadHistory, streamEpisodes } from "./history.js";
 import { buildRoster } from "./roster.js";
@@ -112,12 +112,9 @@ function blockLines(user: string, header: string): string[] {
   return out;
 }
 
-const forbiddenProvider = {
-  id: "forbidden",
-  send: () => {
+const forbiddenProvider = providerV2TestDouble(async () => {
     throw new Error("the model must not be called");
-  },
-} as unknown as Provider;
+});
 
 // ---------------------------------------------------------------------------
 

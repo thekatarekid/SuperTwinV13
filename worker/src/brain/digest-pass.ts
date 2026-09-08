@@ -36,14 +36,21 @@ import {
   parseDigestV2,
   type DigestResultV2,
 } from "../prompts/digest.v2.js";
-import { systemPromptPath } from "../prompts/runner.js";
 import { resourcePool, type ResourcePool } from "../providers/pool.js";
-import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/registry.js";
-import type { Provider, ProviderResult } from "../providers/types.js";
+import {
+  requireMaxOutputTokens,
+  resolveModelCall,
+} from "../providers/selection.js";
+import type {
+  NeutralProviderResult,
+  ProviderErrorCode,
+  ProviderV2,
+} from "../providers/types.js";
 import { emptyUsage } from "../providers/usage.js";
 import type { DeltaBundle } from "../scheduler/v6/bundle.js";
 import { weekKey } from "../scheduler/v6/digest.js";
 import { annotateTrace, bindTraceContext, withTraceContext } from "../traces/context.js";
+import { reasoningRequestForResolvedCall } from "./reasoning.js";
 
 /** Every LLM step defaults to Haiku (spec §14.9, build convention 1.7). */
 export const DIGEST_DEFAULT_MODEL = "haiku";
@@ -58,13 +65,45 @@ export interface DigestCommit {
 }
 
 export interface DigestPassDeps {
-  provider?: Provider;
+  provider?: ProviderV2;
   /** The LLM pool this call takes a slot from (S0.9 / T8-3). Default: the process pool. */
   pool?: ResourcePool;
+  /** @deprecated Production selection comes from provider-namespaced settings. */
   model?: string;
   timeoutMs?: number;
   /** Replaces the default propose-only decisions commit (tests). */
   commit?: (bundle: DeltaBundle, result: DigestResult, violations: string[]) => DigestCommit;
+}
+
+const PROVIDER_ERROR_CODES = {
+  TIMEOUT: true,
+  SPAWN_FAILED: true,
+  CLI_ERROR: true,
+  POISONED_SESSION: true,
+  CANCELLED: true,
+  QUOTA_EXCEEDED: true,
+  BUDGET_EXCEEDED: true,
+  MODEL_ACTIVITY_PAUSED: true,
+  MAX_TURNS: true,
+  BAD_REQUEST: true,
+  AUTH_REQUIRED: true,
+  AUTH_EXPIRED: true,
+  PROVIDER_UNAVAILABLE: true,
+  MODEL_UNAVAILABLE: true,
+  CAPABILITY_UNSUPPORTED: true,
+  BACKEND_UNSUPPORTED: true,
+  RATE_LIMITED: true,
+  TRANSPORT_ERROR: true,
+} as const satisfies Record<ProviderErrorCode, true>;
+
+function providerErrorCode(error: unknown): ProviderErrorCode | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && Object.hasOwn(PROVIDER_ERROR_CODES, code)
+    ? code as ProviderErrorCode
+    : undefined;
 }
 
 export interface DigestPassReport {
@@ -152,8 +191,7 @@ export async function runDigestPass(
     violations: [],
     proposals: 0,
   };
-  const provider = deps.provider ?? getProvider(DEFAULT_PROVIDER_ID);
-  if (!provider) return { ...base, error: "no provider registered" };
+  const provider = deps.provider;
 
   const packed = packDigestV2User({
     streamKey: bundle.streamKey,
@@ -167,23 +205,50 @@ export async function runDigestPass(
     async (): Promise<DigestPassReport> => {
       let text = "";
       const runId = randomUUID();
-      const model = deps.model ?? DIGEST_DEFAULT_MODEL;
-      const systemFile = systemPromptPath(DIGEST_V2_ID, DIGEST_V2_SYSTEM);
+      const instructions = DIGEST_V2_SYSTEM;
+      let resolved;
+      try {
+        resolved = resolveModelCall(
+          { source: "step", key: DIGEST_V2_ID },
+          {
+            ...(provider ? { provider } : {}),
+          },
+        );
+      } catch (error) {
+        return { ...base, error: error instanceof Error ? error.message : String(error) };
+      }
+      const model = resolved.model;
+      let maxOutputTokens: number;
+      try {
+        maxOutputTokens = requireMaxOutputTokens(resolved);
+      } catch (error) {
+        return { ...base, error: error instanceof Error ? error.message : String(error) };
+      }
       const startedAt = new Date().toISOString();
       const pool = deps.pool ?? resourcePool;
-      let res: ProviderResult;
+      let res: NeutralProviderResult;
       try {
         // S0.9 / T8-3: through the pool's understanding lane — digest is
         // backfill understanding and must not bypass the concurrency cap.
         res = await pool.run(
           "llm",
           bindTraceContext(() =>
-            provider.send({
+            resolved.provider.send({
               runId,
-              message: user,
-              systemPromptFile: systemFile,
-              plainCompletion: true,
               model,
+              instructions,
+              input: [{
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: user }],
+              }],
+              toolChoice: "none",
+              plainCompletion: true,
+              skipHostSettings: true,
+              persistContinuation: false,
+              maxOutputTokens,
+              maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
+              ...reasoningRequestForResolvedCall(resolved),
               timeoutMs: deps.timeoutMs ?? DIGEST_TIMEOUT_MS,
               onEvent: (e) => {
                 if (e.type === "delta") text += e.text;
@@ -193,19 +258,34 @@ export async function runDigestPass(
           { lane: "understanding" },
         );
       } catch (err) {
+        const errorCode = providerErrorCode(err) ?? "CLI_ERROR";
         res = {
-          sessionId: "",
+          continuation: null,
           usage: emptyUsage(),
           freshFallback: false,
           status: "error",
-          errorCode: "CLI_ERROR",
+          errorCode,
         };
-        logDigestRun(runId, model, startedAt, res, user.length + DIGEST_V2_SYSTEM.length, provider.id);
-        return { ...base, error: err instanceof Error ? err.message : String(err) };
+        logDigestRun(
+          runId,
+          model,
+          startedAt,
+          res,
+          user.length + instructions.length,
+          resolved.providerId,
+        );
+        return { ...base, error: errorCode };
       }
       // S0.9 / T8-1: every digest call has a ledger row — its spend renders
       // and TRC-03 sees the pass alive.
-      logDigestRun(runId, model, startedAt, res, user.length + DIGEST_V2_SYSTEM.length, provider.id);
+      logDigestRun(
+        runId,
+        model,
+        startedAt,
+        res,
+        user.length + instructions.length,
+        resolved.providerId,
+      );
       if (res.status !== "ok") {
         return { ...base, error: res.errorCode ?? "provider error" };
       }
@@ -224,7 +304,7 @@ function logDigestRun(
   runId: string,
   model: string,
   startedAt: string,
-  res: ProviderResult,
+  res: NeutralProviderResult,
   promptChars: number,
   providerId: string,
 ): void {

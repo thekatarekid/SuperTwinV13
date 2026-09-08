@@ -31,8 +31,10 @@ import {
 import type {
   ProviderModel,
   ProviderModelCatalogue,
+  ProviderRequest,
   ThinkingBudget,
 } from "../providers/types.js";
+import type { ResolvedModelCall } from "../providers/selection.js";
 import { stepOverride } from "../settings/overrides.js";
 
 /** app_state key holding one step's reasoning level. */
@@ -87,6 +89,19 @@ export interface ReasoningCapabilityResolution {
   requested: ThinkingBudget;
   effective: ThinkingBudget;
   clamped: boolean;
+}
+
+/**
+ * Provider-neutral request projection from the one immutable resolver result.
+ * The adapter, not the caller, chooses Claude's effort flag versus token
+ * budget mechanism. A model with no reasoning state emits no field.
+ */
+export function reasoningRequestForResolvedCall(
+  resolved: Pick<ResolvedModelCall, "reasoning">,
+): Pick<ProviderRequest, "reasoning"> {
+  return resolved.reasoning === null
+    ? {}
+    : { reasoning: { budget: resolved.reasoning } };
 }
 
 function modelReasoningValues(model: ProviderModel): ThinkingBudget[] {

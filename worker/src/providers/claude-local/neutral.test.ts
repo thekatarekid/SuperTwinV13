@@ -408,6 +408,26 @@ describe("neutral Claude facade", () => {
     expect(transport.sendWithDirectInstructions).not.toHaveBeenCalled();
   });
 
+  it("keeps plain-completion isolation while an explicit reasoning budget overrides zero", async () => {
+    const events: ProviderStreamEvent[] = [];
+    const { provider, transport } = harness();
+    const result = await provider.send(request(events, {
+      plainCompletion: true,
+      maxAgentTurns: 2,
+      skipHostSettings: true,
+      reasoning: { budget: "high" },
+    }));
+
+    expect(result.status).toBe("ok");
+    expect(transport.sendWithDirectInstructions).toHaveBeenCalledOnce();
+    expect(transport.sendWithDirectInstructions.mock.calls[0]?.[0]).toMatchObject({
+      allowedTools: [],
+      plainCompletion: true,
+      skipUserSettings: true,
+      thinkingBudget: "high",
+    });
+  });
+
   it("refuses non-persisted resume because the Claude CLI cannot honor it", async () => {
     const events: ProviderStreamEvent[] = [];
     const { provider, transport } = harness();

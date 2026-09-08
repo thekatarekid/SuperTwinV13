@@ -32,7 +32,7 @@ import {
   tripBudget,
   type BudgetStore,
 } from "../providers/budget.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
 import {
   EXTRACT_BATCH_EPISODES,
   EXTRACT_CALLS_PER_TICK,
@@ -48,6 +48,7 @@ import {
   pendingExtractCount,
   type ExtractQueueRow,
 } from "./extract-queue.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -73,19 +74,14 @@ afterEach(() => {
 const USAGE: Usage = { inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 1 };
 
 /** A provider that answers every call with the same JSON and counts the calls. */
-function stub(output: unknown): Provider & { messages: string[] } {
+function stub(output: unknown): ProviderV2 & { messages: string[] } {
   const messages: string[] = [];
-  return {
-    id: "stub",
-    messages,
-    cancel: () => false,
-    async send(opts) {
-      messages.push(opts.message);
+  return Object.assign(brainTestProvider(async (opts) => {
+      messages.push(providerRequestText(opts));
       opts.onEvent({ type: "delta", text: JSON.stringify(output) });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { messages });
 }
 
 const EMPTY_OUT = { claims: [], people: [], tone: [], feelings: [] };

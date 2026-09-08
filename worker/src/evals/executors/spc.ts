@@ -49,7 +49,8 @@ import {
 import { getDb } from "../../db/connection.js";
 import { decisionsFor } from "../../db/decisions.js";
 import { appStateGet, appStateSet } from "../../db/ingest.js";
-import type { Provider, Usage } from "../../providers/types.js";
+import type { ProviderV2, Usage } from "../../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../../providers/test-support.js";
 import { bornAsked, sweepPreview, wakeSpace } from "../../spaces/birth.js";
 import { recordEnrichmentFetch } from "../../spaces/enrichment.js";
 import { reviewUnsortedWeekly, UNSORTED_LAST_REVIEW_KEY } from "../../spaces/unsorted.js";
@@ -102,23 +103,18 @@ async function withAppStateAsync<T>(keys: readonly string[], run: () => Promise<
 const USAGE: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 };
 
 /** Answers `responses` in order (last repeats) and counts every call made. */
-function stubProvider(responses: readonly string[]): Provider & { calls: string[] } {
+function stubProvider(responses: readonly string[]): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "stub-spc",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      calls.push(providerRequestText(opts));
       const text = responses[Math.min(calls.length - 1, responses.length - 1)] ?? "{}";
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" as const };
+  }), { calls });
 }
 
-function deps(provider: Provider): JsonPassDeps {
+function deps(provider: ProviderV2): JsonPassDeps {
   return { provider, recordRun: () => `run_${randomBytes(6).toString("hex")}`, sleep: async () => {} };
 }
 

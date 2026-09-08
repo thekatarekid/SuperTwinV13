@@ -20,7 +20,8 @@ import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { decisionsFor, writeDecision } from "../db/decisions.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../providers/test-support.js";
 import type { JsonPassDeps } from "../brain/llm.js";
 import { attachEpisode, sweepSpaceOnActivation, unsweptActiveSpaces } from "./sweep.js";
 import { mergeSpaces, runT2, mergeQuestionId, T2_LAST_ROLL_KEY } from "./t2.js";
@@ -48,23 +49,18 @@ const USAGE: Usage = {
   outputTokens: 5,
 };
 
-function stubProvider(responses: string[]): Provider & { calls: string[] } {
+function stubProvider(responses: string[]): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "stub",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      calls.push(providerRequestText(opts));
       const text = responses[Math.min(calls.length - 1, responses.length - 1)] ?? "{}";
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { calls });
 }
 
-function deps(provider: Provider): JsonPassDeps {
+function deps(provider: ProviderV2): JsonPassDeps {
   return { provider };
 }
 

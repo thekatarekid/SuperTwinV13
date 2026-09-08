@@ -14,7 +14,8 @@ import { scheduleClosureCheck } from "../brain/closure-check.js";
 import { enqueueNextStep } from "../brain/next-step.js";
 import type { JsonPassDeps } from "../brain/llm.js";
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
 import { formatDelay, runWakeupLookups, runWakeups, startWakeupJob } from "./wakeups.js";
 
 /** Sat 2026-08-29 09:00 IST. */
@@ -23,33 +24,25 @@ const USAGE: Usage = { inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInp
 let tmpDir: string;
 
 /** A provider that answers with one canned JSON body and counts its calls. */
-function cannedProvider(text: string): Provider & { calls: number } {
-  const p = {
-    id: "test-canned",
-    calls: 0,
-    cancel: () => false,
-    async send(opts: Parameters<Provider["send"]>[0]) {
-      p.calls += 1;
+function cannedProvider(text: string): ProviderV2 & { calls: number } {
+  const state = { calls: 0 };
+  const provider = providerV2TestDouble(async (opts) => {
+      state.calls += 1;
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "t", usage: USAGE });
-      return { sessionId: "t", usage: USAGE, freshFallback: false, status: "ok" as const };
-    },
-  };
-  return p;
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" as const };
+  });
+  return Object.defineProperty(provider, "calls", { get: () => state.calls }) as ProviderV2 & { calls: number };
 }
 
 /** A provider that must never be constructed into a call. */
-function forbiddenProvider(): Provider & { calls: number } {
-  const p = {
-    id: "test-forbidden",
-    calls: 0,
-    cancel: () => false,
-    async send(): Promise<never> {
-      p.calls += 1;
-      throw new Error("the wake-up reached for the model");
-    },
-  };
-  return p as unknown as Provider & { calls: number };
+function forbiddenProvider(): ProviderV2 & { calls: number } {
+  const state = { calls: 0 };
+  const provider = providerV2TestDouble(async (): Promise<never> => {
+    state.calls += 1;
+    throw new Error("the wake-up reached for the model");
+  });
+  return Object.defineProperty(provider, "calls", { get: () => state.calls }) as ProviderV2 & { calls: number };
 }
 
 beforeEach(() => {

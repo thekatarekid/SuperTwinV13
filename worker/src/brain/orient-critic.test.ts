@@ -16,13 +16,14 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { collectTick, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
 import { ORIENT_V1, ORIENT_V1_CORE } from "../prompts/orient.v1.js";
 import { CRITIC_V1, CRITIC_V1_CORE } from "../prompts/critic.v1.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";
 import { parseOrientOutput, resolveEventAliases } from "./orient.js";
 import { parseCriticOutput, verdictFor } from "./critic.js";
 import { runBrainTick } from "./consumer.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -63,11 +64,8 @@ function waMessage(i: number, text: string, actor = "contact:rohan"): EventEnvel
 /** Provider stub: one canned answer per call, in order. */
 function stubDeps(answers: string[]): JsonPassDeps & { calls: () => number; users: string[] } {
   const users: string[] = [];
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
-      users.push(opts.message);
+  const provider = brainTestProvider(async (opts) => {
+      users.push(providerRequestText(opts));
       const text = answers[users.length - 1] ?? "{}";
       opts.onEvent({ type: "delta", text });
       const usage: Usage = {
@@ -76,10 +74,9 @@ function stubDeps(answers: string[]): JsonPassDeps & { calls: () => number; user
         cacheReadInputTokens: 0,
         outputTokens: 5,
       };
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   return {
     provider,
     pool: new ResourcePool({ now: () => 0, sleep: async () => {} }),

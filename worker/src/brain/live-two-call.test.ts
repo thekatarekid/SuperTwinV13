@@ -39,8 +39,9 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { collectTick, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
 import {
+  activeCriticPrompt,
   activeLiveMode,
   activeOrientPrompt,
   DEFAULT_LIVE_MODE,
@@ -51,6 +52,7 @@ import { LIVE_DECIDE_V1 } from "../prompts/live-decide.v1.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";
 import { parseLiveDecideAnswer, renderUnderstandingBlock, runLiveUnderstanding } from "./live.js";
 import { runBrainTick } from "./consumer.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -98,7 +100,7 @@ function seedBundle(texts: string[], origin: EventEnvelope["origin"] = "live"): 
 }
 
 interface Sent {
-  /** The pass id — the system half goes to a per-pass file, not inline. */
+  /** Pass id inferred from the exact in-memory instruction bytes. */
   pass: string;
   user: string;
 }
@@ -106,21 +108,22 @@ interface Sent {
 /** Records every call, answers each with the canned text for its position. */
 function recordingDeps(answers: string[]): JsonPassDeps & { sent: Sent[] } {
   const sent: Sent[] = [];
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
-      // The system half is written to a file named `<pass>-<hash>.txt`
-      // (llm.ts systemPromptFileFor), so the pass is what the stub can see.
-      const file = opts.systemPromptFile ?? "";
-      const base = file.split("/").pop() ?? "";
-      sent.push({ pass: base.replace(/^supertwinv13-/, "").replace(/-[0-9a-f]{12}\.txt$/, ""), user: opts.message });
+  const provider = brainTestProvider(async (opts) => {
+      const orient = activeOrientPrompt();
+      const critic = activeCriticPrompt();
+      const pass = opts.instructions === orient.system
+        ? orient.pass
+        : opts.instructions === critic.system
+          ? critic.pass
+          : opts.instructions === LIVE_DECIDE_V1.system
+            ? LIVE_DECIDE_V1.pass
+            : "unknown";
+      sent.push({ pass, user: providerRequestText(opts) });
       const usage: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 };
       opts.onEvent({ type: "delta", text: answers[sent.length - 1] ?? "{}" });
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   return {
     provider,
     pool: new ResourcePool({ now: () => 0, sleep: async () => {} }),

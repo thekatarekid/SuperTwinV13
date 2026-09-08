@@ -318,13 +318,12 @@ export function createNeutralClaudeProvider(
       }
       if (
         request.plainCompletion === true &&
-        ((request.hostTools?.length ?? 0) > 0 ||
-          (request.reasoning !== undefined && request.reasoning.budget !== "off"))
+        (request.hostTools?.length ?? 0) > 0
       ) {
         return failed(
           request,
           "BAD_REQUEST",
-          "plainCompletion cannot enable host tools or reasoning for Claude",
+          "plainCompletion cannot enable host tools for Claude",
         );
       }
       if (request.hostTools?.some((name) => !name.trim())) {

@@ -42,7 +42,8 @@ import { decisionsFor } from "../../db/decisions.js";
 import { appendEvents, type EventEnvelope } from "../../db/eventlog.js";
 import { appStateGet, appStateSet } from "../../db/ingest.js";
 import { collectTick, markDispatchedEvents, type DeltaBundle } from "../../scheduler/v6/bundle.js";
-import type { Provider, Usage } from "../../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../../providers/test-support.js";
+import type { ProviderV2, Usage } from "../../providers/types.js";
 import type { Fixture } from "../fixtures.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import { consolidateExecutor as legacyConsolidateExecutor } from "./passes.js";
@@ -64,20 +65,15 @@ function count(sql: string, ...args: unknown[]): number {
 const USAGE: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 };
 
 /** A provider that answers `responses` in order (last one repeats) and counts calls. */
-export function stubJudge(responses: readonly string[]): Provider & { calls: string[] } {
+export function stubJudge(responses: readonly string[]): ProviderV2 & { calls: string[] } {
   const calls: string[] = [];
-  return {
-    id: "stub-judge",
-    calls,
-    cancel: () => false,
-    async send(opts) {
-      calls.push(opts.message);
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      calls.push(providerRequestText(opts));
       const text = responses[Math.min(calls.length - 1, responses.length - 1)] ?? "{}";
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { calls });
 }
 
 const MERGE_VERDICT = (survivor: string, confidence: number): string =>
@@ -189,7 +185,7 @@ class ConWorld {
 
 type CaseFn = (fixture: Fixture, w: ConWorld) => Promise<ExecutorResult>;
 
-function deps(provider: Provider): JsonPassDeps {
+function deps(provider: ProviderV2): JsonPassDeps {
   return { provider };
 }
 
@@ -485,7 +481,7 @@ export interface IdemOutput {
  * consolidation pair runs — T2 (flags + roll) over what changed, T3 over items
  * touched since the batch began.
  */
-async function idemBatch(w: ConWorld, streamKey: string, texts: readonly string[], space: string, judge: Provider, since: string): Promise<IdemRun> {
+async function idemBatch(w: ConWorld, streamKey: string, texts: readonly string[], space: string, judge: ProviderV2, since: string): Promise<IdemRun> {
   const envelopes: EventEnvelope[] = texts.map((text, i) => ({
     ts: new Date(T0 + (i + 1) * 60_000).toISOString(),
     source: "wa",

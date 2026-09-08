@@ -14,7 +14,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { resetStableSystemPromptsForTests } from "../brain/llm.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
+import { providerV2TestDouble } from "../providers/test-support.js";
 import {
   createArtifact,
   getArtifact,
@@ -170,10 +171,7 @@ describe("handleAssistRoute", () => {
     expect((panel.older as any[]).length).toBe(0);
 
     // Graduate through the Critic gate (stubbed commit verdict).
-    const provider: Provider = {
-      id: "fake",
-      cancel: () => true,
-      async send(opts) {
+    const provider = providerV2TestDouble(async (opts) => {
         const usage: Usage = {
           inputTokens: 1,
           cacheCreationInputTokens: 0,
@@ -184,10 +182,9 @@ describe("handleAssistRoute", () => {
           type: "delta",
           text: JSON.stringify({ verdicts: [{ item: 1, verdict: "commit" }] }),
         });
-        opts.onEvent({ type: "done", sessionId: "s", usage });
-        return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-      },
-    };
+        opts.onEvent({ type: "done", continuation: null, usage });
+        return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+    });
     const result = await graduateArtifact(a.id, {
       provider,
       recordRun: () => "run-1",

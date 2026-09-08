@@ -18,7 +18,8 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { addEpisodeEvents } from "../db/v6core.js";
 import { enqueueExtract, pendingExtractCount } from "../brain/extract-queue.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
+import { providerRequestText, providerV2TestDouble } from "../providers/test-support.js";
 import { startConsolidationJob } from "./job.js";
 
 let tmpDir: string;
@@ -40,19 +41,14 @@ afterEach(() => {
 
 const USAGE: Usage = { inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 1 };
 
-function stub(output: unknown): Provider & { messages: string[] } {
+function stub(output: unknown): ProviderV2 & { messages: string[] } {
   const messages: string[] = [];
-  return {
-    id: "stub",
-    messages,
-    cancel: () => false,
-    async send(opts) {
-      messages.push(opts.message);
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      messages.push(providerRequestText(opts));
       opts.onEvent({ type: "delta", text: JSON.stringify(output) });
-      opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-      return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+  }), { messages });
 }
 
 function seedEpisode(episodeId: string, streamKey: string): void {
@@ -174,21 +170,17 @@ describe("consolidation job — the Extract duty cannot be starved or skipped", 
     // A provider that hangs the FIRST call (the Decide drain's) and answers
     // every later one: the shape of a long duty ahead of Extract in the tick.
     let first = true;
-    const provider: Provider & { messages: string[] } = {
-      id: "stub",
-      messages: [],
-      cancel: () => false,
-      async send(opts) {
-        provider.messages.push(opts.message);
+    const messages: string[] = [];
+    const provider = Object.assign(providerV2TestDouble(async (opts) => {
+        messages.push(providerRequestText(opts));
         if (first) {
           first = false;
           await sweepBlocked;
         }
         opts.onEvent({ type: "delta", text: JSON.stringify({ claims: [], people: [], tone: [], feelings: [] }) });
-        opts.onEvent({ type: "done", sessionId: "s", usage: USAGE });
-        return { sessionId: "s", usage: USAGE, freshFallback: false, status: "ok" };
-      },
-    };
+        opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+        return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" };
+      }), { messages });
     const lines: string[] = [];
     const job = startConsolidationJob({
       deps: { provider },

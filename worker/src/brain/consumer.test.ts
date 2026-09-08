@@ -13,9 +13,10 @@ import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { collectTick, markDispatched, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";
 import { bundleKey, isBundleStale, runBrainTick, startBrainConsumer } from "./consumer.js";
+import { providerV2TestDouble as brainTestProvider } from "../providers/test-support.js";
 
 let tmpDir: string;
 
@@ -74,10 +75,7 @@ function gatedDeps(): JsonPassDeps & Gate & { calls: () => number } {
     open = resolve;
   });
   let n = 0;
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
+  const provider = brainTestProvider(async (opts) => {
       n++;
       await opened;
       opts.onEvent({ type: "delta", text: EMPTY_ORIENT });
@@ -87,10 +85,9 @@ function gatedDeps(): JsonPassDeps & Gate & { calls: () => number } {
         cacheReadInputTokens: 0,
         outputTokens: 5,
       };
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   return {
     provider,
     pool: new ResourcePool({ now: () => 0, sleep: async () => {} }),

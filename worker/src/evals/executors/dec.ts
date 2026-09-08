@@ -17,7 +17,8 @@ import { addEpisodeEvents } from "../../db/v6core.js";
 import { runDecidePass, type DecidePassResult } from "../../brain/decide-pass.js";
 import { runClosureChecks, CLOSURE_CHECK_KIND, type ClosureCheckReport } from "../../brain/closure-check.js";
 import type { JsonPassDeps } from "../../brain/llm.js";
-import type { Provider, Usage } from "../../providers/types.js";
+import type { ProviderV2, Usage } from "../../providers/types.js";
+import { providerV2TestDouble } from "../../providers/test-support.js";
 import type { Executor, ExecutorResult, Violation } from "../runner.js";
 import { FIXTURE_NOW, fixtureNow } from "./clock.js";
 
@@ -34,19 +35,14 @@ function list(v: unknown): Record<string, unknown>[] {
 }
 
 /** A provider that answers every call with the fixture's canned JSON. */
-export function cannedProvider(text: string): Provider & { calls: number } {
-  const p = {
-    id: "eval-canned",
-    calls: 0,
-    cancel: () => false,
-    async send(opts: Parameters<Provider["send"]>[0]) {
-      p.calls += 1;
+export function cannedProvider(text: string): ProviderV2 & { calls: number } {
+  const state = { calls: 0 };
+  return Object.assign(providerV2TestDouble(async (opts) => {
+      state.calls += 1;
       opts.onEvent({ type: "delta", text });
-      opts.onEvent({ type: "done", sessionId: "eval", usage: USAGE });
-      return { sessionId: "eval", usage: USAGE, freshFallback: false, status: "ok" as const };
-    },
-  };
-  return p;
+      opts.onEvent({ type: "done", continuation: null, usage: USAGE });
+      return { continuation: null, usage: USAGE, freshFallback: false, status: "ok" as const };
+  }), state);
 }
 
 interface TaskRow {

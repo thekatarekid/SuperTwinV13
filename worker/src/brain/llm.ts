@@ -34,13 +34,10 @@
 // ===========================================================================
 
 import { createHash, randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { getDb } from "../db/connection.js";
 import { stepOverride } from "../settings/overrides.js";
-import { reasoningForPass } from "./reasoning.js";
+import { reasoningRequestForResolvedCall } from "./reasoning.js";
 import {
   addUsage as meterQuotaUsage,
   logExtractionRun,
@@ -54,7 +51,11 @@ import {
   type RunOrigin,
   type RunRole,
 } from "../db/run-accounting.js";
-import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
+import {
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
 import {
   isPoolOverflow,
   resourcePool,
@@ -62,7 +63,7 @@ import {
   type LlmLane,
   type ResourcePool,
 } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { ProviderV2, Usage } from "../providers/types.js";
 import {
   annotateTrace,
   bindTraceContext,
@@ -133,20 +134,6 @@ export function resetStableSystemPromptsForTests(): void {
   systemCache.clear();
 }
 
-const promptFiles = new Map<string, string>();
-
-/** The system half goes to a file (adapter passes --append-system-prompt). */
-function systemPromptFileFor(pass: string, text: string): string {
-  const hash = createHash("sha1").update(text).digest("hex").slice(0, 12);
-  const safe = pass.replace(/[^A-Za-z0-9._-]/g, "_");
-  const path = join(tmpdir(), `supertwinv13-${safe}-${hash}.txt`);
-  if (promptFiles.get(path) !== hash) {
-    writeFileSync(path, text, "utf8");
-    promptFiles.set(path, hash);
-  }
-  return path;
-}
-
 // ---------------------------------------------------------------------------
 // JSON extraction
 // ---------------------------------------------------------------------------
@@ -191,7 +178,7 @@ export interface JsonPassSpec<T> {
   user: string;
   /** Accounting role (`runs.role` is a closed enum; see db/run-accounting). */
   role: RunRole;
-  /** Model id; default = modelForPass(pass). */
+  /** @deprecated Production selection comes from provider-namespaced settings. */
   model?: string;
   cohortId?: string | null;
   /** The unit this call is for — quarantine parks it on double failure. */
@@ -227,8 +214,8 @@ export interface JsonPassResult<T> {
 }
 
 export interface JsonPassDeps {
-  provider?: Provider;
-  providerId?: string;
+  /** Exact strict-provider test seam; production resolves from the V2 registry. */
+  provider?: ProviderV2;
   pool?: ResourcePool;
   /** Replaces BOTH accounting halves — a test with no DB observes every call. */
   recordRun?: (p: RecordRunParams) => string;
@@ -255,6 +242,14 @@ export interface JsonPassDeps {
   newId?: () => string;
   now?: () => Date;
   signal?: AbortSignal;
+}
+
+function providerErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
 }
 
 const ZERO_USAGE: Usage = {
@@ -312,6 +307,8 @@ interface CallOutcome {
   endedAt: string;
   providerId: string;
   promptChars: number;
+  /** Permanent pre-send/provider hold: caller must retain, never quarantine. */
+  hardStop?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,10 +325,20 @@ export async function runJsonPass<T>(
 ): Promise<JsonPassResult<T>> {
   const system = stableSystemPrompt(spec.pass, spec.system);
   const promptVersion = createHash("sha1").update(system).digest("hex").slice(0, 12);
+  const resolved = resolveModelCall(
+    { source: "step", key: spec.pass },
+    {
+      ...(deps.provider ? { provider: deps.provider } : {}),
+    },
+  );
+  // Bind the required request limit to the same immutable catalogue snapshot
+  // before entering the pool. Unknown bounds are a capability failure, never
+  // a spawned call, retry, or generic CLI error.
+  const maxOutputTokens = requireMaxOutputTokens(resolved);
   return withTraceContext(
     { pass: spec.pass, caller: "brain/llm", promptVersion },
     async () => {
-      const result = await execute(spec, system, deps);
+      const result = await execute(spec, system, resolved, maxOutputTokens, deps);
       annotateTrace({
         repairCount: Math.max(0, result.runIds.length - 1),
         parsedResult: {
@@ -347,7 +354,9 @@ export async function runJsonPass<T>(
 
 async function callOnce<T>(
   spec: JsonPassSpec<T>,
-  system: string,
+  instructions: string,
+  resolved: ResolvedModelCall,
+  maxOutputTokens: number,
   userText: string,
   deps: JsonPassDeps,
 ): Promise<CallOutcome> {
@@ -355,26 +364,9 @@ async function callOnce<T>(
   const now = deps.now ?? (() => new Date());
   const runId = newId();
   const startedAt = now().toISOString();
-  const configuredId = deps.providerId ?? DEFAULT_PROVIDER_ID;
-  const provider = deps.provider ?? getProvider(configuredId);
-  const promptChars = system.length + userText.length;
-  if (!provider) {
-    return {
-      runId,
-      ok: false,
-      text: "",
-      usage: { ...ZERO_USAGE },
-      errorCode: "SPAWN_FAILED",
-      errorMessage: `provider "${configuredId}" is not registered`,
-      startedAt,
-      endedAt: now().toISOString(),
-      providerId: configuredId,
-      promptChars,
-    };
-  }
+  const { provider } = resolved;
+  const promptChars = instructions.length + userText.length;
   const pool = deps.pool ?? resourcePool;
-  const systemFile = systemPromptFileFor(spec.pass, system);
-  const model = spec.model ?? modelForPass(spec.pass);
   let text = "";
   let usage: Usage = { ...ZERO_USAGE };
   let failure = "";
@@ -386,16 +378,22 @@ async function callOnce<T>(
       bindTraceContext(() =>
         provider.send({
           runId,
-          message: userText,
-          systemPromptFile: systemFile,
+          model: resolved.model,
+          instructions,
+          input: [{
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: userText }],
+          }],
+          toolChoice: "none",
           plainCompletion: true,
-          maxTurns: 1,
-          // The step's reasoning dial (Settings › Intelligence). `off` — the
-          // default, and every step until someone changes one — resolves to
-          // exactly the flags this call has always sent.
-          ...reasoningForPass(spec.pass, model),
-          allowedTools: [],
-          model,
+          skipHostSettings: true,
+          persistContinuation: false,
+          maxOutputTokens,
+          // Claude's plain-completion transport uses two CLI turns (one answer
+          // plus one preamble allowance); ChatGPT performs one response.
+          maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
+          ...reasoningRequestForResolvedCall(resolved),
           timeoutMs: spec.timeoutMs,
           signal: deps.signal,
           onEvent: (ev) => {
@@ -431,7 +429,9 @@ async function callOnce<T>(
       usage,
       // A full pool is backpressure, not a model failure: it carries its own
       // code so dispatch() can hand it back without touching the breaker.
-      errorCode: isPoolOverflow(err) ? "POOL_OVERFLOW" : (failureCode ?? "CLI_ERROR"),
+      errorCode: isPoolOverflow(err)
+        ? "POOL_OVERFLOW"
+        : (failureCode ?? providerErrorCode(err) ?? "CLI_ERROR"),
       errorMessage: err instanceof Error ? err.message : String(err),
       startedAt,
       endedAt: now().toISOString(),
@@ -464,7 +464,9 @@ async function callOnce<T>(
  */
 async function dispatch<T>(
   spec: JsonPassSpec<T>,
-  system: string,
+  instructions: string,
+  resolved: ResolvedModelCall,
+  maxOutputTokens: number,
   userText: string,
   deps: JsonPassDeps,
   sink: CallOutcome[],
@@ -476,7 +478,14 @@ async function dispatch<T>(
   let retriesSpent = 0;
   let pauses = 0;
   for (;;) {
-    const call = await callOnce(spec, system, userText, deps);
+    const call = await callOnce(
+      spec,
+      instructions,
+      resolved,
+      maxOutputTokens,
+      userText,
+      deps,
+    );
     sink.push(call);
     if (call.ok) {
       pool.noteSuccess(lane);
@@ -495,17 +504,20 @@ async function dispatch<T>(
     // FIX-C1. A hard stop (budget latch / kill switch) is handed straight back
     // too: nothing was spawned, nothing is owed, and no wait clears it. Never
     // retried and never paused — the lane's entry gate keeps the work.
-    if (decision.hardStop) return call;
+    if (decision.hardStop) {
+      call.hardStop = true;
+      return call;
+    }
     if (decision.softStop) return call;
     if (decision.breakerTripped) return call;
     if (decision.action === "pause" && pauses < maxPauses) {
       pauses += 1;
-      logRun(spec, call, "retried", deps);
+      logRun(spec, resolved, call, "retried", deps);
       continue;
     }
     if (decision.action === "retry") {
       retriesSpent += 1;
-      logRun(spec, call, "retried", deps);
+      logRun(spec, resolved, call, "retried", deps);
       await sleep(decision.waitMs);
       continue;
     }
@@ -515,6 +527,7 @@ async function dispatch<T>(
 
 function logRun<T>(
   spec: JsonPassSpec<T>,
+  resolved: ResolvedModelCall,
   call: CallOutcome,
   status: "ok" | "retried" | "quarantined" | "error",
   deps: JsonPassDeps,
@@ -524,7 +537,7 @@ function logRun<T>(
   // — the spend of a timed-out or cancelled call is real, and mostly cache.
   const meter =
     deps.addUsage ?? (deps.recordRun ? () => {} : meterQuotaUsage);
-  const model = spec.model ?? modelForPass(spec.pass);
+  const model = resolved.model;
   const run: RecordRunParams = {
     id: call.runId,
     role: spec.role,
@@ -622,7 +635,9 @@ function tryParse<T>(
 
 async function execute<T>(
   spec: JsonPassSpec<T>,
-  system: string,
+  instructions: string,
+  resolved: ResolvedModelCall,
+  maxOutputTokens: number,
   deps: JsonPassDeps,
 ): Promise<JsonPassResult<T>> {
   const calls: CallOutcome[] = [];
@@ -644,7 +659,15 @@ async function execute<T>(
     ...(parts.quarantineId ? { quarantineId: parts.quarantineId } : {}),
   });
 
-  const first = await dispatch(spec, system, spec.user, deps, calls);
+  const first = await dispatch(
+    spec,
+    instructions,
+    resolved,
+    maxOutputTokens,
+    spec.user,
+    deps,
+    calls,
+  );
   // FIX-C2: MAX_TURNS is a soft stop, not a transport failure — fall through
   // to the parse. A preamble ("I'll process this bundle of 92 events…") burned
   // the turn but broke nothing, and the repair round below re-asks for the
@@ -660,8 +683,8 @@ async function execute<T>(
     const code = String(first.errorCode ?? "CLI_ERROR");
     // A cancel and a full pool are both "not now", not the unit's fault:
     // logged as an error, handed back unquarantined.
-    const handBack = code === "CANCELLED" || code === "POOL_OVERFLOW";
-    logRun(spec, first, handBack ? "error" : "quarantined", deps);
+    const handBack = first.hardStop || code === "CANCELLED" || code === "POOL_OVERFLOW";
+    logRun(spec, resolved, first, handBack ? "error" : "quarantined", deps);
     if (handBack) {
       return finish("failed", { error: { code, message: first.errorMessage ?? "" } });
     }
@@ -673,13 +696,13 @@ async function execute<T>(
 
   const round1 = tryParse(spec, first.text);
   if (round1.output !== undefined) {
-    logRun(spec, first, "ok", deps);
+    logRun(spec, resolved, first, "ok", deps);
     return finish("ok", { output: round1.output });
   }
 
   // One repair round (spec §8: one repair round → quarantine). The model is
   // shown its OWN previous answer verbatim — never a cleaned-up version.
-  logRun(spec, first, "retried", deps);
+  logRun(spec, resolved, first, "retried", deps);
   const repairUser = [
     spec.user,
     "",
@@ -694,13 +717,21 @@ async function execute<T>(
     "Answer again with ONLY the JSON object required by the schema — no prose,",
     "no code fences, no commentary. Do not announce what you are about to do.",
   ].join("\n");
-  const second = await dispatch(spec, system, repairUser, deps, calls);
+  const second = await dispatch(
+    spec,
+    instructions,
+    resolved,
+    maxOutputTokens,
+    repairUser,
+    deps,
+    calls,
+  );
   // A turn cap on the repair round leaves bytes too: try them before parking.
   const secondSoftStop = !second.ok && String(second.errorCode) === "MAX_TURNS";
   if (!second.ok && !(secondSoftStop && second.text.trim().length > 0)) {
     const code = String(second.errorCode ?? "CLI_ERROR");
-    const handBack = code === "CANCELLED" || code === "POOL_OVERFLOW";
-    logRun(spec, second, handBack ? "error" : "quarantined", deps);
+    const handBack = second.hardStop || code === "CANCELLED" || code === "POOL_OVERFLOW";
+    logRun(spec, resolved, second, handBack ? "error" : "quarantined", deps);
     if (handBack) {
       return finish("failed", { error: { code, message: second.errorMessage ?? "" } });
     }
@@ -711,10 +742,10 @@ async function execute<T>(
   }
   const round2 = tryParse(spec, second.text);
   if (round2.output !== undefined) {
-    logRun(spec, second, "ok", deps);
+    logRun(spec, resolved, second, "ok", deps);
     return finish("repaired", { output: round2.output });
   }
-  logRun(spec, second, "quarantined", deps);
+  logRun(spec, resolved, second, "quarantined", deps);
   return finish("quarantined", {
     error: { code: "json_invalid", message: round2.problem ?? "unparseable" },
     quarantineId: parkUnit(

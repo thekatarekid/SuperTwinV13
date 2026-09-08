@@ -18,9 +18,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { BREAKER_FAILURES, ResourcePool, RETRY_DELAYS_MS } from "../providers/pool.js";
-import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
+import type { ProviderErrorCode, Usage } from "../providers/types.js";
 import type { RecordRunParams } from "../db/run-accounting.js";
 import { resetStableSystemPromptsForTests, runJsonPass, type JsonPassDeps } from "./llm.js";
+import { providerV2TestDouble as brainTestProvider, providerRequestText } from "../providers/test-support.js";
 
 interface Turn {
   text?: string;
@@ -41,21 +42,17 @@ function harness(turns: Turn[]) {
     cacheReadInputTokens: 0,
     outputTokens: 5,
   };
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
-      messages.push(opts.message);
+  const provider = brainTestProvider(async (opts) => {
+      messages.push(providerRequestText(opts));
       const turn = turns[messages.length - 1] ?? { text: "" };
       if (turn.text !== undefined) opts.onEvent({ type: "delta", text: turn.text });
       if (turn.code) {
         opts.onEvent({ type: "error", code: turn.code, message: turn.message ?? "boom" });
-        return { sessionId: "s", usage, freshFallback: false, status: "error" as const, errorCode: turn.code };
+        return { continuation: null, usage, freshFallback: false, status: "error" as const, errorCode: turn.code };
       }
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   let t = 0;
   const pool = new ResourcePool({ now: () => t, sleep: async (ms) => { t += ms; } });
   const deps: JsonPassDeps = {

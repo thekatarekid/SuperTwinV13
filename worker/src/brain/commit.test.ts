@@ -21,8 +21,9 @@ import { appendEvents, type EventEnvelope } from "../db/eventlog.js";
 import { episodeMemberIds, listDeadLetters } from "../db/v6core.js";
 import { collectTick, markDispatchedEvents, type DeltaBundle } from "../scheduler/v6/bundle.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, Usage } from "../providers/types.js";
+import type { Usage } from "../providers/types.js";
 import { resetStableSystemPromptsForTests, type JsonPassDeps } from "./llm.js";
+import { providerV2TestDouble as brainTestProvider } from "../providers/test-support.js";
 import { parseOrientOutput, type OrientOutput } from "./orient.js";
 import type { CriticOutput } from "./critic.js";
 import { commitTick, type CommitInput } from "./commit.js";
@@ -504,17 +505,13 @@ describe("CMT-05 · coverage", () => {
 
 function stubDeps(answers: string[]): JsonPassDeps & { calls: () => number } {
   let n = 0;
-  const provider: Provider = {
-    id: "fake",
-    cancel: () => true,
-    async send(opts) {
+  const provider = brainTestProvider(async (opts) => {
       const text = answers[n++] ?? "{}";
       opts.onEvent({ type: "delta", text });
       const usage: Usage = { inputTokens: 10, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 5 };
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
-    },
-  };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
+  });
   return {
     provider,
     pool: new ResourcePool({ now: () => 0, sleep: async () => {} }),

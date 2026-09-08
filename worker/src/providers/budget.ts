@@ -547,9 +547,10 @@ function breach(ledger: Bucket[], now: number, c: BudgetCeilings, hourSince = 0)
  * `meta` defaults to the active trace scope; a scope-less call (enforcement
  * off in a transport test) is treated as background.
  */
-export function admitCall(
-  meta: BudgetCallMeta | null = currentTraceMeta(),
-  now: number = Date.now(),
+function evaluateCallAdmission(
+  meta: BudgetCallMeta | null,
+  now: number,
+  commit: boolean,
 ): void {
   const s = store();
   const pausedAt = s.get(MODEL_ACTIVITY_PAUSED_KEY);
@@ -577,8 +578,32 @@ export function admitCall(
     });
   }
 
-  bucketFor(ledger, now).calls += 1;
-  saveLedger(s, ledger);
+  if (commit) {
+    bucketFor(ledger, now).calls += 1;
+    saveLedger(s, ledger);
+  }
+}
+
+/**
+ * Check the kill switch and budget latch without consuming an admission.
+ *
+ * The shared provider gate uses this before quota/auth checks, then calls
+ * `admitCall` synchronously after auth succeeds. `admitCall` rechecks before
+ * committing, so a signed-out provider spends no call slot and no later
+ * caller can bypass a latch that changed during the intervening checks.
+ */
+export function preflightCall(
+  meta: BudgetCallMeta | null = currentTraceMeta(),
+  now: number = Date.now(),
+): void {
+  evaluateCallAdmission(meta, now, false);
+}
+
+export function admitCall(
+  meta: BudgetCallMeta | null = currentTraceMeta(),
+  now: number = Date.now(),
+): void {
+  evaluateCallAdmission(meta, now, true);
 }
 
 /** Add what one CLI invocation cost, once the result line reports it. */

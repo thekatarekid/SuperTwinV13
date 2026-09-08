@@ -92,12 +92,8 @@ import {
   resolveClaudeBin,
   safeCwd,
 } from "./cli.js";
-import {
-  assertTraceContext,
-  recordProviderInvocation,
-} from "../../traces/context.js";
-import { admitCall, budgetCeilings, recordCallCost } from "../budget.js";
-import { noteRefusal, noteSpend } from "../spend-heartbeat.js";
+import { budgetCeilings } from "../budget.js";
+import { runGatedProviderAttempt } from "../gate.js";
 
 // The shaping half of the adapter lives in ./cli.ts; re-exported here so the
 // adapter stays one import for callers and tests.
@@ -174,12 +170,6 @@ class ClaudeLocalProvider implements Provider {
       signal,
     } = opts;
 
-    // TRC-01 (build P0.7): this is the SINGLE spawn site — a call reaching it
-    // without a trace context is a ghost call. Throws in dev, before anything
-    // spawns; production falls through to the ghost-write in
-    // recordProviderInvocation instead of crashing.
-    assertTraceContext(`claude-local run ${runId}`);
-
     // Never ~/Documents, ~/Desktop or ~/Downloads (§4.1.4).
     const runCwd = safeCwd(cwd);
 
@@ -214,49 +204,16 @@ class ClaudeLocalProvider implements Provider {
     ): Promise<RunAttempt> => {
       attemptNo += 1;
       const thisAttempt = attemptNo;
-      const startedMs = Date.now();
-      const ts = new Date().toISOString();
-      let raw = "";
-      // S0.2 (T0-4, SPD-01): the hard spend/call ceiling, downstream of every
-      // pool bypass, BEFORE spawn. One admit per CLI invocation — the poison
-      // fallback is a second spawn and pays a second admit. Throws
-      // BudgetExceededError (code BUDGET_EXCEEDED) and latches app_state;
-      // chat and the grounded bar are counted but never blocked. The kill
-      // switch (S0.8, SPD-03) is checked first at the same site and blocks
-      // everyone: ModelActivityPausedError (code MODEL_ACTIVITY_PAUSED).
-      //
-      // 13.11.6 (C3): a refusal is counted too. The heartbeat below counts
-      // ADMITTED calls, so a latched budget turned every minute into
-      // "0 calls" — indistinguishable from a pipeline that never dispatched,
-      // which is exactly how a hard-stopped install read as an idle one.
-      try {
-        admitCall();
-      } catch (err) {
-        noteRefusal(err);
-        throw err;
-      }
-      const attempt = await this.runOnce({
-        ...args,
-        onEvent: (ev) => {
-          if (ev.type === "delta") raw += ev.text;
-          args.onEvent(ev);
-        },
-      });
-      recordCallCost(attempt.usage.costUsd);
-      noteSpend(attempt.usage); // S0.8 (SPD-06): the `[spend] 60s:` heartbeat
-      recordProviderInvocation({
+      return runGatedProviderAttempt({
+        providerId: this.id,
         runId,
         attempt: thisAttempt,
         model: modelId,
         systemPrompt: systemPrompt ?? null,
         packedContext: args.message,
-        rawOutput: raw,
-        usage: attempt.usage,
-        latencyMs: Date.now() - startedMs,
-        status: attempt.failure ? attempt.failure.code : "ok",
-        ts,
+        onEvent: args.onEvent,
+        execute: (onEvent) => this.runOnce({ ...args, onEvent }),
       });
-      return attempt;
     };
 
     // ---- Attempt 1: resume (if requested) or fresh.

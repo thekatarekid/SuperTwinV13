@@ -15,6 +15,7 @@ import {
 } from "../settings/overrides.js";
 import {
   ProviderSelectionError,
+  requireMaxOutputTokens,
   resolveModelCall,
 } from "./selection.js";
 import type {
@@ -222,9 +223,56 @@ describe("provider/model selection snapshot", () => {
     expect(resolved).toMatchObject({
       providerId: "chatgpt-oauth",
       model: "gpt-default",
+      modelSnapshot: expect.objectContaining({
+        id: "gpt-default",
+        maxOutputTokens: 16_384,
+        supportsStructuredOutput: true,
+      }),
       reasoning: "off",
       catalogueRevision: "chatgpt-oauth-revision-1",
     });
+  });
+
+  it("returns the required output bound from the frozen selected-model snapshot", () => {
+    const source = fixtureCatalogue("chatgpt-oauth");
+    const provider = new FakeProvider("chatgpt-oauth", source);
+    const resolved = resolveModelCall({ source: "step", key: "decide" }, {
+      provider,
+    });
+
+    expect(requireMaxOutputTokens(resolved)).toBe(16_384);
+    expect(Object.isFrozen(resolved.modelSnapshot)).toBe(true);
+    expect(Object.isFrozen(resolved.modelSnapshot.inputModalities)).toBe(true);
+    expect(Object.isFrozen(resolved.modelSnapshot.reasoningValues)).toBe(true);
+
+    source.models[0]!.maxOutputTokens = 7;
+    source.models[0]!.reasoningValues.push("future");
+    expect(requireMaxOutputTokens(resolved)).toBe(16_384);
+    expect(resolved.modelSnapshot.reasoningValues).not.toContain("future");
+  });
+
+  it.each([
+    ["unknown", null],
+    ["zero", 0],
+    ["negative", -1],
+    ["fractional", 1.5],
+  ] as const)("fails closed when maxOutputTokens is %s", (_label, maxOutputTokens) => {
+    const provider = new FakeProvider("chatgpt-oauth", fixtureCatalogue("chatgpt-oauth"));
+    const catalogue = fixtureCatalogue("chatgpt-oauth");
+    catalogue.models[0]!.maxOutputTokens = maxOutputTokens;
+    const resolved = resolveModelCall({ source: "step", key: "decide" }, {
+      provider,
+      catalogue,
+    });
+
+    expect(() => requireMaxOutputTokens(resolved)).toThrow(
+      expect.objectContaining<Partial<ProviderSelectionError>>({
+        code: "CAPABILITY_UNSUPPORTED",
+        providerId: "chatgpt-oauth",
+        key: "decide",
+        model: "gpt-default",
+      }),
+    );
   });
 
   it("never replaces an explicit unavailable or hidden saved model", () => {
@@ -325,10 +373,12 @@ describe("provider/model selection snapshot", () => {
     });
 
     expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.modelSnapshot)).toBe(true);
     expect(snapshot.provider).toBe(first);
     expect(snapshot).toMatchObject({
       providerId: "chatgpt-oauth",
       model: "gpt-exact",
+      modelSnapshot: expect.objectContaining({ id: "gpt-exact" }),
       reasoning: "high",
       catalogueRevision: "chatgpt-oauth-revision-1",
     });

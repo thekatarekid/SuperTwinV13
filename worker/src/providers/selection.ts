@@ -28,6 +28,14 @@ import type {
 
 export type ProviderRoleKey = keyof typeof MODEL_DEFAULT_BY_ROLE;
 
+/** Deeply immutable fields from the exact catalogue revision used to resolve. */
+export type ResolvedProviderModel = Readonly<
+  Omit<ProviderModel, "inputModalities" | "reasoningValues">
+> & {
+  readonly inputModalities: readonly ProviderModel["inputModalities"][number][];
+  readonly reasoningValues: readonly string[];
+};
+
 export type ModelCallSelection =
   | {
       source: "step";
@@ -46,13 +54,18 @@ export interface ResolvedModelCall {
   readonly provider: ProviderV2;
   readonly key: string;
   readonly model: string;
+  /** Selected row from catalogueRevision; never re-read during this call. */
+  readonly modelSnapshot: ResolvedProviderModel;
   readonly reasoning: ThinkingBudget | null;
   readonly catalogueRevision: string;
 }
 
 export type ProviderSelectionErrorCode = Extract<
   ProviderErrorCode,
-  "BAD_REQUEST" | "PROVIDER_UNAVAILABLE" | "MODEL_UNAVAILABLE"
+  | "BAD_REQUEST"
+  | "PROVIDER_UNAVAILABLE"
+  | "MODEL_UNAVAILABLE"
+  | "CAPABILITY_UNSUPPORTED"
 >;
 
 export class ProviderSelectionError extends Error {
@@ -175,6 +188,36 @@ function effectiveReasoning(
   return resolveReasoningCapability(requested, model, catalogue)?.effective ?? null;
 }
 
+function freezeModelSnapshot(model: ProviderModel): ResolvedProviderModel {
+  const snapshot = {
+    ...model,
+    inputModalities: Object.freeze([...model.inputModalities]),
+    reasoningValues: Object.freeze([...model.reasoningValues]),
+  } satisfies ResolvedProviderModel;
+  return Object.freeze(snapshot);
+}
+
+/**
+ * Build the required ProviderRequest bound from the resolved catalogue row.
+ * Unknown or malformed bounds are unsupported; callers must never invent a
+ * provider default or re-read a newer catalogue revision mid-call.
+ */
+export function requireMaxOutputTokens(resolved: ResolvedModelCall): number {
+  const value = resolved.modelSnapshot.maxOutputTokens;
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      `model ${resolved.model} does not advertise a usable maxOutputTokens bound`,
+      {
+        providerId: resolved.providerId,
+        key: resolved.key,
+        model: resolved.model,
+      },
+    );
+  }
+  return value;
+}
+
 /** Resolve one immutable provider/model/reasoning snapshot. */
 export function resolveModelCall(
   selection: ModelCallSelection,
@@ -250,13 +293,16 @@ export function resolveModelCall(
     dependencies.getReasoningSelection ?? getProviderReasoningSelection;
   const configuredReasoning = selectedOverride?.thinking ??
     readReasoning(providerId, candidates[0]!, fallbackKeys);
+  const reasoning = effectiveReasoning(configuredReasoning, model, catalogue);
+  const modelSnapshot = freezeModelSnapshot(model);
 
   return Object.freeze({
     providerId,
     provider,
     key: candidates[0]!,
     model: model.id,
-    reasoning: effectiveReasoning(configuredReasoning, model, catalogue),
+    modelSnapshot,
+    reasoning,
     catalogueRevision: catalogue.revision,
   });
 }

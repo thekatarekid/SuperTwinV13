@@ -5,8 +5,8 @@
 //
 // One path, used by every LLM call in the pipeline:
 //
-//     legend + instructions -> system file (the stable, cacheable prefix)
-//     packed input          -> stdin
+//     legend + instructions -> ProviderRequest.instructions (stable prefix)
+//     packed input          -> ProviderRequest.input
 //     call  ->  parse  ->  violations  ->  ONE repair round  ->  merge
 //                                       \-> quarantine on a second failure
 //
@@ -52,10 +52,19 @@ import {
   type RunOrigin,
   type RunRole,
 } from "../db/run-accounting.js";
-import { get as getProvider, DEFAULT_PROVIDER_ID } from "../providers/registry.js";
-import { reasoningForPass } from "../brain/reasoning.js";
 import { resourcePool, type LlmLane, type ResourcePool } from "../providers/pool.js";
-import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
+import type {
+  ProviderErrorCode,
+  ProviderV2,
+  Usage,
+} from "../providers/types.js";
 import { parseWire } from "../wire/index.js";
 import type { WireRecord } from "../wire/codec.js";
 import type { WireSkip, WireViolation } from "../wire/tolerance.js";
@@ -81,10 +90,9 @@ import {
 const promptFiles = new Map<string, string>();
 
 /**
- * The instruction half goes to a file because the adapter passes it via
- * `--append-system-prompt` on fresh sessions. Keyed by content hash, so the
- * same call type maps to the same path forever and a changed legend cannot
- * quietly reuse the previous file.
+ * @deprecated Compatibility helper for callers not yet on the strict neutral
+ * request boundary. PromptRunner passes the instruction bytes directly.
+ * Keyed by content hash so a changed legend cannot reuse the previous file.
  */
 export function systemPromptPath(callType: string, text: string): string {
   const hash = createHash("sha1").update(text).digest("hex").slice(0, 12);
@@ -114,7 +122,7 @@ export function buildSystemPrompt(spec: PromptCallSpec): string {
 // ---------------------------------------------------------------------------
 
 export interface PromptCallSpec {
-  /** Prompt id — `P-CL1`. Names the legend, the prompt file and the log line. */
+  /** Prompt id — `P-CL1`. Names the legend, selection key and log line. */
   callType: string;
   /** The legend spec (rendered + memoised here) or a prebuilt block. */
   legend: LegendSpec | string;
@@ -136,7 +144,14 @@ export interface PromptCallSpec {
    * case. `recordRun` documents what NULL means downstream.
    */
   cohortId: string | null;
+  /**
+   * @deprecated Temporary caller compatibility. Production selection is read
+   * from provider-keyed settings; only an explicitly injected test provider
+   * may use this value as its model-selection seam.
+   */
   model: string;
+  /** Optional settings alias for a versioned prompt (`orient.v7 -> orient.v6`). */
+  settingsKey?: string;
   /** The unit this call is for; quarantine needs it, so it is required to park. */
   unit?: { kind: string; id: string };
   /** Which half of the LLM pool (§4.4.1.1). Default: understanding. */
@@ -181,8 +196,8 @@ export interface QuarantineRow {
 }
 
 export interface RunnerDeps {
-  provider?: Provider;
-  providerId?: string;
+  /** Strict provider injection for isolated tests. Production uses the V2 registry. */
+  provider?: ProviderV2;
   pool?: ResourcePool;
   /**
    * The accounting write, WHOLE. Supplying it replaces both halves — the `runs`
@@ -259,7 +274,30 @@ interface CallOutcome {
   ttftMs: number | null;
   /** Who answered, and how big the ask was — the `extraction_runs` columns. */
   providerId: string;
+  /** Exact selected model used by this physical call. */
+  model: string;
   promptChars: number;
+}
+
+interface ResolvedPromptCall {
+  readonly selection: ResolvedModelCall;
+  readonly maxOutputTokens: number;
+}
+
+const PROVIDER_ERROR_CODES = new Set<ProviderErrorCode>([
+  "TIMEOUT", "SPAWN_FAILED", "CLI_ERROR", "POISONED_SESSION", "CANCELLED",
+  "QUOTA_EXCEEDED", "BUDGET_EXCEEDED", "MODEL_ACTIVITY_PAUSED", "MAX_TURNS",
+  "BAD_REQUEST", "AUTH_REQUIRED", "AUTH_EXPIRED", "PROVIDER_UNAVAILABLE",
+  "MODEL_UNAVAILABLE", "CAPABILITY_UNSUPPORTED", "BACKEND_UNSUPPORTED",
+  "RATE_LIMITED", "TRANSPORT_ERROR",
+]);
+
+function errorCodeFrom(error: unknown): ProviderErrorCode | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && PROVIDER_ERROR_CODES.has(code as ProviderErrorCode)
+    ? code as ProviderErrorCode
+    : undefined;
 }
 
 /** Run status for the `runs` row this call produces. */
@@ -307,35 +345,58 @@ export class PromptRunner {
     this.now = deps.now ?? (() => new Date());
   }
 
-  private provider(): Provider | undefined {
-    return this.deps.provider ?? getProvider(this.deps.providerId ?? DEFAULT_PROVIDER_ID);
+  /** Resolve once per logical run; retries and repair reuse this exact snapshot. */
+  private resolve(spec: PromptCallSpec): ResolvedPromptCall {
+    const selection = resolveModelCall(
+      {
+        source: "step",
+        key: spec.callType,
+        fallbackKeys: spec.settingsKey ? [spec.settingsKey] : [],
+      },
+      this.deps.provider
+        ? {
+            provider: this.deps.provider,
+            // Compatibility for isolated legacy-shaped tests only. Production
+            // has no injected provider and cannot use spec.model as a fallback.
+            getModelSelection: () => spec.model,
+          }
+        : {},
+    );
+    return Object.freeze({
+      selection,
+      maxOutputTokens: requireMaxOutputTokens(selection),
+    });
   }
 
   /** One provider call. Never throws: a thrown transport error becomes an outcome. */
-  private async callOnce(spec: PromptCallSpec, userText: string): Promise<CallOutcome> {
+  private async callOnce(
+    spec: PromptCallSpec,
+    userText: string,
+    resolved: ResolvedPromptCall | ProviderSelectionError,
+  ): Promise<CallOutcome> {
     const runId = this.newId();
     const startedAt = this.now().toISOString();
-    const configuredId = this.deps.providerId ?? DEFAULT_PROVIDER_ID;
     const system = buildSystemPrompt(spec);
     const promptChars = system.length + userText.length;
-    const provider = this.provider();
-    if (!provider) {
+    if (resolved instanceof ProviderSelectionError) {
       return {
         runId,
         ok: false,
         text: "",
         usage: { ...ZERO_USAGE },
-        errorCode: "SPAWN_FAILED",
-        errorMessage: `provider "${configuredId}" is not registered`,
+        errorCode: resolved.code,
+        errorMessage: resolved.message,
         startedAt,
         endedAt: this.now().toISOString(),
         ttftMs: null,
-        providerId: configuredId,
+        providerId: resolved.providerId ?? this.deps.provider?.id ?? "unresolved",
+        model: resolved.model ?? "unresolved",
         promptChars,
       };
     }
 
-    const systemFile = systemPromptPath(spec.callType, system);
+    const { selection, maxOutputTokens } = resolved;
+    const provider = selection.provider;
     let text = "";
     let usage: Usage = { ...ZERO_USAGE };
     let failure = "";
@@ -356,15 +417,25 @@ export class PromptRunner {
         bindTraceContext(() =>
           provider.send({
             runId,
-            message: userText,
-            systemPromptFile: systemFile,
-            // Bounded, tool-free, single-turn, thinking off (§4.3): extraction
-            // with a fixed output grammar gains nothing from reasoning tokens.
+            model: selection.model,
+            // Exact application prefix, once. No file/read fallback exists at
+            // this strict boundary, so blank and non-blank bytes are preserved.
+            instructions: system,
+            input: [{
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: userText }],
+            }],
+            toolChoice: "none",
+            text: { format: { type: "text" } },
+            persistContinuation: false,
+            // Claude's bounded completion reserves a second CLI turn for a
+            // possible preamble; HTTP providers make one direct response.
             plainCompletion: true,
-            maxTurns: 1,
-            ...reasoningForPass(spec.callType, spec.model ?? ""),
-            allowedTools: [],
-            model: spec.model,
+            skipHostSettings: true,
+            maxOutputTokens,
+            maxAgentTurns: selection.providerId === "claude-local" ? 2 : 1,
+            ...reasoningRequestForResolvedCall(selection),
             cwd: spec.cwd,
             timeoutMs: spec.timeoutMs,
             signal: this.deps.signal,
@@ -396,6 +467,7 @@ export class PromptRunner {
         endedAt: this.now().toISOString(),
         ttftMs: ttftFrom(startedMs, firstTokenAtMs),
         providerId: provider.id,
+        model: selection.model,
         promptChars,
       };
     } catch (err) {
@@ -405,13 +477,14 @@ export class PromptRunner {
         // Whatever streamed before the throw is still the model's words.
         text,
         usage,
-        errorCode: failureCode ?? "CLI_ERROR",
+        errorCode: failureCode ?? errorCodeFrom(err) ?? "CLI_ERROR",
         errorMessage: err instanceof Error ? err.message : String(err),
         startedAt,
         endedAt: this.now().toISOString(),
         // Whatever streamed before the throw still has an honest TTFT.
         ttftMs: ttftFrom(startedMs, firstTokenAtMs),
         providerId: provider.id,
+        model: selection.model,
         promptChars,
       };
     }
@@ -438,7 +511,7 @@ export class PromptRunner {
     const run: RecordRunParams = {
       id: call.runId,
       role: spec.role,
-      model: spec.model,
+      model: call.model,
       cohortId: spec.cohortId,
       kind: spec.callType,
       // S0.9 / T8-1: attribution at insert — the call type is the trace's
@@ -480,7 +553,7 @@ export class PromptRunner {
       // quarantined) lives on the `runs` row this mirrors.
       status: call.ok ? "ok" : "error",
       errorCode: call.errorCode ? String(call.errorCode) : null,
-      model: spec.model,
+      model: call.model,
       role: spec.role,
     };
     // S0.9 / T8-2: production writes both halves AND the trace index row in
@@ -513,6 +586,7 @@ export class PromptRunner {
   private async dispatch(
     spec: PromptCallSpec,
     userText: string,
+    resolved: ResolvedPromptCall | ProviderSelectionError,
     sink: CallOutcome[],
     log: (call: CallOutcome, status: RunStatus) => void,
   ): Promise<CallOutcome> {
@@ -522,7 +596,7 @@ export class PromptRunner {
     let pauses = 0;
 
     for (;;) {
-      const call = await this.callOnce(spec, userText);
+      const call = await this.callOnce(spec, userText, resolved);
       sink.push(call);
       if (call.ok) {
         this.pool.noteSuccess(lane);
@@ -620,8 +694,8 @@ export class PromptRunner {
    * quarantine on the far side — inside a trace scope (build P0.7): every
    * provider invocation this run makes is captured, and the parse-side fields
    * (parsed result, repair count) are annotated onto the trace before it
-   * flushes. prompt_version is the same content hash that names the system
-   * prompt file, so a changed prompt is a changed version by construction.
+   * flushes. prompt_version is the instruction content hash, so a changed
+   * prompt is a changed version by construction.
    */
   async run(spec: PromptCallSpec): Promise<PromptRunResult> {
     const system = buildSystemPrompt(spec);
@@ -654,8 +728,21 @@ export class PromptRunner {
       this.logRun(spec, call, status);
     };
 
+    let resolved: ResolvedPromptCall | ProviderSelectionError;
     try {
-      const first = await this.dispatch(spec, spec.user, calls, logOnce);
+      resolved = this.resolve(spec);
+    } catch (error) {
+      resolved = error instanceof ProviderSelectionError
+        ? error
+        : new ProviderSelectionError(
+            "MODEL_UNAVAILABLE",
+            "provider model selection failed",
+            { key: spec.callType, model: null },
+          );
+    }
+
+    try {
+      const first = await this.dispatch(spec, spec.user, resolved, calls, logOnce);
       // FIX-C2: a turn-cap stop is not a transport failure. Fall through to the
       // parse — a preamble parses to `no_wire_lines`, which is exactly the
       // whole-answer repair ask, and that ask is NARROW ("wire lines only")
@@ -705,6 +792,7 @@ export class PromptRunner {
       const second = await this.dispatch(
         spec,
         this.repairUser(spec, first.text, ask.message),
+        resolved,
         calls,
         logOnce,
       );

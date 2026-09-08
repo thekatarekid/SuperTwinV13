@@ -1,8 +1,19 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { closeDb, runMigrations } from "../db/connection.js";
+import { setActiveProvider, setProviderModelSelection } from "../db/settings.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
+import { registerV2, resetProviderRegistryForTests } from "../providers/registry.js";
+import type {
+  ProviderErrorCode,
+  ProviderModelCatalogue,
+  ProviderRequest,
+  ProviderV2,
+  Usage,
+} from "../providers/types.js";
 import type { RecordRunParams } from "../db/run-accounting.js";
 import { resetLegendCache } from "./legend.js";
 import {
@@ -24,29 +35,93 @@ interface Turn {
   code?: ProviderErrorCode;
   message?: string;
   usage?: Partial<Usage>;
+  mutateCatalogue?: boolean;
 }
 
-interface FakeProvider extends Provider {
+interface FakeProvider extends ProviderV2 {
+  catalogueSource: ProviderModelCatalogue;
   messages: string[];
-  systemFiles: string[];
+  instructionsSeen: string[];
+  requests: ProviderRequest[];
+  catalogueReads: number;
   calls: number;
+}
+
+function testCatalogue(): ProviderModelCatalogue {
+  return {
+    providerId: "claude-local",
+    mode: "discovered",
+    source: "runner-test",
+    discoveredAt: "2026-09-08T00:00:00.000Z",
+    revision: "runner-test-v1",
+    error: null,
+    models: [{
+      id: "sonnet-5",
+      displayName: "Sonnet 5",
+      isDefault: true,
+      hidden: false,
+      inputModalities: ["text"],
+      reasoningValues: ["off", "low", "medium", "high", "xhigh", "max"],
+      defaultReasoning: "off",
+      supportsTools: false,
+      supportsHostTools: true,
+      supportsParallelToolCalls: false,
+      supportsStructuredOutput: false,
+      supportsStrictTools: false,
+      supportsVerbosity: false,
+      supportsPromptCacheKey: false,
+      supportsPromptCacheOptions: false,
+      contextWindow: 200_000,
+      maxOutputTokens: 8_192,
+      billingLabel: null,
+    }],
+  };
 }
 
 function fakeProvider(turns: Turn[]): FakeProvider {
   const messages: string[] = [];
-  const systemFiles: string[] = [];
+  const instructionsSeen: string[] = [];
+  const requests: ProviderRequest[] = [];
+  const catalogue = testCatalogue();
+  let catalogueReads = 0;
   const provider: FakeProvider = {
-    id: "fake",
+    id: "claude-local",
+    displayName: "Fake Claude",
+    capabilities: {
+      functionTools: false,
+      hostTools: true,
+      continuation: true,
+      requiresAuthentication: true,
+    },
+    catalogueSource: catalogue,
     messages,
-    systemFiles,
+    instructionsSeen,
+    requests,
     get calls() {
       return messages.length;
     },
+    get catalogueReads() {
+      return catalogueReads;
+    },
+    authState: () => ({ status: "ready", error: null }),
+    catalogue: () => {
+      catalogueReads += 1;
+      return catalogue;
+    },
     cancel: () => true,
+    killAll: () => {},
     async send(opts) {
-      messages.push(opts.message);
-      systemFiles.push(opts.systemPromptFile ?? "");
+      requests.push(opts);
+      const item = opts.input[0];
+      const part = item?.type === "message" ? item.content[0] : undefined;
+      messages.push(part?.type === "input_text" ? part.text : "");
+      instructionsSeen.push(opts.instructions);
       const turn = turns[messages.length - 1] ?? { text: "" };
+      if (turn.mutateCatalogue) {
+        catalogue.revision = "mutated-after-first-send";
+        catalogue.models[0]!.id = "changed-after-first-send";
+        catalogue.models[0]!.maxOutputTokens = 7;
+      }
       const usage: Usage = {
         inputTokens: 10,
         cacheCreationInputTokens: 0,
@@ -57,11 +132,11 @@ function fakeProvider(turns: Turn[]): FakeProvider {
       if (turn.text !== undefined) opts.onEvent({ type: "delta", text: turn.text });
       if (turn.code) {
         opts.onEvent({ type: "error", code: turn.code, message: turn.message ?? "" });
-        opts.onEvent({ type: "done", sessionId: "s", usage });
-        return { sessionId: "s", usage, freshFallback: false, status: "error", errorCode: turn.code };
+        opts.onEvent({ type: "done", continuation: null, usage });
+        return { continuation: null, usage, freshFallback: false, status: "error", errorCode: turn.code };
       }
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" };
     },
   };
   return provider;
@@ -139,6 +214,7 @@ function spec(over: Partial<PromptCallSpec> = {}): PromptCallSpec {
 }
 
 beforeEach(() => {
+  resetProviderRegistryForTests();
   resetLegendCache();
   resetPromptFilesForTests();
 });
@@ -156,8 +232,8 @@ describe("the stable prefix", () => {
     const h = harness([{ text: CLEAN }, { text: CLEAN }]);
     await runPrompt(spec(), h.deps);
     await runPrompt(spec(), h.deps);
-    expect(h.provider.systemFiles[0]).toBe(h.provider.systemFiles[1]);
-    expect(readFileSync(h.provider.systemFiles[0], "utf8")).toBe(buildSystemPrompt(spec()));
+    expect(h.provider.instructionsSeen[0]).toBe(h.provider.instructionsSeen[1]);
+    expect(h.provider.instructionsSeen[0]).toBe(buildSystemPrompt(spec()));
   });
 
   it("gives a different call type a different file", () => {
@@ -171,7 +247,116 @@ describe("the stable prefix", () => {
     const h = harness([{ text: CLEAN }]);
     await runPrompt(spec(), h.deps);
     expect(h.provider.messages[0]).toBe(spec().user);
-    expect(readFileSync(h.provider.systemFiles[0], "utf8")).not.toContain("coffee talk");
+    expect(h.provider.instructionsSeen[0]).not.toContain("coffee talk");
+  });
+
+  it("sends the strict neutral completion contract with no legacy prompt fields", async () => {
+    const h = harness([{ text: CLEAN }]);
+    await runPrompt(spec(), h.deps);
+    const sent = h.provider.requests[0]!;
+    expect(sent).toMatchObject({
+      model: "sonnet-5",
+      instructions: buildSystemPrompt(spec()),
+      input: [{
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: spec().user }],
+      }],
+      toolChoice: "none",
+      reasoning: { budget: "off" },
+      text: { format: { type: "text" } },
+      persistContinuation: false,
+      plainCompletion: true,
+      skipHostSettings: true,
+      maxOutputTokens: 8_192,
+      maxAgentTurns: 2,
+    });
+    expect(sent).not.toHaveProperty("message");
+    expect(sent).not.toHaveProperty("systemPromptFile");
+    expect(sent).not.toHaveProperty("allowedTools");
+    expect(sent).not.toHaveProperty("maxTurns");
+    expect(sent).not.toHaveProperty("cache");
+  });
+
+  it("omits reasoning when the selected model does not advertise it", async () => {
+    const h = harness([{ text: CLEAN }]);
+    h.provider.catalogueSource.models[0]!.reasoningValues = [];
+    h.provider.catalogueSource.models[0]!.defaultReasoning = null;
+    await runPrompt(spec(), h.deps);
+    expect(h.provider.requests[0]).not.toHaveProperty("reasoning");
+  });
+
+  it("preserves an intentionally blank instruction prefix", async () => {
+    const h = harness([{ text: CLEAN }]);
+    await runPrompt(spec({ legend: "", instructions: "" }), h.deps);
+    expect(h.provider.requests[0]?.instructions).toBe("");
+  });
+
+  it("fails closed before send when maxOutputTokens is unavailable", async () => {
+    const h = harness([{ text: CLEAN }]);
+    h.provider.catalogueSource.models[0]!.maxOutputTokens = null;
+    const result = await runPrompt(spec(), h.deps);
+    expect(result.status).toBe("quarantined");
+    expect(result.error?.code).toBe("CAPABILITY_UNSUPPORTED");
+    expect(h.provider.requests).toHaveLength(0);
+    expect(h.runs[0]).toMatchObject({
+      model: "sonnet-5",
+      status: "quarantined",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+    });
+    expect(h.parked[0]).toMatchObject({ errorCode: "CAPABILITY_UNSUPPORTED" });
+  });
+
+  it("reuses one immutable resolution for the repair call", async () => {
+    const h = harness([
+      { text: TWO_DAMAGED, mutateCatalogue: true },
+      { text: REPAIRED },
+    ]);
+    const result = await runPrompt(spec(), h.deps);
+    expect(result.status).toBe("repaired");
+    expect(h.provider.catalogueReads).toBe(1);
+    expect(h.provider.requests.map((request) => request.model)).toEqual([
+      "sonnet-5",
+      "sonnet-5",
+    ]);
+    expect(h.provider.requests.map((request) => request.maxOutputTokens)).toEqual([
+      8_192,
+      8_192,
+    ]);
+  });
+
+  it("uses the production resolver and never falls back to spec.model", async () => {
+    const stage = mkdtempSync(join(tmpdir(), "supertwin-prompt-resolver-"));
+    const previousDbPath = process.env.SUPERTWIN_DB_PATH;
+    process.env.SUPERTWIN_DB_PATH = join(stage, "st.db");
+    closeDb();
+    try {
+      runMigrations();
+      const h = harness([{ text: CLEAN }]);
+      registerV2(h.provider);
+      setActiveProvider("claude-local");
+      setProviderModelSelection("claude-local", "P-CL1", "sonnet-5");
+      const result = await runPrompt(spec({ model: "not-in-catalogue" }), {
+        ...h.deps,
+        provider: undefined,
+      });
+      expect(result.status).toBe("ok");
+      expect(h.provider.requests[0]?.model).toBe("sonnet-5");
+
+      setProviderModelSelection("claude-local", "P-CL1", "missing-saved-model");
+      const rejected = await runPrompt(spec({ model: "sonnet-5" }), {
+        ...h.deps,
+        provider: undefined,
+      });
+      expect(rejected.error?.code).toBe("MODEL_UNAVAILABLE");
+      expect(h.provider.requests).toHaveLength(1);
+    } finally {
+      resetProviderRegistryForTests();
+      closeDb();
+      if (previousDbPath === undefined) delete process.env.SUPERTWIN_DB_PATH;
+      else process.env.SUPERTWIN_DB_PATH = previousDbPath;
+      rmSync(stage, { recursive: true, force: true });
+    }
   });
 });
 

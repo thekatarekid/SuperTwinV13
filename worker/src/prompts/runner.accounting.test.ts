@@ -21,7 +21,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
 import { ResourcePool } from "../providers/pool.js";
-import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
+import type {
+  ProviderErrorCode,
+  ProviderModelCatalogue,
+  ProviderV2,
+  Usage,
+} from "../providers/types.js";
 import { resetLegendCache } from "./legend.js";
 import { resetPromptFilesForTests, runPrompt, type PromptCallSpec, type RunnerDeps } from "./runner.js";
 
@@ -49,11 +54,34 @@ interface Turn {
 }
 
 /** One `send` per turn, in order — the same shape runner.test.ts uses. */
-function fakeProvider(turns: Turn[]): Provider {
+function fakeProvider(turns: Turn[]): ProviderV2 {
   let n = 0;
+  const catalogue: ProviderModelCatalogue = {
+    providerId: "claude-local",
+    mode: "discovered",
+    source: "runner-accounting-test",
+    discoveredAt: "2026-09-08T00:00:00.000Z",
+    revision: "runner-accounting-test-v1",
+    error: null,
+    models: [{
+      id: "sonnet-5", displayName: "Sonnet 5", isDefault: true, hidden: false,
+      inputModalities: ["text"], reasoningValues: ["off"], defaultReasoning: "off",
+      supportsTools: false, supportsHostTools: true, supportsParallelToolCalls: false,
+      supportsStructuredOutput: false, supportsStrictTools: false, supportsVerbosity: false,
+      supportsPromptCacheKey: false, supportsPromptCacheOptions: false,
+      contextWindow: 200_000, maxOutputTokens: 8_192, billingLabel: null,
+    }],
+  };
   return {
-    id: "fake",
+    id: "claude-local",
+    displayName: "Fake Claude",
+    capabilities: {
+      functionTools: false, hostTools: true, continuation: true, requiresAuthentication: true,
+    },
+    authState: () => ({ status: "ready", error: null }),
+    catalogue: () => catalogue,
     cancel: () => true,
+    killAll: () => {},
     async send(opts) {
       const turn = turns[n++] ?? { text: "" };
       const usage: Usage = {
@@ -66,11 +94,11 @@ function fakeProvider(turns: Turn[]): Provider {
       if (turn.text !== undefined) opts.onEvent({ type: "delta", text: turn.text });
       if (turn.code) {
         opts.onEvent({ type: "error", code: turn.code, message: turn.message ?? "" });
-        opts.onEvent({ type: "done", sessionId: "s", usage });
-        return { sessionId: "s", usage, freshFallback: false, status: "error", errorCode: turn.code };
+        opts.onEvent({ type: "done", continuation: null, usage });
+        return { continuation: null, usage, freshFallback: false, status: "error", errorCode: turn.code };
       }
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" };
     },
   };
 }
@@ -165,7 +193,7 @@ describe("the dual write", () => {
     expect(log[0]!.run_id).toBe(runs[0]!.id);
     expect(log[0]!.role).toBe("extract");
     expect(log[0]!.kind).toBe("P-CL1");
-    expect(log[0]!.provider).toBe("fake");
+    expect(log[0]!.provider).toBe("claude-local");
     // The money is the CLI's own number, in BOTH tables. $0 in Settings →
     // Recent runs over a real bill is the defect this closes.
     expect(log[0]!.cost_usd).toBeCloseTo(0.25);

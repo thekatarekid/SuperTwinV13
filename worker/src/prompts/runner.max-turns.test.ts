@@ -16,7 +16,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ResourcePool, RETRY_DELAYS_MS } from "../providers/pool.js";
-import type { Provider, ProviderErrorCode, Usage } from "../providers/types.js";
+import type {
+  ProviderErrorCode,
+  ProviderModelCatalogue,
+  ProviderV2,
+  Usage,
+} from "../providers/types.js";
 import type { RecordRunParams } from "../db/run-accounting.js";
 import { resetLegendCache } from "./legend.js";
 import {
@@ -49,20 +54,45 @@ function harness(turns: Turn[]) {
     cacheReadInputTokens: 0,
     outputTokens: 5,
   };
-  const provider: Provider = {
-    id: "fake",
+  const catalogue: ProviderModelCatalogue = {
+    providerId: "claude-local",
+    mode: "discovered",
+    source: "runner-max-turns-test",
+    discoveredAt: "2026-09-08T00:00:00.000Z",
+    revision: "runner-max-turns-test-v1",
+    error: null,
+    models: [{
+      id: "sonnet-5", displayName: "Sonnet 5", isDefault: true, hidden: false,
+      inputModalities: ["text"], reasoningValues: ["off"], defaultReasoning: "off",
+      supportsTools: false, supportsHostTools: true, supportsParallelToolCalls: false,
+      supportsStructuredOutput: false, supportsStrictTools: false, supportsVerbosity: false,
+      supportsPromptCacheKey: false, supportsPromptCacheOptions: false,
+      contextWindow: 200_000, maxOutputTokens: 8_192, billingLabel: null,
+    }],
+  };
+  const provider: ProviderV2 = {
+    id: "claude-local",
+    displayName: "Fake Claude",
+    capabilities: {
+      functionTools: false, hostTools: true, continuation: true, requiresAuthentication: true,
+    },
+    authState: () => ({ status: "ready", error: null }),
+    catalogue: () => catalogue,
     cancel: () => true,
+    killAll: () => {},
     async send(opts) {
-      messages.push(opts.message);
+      const item = opts.input[0];
+      const part = item?.type === "message" ? item.content[0] : undefined;
+      messages.push(part?.type === "input_text" ? part.text : "");
       const turn = turns[messages.length - 1] ?? { text: "" };
       if (turn.text !== undefined) opts.onEvent({ type: "delta", text: turn.text });
       if (turn.code) {
         opts.onEvent({ type: "error", code: turn.code, message: turn.message ?? "" });
-        opts.onEvent({ type: "done", sessionId: "s", usage });
-        return { sessionId: "s", usage, freshFallback: false, status: "error" as const, errorCode: turn.code };
+        opts.onEvent({ type: "done", continuation: null, usage });
+        return { continuation: null, usage, freshFallback: false, status: "error" as const, errorCode: turn.code };
       }
-      opts.onEvent({ type: "done", sessionId: "s", usage });
-      return { sessionId: "s", usage, freshFallback: false, status: "ok" as const };
+      opts.onEvent({ type: "done", continuation: null, usage });
+      return { continuation: null, usage, freshFallback: false, status: "ok" as const };
     },
   };
   const pool = new ResourcePool({ now: () => t, sleep: async (ms) => { t += ms; } });

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDb, getDb, runMigrations } from "../db/connection.js";
+import type { ProviderModelCatalogue, ProviderV2 } from "../providers/types.js";
 import { ORIENT_V6, ORIENT_V6_SCHEMA } from "./orient.v6.js";
 import { ORIENT_V7, ORIENT_V7_SCHEMA } from "./orient.v7.js";
 import { CRITIC_V4 } from "./critic.v4.js";
@@ -22,6 +23,7 @@ import {
   modelForVersionedPass,
   PROMPT_VERSION_ENV,
   promptVersionKey,
+  resolveVersionedPromptModel,
   selectedPromptVersion,
   setPromptVersion,
 } from "./versions.js";
@@ -141,5 +143,76 @@ describe("version resolver", () => {
     expect(modelForVersionedPass(activeOrientPrompt())).toBe("sonnet");
     set("selected_model_orient.v7", "opus");
     expect(modelForVersionedPass(activeOrientPrompt())).toBe("opus");
+  });
+
+  it("resolves the exact pass plus family alias into one immutable catalogue snapshot", () => {
+    const catalogue: ProviderModelCatalogue = {
+      providerId: "claude-local",
+      mode: "discovered",
+      source: "versions-test",
+      discoveredAt: "2026-09-08T00:00:00.000Z",
+      revision: "versions-test-r1",
+      error: null,
+      models: [{
+        id: "resolved-sonnet",
+        displayName: "Resolved Sonnet",
+        isDefault: true,
+        hidden: false,
+        inputModalities: ["text"],
+        reasoningValues: ["off"],
+        defaultReasoning: "off",
+        supportsTools: false,
+        supportsHostTools: true,
+        supportsParallelToolCalls: false,
+        supportsStructuredOutput: false,
+        supportsStrictTools: false,
+        supportsVerbosity: false,
+        supportsPromptCacheKey: false,
+        supportsPromptCacheOptions: false,
+        contextWindow: 200_000,
+        maxOutputTokens: 8_192,
+        billingLabel: null,
+      }],
+    };
+    let catalogueReads = 0;
+    const provider: ProviderV2 = {
+      id: "claude-local",
+      displayName: "Versions test provider",
+      capabilities: {
+        functionTools: false,
+        hostTools: true,
+        continuation: true,
+        requiresAuthentication: false,
+      },
+      authState: () => ({ status: "ready", error: null }),
+      catalogue: () => {
+        catalogueReads += 1;
+        return catalogue;
+      },
+      send: async () => { throw new Error("not called"); },
+      cancel: () => false,
+      killAll: () => {},
+    };
+    const resolved = resolveVersionedPromptModel(activeOrientPrompt(), {
+      provider,
+      getModelSelection: (_providerId, key, fallbackKeys) => {
+        expect(key).toBe("orient.v7");
+        expect(fallbackKeys).toEqual(["orient.v6"]);
+        return "resolved-sonnet";
+      },
+      getReasoningSelection: () => null,
+      getStepOverrides: () => ({}),
+    });
+
+    catalogue.models[0]!.id = "changed-later";
+    catalogue.models[0]!.reasoningValues.push("high");
+    expect(catalogueReads).toBe(1);
+    expect(resolved.model).toBe("resolved-sonnet");
+    expect(resolved.catalogueRevision).toBe("versions-test-r1");
+    expect(resolved.modelSnapshot.id).toBe("resolved-sonnet");
+    expect(resolved.modelSnapshot.reasoningValues).toEqual(["off"]);
+    expect(Object.isFrozen(resolved)).toBe(true);
+    expect(Object.isFrozen(resolved.modelSnapshot)).toBe(true);
+    expect(Object.isFrozen(resolved.modelSnapshot.reasoningValues)).toBe(true);
   });
 });

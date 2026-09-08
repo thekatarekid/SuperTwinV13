@@ -21,6 +21,11 @@
 
 import { getDb } from "../db/connection.js";
 import { DEFAULT_PASS_MODEL } from "../brain/llm.js";
+import {
+  resolveModelCall,
+  type ResolveModelCallDependencies,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
 import { CRITIC_V4 } from "./critic.v4.js";
 import { CRITIC_V5 } from "./critic.v5.js";
 import { ORIENT_V6 } from "./orient.v6.js";
@@ -147,11 +152,25 @@ export function activeCriticPrompt(): VersionedPrompt {
 }
 
 /**
- * The model for a versioned pass: its own `selected_model_<pass>` when set,
- * else the family's Settings key, else the default. Mirrors brain/llm.ts
- * modelForPass, with the family fallback the picker needs.
+ * Resolve a versioned prompt against one provider/catalogue revision. The
+ * explicit settingsKey retains the historical exact -> family fallback while
+ * the shared resolver adds the provider namespace and validates availability.
  */
-export function modelForVersionedPass(prompt: VersionedPrompt): string {
+export function resolveVersionedPromptModel(
+  prompt: VersionedPrompt,
+  dependencies: ResolveModelCallDependencies = {},
+): ResolvedModelCall {
+  return resolveModelCall({
+    source: "step",
+    key: prompt.pass,
+    fallbackKeys: prompt.settingsKey === prompt.pass ? [] : [prompt.settingsKey],
+  }, dependencies);
+}
+
+/** @deprecated Pass the immutable resolution through the call path instead. */
+export function modelForVersionedPass(
+  prompt: VersionedPrompt,
+): string {
   return (
     stored(`selected_model_${prompt.pass}`) ??
     (prompt.settingsKey !== prompt.pass ? stored(`selected_model_${prompt.settingsKey}`) : null) ??

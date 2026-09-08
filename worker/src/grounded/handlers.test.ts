@@ -22,7 +22,10 @@ import {
   registerV2,
   resetProviderRegistryForTests,
 } from "../providers/registry.js";
-import { ProviderSelectionError } from "../providers/selection.js";
+import {
+  CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET,
+  ProviderSelectionError,
+} from "../providers/selection.js";
 import type {
   NeutralProviderResult,
   ProviderAuthState,
@@ -432,7 +435,7 @@ describe("answerViaModel — provider-neutral grounded request", () => {
     });
   });
 
-  it("fails closed before send when the selected model has no output bound", async () => {
+  it("uses the neutral ChatGPT request target when the catalogue has no wire output bound", async () => {
     const provider = new GroundedProviderFixture(fixtureModel({
       maxOutputTokens: null,
     }));
@@ -440,12 +443,9 @@ describe("answerViaModel — provider-neutral grounded request", () => {
     setActiveProvider(provider.id);
     setProviderModelSelection(provider.id, "chat", "gpt-grounded");
 
-    await expect(answerViaModel("exact grounded input")).rejects.toMatchObject({
-      code: "CAPABILITY_UNSUPPORTED",
-      providerId: provider.id,
-      model: "gpt-grounded",
-    });
-    expect(provider.requests).toHaveLength(0);
+    await expect(answerViaModel("exact grounded input")).resolves.toBe("grounded answer");
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]?.maxOutputTokens).toBe(CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET);
   });
 });
 

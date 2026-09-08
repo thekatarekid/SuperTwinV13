@@ -60,6 +60,15 @@ export interface ResolvedModelCall {
   readonly catalogueRevision: string;
 }
 
+/**
+ * Conservative request target used when the account catalogue does not
+ * advertise a wire-level max_output_tokens capability. This value satisfies
+ * the provider-neutral request contract but is not an upstream token ceiling:
+ * the ChatGPT builder omits the unsupported field, while byte/event caps remain
+ * the enforceable local response boundary.
+ */
+export const CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET = 4_096;
+
 export type ProviderSelectionErrorCode = Extract<
   ProviderErrorCode,
   | "BAD_REQUEST"
@@ -204,6 +213,9 @@ function freezeModelSnapshot(model: ProviderModel): ResolvedProviderModel {
  */
 export function requireMaxOutputTokens(resolved: ResolvedModelCall): number {
   const value = resolved.modelSnapshot.maxOutputTokens;
+  if (resolved.providerId === "chatgpt-oauth" && value === null) {
+    return CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET;
+  }
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     throw new ProviderSelectionError(
       "CAPABILITY_UNSUPPORTED",

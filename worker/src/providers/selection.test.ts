@@ -14,6 +14,7 @@ import {
   STEP_OVERRIDES_ENV,
 } from "../settings/overrides.js";
 import {
+  CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET,
   ProviderSelectionError,
   requireMaxOutputTokens,
   resolveModelCall,
@@ -252,7 +253,6 @@ describe("provider/model selection snapshot", () => {
   });
 
   it.each([
-    ["unknown", null],
     ["zero", 0],
     ["negative", -1],
     ["fractional", 1.5],
@@ -272,6 +272,26 @@ describe("provider/model selection snapshot", () => {
         key: "decide",
         model: "gpt-default",
       }),
+    );
+  });
+
+  it("uses a ChatGPT request target when the account exposes no wire limit", () => {
+    const catalogue = fixtureCatalogue("chatgpt-oauth");
+    catalogue.models[0]!.maxOutputTokens = null;
+    const resolved = resolveModelCall({ source: "step", key: "decide" }, {
+      provider: new FakeProvider("chatgpt-oauth", catalogue),
+      catalogue,
+    });
+    expect(requireMaxOutputTokens(resolved)).toBe(CHATGPT_DEFAULT_OUTPUT_TOKEN_TARGET);
+
+    const claudeCatalogue = fixtureCatalogue("claude-local");
+    claudeCatalogue.models[0]!.maxOutputTokens = null;
+    const claude = resolveModelCall({ source: "step", key: "decide" }, {
+      provider: new FakeProvider("claude-local", claudeCatalogue),
+      catalogue: claudeCatalogue,
+    });
+    expect(() => requireMaxOutputTokens(claude)).toThrow(
+      expect.objectContaining<Partial<ProviderSelectionError>>({ code: "CAPABILITY_UNSUPPORTED" }),
     );
   });
 

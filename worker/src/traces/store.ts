@@ -18,13 +18,27 @@
 // write always finds the columns it needs.
 // ===========================================================================
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  truncateSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 
 import { homeRoot } from "../home.js";
 import { getDb } from "../db/connection.js";
 import type { Usage } from "../providers/types.js";
+
+export const MAX_TRACE_HEAVY_FIELD_BYTES = 256 * 1024;
+export const MAX_TRACE_LINE_BYTES = 1024 * 1024;
 
 /** The 4-way token split every trace carries (spec §17.1). */
 export interface Tokens4Way {
@@ -100,6 +114,75 @@ export function usageToTokens4Way(usage: Usage): Tokens4Way {
     cache_read: usage.cacheReadInputTokens ?? 0,
     output: usage.outputTokens ?? 0,
   };
+}
+
+function compressed(value: string): CompressedField {
+  return {
+    sha256: createHash("sha256").update(value, "utf8").digest("hex"),
+    chars: value.length,
+  };
+}
+
+function boundedString(value: string | CompressedField): string | CompressedField;
+function boundedString(value: string | CompressedField | null): string | CompressedField | null;
+function boundedString(value: string | CompressedField | null): string | CompressedField | null {
+  return typeof value === "string" && Buffer.byteLength(value, "utf8") > MAX_TRACE_HEAVY_FIELD_BYTES
+    ? compressed(value)
+    : value;
+}
+
+function boundedJson(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(value);
+  } catch {
+    return { omitted: "unserializable" };
+  }
+  if (typeof encoded !== "string") return { omitted: "unserializable" };
+  return Buffer.byteLength(encoded, "utf8") > MAX_TRACE_HEAVY_FIELD_BYTES
+    ? { omitted: "size-limit", ...compressed(encoded) }
+    : value;
+}
+
+/** Bound every attacker/provider-influenced trace payload before disk append. */
+export function boundedTraceRecord(record: TraceRecord): TraceRecord {
+  const systemPrompt = boundedString(record.system_prompt);
+  const packedContext = boundedString(record.packed_context);
+  const rawOutput = boundedString(record.raw_output);
+  const parsedResult = boundedJson(record.parsed_result);
+  const verdicts = boundedJson(record.verdicts);
+  const heavyFieldCompressed = systemPrompt !== record.system_prompt
+    || packedContext !== record.packed_context
+    || rawOutput !== record.raw_output
+    || parsedResult !== record.parsed_result
+    || verdicts !== record.verdicts;
+  let bounded: TraceRecord = {
+    ...record,
+    system_prompt: systemPrompt,
+    packed_context: packedContext,
+    raw_output: rawOutput,
+    parsed_result: parsedResult,
+    verdicts,
+    ...(heavyFieldCompressed ? { compressed: true } : {}),
+  };
+  let encoded = JSON.stringify(bounded);
+  if (Buffer.byteLength(encoded, "utf8") + 1 > MAX_TRACE_LINE_BYTES) {
+    bounded = {
+      ...bounded,
+      system_prompt: typeof record.system_prompt === "string" ? compressed(record.system_prompt) : record.system_prompt,
+      packed_context: typeof record.packed_context === "string" ? compressed(record.packed_context) : record.packed_context,
+      raw_output: typeof record.raw_output === "string" ? compressed(record.raw_output) : record.raw_output,
+      parsed_result: { omitted: "trace-line-limit" },
+      verdicts: { omitted: "trace-line-limit" },
+      compressed: true,
+    };
+    encoded = JSON.stringify(bounded);
+  }
+  if (Buffer.byteLength(encoded, "utf8") + 1 > MAX_TRACE_LINE_BYTES) {
+    throw new Error("trace metadata exceeds the storage limit");
+  }
+  return bounded;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,13 +263,88 @@ export function ensureTracesSchema(db: Database.Database): void {
  * the ghost-call fallback) decides that a trace failure must not kill the
  * model call, and catches.
  */
-export function writeTrace(record: TraceRecord): void {
-  const day = dayOf(record.ts);
+export interface TraceWriteDependencies {
+  db?: Database.Database;
+  append?: (file: string, line: string) => void;
+  index?: (db: Database.Database, record: TraceRecord) => void;
+  serialize?: <T>(db: Database.Database, fn: () => T) => T;
+}
+
+/** SQLite owns the cross-process lease; the OS releases it if a writer dies. */
+export function withTraceDbLock<T>(db: Database.Database, fn: () => T): T {
+  // A caller-owned deferred transaction may not yet hold SQLite's write lock,
+  // so proceeding inside it could race another process's file append. Keep
+  // the paired JSONL+index operation explicit instead of weakening the lock.
+  if (db.inTransaction) throw new Error("trace persistence cannot join an outer transaction");
+  return db.transaction(fn).immediate();
+}
+
+function repairUnterminatedTail(file: string): void {
+  let fd: number;
+  try { fd = openSync(file, "r"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    if (size === 0) return;
+    const last = Buffer.allocUnsafe(1);
+    readSync(fd, last, 0, 1, size - 1);
+    if (last[0] === 0x0a) return;
+    const chunk = Buffer.allocUnsafe(Math.min(size, MAX_TRACE_LINE_BYTES));
+    const start = size - chunk.length;
+    readSync(fd, chunk, 0, chunk.length, start);
+    const newline = chunk.lastIndexOf(0x0a);
+    truncateSync(file, newline < 0 ? 0 : start + newline + 1);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function fileContainsTrace(file: string, traceId: string): boolean {
+  let contents: string;
+  try { contents = readFileSync(file, "utf8"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  return contents.split("\n").some((line) => {
+    if (!line) return false;
+    try { return (JSON.parse(line) as { trace_id?: unknown }).trace_id === traceId; }
+    catch { return false; }
+  });
+}
+
+export function writeTrace(record: TraceRecord, deps: TraceWriteDependencies = {}): void {
+  const safeRecord = boundedTraceRecord(record);
+  const day = dayOf(safeRecord.ts);
   const file = dayFilePath(day);
   mkdirSync(tracesRoot(), { recursive: true });
-  appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
-
-  writeTraceIndexRow(getDb(), record);
+  const line = `${JSON.stringify(safeRecord)}\n`;
+  const db = deps.db ?? getDb();
+  const append = deps.append ?? ((path: string, value: string) => appendFileSync(path, value, "utf8"));
+  const index = deps.index ?? writeTraceIndexRow;
+  const serialize = deps.serialize ?? withTraceDbLock;
+  serialize(db, () => {
+    // Append first: an index must never point at a line that was not durable.
+    // If indexing fails, retry observes the existing id and repairs only the
+    // index, avoiding a duplicate JSONL entry.
+    repairUnterminatedTail(file);
+    if (!fileContainsTrace(file, safeRecord.trace_id)) {
+      let originalLength = 0;
+      try { originalLength = statSync(file).size; } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      try {
+        append(file, line);
+      } catch (error) {
+        // append(2) can report an error after a partial write. Restore the
+        // exact pre-attempt boundary while still holding the day lease.
+        try { truncateSync(file, originalLength); } catch { /* retain cause */ }
+        throw error;
+      }
+    }
+    index(db, safeRecord);
+  });
 }
 
 /**

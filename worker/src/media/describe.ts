@@ -64,6 +64,10 @@ import {
   verifyEcho,
   type EchoVerdict,
 } from "./batch.js";
+import {
+  routeMediaProvider,
+  type MediaInputKind,
+} from "./provider-routing.js";
 
 /** Only Read. No Grep/Glob/Bash — the reader opens exactly the named files. */
 export const MEDIA_ALLOWED_TOOLS = ["Read"] as const;
@@ -563,7 +567,10 @@ export function normalizeId(raw: string): string {
   return /^\d+$/.test(bare) ? `#${String(Number(bare)).padStart(2, "0")}` : raw.trim();
 }
 
-function resolveMediaCall(opts: DescribeOptions): ResolvedModelCall {
+function resolveMediaCall(
+  opts: DescribeOptions,
+  input: MediaInputKind,
+): ResolvedModelCall {
   const injected = opts.provider &&
     "catalogue" in opts.provider &&
     "capabilities" in opts.provider &&
@@ -581,28 +588,14 @@ function resolveMediaCall(opts: DescribeOptions): ResolvedModelCall {
     { source: "role", key: "media" },
     injected ? { provider: injected } : {},
   );
-  // Phase 1 has only Claude's local-path/Read transport. Even a future
-  // ChatGPT catalogue row claiming host tools must not make this path send an
-  // absolute file path; Phase 4b owns the separate data-URL implementation.
-  if (resolved.providerId !== "claude-local") {
+  const route = routeMediaProvider(resolved, input);
+  // P4b-A selects the data-URL transport from the immutable capability
+  // snapshot. P4b-B owns its encoder; until it lands this Claude-path module
+  // must stop before a path or request reaches ChatGPT.
+  if (route.kind === "chatgpt-data-url") {
     throw new ProviderSelectionError(
       "CAPABILITY_UNSUPPORTED",
-      "media enrichment requires Claude's local Read host tool until Phase 4b",
-      {
-        providerId: resolved.providerId,
-        key: resolved.key,
-        model: resolved.model,
-      },
-    );
-  }
-  if (
-    !resolved.provider.capabilities.hostTools ||
-    !resolved.modelSnapshot.supportsHostTools ||
-    !resolved.modelSnapshot.inputModalities.includes("text")
-  ) {
-    throw new ProviderSelectionError(
-      "CAPABILITY_UNSUPPORTED",
-      `model ${resolved.model} cannot perform the required Read-host-tool media call`,
+      "ChatGPT image capability is available but the P4b-B data-URL media encoder is not installed",
       {
         providerId: resolved.providerId,
         key: resolved.key,
@@ -682,9 +675,11 @@ export async function describeMedia(
   const frames = (opts.frames ?? []).filter((f) => existsSync(f.path));
 
   let prompt: string;
+  let mediaInput: MediaInputKind;
   let files = frames.length;
   if (frames.length > 0) {
     prompt = buildFramesPrompt(row, frames);
+    mediaInput = "image";
   } else {
     const strategy = mediaStrategy(row);
     if (strategy.kind === "unsupported") {
@@ -710,12 +705,13 @@ export async function describeMedia(
         ? await prepareVisionImage(strategy.path, { signal: opts.signal })
         : { path: strategy.path };
     prompt = buildPrompt(row, { ...strategy, path: vision.path });
+    mediaInput = strategy.kind === "document" ? "document" : "image";
     files = 1;
   }
 
   let resolved: ResolvedModelCall;
   try {
-    resolved = resolveMediaCall(opts);
+    resolved = resolveMediaCall(opts, mediaInput);
     requireMaxOutputTokens(resolved);
   } catch (error) {
     return mediaFailure(error);
@@ -846,7 +842,7 @@ export async function describeMediaBatch(
 
   let resolved: ResolvedModelCall;
   try {
-    resolved = resolveMediaCall(opts);
+    resolved = resolveMediaCall(opts, "image");
     requireMaxOutputTokens(resolved);
   } catch (error) {
     const failed = mediaFailure(error);

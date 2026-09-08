@@ -329,9 +329,10 @@ describe("describeMedia", () => {
     expect(Object.hasOwn(provider.calls[0], "continuation")).toBe(false);
   });
 
-  it("fails ChatGPT media closed until Phase 4b without sending or falling back", async () => {
+  it("selects but fails the ChatGPT data-URL route until P4b-B, without fallback", async () => {
     const provider = stubProvider("invented caption", "ok", "chatgpt-oauth", {
       supportsHostTools: true,
+      inputModalities: ["text", "image"],
     });
     const result = await describeMedia(row({ mediaPath: file("IMG-chatgpt.jpg") }), {
       provider,
@@ -343,7 +344,22 @@ describe("describeMedia", () => {
       model: "gpt-media",
       errorCode: "CAPABILITY_UNSUPPORTED",
     });
-    expect(result.error).toContain("Phase 4b");
+    expect(result.error).toContain("P4b-B");
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("rejects a ChatGPT model without advertised image input before send", async () => {
+    const provider = stubProvider("invented caption", "ok", "chatgpt-oauth");
+    const result = await describeMedia(row({ mediaPath: file("IMG-text-only.jpg") }), {
+      provider,
+    });
+    expect(result).toMatchObject({
+      status: "error",
+      provider: "chatgpt-oauth",
+      model: "gpt-media",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+    });
+    expect(result.error).toContain("does not advertise image input");
     expect(provider.calls).toHaveLength(0);
   });
 
@@ -724,6 +740,7 @@ describe("describeMediaBatch", () => {
     const rows = images(3);
     const provider = stubProvider(batchAnswer(rows), "ok", "chatgpt-oauth", {
       supportsHostTools: true,
+      inputModalities: ["text", "image"],
     });
     const batch = await describeMediaBatch(rows, { provider });
 

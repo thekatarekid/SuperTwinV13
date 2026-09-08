@@ -1,26 +1,30 @@
 import Database from "better-sqlite3";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { chmod, lstat, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import {
   initializeInferenceAuthorizationLedger,
+  markCanaryInferenceMatched,
   readInferenceAuthorizationLedger,
+  reserveCanaryInferencePost,
   reserveInferencePosts,
   type AuthorizationLedgerLocation,
   type InferenceAuthorizationGrant,
 } from "./authorization-ledger.js";
 
 const MATRIX_HASH = "a".repeat(64);
+const fixtureRoots: string[] = [];
 
 async function fixture(authorizedPosts = 2): Promise<{
   location: AuthorizationLedgerLocation;
   grant: InferenceAuthorizationGrant;
 }> {
   const root = join(tmpdir(), `supertwin-ledger-${process.pid}-${Date.now()}-${Math.random()}`);
+  fixtureRoots.push(root);
   const directory = join(root, "authorization");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
@@ -41,11 +45,15 @@ async function fixture(authorizedPosts = 2): Promise<{
   };
 }
 
+afterAll(async () => {
+  await Promise.all(fixtureRoots.map((root) => rm(root, { recursive: true, force: true })));
+});
+
 describe("Phase 0b cumulative inference authorization ledger", () => {
   it("creates a 0600 SQLite ledger with an explicit conservative starting count", async () => {
     const { location, grant } = await fixture(55);
     const ledger = await initializeInferenceAuthorizationLedger(location, grant, 2);
-    expect(ledger).toEqual({ ...grant, schemaVersion: 1, consumedPosts: 2 });
+    expect(ledger).toEqual({ ...grant, schemaVersion: 2, consumedPosts: 2 });
     expect((await lstat(location.ledgerPath)).mode & 0o777).toBe(0o600);
     const bytes = await readFile(location.ledgerPath);
     expect(bytes.subarray(0, 16).toString()).toBe("SQLite format 3\0");
@@ -61,6 +69,120 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
     await expect(reserveInferencePosts(location, grant)).rejects.toThrow(/exhausted/);
     expect(await readInferenceAuthorizationLedger(location, grant)).toMatchObject({ consumedPosts: 4 });
     await expect(reserveInferencePosts(location, grant, 0)).rejects.toThrow(/reservation size/);
+  });
+
+  it("atomically tags canary reservations and marks only the exact pending attempt", async () => {
+    const { location, grant } = await fixture(5);
+    await initializeInferenceAuthorizationLedger(location, grant, 2);
+    const reservation = await reserveCanaryInferencePost(location, grant);
+    expect(reservation).toMatchObject({
+      reservationPost: 3,
+      caseSequence: 1,
+      caseName: "canary.blank-context",
+      acceptancePolicyVersion: "phase0b-canary-success-v1",
+      state: "reserved",
+    });
+    const reservedLedger = await readInferenceAuthorizationLedger(location, grant);
+    expect(reservedLedger.consumedPosts).toBe(3);
+    expect(reservedLedger.canaryCheckpoint).toBeUndefined();
+    const checkpoint = await markCanaryInferenceMatched(location, grant, reservation);
+    expect(checkpoint).toMatchObject({ reservationPost: 3, state: "matched" });
+    await expect(markCanaryInferenceMatched(location, grant, reservation)).resolves.toEqual(checkpoint);
+    expect(await readInferenceAuthorizationLedger(location, grant)).toMatchObject({
+      consumedPosts: 3,
+      canaryCheckpoint: checkpoint,
+    });
+  });
+
+  it("leaves crashed reservations charged and refuses conflicting completion", async () => {
+    const { location, grant } = await fixture(5);
+    await initializeInferenceAuthorizationLedger(location, grant);
+    const abandoned = await reserveCanaryInferencePost(location, grant);
+    const abandonedLedger = await readInferenceAuthorizationLedger(location, grant);
+    expect(abandonedLedger.consumedPosts).toBe(1);
+    expect(abandonedLedger.canaryCheckpoint).toBeUndefined();
+    const winner = await reserveCanaryInferencePost(location, grant);
+    await expect(markCanaryInferenceMatched(location, grant, winner)).resolves.toMatchObject({
+      reservationPost: 2,
+      state: "matched",
+    });
+    await expect(markCanaryInferenceMatched(location, grant, abandoned)).rejects.toThrow(/conflicting/);
+    expect((await readInferenceAuthorizationLedger(location, grant)).consumedPosts).toBe(2);
+  });
+
+  it("refuses fabricated or altered completion claims without changing cumulative consumption", async () => {
+    const { location, grant } = await fixture(4);
+    await initializeInferenceAuthorizationLedger(location, grant);
+    await reserveInferencePosts(location, grant);
+    const fabricated = {
+      authorizationId: grant.authorizationId,
+      matrixVersion: grant.matrixVersion,
+      matrixHash: grant.matrixHash,
+      reservationPost: 1,
+      caseSequence: 1 as const,
+      caseName: "canary.blank-context" as const,
+      acceptancePolicyVersion: "phase0b-canary-success-v1" as const,
+      state: "reserved" as const,
+    };
+    await expect(markCanaryInferenceMatched(location, grant, fabricated)).rejects.toThrow(/no exact pending reservation/);
+    expect((await readInferenceAuthorizationLedger(location, grant)).consumedPosts).toBe(1);
+
+    const reservation = await reserveCanaryInferencePost(location, grant);
+    await expect(markCanaryInferenceMatched(location, grant, {
+      ...reservation,
+      authorizationId: "different-authorization",
+    })).rejects.toThrow(/immutable grant and reservation/);
+    await expect(markCanaryInferenceMatched(location, {
+      ...grant,
+      owner: "Different Owner",
+    }, reservation)).rejects.toThrow(/immutable grant/);
+    expect((await readInferenceAuthorizationLedger(location, grant)).canaryCheckpoint).toBeUndefined();
+    expect((await readInferenceAuthorizationLedger(location, grant)).consumedPosts).toBe(2);
+  });
+
+  it("serializes competing tagged attempts and permits exactly one matched checkpoint", async () => {
+    const { location, grant } = await fixture(2);
+    await initializeInferenceAuthorizationLedger(location, grant);
+    const reservations = await Promise.all([
+      reserveCanaryInferencePost(location, grant),
+      reserveCanaryInferencePost(location, grant),
+    ]);
+    expect(reservations.map(({ reservationPost }) => reservationPost).sort()).toEqual([1, 2]);
+    const completions = await Promise.allSettled(
+      reservations.map((reservation) => markCanaryInferenceMatched(location, grant, reservation)),
+    );
+    expect(completions.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    expect(completions.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    const ledger = await readInferenceAuthorizationLedger(location, grant);
+    expect(ledger.consumedPosts).toBe(2);
+    expect(reservations.map(({ reservationPost }) => reservationPost)).toContain(
+      ledger.canaryCheckpoint?.reservationPost,
+    );
+  });
+
+  it("refuses a corrupt tagged-attempt row without resetting the ledger", async () => {
+    const { location, grant } = await fixture(2);
+    await initializeInferenceAuthorizationLedger(location, grant);
+    await reserveCanaryInferencePost(location, grant);
+    const db = new Database(location.ledgerPath);
+    db.pragma("ignore_check_constraints = ON");
+    db.prepare("UPDATE inference_attempt SET case_name = 'corrupt-case'").run();
+    db.close();
+    await expect(readInferenceAuthorizationLedger(location, grant)).rejects.toThrow(/attempt records are corrupt/);
+  });
+
+  it("refuses schema v1 explicitly without migrating or resetting it", async () => {
+    const { location, grant } = await fixture(3);
+    await initializeInferenceAuthorizationLedger(location, grant, 2);
+    const db = new Database(location.ledgerPath);
+    db.pragma("user_version = 1");
+    db.close();
+    await expect(readInferenceAuthorizationLedger(location, grant)).rejects.toThrow(/schema is unsupported/);
+    const inspect = new Database(location.ledgerPath, { readonly: true });
+    expect((inspect.prepare("SELECT consumed_posts FROM inference_authorization").get() as {
+      consumed_posts: number;
+    }).consumed_posts).toBe(2);
+    inspect.close();
   });
 
   it("serializes SQLite writers and recovers after an abandoned transaction", async () => {

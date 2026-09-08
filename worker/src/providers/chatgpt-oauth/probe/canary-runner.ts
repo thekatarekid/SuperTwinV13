@@ -26,9 +26,13 @@ import {
 import { enforceScratchHomeInvariant } from "./scratch.js";
 import {
   bindLiveInferenceAuthorizationPlan,
+  markLiveCanaryInferenceMatched,
   prepareLiveInferenceAuthorization,
-  reserveLiveInferencePosts,
+  reserveLiveCanaryInferencePost,
 } from "./live-authorization.js";
+import type {
+  CanaryInferenceReservation,
+} from "./authorization-ledger.js";
 
 export interface CanaryProbeHooks extends ContractProbeHooks {}
 
@@ -45,6 +49,13 @@ export interface CanaryProbeEvidence {
   finalQuota: ProbeQuotaEvidence & { status: number; responseBytes: number };
   refresh: SafeSessionEvidence;
   canary: ContractCaseMismatchDiagnostic;
+  checkpoint: {
+    state: "matched";
+    caseSequence: 1;
+    caseName: "canary.blank-context";
+    acceptancePolicyVersion: "phase0b-canary-success-v1";
+    reservationPost: number;
+  };
   httpActuals: ProbeHttpCounts;
   logout: SafeSessionEvidence;
   localListeningSocketsCreated: false;
@@ -54,7 +65,9 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
   const env = { ...(hooks.env ?? process.env) };
   assertLiveCanaryProbePreflight(env);
   const authorization = await prepareLiveInferenceAuthorization("canary", env);
-  return enforceScratchHomeInvariant(env, async () => {
+  let completedAuthorization: Awaited<ReturnType<typeof bindLiveInferenceAuthorizationPlan>> | undefined;
+  let completedReservation: CanaryInferenceReservation | undefined;
+  const evidence: Omit<CanaryProbeEvidence, "checkpoint"> = await enforceScratchHomeInvariant(env, async () => {
     const listeningSocketsBefore = contractListeningSocketCount();
     const accounting = new ProbeHttpAccounting(LIVE_CANARY_HTTP_LIMITS);
     const probeAbort = new AbortController();
@@ -107,18 +120,29 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
       }
       const caseEvidence = await executeContractProbeCase(canary, headers, {
         ...probeHooks,
-        reserveInferencePosts: (posts) => reserveLiveInferencePosts(boundAuthorization, posts),
+        reserveInferencePosts: async (posts) => {
+          if (posts !== 1 || completedReservation) {
+            throw new Error("REFUSED: canary reservation must be exactly one tagged attempt");
+          }
+          completedReservation = await reserveLiveCanaryInferencePost(boundAuthorization);
+        },
       }, new Set());
 
       const finalQuotaResponse = await fetchContractMetadataJson(CODEX_USAGE_URL, headers, probeHooks);
       const finalQuota = parseProbeQuota(finalQuotaResponse.value);
       compareProbeQuota(quota, finalQuota);
+      const finalAccount = assertLiveCanaryProbeAccount(session.current().accessToken, env);
+      if (finalAccount.fingerprint !== account.fingerprint) {
+        throw new Error("REFUSED: final canary account check changed the dedicated Phase 0b account");
+      }
       const actuals = accounting.snapshot();
       if (actuals.deviceCode !== 1 || actuals.devicePoll < 1 || actuals.token !== 2 ||
           actuals.models !== 1 || actuals.quota !== 2 || actuals.inference !== 1 ||
           actuals.other !== 0) {
         throw new Error("Canary-only HTTP accounting did not match its declared flow");
       }
+      if (!completedReservation) throw new Error("REFUSED: canary completed without a tagged reservation");
+      completedAuthorization = boundAuthorization;
 
       session.logout();
       const logout = session.evidence();
@@ -183,4 +207,23 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
       }
     }
   });
+  hooks.signal?.throwIfAborted();
+  if (!completedAuthorization || !completedReservation) {
+    throw new Error("REFUSED: canary checkpoint inputs were not completed");
+  }
+  const checkpoint = await markLiveCanaryInferenceMatched(
+    completedAuthorization,
+    completedReservation,
+    hooks.signal,
+  );
+  return {
+    ...evidence,
+    checkpoint: {
+      state: "matched",
+      caseSequence: checkpoint.caseSequence,
+      caseName: checkpoint.caseName,
+      acceptancePolicyVersion: checkpoint.acceptancePolicyVersion,
+      reservationPost: checkpoint.reservationPost,
+    },
+  };
 }

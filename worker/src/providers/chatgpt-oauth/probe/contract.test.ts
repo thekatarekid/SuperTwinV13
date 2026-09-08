@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { accountFingerprint, accountIdFromAccessToken } from "./account.js";
-import { LIVE_CONTRACT_PROBE_ENV } from "./safety.js";
+import { LIVE_CANARY_PROBE_ENV, LIVE_CONTRACT_PROBE_ENV } from "./safety.js";
 import {
   CODEX_DEVICE_CODE_URL,
   CODEX_DEVICE_TOKEN_URL,
@@ -16,8 +16,10 @@ import {
 } from "./constants.js";
 import {
   buildContractCaseMismatchDiagnostic,
+  contractHttpLimitsForRun,
   runContractProbeScaffold,
 } from "./contract-runner.js";
+import { ProbeHttpAccounting } from "./accounting.js";
 import {
   buildContractProbeMatrix,
   PROBED_ALLOWLIST_FIELDS,
@@ -30,7 +32,14 @@ import {
   addTestInferenceAuthorization,
   cleanupTestInferenceAuthorizations,
   testConsumedInferencePosts,
+  testMatchedCanaryReservationPost,
 } from "./authorization-test-support.js";
+import {
+  bindLiveInferenceAuthorizationPlan,
+  markLiveCanaryInferenceMatched,
+  prepareLiveInferenceAuthorization,
+  reserveLiveCanaryInferencePost,
+} from "./live-authorization.js";
 
 afterAll(cleanupTestInferenceAuthorizations);
 
@@ -60,6 +69,7 @@ async function contractEnv(
   accountId: string,
   expectedFingerprint = accountFingerprint(accountId),
   catalogue: ProbeModelCatalogue = CAPABLE_CATALOGUE,
+  options: { authorizedPosts?: number; consumedPosts?: number } = {},
 ): Promise<NodeJS.ProcessEnv> {
   return addTestInferenceAuthorization({
     SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
@@ -68,7 +78,7 @@ async function contractEnv(
     SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-probe",
     SUPERTWIN_APP_VERSION: "13.12.2",
     SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-contract-test"),
-  }, catalogue);
+  }, catalogue, options);
 }
 
 function jsonResponse(status: number, value: unknown): Response {
@@ -473,6 +483,109 @@ describe("mocked contract runner scaffold", () => {
     expect(output).not.toContain("refresh-secret");
     expect(output).not.toContain("Bearer ey");
     expect(output).not.toContain("resp_probe");
+  });
+
+  it("reuses only an exact matched canary and runs the remaining 54 POSTs", async () => {
+    const accountId = "acct-checkpoint-resume";
+    const liveEnv = await contractEnv(
+      accountId,
+      accountFingerprint(accountId),
+      CAPABLE_CATALOGUE,
+      { authorizedPosts: 57, consumedPosts: 2 },
+    );
+    liveEnv[LIVE_CANARY_PROBE_ENV] = "1";
+    const prepared = await prepareLiveInferenceAuthorization("canary", liveEnv);
+    const bound = await bindLiveInferenceAuthorizationPlan(prepared, CAPABLE_CATALOGUE, "gpt-probe", liveEnv);
+    const reservation = await reserveLiveCanaryInferencePost(bound);
+    await markLiveCanaryInferenceMatched(bound, reservation);
+    delete liveEnv[LIVE_CANARY_PROBE_ENV];
+
+    const sequences: number[] = [];
+    const consumedAtStageStart = new Map<number, number>();
+    let continuationBody: Record<string, unknown> | undefined;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === CODEX_DEVICE_CODE_URL) {
+        return jsonResponse(200, { user_code: "ABCD-EFGH", device_auth_id: "device-secret", interval: 3 });
+      }
+      if (url === CODEX_DEVICE_TOKEN_URL) {
+        return jsonResponse(200, { authorization_code: "authorization-secret", code_verifier: "verifier-secret" });
+      }
+      if (url === CODEX_OAUTH_TOKEN_URL) {
+        return jsonResponse(200, { access_token: jwt(accountId), refresh_token: "refresh-secret" });
+      }
+      if (url === CODEX_MODELS_URL) return jsonResponse(200, { models: [{
+        slug: "gpt-probe",
+        input_modalities: ["text", "image"],
+        supported_reasoning_efforts: ["low"],
+        max_output_tokens: 4096,
+        supports_tools: true,
+        supports_parallel_tool_calls: true,
+        supports_verbosity: true,
+        supports_prompt_cache_key: true,
+        supports_prompt_cache_options: true,
+        supports_structured_output: true,
+      }] });
+      if (url === CODEX_USAGE_URL) return jsonResponse(200, {
+        plan_type: "plus",
+        rate_limit: { primary_window: { used_percent: 10, reset_at: 2_000_000_000 } },
+      });
+      if (url !== CODEX_RESPONSES_URL) throw new Error(`Unexpected mocked URL: ${url}`);
+      const sequence = Number((init?.headers as Record<string, string>).session_id.split("-").at(-1));
+      sequences.push(sequence);
+      if ([42, 43, 47, 55].includes(sequence) && !consumedAtStageStart.has(sequence)) {
+        consumedAtStageStart.set(sequence, testConsumedInferencePosts(liveEnv));
+      }
+      if (sequence === 21) continuationBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      if (sequence >= 4 && sequence <= 32 && sequence % 2 === 0) {
+        return jsonResponse(400, { error: { code: "invalid_request" } });
+      }
+      if (sequence === 38) return sseResponse("response.completed", "{\"ok\":true}");
+      if (sequence === 40) return sseResponse("response.completed", "", true);
+      return sseResponse(sequence === 2 ? "response.output_text.delta" : "response.completed");
+    });
+
+    const evidence = await runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env: liveEnv,
+    });
+
+    expect(sequences).toHaveLength(54);
+    expect(sequences).not.toContain(1);
+    expect(Object.fromEntries(consumedAtStageStart)).toEqual({ 42: 29, 43: 33, 47: 41, 55: 57 });
+    expect(continuationBody?.previous_response_id).toBe("resp_probe");
+    expect(testConsumedInferencePosts(liveEnv)).toBe(57);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBe(3);
+    expect(evidence).toMatchObject({
+      plannedInferencePosts: 54,
+      actualInferencePosts: 54,
+      checkpoint: {
+        canary: "reused",
+        caseSequence: 1,
+        caseName: "canary.blank-context",
+        acceptancePolicyVersion: "phase0b-canary-success-v1",
+        reservationPost: 3,
+      },
+      httpActuals: { inference: 54, total: 61 },
+    });
+    expect(evidence.cases).toHaveLength(70);
+    expect(evidence.cases[0]).toMatchObject({
+      sequence: 1,
+      status: "checkpoint-reused",
+      matchedExpectation: true,
+    });
+    expect(evidence.cases[0]?.stream).toBeUndefined();
+  });
+
+  it("hard-caps a checkpoint-resumed run at 54 before an erroneous 55th fetch", async () => {
+    const upstream = vi.fn<typeof fetch>(async () => sseResponse());
+    const counted = new ProbeHttpAccounting(contractHttpLimitsForRun(true)).wrap(upstream);
+    for (let index = 0; index < 54; index += 1) await counted(CODEX_RESPONSES_URL);
+    await expect(counted(CODEX_RESPONSES_URL)).rejects.toThrow(/budget exhausted for inference/);
+    expect(upstream).toHaveBeenCalledTimes(54);
   });
 
   it("ignores restriction words in model metadata but rejects structural catalogue flags", async () => {

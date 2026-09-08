@@ -68,7 +68,7 @@ describe("Phase 0b live cumulative authorization wiring", () => {
 
     const contractEnv = await addTestInferenceAuthorization(baseEnv("contract"), undefined, {
       authorizedPosts: 55,
-      consumedPosts: 1,
+      consumedPosts: 2,
     });
     await expect(prepareLiveInferenceAuthorization("contract", contractEnv)).rejects.toThrow(/insufficient/);
   });

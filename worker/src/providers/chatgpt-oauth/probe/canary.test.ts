@@ -1,5 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { accountFingerprint } from "./account.js";
@@ -20,6 +21,7 @@ import {
   addTestInferenceAuthorization,
   cleanupTestInferenceAuthorizations,
   testConsumedInferencePosts,
+  testMatchedCanaryReservationPost,
 } from "./authorization-test-support.js";
 
 afterAll(cleanupTestInferenceAuthorizations);
@@ -157,6 +159,14 @@ describe("Phase 0b canary-only runner", () => {
       logout: evidence.logout,
     }));
     expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBe(1);
+    expect(evidence.checkpoint).toMatchObject({
+      state: "matched",
+      caseSequence: 1,
+      caseName: "canary.blank-context",
+      acceptancePolicyVersion: "phase0b-canary-success-v1",
+      reservationPost: 1,
+    });
     const output = redactedJson(evidence);
     for (const secret of [accountId, "refresh-secret", "resp-secret", "authorization-secret"]) {
       expect(output).not.toContain(secret);
@@ -188,6 +198,7 @@ describe("Phase 0b canary-only runner", () => {
     expect(message).not.toContain(accountId);
     expect(message).not.toContain("resp-secret");
     expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
     expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
       httpActuals: {
         deviceCode: 1, devicePoll: 1, token: 2, models: 1,
@@ -294,9 +305,102 @@ describe("Phase 0b canary-only runner", () => {
     })).rejects.toThrow(/forced transport failure/);
 
     expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
     expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
       httpActuals: expect.objectContaining({ inference: 1 }),
     }));
+  });
+
+  it.each([
+    [400, /did not match/],
+    [429, /stopped on HTTP 429/],
+  ])("keeps an HTTP %i canary charged but non-reusable", async (status, message) => {
+    const accountId = `acct-canary-http-${status}`;
+    const liveEnv = await env(accountId);
+    const { fetchMock } = canaryFetch(accountId, true, () => jsonResponse(status, {
+      error: { code: status === 429 ? "rate_limit_exceeded" : "invalid_request" },
+    }));
+    await expect(runCanaryProbe({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env: liveEnv,
+    })).rejects.toThrow(message);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
+  });
+
+  it("does not mark the canary when final quota becomes unhealthy", async () => {
+    const accountId = "acct-canary-final-quota";
+    const liveEnv = await env(accountId);
+    const base = canaryFetch(accountId);
+    let quotaCalls = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input) === CODEX_USAGE_URL && ++quotaCalls === 2) {
+        return jsonResponse(200, {
+          plan_type: "plus",
+          rate_limit: { primary_window: { used_percent: 100, reset_at: 2_000_000_000 } },
+        });
+      }
+      return base.fetchMock(input, init);
+    });
+    await expect(runCanaryProbe({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env: liveEnv,
+    })).rejects.toThrow(/quota-limited or restricted/);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
+  });
+
+  it("keeps SIGINT after reserve charged and non-reusable", async () => {
+    const accountId = "acct-canary-sigint-after-reserve";
+    const liveEnv = await env(accountId);
+    const controller = new AbortController();
+    const { fetchMock } = canaryFetch(accountId, true, () => {
+      expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+      controller.abort(new Error("SIGINT after canary reserve"));
+      throw controller.signal.reason;
+    });
+    await expect(runCanaryProbe({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      signal: controller.signal,
+      env: liveEnv,
+    })).rejects.toThrow(/SIGINT after canary reserve/);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
+  });
+
+  it("does not mark a successful response reusable when scratch proof fails afterward", async () => {
+    const accountId = "acct-canary-scratch-failure";
+    const liveEnv = await env(accountId);
+    const base = canaryFetch(accountId);
+    let quotaCalls = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const response = await base.fetchMock(input, init);
+      if (String(input) === CODEX_USAGE_URL && ++quotaCalls === 2) {
+        await mkdir(liveEnv.SUPERTWIN_HOME!, { recursive: true, mode: 0o700 });
+        await writeFile(join(liveEnv.SUPERTWIN_HOME!, "residual"), "must-not-checkpoint");
+      }
+      return response;
+    });
+
+    await expect(runCanaryProbe({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env: liveEnv,
+    })).rejects.toThrow(/no-residual-artifacts/);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
+    await rm(liveEnv.SUPERTWIN_HOME!, { recursive: true, force: true });
   });
 
   it("hard-refuses a second inference request", async () => {

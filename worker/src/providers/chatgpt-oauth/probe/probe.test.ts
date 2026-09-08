@@ -222,11 +222,15 @@ describe("Phase 0b offline safety", () => {
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_CONTRACT_HTTP_REQUESTS=361");
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
     expect(formatLiveDeclaration("contract")).toContain("1 token exchange + 1 refresh");
+    expect(formatLiveDeclaration("contract")).toContain(
+      "PREFLIGHT_REMAINING_INFERENCE_POSTS=55 fresh; 54 only with an exact matched canary checkpoint",
+    );
     expect(formatLiveDeclaration("discover")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
     expect(formatLiveDeclaration("canary")).toContain("PHASE_0B_LIVE_CANARY_DECLARATION");
     expect(formatLiveDeclaration("canary")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=1");
     expect(formatLiveDeclaration("canary")).toContain("MAX_LIVE_CANARY_HTTP_REQUESTS=307");
+    expect(formatLiveDeclaration("canary")).toContain("PREFLIGHT_REMAINING_INFERENCE_POSTS=1");
     expect(formatLiveDeclaration("canary")).toContain("1 token exchange + 1 refresh");
   });
 

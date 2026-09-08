@@ -12,7 +12,7 @@ Status: development acceptance only. These commands are not application runtime 
 - Inference retries: `0`
 - Current application version: `13.12.2`
 
-Never use the full-contract mode under this grant. Its fresh matrix needs 55 inference POSTs, but only 53 remain. A further successful canary would leave 52; even a future checkpointed 54-POST resume would require a separately approved cumulative cap of at least 57.
+Never use the full-contract mode under this grant. Its fresh matrix needs 55 inference POSTs, but only 53 remain. A further successful canary would leave 52; the checkpointed 54-POST resume therefore requires a separately approved cumulative cap of at least 57.
 
 ## 1. Obtain the selected-model plan fingerprint
 

@@ -4,8 +4,13 @@ import { expectedProbeAccountFingerprint } from "./account.js";
 import {
   readInferenceAuthorizationBinding,
   readInferenceAuthorizationLedger,
+  markCanaryInferenceMatched,
+  reserveCanaryInferencePost,
   reserveInferencePosts,
   type AuthorizationLedgerLocation,
+  type CanaryCompletionCheckpoint,
+  type CanaryInferenceReservation,
+  type InferenceAuthorizationGrant,
   type InferenceAuthorizationLedger,
 } from "./authorization-ledger.js";
 import {
@@ -35,6 +40,18 @@ export interface LiveInferenceAuthorization {
 
 export interface BoundLiveInferenceAuthorization extends LiveInferenceAuthorization {
   plan: Phase0bAuthorizationPlan;
+}
+
+function grantFor(authorization: BoundLiveInferenceAuthorization): InferenceAuthorizationGrant {
+  return {
+    authorizationId: authorization.ledger.authorizationId,
+    owner: authorization.ledger.owner,
+    accountFingerprint: authorization.ledger.accountFingerprint,
+    modelId: authorization.ledger.modelId,
+    matrixVersion: authorization.plan.matrixVersion,
+    matrixHash: authorization.plan.matrixHash,
+    authorizedPosts: authorization.ledger.authorizedPosts,
+  };
 }
 
 function authorizationId(env: NodeJS.ProcessEnv): string {
@@ -81,7 +98,12 @@ export async function prepareLiveInferenceAuthorization(
     modelId: requestedProbeModelId(env),
     authorizedPosts: authorizedPosts(env),
   });
-  const intendedPosts = mode === "canary" ? 1 : FULL_PROBE_INFERENCE_POST_BUDGET;
+  if (mode === "canary" && ledger.canaryCheckpoint) {
+    throw new Error("REFUSED: a successful canary checkpoint already exists");
+  }
+  const intendedPosts = mode === "canary"
+    ? 1
+    : FULL_PROBE_INFERENCE_POST_BUDGET - (ledger.canaryCheckpoint ? 1 : 0);
   if (ledger.authorizedPosts - ledger.consumedPosts < intendedPosts) {
     throw new Error(`REFUSED: cumulative inference authorization is insufficient for ${mode}`);
   }
@@ -105,7 +127,14 @@ export async function bindLiveInferenceAuthorizationPlan(
     matrixHash: plan.matrixHash,
     authorizedPosts: authorization.ledger.authorizedPosts,
   });
-  const required = authorization.mode === "contract" ? plan.inferencePostCount : 1;
+  const beforeCheckpoint = authorization.ledger.canaryCheckpoint?.reservationPost;
+  const afterCheckpoint = ledger.canaryCheckpoint?.reservationPost;
+  if (beforeCheckpoint !== afterCheckpoint) {
+    throw new Error("REFUSED: canary checkpoint changed after preflight");
+  }
+  const required = authorization.mode === "contract"
+    ? plan.inferencePostCount - (ledger.canaryCheckpoint ? 1 : 0)
+    : 1;
   if (ledger.authorizedPosts - ledger.consumedPosts < required) {
     throw new Error(`REFUSED: cumulative inference authorization is insufficient for ${authorization.mode}`);
   }
@@ -117,13 +146,28 @@ export async function reserveLiveInferencePosts(
   authorization: BoundLiveInferenceAuthorization,
   posts: number,
 ): Promise<void> {
-  await reserveInferencePosts(authorization.location, {
-    authorizationId: authorization.ledger.authorizationId,
-    owner: authorization.ledger.owner,
-    accountFingerprint: authorization.ledger.accountFingerprint,
-    modelId: authorization.ledger.modelId,
-    matrixVersion: authorization.plan.matrixVersion,
-    matrixHash: authorization.plan.matrixHash,
-    authorizedPosts: authorization.ledger.authorizedPosts,
-  }, posts);
+  await reserveInferencePosts(authorization.location, grantFor(authorization), posts);
+}
+
+export function reusableCanaryCheckpoint(
+  authorization: BoundLiveInferenceAuthorization,
+): CanaryCompletionCheckpoint | undefined {
+  return authorization.ledger.canaryCheckpoint;
+}
+
+export async function reserveLiveCanaryInferencePost(
+  authorization: BoundLiveInferenceAuthorization,
+): Promise<CanaryInferenceReservation> {
+  if (authorization.mode !== "canary") throw new Error("REFUSED: only canary mode may tag a canary reservation");
+  return reserveCanaryInferencePost(authorization.location, grantFor(authorization));
+}
+
+export async function markLiveCanaryInferenceMatched(
+  authorization: BoundLiveInferenceAuthorization,
+  reservation: CanaryInferenceReservation,
+  signal?: AbortSignal,
+): Promise<CanaryCompletionCheckpoint> {
+  if (authorization.mode !== "canary") throw new Error("REFUSED: only canary mode may complete a canary reservation");
+  signal?.throwIfAborted();
+  return markCanaryInferenceMatched(authorization.location, grantFor(authorization), reservation, signal);
 }

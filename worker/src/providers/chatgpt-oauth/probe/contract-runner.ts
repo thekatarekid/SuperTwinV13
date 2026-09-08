@@ -31,6 +31,7 @@ import {
   LIVE_CONTRACT_HTTP_LIMITS,
   ProbeHttpAccounting,
   type ProbeHttpCounts,
+  type ProbeHttpLimits,
 } from "./accounting.js";
 import {
   compareProbeCacheBehavior,
@@ -45,7 +46,9 @@ import {
   bindLiveInferenceAuthorizationPlan,
   prepareLiveInferenceAuthorization,
   reserveLiveInferencePosts,
+  reusableCanaryCheckpoint,
 } from "./live-authorization.js";
+import type { CanaryCompletionCheckpoint } from "./authorization-ledger.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 128 * 1024;
@@ -71,7 +74,7 @@ export interface ContractCaseEvidence {
   category: ContractProbeCase["category"];
   expectation: ContractProbeCase["expectation"];
   concurrency: ContractProbeCase["concurrency"];
-  status: number | "preflight-rejected" | "unsupported-skip";
+  status: number | "preflight-rejected" | "unsupported-skip" | "checkpoint-reused";
   matchedExpectation: boolean;
   request: unknown;
   stream?: SseProbeEvidence;
@@ -128,6 +131,13 @@ export interface FullContractEvidence {
   inferenceRetries: 0;
   plannedInferencePosts: number;
   actualInferencePosts: number;
+  checkpoint: {
+    canary: "not-reused" | "reused";
+    caseSequence?: 1;
+    caseName?: "canary.blank-context";
+    acceptancePolicyVersion?: "phase0b-canary-success-v1";
+    reservationPost?: number;
+  };
   accountFingerprint: string;
   modelCatalogue: { status: number; ids: string[]; selectedId: string; responseBytes: number };
   quota: ProbeQuotaEvidence & { status: number; responseBytes: number };
@@ -146,6 +156,13 @@ export interface FullContractEvidence {
 }
 
 class ContractRestrictionError extends Error {}
+
+export function contractHttpLimitsForRun(reuseCanary: boolean): ProbeHttpLimits {
+  return Object.freeze({
+    ...LIVE_CONTRACT_HTTP_LIMITS,
+    inference: FULL_PROBE_INFERENCE_POST_BUDGET - (reuseCanary ? 1 : 0),
+  });
+}
 
 const DIAGNOSTIC_EVENT_TYPES = new Set([
   "error",
@@ -445,6 +462,31 @@ function unsupportedEvidence(probe: ContractProbeCase): ContractCaseEvidence {
   };
 }
 
+function checkpointEvidence(
+  probe: ContractProbeCase,
+  checkpoint: CanaryCompletionCheckpoint,
+): ContractCaseEvidence {
+  if (probe.sequence !== checkpoint.caseSequence || probe.name !== checkpoint.caseName ||
+      probe.sequence !== 1 || probe.name !== "canary.blank-context" ||
+      probe.expectation !== "completed" || !isPostedProbeCase(probe)) {
+    throw new Error("REFUSED: canary checkpoint does not identify the exact first matrix case");
+  }
+  return {
+    sequence: probe.sequence,
+    name: probe.name,
+    category: probe.category,
+    expectation: probe.expectation,
+    concurrency: probe.concurrency,
+    status: "checkpoint-reused",
+    matchedExpectation: true,
+    request: {
+      checkpointReused: true,
+      acceptancePolicyVersion: checkpoint.acceptancePolicyVersion,
+      reservationPost: checkpoint.reservationPost,
+    },
+  };
+}
+
 export async function executeContractProbeCase(
   probe: ContractProbeCase,
   headers: Record<string, string>,
@@ -586,13 +628,16 @@ async function executeMatrix(
   cases: readonly ContractProbeCase[],
   headers: Record<string, string>,
   hooks: ContractProbeHooks,
+  checkpoint?: CanaryCompletionCheckpoint,
 ): Promise<ContractCaseEvidence[]> {
   const evidence: ContractCaseEvidence[] = [];
   const controllers = new Set<AbortController>();
   let previousResponseId: string | undefined;
   const serial = cases.filter((probe) => probe.category !== "ladder");
   for (const probe of serial) {
-    const result = probe.disposition === "unsupported-skip"
+    const result = checkpoint && probe.sequence === 1
+      ? checkpointEvidence(probe, checkpoint)
+      : probe.disposition === "unsupported-skip"
       ? unsupportedEvidence(probe)
       : probe.disposition === "preflight-reject"
         ? preflightRejectionEvidence(probe)
@@ -640,9 +685,11 @@ export async function runContractProbeScaffold(
   const env = { ...(hooks.env ?? process.env) };
   assertLiveContractProbePreflight(env);
   const authorization = await prepareLiveInferenceAuthorization("contract", env);
+  const preflightInferencePosts = FULL_PROBE_INFERENCE_POST_BUDGET -
+    (authorization.ledger.canaryCheckpoint ? 1 : 0);
   return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = contractListeningSocketCount();
-  const accounting = new ProbeHttpAccounting(LIVE_CONTRACT_HTTP_LIMITS);
+  const accounting = new ProbeHttpAccounting(contractHttpLimitsForRun(preflightInferencePosts === 54));
   const probeAbort = new AbortController();
   const signals = [hooks.signal, probeAbort.signal].filter(
     (signal): signal is AbortSignal => signal !== undefined,
@@ -691,17 +738,19 @@ export async function runContractProbeScaffold(
   headers = buildBackendHeaders(refreshed.accessToken, accountId, env);
   const refreshEvidence = session.evidence();
   const matrix = buildContractProbeMatrix(catalogue, selectedModel.id, env);
+  const checkpoint = reusableCanaryCheckpoint(boundAuthorization);
   const cases = await executeMatrix(matrix, headers, {
     ...probeHooks,
     reserveInferencePosts: (posts) => reserveLiveInferencePosts(boundAuthorization, posts),
-  });
+  }, checkpoint);
   const evidenceInferencePosts = cases.filter(
-    (probe) => probe.status !== "preflight-rejected" && probe.status !== "unsupported-skip",
+    (probe) => probe.status !== "preflight-rejected" && probe.status !== "unsupported-skip" &&
+      probe.status !== "checkpoint-reused",
   ).length;
   const matrixHttpActuals = accounting.snapshot();
   const actualInferencePosts = matrixHttpActuals.inference;
   if (cases.length !== FULL_PROBE_CASE_BUDGET ||
-      actualInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET ||
+      actualInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET - (checkpoint ? 1 : 0) ||
       actualInferencePosts !== evidenceInferencePosts || matrixHttpActuals.other !== 0) {
     throw new Error("Phase 0b runner exceeded its declared case or POST ceiling");
   }
@@ -781,8 +830,15 @@ export async function runContractProbeScaffold(
     persistedCredentials: false,
     scratchHomeProof: "no-residual-artifacts",
     inferenceRetries: 0,
-    plannedInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
+    plannedInferencePosts: boundAuthorization.plan.inferencePostCount - (checkpoint ? 1 : 0),
     actualInferencePosts,
+    checkpoint: checkpoint ? {
+      canary: "reused",
+      caseSequence: checkpoint.caseSequence,
+      caseName: checkpoint.caseName,
+      acceptancePolicyVersion: checkpoint.acceptancePolicyVersion,
+      reservationPost: checkpoint.reservationPost,
+    } : { canary: "not-reused" },
     accountFingerprint: account.fingerprint,
     modelCatalogue: {
       status: modelsResponse.status,

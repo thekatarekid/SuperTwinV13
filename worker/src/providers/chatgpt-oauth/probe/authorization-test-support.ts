@@ -69,3 +69,14 @@ export function testConsumedInferencePosts(env: NodeJS.ProcessEnv): number {
     db.close();
   }
 }
+
+export function testMatchedCanaryReservationPost(env: NodeJS.ProcessEnv): number | undefined {
+  const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true, fileMustExist: true });
+  try {
+    return (db.prepare(
+      "SELECT reservation_post AS reservationPost FROM inference_attempt WHERE state = 'matched'",
+    ).get() as { reservationPost: number } | undefined)?.reservationPost;
+  } finally {
+    db.close();
+  }
+}

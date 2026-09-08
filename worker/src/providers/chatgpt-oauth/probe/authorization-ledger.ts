@@ -3,7 +3,10 @@ import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
-const LEDGER_SCHEMA_VERSION = 1;
+const LEDGER_SCHEMA_VERSION = 2;
+export const CANARY_ACCEPTANCE_POLICY_VERSION = "phase0b-canary-success-v1";
+export const CANARY_CASE_NAME = "canary.blank-context";
+export const CANARY_CASE_SEQUENCE = 1;
 const MAX_AUTHORIZED_POSTS = 1_000_000;
 const SAFE_LEDGER_BASENAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_TEXT = /^[A-Za-z0-9][A-Za-z0-9._:@+ -]{0,127}$/;
@@ -32,6 +35,22 @@ export interface InferenceAuthorizationGrant {
 export interface InferenceAuthorizationLedger extends InferenceAuthorizationGrant {
   schemaVersion: typeof LEDGER_SCHEMA_VERSION;
   consumedPosts: number;
+  canaryCheckpoint?: CanaryCompletionCheckpoint;
+}
+
+export interface CanaryInferenceReservation {
+  authorizationId: string;
+  matrixVersion: string;
+  matrixHash: string;
+  reservationPost: number;
+  caseSequence: typeof CANARY_CASE_SEQUENCE;
+  caseName: typeof CANARY_CASE_NAME;
+  acceptancePolicyVersion: typeof CANARY_ACCEPTANCE_POLICY_VERSION;
+  state: "reserved";
+}
+
+export interface CanaryCompletionCheckpoint extends Omit<CanaryInferenceReservation, "state"> {
+  state: "matched";
 }
 
 export type InferenceAuthorizationBinding = Pick<
@@ -249,6 +268,57 @@ function rowToLedger(row: unknown): InferenceAuthorizationLedger {
   return Object.freeze({ ...grant, schemaVersion: LEDGER_SCHEMA_VERSION, consumedPosts: value.consumedPosts });
 }
 
+function readCanaryAttempts(
+  db: Database.Database,
+  ledger: InferenceAuthorizationLedger,
+): CanaryCompletionCheckpoint | undefined {
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = db.prepare(`
+      SELECT
+        reservation_post AS reservationPost,
+        authorization_id AS authorizationId,
+        matrix_version AS matrixVersion,
+        matrix_hash AS matrixHash,
+        case_sequence AS caseSequence,
+        case_name AS caseName,
+        acceptance_policy_version AS acceptancePolicyVersion,
+        state,
+        matched_singleton AS matchedSingleton
+      FROM inference_attempt
+      ORDER BY reservation_post
+    `).all() as Array<Record<string, unknown>>;
+  } catch {
+    fail("authorization ledger attempt records are corrupt");
+  }
+  let checkpoint: CanaryCompletionCheckpoint | undefined;
+  for (const row of rows) {
+    const valid = typeof row.reservationPost === "number" && Number.isSafeInteger(row.reservationPost) &&
+      row.reservationPost >= 1 && row.reservationPost <= ledger.consumedPosts &&
+      row.authorizationId === ledger.authorizationId &&
+      row.matrixVersion === ledger.matrixVersion && row.matrixHash === ledger.matrixHash &&
+      row.caseSequence === CANARY_CASE_SEQUENCE && row.caseName === CANARY_CASE_NAME &&
+      row.acceptancePolicyVersion === CANARY_ACCEPTANCE_POLICY_VERSION &&
+      (row.state === "reserved" || row.state === "matched") &&
+      (row.state === "matched" ? row.matchedSingleton === 1 : row.matchedSingleton === null);
+    if (!valid) fail("authorization ledger attempt records are corrupt");
+    if (row.state === "matched") {
+      if (checkpoint) fail("authorization ledger contains conflicting canary checkpoints");
+      checkpoint = Object.freeze({
+        authorizationId: ledger.authorizationId,
+        matrixVersion: ledger.matrixVersion,
+        matrixHash: ledger.matrixHash,
+        reservationPost: row.reservationPost as number,
+        caseSequence: CANARY_CASE_SEQUENCE,
+        caseName: CANARY_CASE_NAME,
+        acceptancePolicyVersion: CANARY_ACCEPTANCE_POLICY_VERSION,
+        state: "matched",
+      });
+    }
+  }
+  return checkpoint;
+}
+
 function readRow(db: Database.Database): InferenceAuthorizationLedger {
   let userVersion: number;
   let tables: Array<{ name: string }>;
@@ -258,7 +328,8 @@ function readRow(db: Database.Database): InferenceAuthorizationLedger {
   } catch {
     fail("authorization ledger schema is corrupt");
   }
-  if (userVersion !== LEDGER_SCHEMA_VERSION || tables.length !== 1 || tables[0]?.name !== "inference_authorization") {
+  if (userVersion !== LEDGER_SCHEMA_VERSION || tables.length !== 2 ||
+      tables[0]?.name !== "inference_attempt" || tables[1]?.name !== "inference_authorization") {
     fail("authorization ledger schema is unsupported");
   }
   const columns = db.pragma("table_info(inference_authorization)") as Array<{ name?: unknown }>;
@@ -276,6 +347,23 @@ function readRow(db: Database.Database): InferenceAuthorizationLedger {
   ];
   if (columns.length !== expectedColumns.length ||
       columns.some((column, index) => column.name !== expectedColumns[index])) {
+    fail("authorization ledger schema is unsupported");
+  }
+  const attemptColumns = db.pragma("table_info(inference_attempt)") as Array<{ name?: unknown }>;
+  const expectedAttemptColumns = [
+    "reservation_post",
+    "authorization_singleton",
+    "authorization_id",
+    "matrix_version",
+    "matrix_hash",
+    "case_sequence",
+    "case_name",
+    "acceptance_policy_version",
+    "state",
+    "matched_singleton",
+  ];
+  if (attemptColumns.length !== expectedAttemptColumns.length ||
+      attemptColumns.some((column, index) => column.name !== expectedAttemptColumns[index])) {
     fail("authorization ledger schema is unsupported");
   }
   let rows: unknown[];
@@ -297,7 +385,9 @@ function readRow(db: Database.Database): InferenceAuthorizationLedger {
     fail("authorization ledger schema is corrupt");
   }
   if (rows.length !== 1) fail("authorization ledger is corrupt");
-  return rowToLedger(rows[0]);
+  const ledger = rowToLedger(rows[0]);
+  const canaryCheckpoint = readCanaryAttempts(db, ledger);
+  return Object.freeze({ ...ledger, ...(canaryCheckpoint ? { canaryCheckpoint } : {}) });
 }
 
 function sameGrant(actual: InferenceAuthorizationLedger, expected: InferenceAuthorizationGrant): boolean {
@@ -332,6 +422,43 @@ function sameBinding(
     actual.accountFingerprint === expected.accountFingerprint &&
     actual.modelId === expected.modelId &&
     actual.authorizedPosts === expected.authorizedPosts;
+}
+
+function validateCanaryReservation(value: unknown): CanaryInferenceReservation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail("invalid canary reservation");
+  const reservation = value as Record<string, unknown>;
+  const keys = [
+    "acceptancePolicyVersion", "authorizationId", "caseName", "caseSequence",
+    "matrixHash", "matrixVersion", "reservationPost", "state",
+  ];
+  if (!exactKeys(reservation, keys)) fail("invalid canary reservation fields");
+  if (typeof reservation.authorizationId !== "string" || !SAFE_TEXT.test(reservation.authorizationId) ||
+      typeof reservation.matrixVersion !== "string" || !SAFE_TEXT.test(reservation.matrixVersion) ||
+      typeof reservation.matrixHash !== "string" || !SHA256_HEX.test(reservation.matrixHash) ||
+      typeof reservation.reservationPost !== "number" || !Number.isSafeInteger(reservation.reservationPost) ||
+      reservation.reservationPost < 1 || reservation.caseSequence !== CANARY_CASE_SEQUENCE ||
+      reservation.caseName !== CANARY_CASE_NAME ||
+      reservation.acceptancePolicyVersion !== CANARY_ACCEPTANCE_POLICY_VERSION ||
+      reservation.state !== "reserved") {
+    fail("invalid canary reservation values");
+  }
+  return Object.freeze(reservation as unknown as CanaryInferenceReservation);
+}
+
+function reservationFor(
+  ledger: InferenceAuthorizationLedger,
+  reservationPost: number,
+): CanaryInferenceReservation {
+  return Object.freeze({
+    authorizationId: ledger.authorizationId,
+    matrixVersion: ledger.matrixVersion,
+    matrixHash: ledger.matrixHash,
+    reservationPost,
+    caseSequence: CANARY_CASE_SEQUENCE,
+    caseName: CANARY_CASE_NAME,
+    acceptancePolicyVersion: CANARY_ACCEPTANCE_POLICY_VERSION,
+    state: "reserved",
+  });
 }
 
 async function closeAndVerify(
@@ -375,7 +502,7 @@ export async function initializeInferenceAuthorizationLedger(
     db.exec(`
       CREATE TABLE inference_authorization (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 2),
         authorization_id TEXT NOT NULL,
         owner TEXT NOT NULL,
         account_fingerprint TEXT NOT NULL,
@@ -384,6 +511,23 @@ export async function initializeInferenceAuthorizationLedger(
         matrix_hash TEXT NOT NULL,
         authorized_posts INTEGER NOT NULL CHECK (authorized_posts >= 1),
         consumed_posts INTEGER NOT NULL CHECK (consumed_posts >= 0 AND consumed_posts <= authorized_posts)
+      ) STRICT;
+      CREATE TABLE inference_attempt (
+        reservation_post INTEGER PRIMARY KEY CHECK (reservation_post >= 1),
+        authorization_singleton INTEGER NOT NULL CHECK (authorization_singleton = 1)
+          REFERENCES inference_authorization(singleton),
+        authorization_id TEXT NOT NULL,
+        matrix_version TEXT NOT NULL,
+        matrix_hash TEXT NOT NULL,
+        case_sequence INTEGER NOT NULL CHECK (case_sequence = 1),
+        case_name TEXT NOT NULL CHECK (case_name = 'canary.blank-context'),
+        acceptance_policy_version TEXT NOT NULL CHECK (acceptance_policy_version = 'phase0b-canary-success-v1'),
+        state TEXT NOT NULL CHECK (state IN ('reserved', 'matched')),
+        matched_singleton INTEGER UNIQUE,
+        CHECK (
+          (state = 'reserved' AND matched_singleton IS NULL) OR
+          (state = 'matched' AND matched_singleton = 1)
+        )
       ) STRICT;
     `);
     db.prepare(`
@@ -516,5 +660,134 @@ export async function reserveInferencePosts(
     db = undefined;
     if (error instanceof AuthorizationLedgerError) throw error;
     fail("authorization ledger reservation failed");
+  }
+}
+
+/** Atomically consumes one post and tags it as the exact Phase 0b canary attempt. */
+export async function reserveCanaryInferencePost(
+  location: AuthorizationLedgerLocation,
+  expectedGrantInput: InferenceAuthorizationGrant,
+): Promise<CanaryInferenceReservation> {
+  const expected = validateGrant(expectedGrantInput);
+  const { ledgerPath, directory } = await resolveLocation(location);
+  const file = await validateLedgerFile(ledgerPath);
+  let db: Database.Database | undefined;
+  try {
+    db = openLedger(ledgerPath);
+    db.exec("BEGIN IMMEDIATE");
+    const ledger = readRow(db);
+    if (!sameGrant(ledger, expected)) fail("authorization ledger does not match the immutable grant");
+    if (ledger.canaryCheckpoint) fail("successful canary checkpoint already exists");
+    if (ledger.consumedPosts + 1 > ledger.authorizedPosts) fail("inference authorization is exhausted");
+    const reservationPost = ledger.consumedPosts + 1;
+    const updated = db.prepare(`
+      UPDATE inference_authorization
+      SET consumed_posts = consumed_posts + 1
+      WHERE singleton = 1 AND consumed_posts + 1 <= authorized_posts
+    `).run();
+    if (updated.changes !== 1) fail("inference authorization is exhausted");
+    db.prepare(`
+      INSERT INTO inference_attempt (
+        reservation_post, authorization_singleton, authorization_id, matrix_version, matrix_hash,
+        case_sequence, case_name, acceptance_policy_version, state, matched_singleton
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 'reserved', NULL)
+    `).run(
+      reservationPost,
+      ledger.authorizationId,
+      ledger.matrixVersion,
+      ledger.matrixHash,
+      CANARY_CASE_SEQUENCE,
+      CANARY_CASE_NAME,
+      CANARY_ACCEPTANCE_POLICY_VERSION,
+    );
+    db.exec("COMMIT");
+    const committed = readRow(db);
+    if (committed.consumedPosts < reservationPost || committed.canaryCheckpoint) {
+      fail("canary reservation did not commit exactly");
+    }
+    const reservation = reservationFor(committed, reservationPost);
+    await closeAndVerify(db, directory, ledgerPath, file);
+    db = undefined;
+    return reservation;
+  } catch (error) {
+    if (db?.inTransaction) db.exec("ROLLBACK");
+    try {
+      await closeAndVerify(db, directory, ledgerPath, file);
+    } catch {
+      // Preserve the primary reservation error.
+    }
+    db = undefined;
+    if (error instanceof AuthorizationLedgerError) throw error;
+    fail("canary inference reservation failed");
+  }
+}
+
+/** Idempotently marks only the exact previously reserved canary attempt as matched. */
+export async function markCanaryInferenceMatched(
+  location: AuthorizationLedgerLocation,
+  expectedGrantInput: InferenceAuthorizationGrant,
+  reservationInput: CanaryInferenceReservation,
+  signal?: AbortSignal,
+): Promise<CanaryCompletionCheckpoint> {
+  const expected = validateGrant(expectedGrantInput);
+  const reservation = validateCanaryReservation(reservationInput);
+  const { ledgerPath, directory } = await resolveLocation(location);
+  const file = await validateLedgerFile(ledgerPath);
+  signal?.throwIfAborted();
+  let db: Database.Database | undefined;
+  try {
+    db = openLedger(ledgerPath);
+    db.exec("BEGIN IMMEDIATE");
+    const ledger = readRow(db);
+    if (!sameGrant(ledger, expected) || reservation.authorizationId !== ledger.authorizationId ||
+        reservation.matrixVersion !== ledger.matrixVersion || reservation.matrixHash !== ledger.matrixHash ||
+        reservation.reservationPost > ledger.consumedPosts) {
+      fail("canary completion does not match the immutable grant and reservation");
+    }
+    if (ledger.canaryCheckpoint) {
+      if (ledger.canaryCheckpoint.reservationPost !== reservation.reservationPost) {
+        fail("a conflicting successful canary checkpoint already exists");
+      }
+      db.exec("COMMIT");
+      const checkpoint = ledger.canaryCheckpoint;
+      await closeAndVerify(db, directory, ledgerPath, file);
+      db = undefined;
+      return checkpoint;
+    }
+    const result = db.prepare(`
+      UPDATE inference_attempt
+      SET state = 'matched', matched_singleton = 1
+      WHERE reservation_post = ? AND authorization_id = ? AND matrix_version = ? AND matrix_hash = ?
+        AND case_sequence = ? AND case_name = ? AND acceptance_policy_version = ?
+        AND state = 'reserved' AND matched_singleton IS NULL
+    `).run(
+      reservation.reservationPost,
+      reservation.authorizationId,
+      reservation.matrixVersion,
+      reservation.matrixHash,
+      CANARY_CASE_SEQUENCE,
+      CANARY_CASE_NAME,
+      CANARY_ACCEPTANCE_POLICY_VERSION,
+    );
+    if (result.changes !== 1) fail("canary completion has no exact pending reservation");
+    db.exec("COMMIT");
+    const committed = readRow(db);
+    const checkpoint = committed.canaryCheckpoint;
+    if (!checkpoint || checkpoint.reservationPost !== reservation.reservationPost) {
+      fail("canary completion did not commit exactly");
+    }
+    await closeAndVerify(db, directory, ledgerPath, file);
+    db = undefined;
+    return checkpoint;
+  } catch (error) {
+    if (db?.inTransaction) db.exec("ROLLBACK");
+    try {
+      await closeAndVerify(db, directory, ledgerPath, file);
+    } catch {
+      // Preserve the primary completion error.
+    }
+    db = undefined;
+    if (error instanceof AuthorizationLedgerError) throw error;
+    fail("canary completion failed");
   }
 }

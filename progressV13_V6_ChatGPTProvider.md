@@ -45,4 +45,5 @@
 - 2026-09-08: App remains 13.12.2; no new DMG built.
 - 2026-09-08: Owner-authorized metadata discovery made 12 HTTP requests (device 1, polls 8, token 1, models 1, quota 1), 0 inference/other calls, then failed closed on an explicit null secondary quota window; scratch home was absent afterward.
 - 2026-09-08: Aligned quota parsing with pinned Hermes: null secondary means absent and reset metadata is optional; malformed present values still fail closed. Probe 119/119, focused audit 55/55, and worker typecheck pass with 0 additional live calls.
-- Next: retry the corrected 0-inference metadata discovery, choose an account-visible model, then obtain exact main-account risk/call authorization and execute the budgeted live contract before Phase 1.
+- 2026-09-08: Corrected metadata discovery passed on fingerprint `7d41db9e5a28`: 1 device + 22 polls + 1 token + 1 models + 1 quota = 26 HTTP requests, 0 inference/other. Catalogue returned 9 safe visible IDs including `gpt-5.6-sol`; quota was healthy with no restriction signal. Credentials were cleared and scratch home removed.
+- Next: obtain explicit authorization for the 55-inference-request contract using account-visible `gpt-5.6-sol`, then execute the live Phase 0b exit before Phase 1.

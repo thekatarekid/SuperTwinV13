@@ -14,7 +14,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { getDb } from "../db/connection.js";
 import { appendEvents } from "../db/eventlog.js";
-import type { Provider, ProviderResult, SendOptions } from "../providers/types.js";
+import { setProviderModelSelection } from "../db/settings.js";
+import { providerRequestText, providerV2TestDouble } from "../providers/test-support.js";
+import type { ProviderModelCatalogue, ProviderRequest, ProviderV2 } from "../providers/types.js";
+import { TIER_V1_SYSTEM } from "../prompts/tier.v1.js";
 import { planDigest } from "../scheduler/v6/digest.js";
 import { planHistory } from "../scheduler/v6/history.js";
 import { append, msgAt, openScratchDb, streamIdOf, type ScratchDb } from "../scheduler/v6/testutil.js";
@@ -27,7 +30,9 @@ import {
   decideTierByCode,
   inferKindFromStreamId,
   readFactsV6,
+  runTierCall,
   startTieringJob,
+  TIER_DEFAULT_MODEL,
   tierAllStreams,
   tierStream,
 } from "./tiering.js";
@@ -45,18 +50,21 @@ const at = (daysAgo: number, hour = 9) => NOW - daysAgo * DAY + (hour - 12) * 3_
 const ZERO_USAGE = { inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 };
 
 /** A counting stub — the only "model" these tests ever see. */
-function stubTierProvider(answer: string, seen: { calls: number; traced?: boolean; messages: string[] }): Provider {
-  return {
-    id: "stub",
-    async send(opts: SendOptions): Promise<ProviderResult> {
+function stubTierProvider(
+  answer: string,
+  seen: { calls: number; traced?: boolean; messages: string[]; requests?: ProviderRequest[] },
+): ProviderV2 {
+  return providerV2TestDouble(
+    async (opts) => {
       seen.calls += 1;
       seen.traced = hasTraceContext();
-      seen.messages.push(opts.message);
+      seen.messages.push(providerRequestText(opts));
+      seen.requests?.push(opts);
       opts.onEvent({ type: "delta", text: answer });
-      return { sessionId: "s", usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
     },
-    cancel: () => false,
-  };
+    { model: { id: TIER_DEFAULT_MODEL, displayName: "Haiku test model" } },
+  );
 }
 
 function markBusiness(streamId: string, label: string): void {
@@ -143,6 +151,128 @@ describe("the code rules (TIER-01, TIER-02)", () => {
 });
 
 describe("the business split (TIER-03)", () => {
+  it("uses one immutable neutral selection with exact instructions and no legacy fields", async () => {
+    const requests: ProviderRequest[] = [];
+    let catalogue: ProviderModelCatalogue;
+    const base = providerV2TestDouble(
+      async (request) => {
+        requests.push(request);
+        // A concurrent discovery refresh cannot change this admitted call or
+        // the model recorded for it.
+        catalogue.models[0]!.id = "changed-after-admission";
+        catalogue.models[0]!.maxOutputTokens = 7;
+        request.onEvent({
+          type: "delta",
+          text: JSON.stringify({ tier: 2, reason: "bills", confidence: 0.9 }),
+        });
+        return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+      },
+      {
+        model: {
+          id: "catalogue-tier-model",
+          displayName: "Catalogue tier model",
+          reasoningValues: [],
+          defaultReasoning: null,
+          maxOutputTokens: 4_096,
+        },
+      },
+    );
+    catalogue = base.catalogue();
+    let catalogueReads = 0;
+    const provider: ProviderV2 = {
+      ...base,
+      catalogue: () => {
+        catalogueReads += 1;
+        return catalogue;
+      },
+    };
+
+    const report = await runTierCall({
+      streamId: "wa:st:bank@s.whatsapp.net",
+      name: "Bank",
+      sample: HDFC_LINES,
+      totalMessages: HDFC_LINES.length,
+      userMessages: 0,
+    }, { provider });
+
+    expect(report.status).toBe("ok");
+    expect(catalogueReads).toBe(1);
+    expect(requests[0]).toMatchObject({
+      model: "catalogue-tier-model",
+      instructions: TIER_V1_SYSTEM,
+      input: [{
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text" }],
+      }],
+      toolChoice: "none",
+      text: { format: { type: "text" } },
+      plainCompletion: true,
+      skipHostSettings: true,
+      persistContinuation: false,
+      maxOutputTokens: 4_096,
+      maxAgentTurns: 2,
+    });
+    expect(requests[0]).not.toHaveProperty("reasoning");
+    expect(requests[0]).not.toHaveProperty("cache");
+    expect(requests[0]).not.toHaveProperty("message");
+    expect(requests[0]).not.toHaveProperty("systemPromptFile");
+    expect(requests[0]).not.toHaveProperty("model", TIER_DEFAULT_MODEL);
+    expect(getDb().prepare(`SELECT model FROM runs WHERE pass = 'tier.v1'`).get()).toEqual({
+      model: "catalogue-tier-model",
+    });
+    expect(getDb().prepare(`SELECT provider, model, role FROM extraction_runs WHERE kind = 'tier.v1'`).get()).toEqual({
+      provider: "claude-local",
+      model: "catalogue-tier-model",
+      role: "classify",
+    });
+  });
+
+  it("fails closed before send when the selected model has no output cap", async () => {
+    let calls = 0;
+    const provider = providerV2TestDouble(
+      async () => {
+        calls += 1;
+        return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+      },
+      { model: { id: "uncapped-tier-model", maxOutputTokens: null } },
+    );
+    const report = await runTierCall({
+      streamId: "wa:st:bank@s.whatsapp.net",
+      name: "Bank",
+      sample: HDFC_LINES,
+      totalMessages: HDFC_LINES.length,
+      userMessages: 0,
+    }, { provider });
+
+    expect(report).toMatchObject({
+      status: "failed",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+    });
+    expect(calls).toBe(0);
+    expect(getDb().prepare(`SELECT COUNT(*) AS n FROM runs WHERE pass = 'tier.v1'`).get()).toEqual({ n: 0 });
+  });
+
+  it("does not fall back when the saved tier model is absent from the catalogue", async () => {
+    let calls = 0;
+    const provider = providerV2TestDouble(async () => {
+      calls += 1;
+      return { continuation: null, usage: ZERO_USAGE, freshFallback: false, status: "ok" };
+    }, { model: { id: "available-tier-model" } });
+    setProviderModelSelection("claude-local", "tier.v1", "missing-tier-model");
+
+    const report = await runTierCall({
+      streamId: "wa:st:bank@s.whatsapp.net",
+      name: "Bank",
+      sample: HDFC_LINES,
+      totalMessages: HDFC_LINES.length,
+      userMessages: 0,
+    }, { provider });
+
+    expect(report).toMatchObject({ status: "failed", errorCode: "MODEL_UNAVAILABLE" });
+    expect(calls).toBe(0);
+  });
+
   it("TIER-03 · HDFC with OTPs and bills is tier 2 via ONE cached, traced tier.v1 call", async () => {
     const key = "hdfcbank@s.whatsapp.net";
     append(HDFC_LINES.map((t, i) => msgAt(key, at(20 - i), t, { actor: "contact:hdfc", origin: "backfill" })));

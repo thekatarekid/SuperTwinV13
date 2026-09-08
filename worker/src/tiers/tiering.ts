@@ -37,12 +37,21 @@ import { randomUUID } from "node:crypto";
 
 import { getDb } from "../db/connection.js";
 import { writeRunLedger } from "../db/index.js";
+import { reasoningRequestForResolvedCall } from "../brain/reasoning.js";
 import { packTierUser, parseTierV1, TIER_SAMPLE_MAX, TIER_V1_ID, TIER_V1_SYSTEM, type TierV1Result } from "../prompts/tier.v1.js";
-import { systemPromptPath } from "../prompts/runner.js";
 import { reportBackgroundHold } from "../providers/budget.js";
 import { resourcePool, type ResourcePool } from "../providers/pool.js";
-import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/registry.js";
-import type { Provider, ProviderResult } from "../providers/types.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
+import type {
+  NeutralProviderResult,
+  ProviderErrorCode,
+  ProviderV2,
+} from "../providers/types.js";
 import { emptyUsage } from "../providers/usage.js";
 import { annotateTrace, bindTraceContext, withTraceContext } from "../traces/context.js";
 import { classifyBusinessSample } from "./classify.js";
@@ -232,9 +241,9 @@ export function decisionFromTierResult(result: TierV1Result, character: string):
 // ---- the model call -------------------------------------------------------------
 
 export interface TieringDeps {
-  provider?: Provider;
+  /** Strict provider injection for isolated tests. Production uses the V2 registry. */
+  provider?: ProviderV2;
   pool?: ResourcePool;
-  model?: string;
   timeoutMs?: number;
   now?: () => number;
   /** How many of the channel's newest messages the model sees. */
@@ -246,6 +255,36 @@ export interface TierCallReport {
   result?: TierV1Result;
   violations: string[];
   error?: string;
+  errorCode?: ProviderErrorCode;
+}
+
+const PROVIDER_ERROR_CODES = {
+  TIMEOUT: true,
+  SPAWN_FAILED: true,
+  CLI_ERROR: true,
+  POISONED_SESSION: true,
+  CANCELLED: true,
+  QUOTA_EXCEEDED: true,
+  BUDGET_EXCEEDED: true,
+  MODEL_ACTIVITY_PAUSED: true,
+  MAX_TURNS: true,
+  BAD_REQUEST: true,
+  AUTH_REQUIRED: true,
+  AUTH_EXPIRED: true,
+  PROVIDER_UNAVAILABLE: true,
+  MODEL_UNAVAILABLE: true,
+  CAPABILITY_UNSUPPORTED: true,
+  BACKEND_UNSUPPORTED: true,
+  RATE_LIMITED: true,
+  TRANSPORT_ERROR: true,
+} as const satisfies Record<ProviderErrorCode, true>;
+
+function providerErrorCode(error: unknown): ProviderErrorCode | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && Object.hasOwn(PROVIDER_ERROR_CODES, code)
+    ? code as ProviderErrorCode
+    : undefined;
 }
 
 /** ONE P-07 call, traced, pooled (understanding lane), ledgered as role `classify`. */
@@ -253,8 +292,6 @@ export async function runTierCall(
   input: { streamId: string; name: string | null; sample: readonly string[]; totalMessages: number; userMessages: number },
   deps: TieringDeps = {},
 ): Promise<TierCallReport> {
-  const provider = deps.provider ?? getProvider(DEFAULT_PROVIDER_ID);
-  if (!provider) return { status: "failed", violations: [], error: "no provider registered" };
   const user = packTierUser({
     name: input.name,
     sample: input.sample,
@@ -266,20 +303,65 @@ export async function runTierCall(
     async (): Promise<TierCallReport> => {
       let text = "";
       const runId = randomUUID();
-      const model = deps.model ?? TIER_DEFAULT_MODEL;
+      let resolved: ResolvedModelCall;
+      let maxOutputTokens: number;
+      try {
+        resolved = resolveModelCall(
+          { source: "step", key: TIER_V1_ID },
+          deps.provider ? { provider: deps.provider } : {},
+        );
+        if (!resolved.modelSnapshot.inputModalities.includes("text")) {
+          throw new ProviderSelectionError(
+            "CAPABILITY_UNSUPPORTED",
+            `model ${resolved.model} does not accept tier text input`,
+            {
+              providerId: resolved.providerId,
+              key: resolved.key,
+              model: resolved.model,
+            },
+          );
+        }
+        maxOutputTokens = requireMaxOutputTokens(resolved);
+      } catch (error) {
+        const failure = error instanceof ProviderSelectionError
+          ? error
+          : new ProviderSelectionError(
+              "MODEL_UNAVAILABLE",
+              "tier model selection failed",
+              { key: TIER_V1_ID, model: null },
+            );
+        return {
+          status: "failed",
+          violations: [],
+          error: failure.message,
+          errorCode: failure.code,
+        };
+      }
+      const model = resolved.model;
       const startedAt = new Date().toISOString();
       const pool = deps.pool ?? resourcePool;
-      let res: ProviderResult;
+      let res: NeutralProviderResult;
       try {
         res = await pool.run(
           "llm",
           bindTraceContext(() =>
-            provider.send({
+            resolved.provider.send({
               runId,
-              message: user,
-              systemPromptFile: systemPromptPath(TIER_V1_ID, TIER_V1_SYSTEM),
-              plainCompletion: true,
               model,
+              instructions: TIER_V1_SYSTEM,
+              input: [{
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: user }],
+              }],
+              toolChoice: "none",
+              text: { format: { type: "text" } },
+              plainCompletion: true,
+              skipHostSettings: true,
+              persistContinuation: false,
+              maxOutputTokens,
+              maxAgentTurns: resolved.providerId === "claude-local" ? 2 : 1,
+              ...reasoningRequestForResolvedCall(resolved),
               timeoutMs: deps.timeoutMs ?? TIER_TIMEOUT_MS,
               onEvent: (e) => {
                 if (e.type === "delta") text += e.text;
@@ -289,12 +371,20 @@ export async function runTierCall(
           { lane: "understanding" },
         );
       } catch (err) {
-        res = { sessionId: "", usage: emptyUsage(), freshFallback: false, status: "error", errorCode: "CLI_ERROR" };
-        logTierRun(runId, model, startedAt, res, user.length + TIER_V1_SYSTEM.length, provider.id);
-        return { status: "failed", violations: [], error: err instanceof Error ? err.message : String(err) };
+        const errorCode = providerErrorCode(err) ?? "CLI_ERROR";
+        res = { continuation: null, usage: emptyUsage(), freshFallback: false, status: "error", errorCode };
+        logTierRun(runId, model, startedAt, res, user.length + TIER_V1_SYSTEM.length, resolved.providerId);
+        return { status: "failed", violations: [], error: errorCode, errorCode };
       }
-      logTierRun(runId, model, startedAt, res, user.length + TIER_V1_SYSTEM.length, provider.id);
-      if (res.status !== "ok") return { status: "failed", violations: [], error: res.errorCode ?? "provider error" };
+      logTierRun(runId, model, startedAt, res, user.length + TIER_V1_SYSTEM.length, resolved.providerId);
+      if (res.status !== "ok") {
+        return {
+          status: "failed",
+          violations: [],
+          error: res.errorCode ?? "provider error",
+          ...(res.errorCode ? { errorCode: res.errorCode } : {}),
+        };
+      }
       const { result, violations } = parseTierV1(text);
       if (!result) return { status: "failed", violations, error: "unparseable tier output" };
       annotateTrace({ parsedResult: { streamId: input.streamId, ...result } });
@@ -303,7 +393,7 @@ export async function runTierCall(
   );
 }
 
-function logTierRun(runId: string, model: string, startedAt: string, res: ProviderResult, promptChars: number, providerId: string): void {
+function logTierRun(runId: string, model: string, startedAt: string, res: NeutralProviderResult, promptChars: number, providerId: string): void {
   const endedAt = new Date().toISOString();
   const usage = res.usage;
   const status = res.status === "ok" ? "ok" : "error";
@@ -334,6 +424,12 @@ function logTierRun(runId: string, model: string, startedAt: string, res: Provid
         inputTokens: usage.inputTokens,
         cacheCreationInputTokens: usage.cacheCreationInputTokens,
         cacheReadInputTokens: usage.cacheReadInputTokens,
+        ...(usage.cacheCreation5mInputTokens === undefined
+          ? {}
+          : { cacheCreation5mInputTokens: usage.cacheCreation5mInputTokens }),
+        ...(usage.cacheCreation1hInputTokens === undefined
+          ? {}
+          : { cacheCreation1hInputTokens: usage.cacheCreation1hInputTokens }),
         outputTokens: usage.outputTokens,
         costUsd: usage.costUsd ?? null,
         durationMs: Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)) || 0,

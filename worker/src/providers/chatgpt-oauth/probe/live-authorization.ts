@@ -10,8 +10,8 @@ import {
   type AuthorizationLedgerLocation,
   type CanaryCompletionCheckpoint,
   type CanaryInferenceReservation,
-  type InferenceAuthorizationGrant,
   type InferenceAuthorizationLedger,
+  type InferenceAuthorizationPlanBinding,
 } from "./authorization-ledger.js";
 import {
   buildPhase0bAuthorizationPlan,
@@ -30,6 +30,11 @@ export const AUTHORIZATION_OWNER_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER";
 export const AUTHORIZED_INFERENCE_POSTS_ENV = "SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS";
 export const AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV =
   "SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS";
+export const AUTHORIZATION_MATRIX_VERSION_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_VERSION";
+export const AUTHORIZATION_MATRIX_HASH_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_HASH";
+export const AUTHORIZATION_PLAN_REVISION_ENV = "SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_REVISION";
+export const AUTHORIZATION_PLAN_TRANSITION_ID_ENV =
+  "SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID";
 
 export type LiveInferenceAuthorizationMode = "canary" | "contract";
 
@@ -43,7 +48,7 @@ export interface BoundLiveInferenceAuthorization extends LiveInferenceAuthorizat
   plan: Phase0bAuthorizationPlan;
 }
 
-function grantFor(authorization: BoundLiveInferenceAuthorization): InferenceAuthorizationGrant {
+function grantFor(authorization: BoundLiveInferenceAuthorization): InferenceAuthorizationPlanBinding {
   return {
     authorizationId: authorization.ledger.authorizationId,
     owner: authorization.ledger.owner,
@@ -53,6 +58,9 @@ function grantFor(authorization: BoundLiveInferenceAuthorization): InferenceAuth
     matrixHash: authorization.plan.matrixHash,
     plannedInferencePosts: authorization.plan.inferencePostCount,
     authorizedPosts: authorization.ledger.authorizedPosts,
+    planRevision: authorization.ledger.planRevision,
+    planTransitionId: authorization.ledger.planTransitionId,
+    planRevisionDigest: authorization.ledger.planRevisionDigest,
   };
 }
 
@@ -86,6 +94,20 @@ function authorizedPlannedInferencePosts(env: NodeJS.ProcessEnv): number {
   return Number(value);
 }
 
+function authorizationPlanRevision(env: NodeJS.ProcessEnv): number {
+  const value = env[AUTHORIZATION_PLAN_REVISION_ENV]?.trim();
+  if (!value || !/^[1-9][0-9]{0,6}$/.test(value)) {
+    throw new Error(`REFUSED: ${AUTHORIZATION_PLAN_REVISION_ENV} must be an explicit positive integer`);
+  }
+  return Number(value);
+}
+
+function requiredPlanText(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]?.trim();
+  if (!value) throw new Error(`REFUSED: live inference requires explicit ${name}`);
+  return value;
+}
+
 function authorizationLocation(env: NodeJS.ProcessEnv, superTwinHome: string): AuthorizationLedgerLocation {
   const ledgerPath = env[AUTHORIZATION_LEDGER_PATH_ENV]?.trim();
   if (!ledgerPath || !isAbsolute(ledgerPath)) {
@@ -108,8 +130,12 @@ export async function prepareLiveInferenceAuthorization(
     owner: authorizationOwner(env),
     accountFingerprint: expectedProbeAccountFingerprint(env),
     modelId: requestedProbeModelId(env),
+    matrixVersion: requiredPlanText(env, AUTHORIZATION_MATRIX_VERSION_ENV),
+    matrixHash: requiredPlanText(env, AUTHORIZATION_MATRIX_HASH_ENV),
     plannedInferencePosts: authorizedPlannedInferencePosts(env),
     authorizedPosts: authorizedPosts(env),
+    planRevision: authorizationPlanRevision(env),
+    planTransitionId: requiredPlanText(env, AUTHORIZATION_PLAN_TRANSITION_ID_ENV),
   });
   if (mode === "canary" && ledger.canaryCheckpoint) {
     throw new Error("REFUSED: a successful canary checkpoint already exists");
@@ -143,6 +169,10 @@ export async function bindLiveInferenceAuthorizationPlan(
   });
   const beforeCheckpoint = authorization.ledger.canaryCheckpoint?.reservationPost;
   const afterCheckpoint = ledger.canaryCheckpoint?.reservationPost;
+  if (authorization.ledger.planRevision !== ledger.planRevision ||
+      authorization.ledger.planRevisionDigest !== ledger.planRevisionDigest) {
+    throw new Error("REFUSED: authorization plan revision changed after preflight");
+  }
   if (beforeCheckpoint !== afterCheckpoint) {
     throw new Error("REFUSED: canary checkpoint changed after preflight");
   }

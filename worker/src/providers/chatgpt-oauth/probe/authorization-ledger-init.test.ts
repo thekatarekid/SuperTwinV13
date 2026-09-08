@@ -2,17 +2,30 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 
 import { EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV } from "./account.js";
 import {
   AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV,
+  AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV,
   AUTHORIZATION_MATRIX_HASH_ENV,
   AUTHORIZATION_MATRIX_VERSION_ENV,
+  AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV,
+  AUTHORIZATION_PREDECESSOR_MATRIX_VERSION_ENV,
+  AUTHORIZATION_PREDECESSOR_PLANNED_INFERENCE_POSTS_ENV,
+  AUTHORIZATION_PREDECESSOR_REVISION_ENV,
+  AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV,
+  AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV,
+  AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV,
+  AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV,
+  INITIAL_AUTHORIZATION_MATRIX_VERSION,
+  INITIAL_AUTHORIZATION_MATRIX_HASH,
+  SUCCESSOR_AUTHORIZATION_MATRIX_HASH,
+  appendInferenceAuthorizationPlanSuccessorFromEnvironment,
   CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS,
   initializeInferenceAuthorizationFromEnvironment,
 } from "./authorization-ledger-init.js";
 import { readInferenceAuthorizationLedger } from "./authorization-ledger.js";
-import { PHASE0B_MATRIX_VERSION } from "./authorization-plan.js";
 import { runProbeCli } from "./cli.js";
 import { FULL_PROBE_INFERENCE_POST_BUDGET } from "./constants.js";
 import {
@@ -45,11 +58,46 @@ async function initializationEnv(): Promise<NodeJS.ProcessEnv> {
     [AUTHORIZATION_OWNER_ENV]: "Aditya Katare",
     [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
     [REQUESTED_PROBE_MODEL_ENV]: "gpt-5.6-sol",
-    [AUTHORIZATION_MATRIX_VERSION_ENV]: PHASE0B_MATRIX_VERSION,
+    [AUTHORIZATION_MATRIX_VERSION_ENV]: INITIAL_AUTHORIZATION_MATRIX_VERSION,
     [AUTHORIZATION_MATRIX_HASH_ENV]: MATRIX_HASH,
     [AUTHORIZED_INFERENCE_POSTS_ENV]: String(FULL_PROBE_INFERENCE_POST_BUDGET),
     [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]: String(CURRENT_AUTHORIZED_PLANNED_INFERENCE_POSTS),
     [AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV]: "2",
+  };
+}
+
+async function successorEnv(): Promise<NodeJS.ProcessEnv> {
+  const env = await initializationEnv();
+  await initializeInferenceAuthorizationFromEnvironment(env);
+  const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!);
+  db.pragma("foreign_keys = ON");
+  db.exec("BEGIN IMMEDIATE");
+  db.exec("DROP TABLE revisioned_inference_attempt; DROP TABLE authorization_plan_revision");
+  db.prepare("UPDATE inference_authorization SET consumed_posts = 3").run();
+  db.prepare(`
+    INSERT INTO inference_attempt (
+      reservation_post, authorization_singleton, authorization_id, matrix_version, matrix_hash,
+      planned_inference_posts, case_sequence, case_name, acceptance_policy_version, state, matched_singleton
+    ) VALUES (3, 1, ?, ?, ?, 46, 1, 'canary.blank-context', 'phase0b-canary-success-v1', 'reserved', NULL)
+  `).run(
+    env[AUTHORIZATION_ID_ENV],
+    INITIAL_AUTHORIZATION_MATRIX_VERSION,
+    INITIAL_AUTHORIZATION_MATRIX_HASH,
+  );
+  db.pragma("user_version = 3");
+  db.exec("COMMIT");
+  db.close();
+  return {
+    ...env,
+    [AUTHORIZATION_PREDECESSOR_REVISION_ENV]: "1",
+    [AUTHORIZATION_PREDECESSOR_MATRIX_VERSION_ENV]: INITIAL_AUTHORIZATION_MATRIX_VERSION,
+    [AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV]: INITIAL_AUTHORIZATION_MATRIX_HASH,
+    [AUTHORIZATION_PREDECESSOR_PLANNED_INFERENCE_POSTS_ENV]: "46",
+    [AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV]: "3",
+    [AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV]: "transport-only-request-matrix-v2",
+    [AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV]: "phase0b-contract-matrix-v2",
+    [AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV]: SUCCESSOR_AUTHORIZATION_MATRIX_HASH,
+    [AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV]: "45",
   };
 }
 
@@ -75,7 +123,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
       status: "authorization-ledger-created",
       accountFingerprint: "7d41db9e5a28",
       modelId: "gpt-5.6-sol",
-      matrixVersion: PHASE0B_MATRIX_VERSION,
+      matrixVersion: INITIAL_AUTHORIZATION_MATRIX_VERSION,
       matrixHash: MATRIX_HASH,
       plannedInferencePosts: 46,
       authorizedPosts: 55,
@@ -142,7 +190,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     [AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV, "0", /must explicitly equal 2/],
     [AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV, "3", /must explicitly equal 2/],
     [AUTHORIZATION_MATRIX_VERSION_ENV, "phase0b-contract-matrix-v2", /must equal/],
-    [AUTHORIZATION_MATRIX_HASH_ENV, "not-a-hash", /grant values/],
+    [AUTHORIZATION_MATRIX_HASH_ENV, "not-a-hash", /must explicitly equal/],
   ])("refuses invalid exact binding %s=%s", async (name, value, message) => {
     const env = await initializationEnv();
     env[name] = value;
@@ -165,6 +213,132 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     const relative = await initializationEnv();
     relative[AUTHORIZATION_LEDGER_PATH_ENV] = "relative.sqlite";
     await expect(initializeInferenceAuthorizationFromEnvironment(relative)).rejects.toThrow(/absolute paths/);
+  });
+
+  it("appends the exact transport-only successor offline while preserving 3/55 and path-free evidence", async () => {
+    const env = await successorEnv();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).resolves.toEqual({
+      status: "authorization-plan-successor-appended",
+      accountFingerprint: "7d41db9e5a28",
+      modelId: "gpt-5.6-sol",
+      planRevision: 2,
+      planTransitionId: "transport-only-request-matrix-v2",
+      matrixVersion: "phase0b-contract-matrix-v2",
+      matrixHash: SUCCESSOR_AUTHORIZATION_MATRIX_HASH,
+      plannedInferencePosts: 45,
+      authorizedPosts: 55,
+      consumedPosts: 3,
+      remainingPosts: 52,
+      networkCalls: 0,
+      appendOnly: true,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true });
+    expect(db.prepare("SELECT authorized_posts, consumed_posts FROM inference_authorization").get())
+      .toEqual({ authorized_posts: 55, consumed_posts: 3 });
+    expect(db.prepare("SELECT reservation_post, state FROM inference_attempt").get())
+      .toEqual({ reservation_post: 3, state: "reserved" });
+    db.close();
+  });
+
+  it("requires every explicit successor field and refuses drift without upgrading the ledger", async () => {
+    const names = [
+      AUTHORIZATION_LEDGER_PATH_ENV,
+      "SUPERTWIN_HOME",
+      AUTHORIZATION_ID_ENV,
+      AUTHORIZATION_OWNER_ENV,
+      EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV,
+      REQUESTED_PROBE_MODEL_ENV,
+      AUTHORIZED_INFERENCE_POSTS_ENV,
+      AUTHORIZATION_PREDECESSOR_REVISION_ENV,
+      AUTHORIZATION_PREDECESSOR_MATRIX_VERSION_ENV,
+      AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV,
+      AUTHORIZATION_PREDECESSOR_PLANNED_INFERENCE_POSTS_ENV,
+      AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV,
+      AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV,
+      AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV,
+      AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV,
+      AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV,
+    ];
+    for (const name of names) {
+      const env = await successorEnv();
+      const ledgerPath = env[AUTHORIZATION_LEDGER_PATH_ENV]!;
+      delete env[name];
+      await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).rejects.toThrow(/REFUSED/);
+      const db = new Database(ledgerPath, { readonly: true });
+      expect(db.pragma("user_version", { simple: true })).toBe(3);
+      expect(db.prepare("SELECT authorized_posts, consumed_posts FROM inference_authorization").get())
+        .toEqual({ authorized_posts: 55, consumed_posts: 3 });
+      db.close();
+    }
+
+    for (const [name, value] of [
+      [AUTHORIZATION_PREDECESSOR_REVISION_ENV, "2"],
+      [AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV, "c".repeat(64)],
+      [AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV, "4"],
+      [AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV, "phase0b-contract-matrix-v1"],
+      [AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV, "d".repeat(64)],
+      [AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV, "46"],
+    ] as const) {
+      const env = await successorEnv();
+      env[name] = value;
+      await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).rejects.toThrow(
+        /must explicitly equal/,
+      );
+      const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true });
+      expect(db.pragma("user_version", { simple: true })).toBe(3);
+      db.close();
+    }
+  });
+
+  it("refuses an exact second successor append without changing the active revision or counter", async () => {
+    const env = await successorEnv();
+    await appendInferenceAuthorizationPlanSuccessorFromEnvironment(env);
+    await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).rejects.toThrow(/predecessor/);
+    const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM authorization_plan_revision").get())
+      .toEqual({ count: 2 });
+    expect(db.prepare("SELECT authorized_posts, consumed_posts FROM inference_authorization").get())
+      .toEqual({ authorized_posts: 55, consumed_posts: 3 });
+    db.close();
+  });
+
+  it("runs the successor append only as its sole offline CLI flag and emits bounded evidence", async () => {
+    const env = await successorEnv();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await expect(runProbeCli(["--append-authorization-plan-successor"], env)).resolves.toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).not.toHaveBeenCalled();
+    const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(output).toContain('"status": "authorization-plan-successor-appended"');
+    expect(output).toContain('"planRevision": 2');
+    expect(output).toContain('"plannedInferencePosts": 45');
+    expect(output).toContain('"consumedPosts": 3');
+    expect(output).not.toContain(env[AUTHORIZATION_LEDGER_PATH_ENV]!);
+    expect(output).not.toContain(env[AUTHORIZATION_ID_ENV]!);
+    expect(output).not.toContain(env[AUTHORIZATION_OWNER_ENV]!);
+  });
+
+  it.each([
+    ["--append-authorization-plan-successor", "--append-authorization-plan-successor"],
+    ["--append-authorization-plan-successor", "--initialize-authorization-ledger"],
+    ["--append-authorization-plan-successor", "--live-auth"],
+    ["--append-authorization-plan-successor", "--live-discover"],
+    ["--append-authorization-plan-successor", "--live-canary"],
+    ["--append-authorization-plan-successor", "--live-contract"],
+    ["--append-authorization-plan-successor", "--live-browser-auth-smoke"],
+    ["--append-authorization-plan-successor", "--unknown"],
+  ])("rejects coexisting successor arguments %s %s with zero work", async (...args) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const append = vi.fn<typeof appendInferenceAuthorizationPlanSuccessorFromEnvironment>();
+    await expect(runProbeCli(args, {}, { appendAuthorizationPlanSuccessor: append })).rejects.toThrow(
+      /must be the only CLI argument/,
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
   });
 
   it("runs only as a sole offline CLI flag and emits minimal path-free evidence", async () => {
@@ -191,6 +365,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     ["--initialize-authorization-ledger", "--live-discover"],
     ["--initialize-authorization-ledger", "--live-canary"],
     ["--initialize-authorization-ledger", "--live-contract"],
+    ["--initialize-authorization-ledger", "--append-authorization-plan-successor"],
     ["--initialize-authorization-ledger", "--unknown"],
   ])("rejects coexisting initializer arguments %s %s with zero work", async (...args) => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");

@@ -118,7 +118,6 @@ export function buildDryRunRequests(
             content: [{ type: "input_text", text: "Reply with OK." }],
           },
         ],
-        max_output_tokens: 16,
         store: false,
         stream: true,
       },

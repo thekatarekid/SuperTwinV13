@@ -82,11 +82,30 @@ describe("capability-gated contract matrix", () => {
     const matrix = buildContractProbeMatrix(catalogue, "requested");
     expect(matrix.filter((probe) => probe.name !== "allowlist.model.rejected")
       .every((probe) => probe.body.model === "requested")).toBe(true);
-    for (const name of ["allowlist.tools.accepted", "focused.tool-call", "focused.image-input"]) {
+    for (const name of [
+      "allowlist.tools.accepted",
+      "allowlist.max_output_tokens.accepted",
+      "focused.tool-call",
+      "focused.image-input",
+    ]) {
       const probe = matrix.find((candidate) => candidate.name === name)!;
       expect(probe.disposition).toBe("unsupported-skip");
       expect(probe.body).not.toHaveProperty("tools");
     }
+    expect(matrix.filter((probe) => probe.disposition === "post")
+      .every((probe) => !("max_output_tokens" in probe.body))).toBe(true);
+    expect(matrix.find((probe) => probe.name === "canary.blank-context")?.body)
+      .toMatchObject({ instructions: "", store: false, stream: true });
+    const advertisedCanary = buildContractProbeMatrix({ models: [{
+      id: "requested",
+      capabilities: { maxOutputTokens: 16 },
+    }] }, "requested").find((probe) => probe.name === "canary.blank-context")!.body;
+    const { max_output_tokens: advertisedLimit, ...otherwiseIdenticalCanary } = advertisedCanary;
+    expect(advertisedLimit).toBe(16);
+    expect(matrix.find((probe) => probe.name === "canary.blank-context")?.body)
+      .toEqual(otherwiseIdenticalCanary);
+    expect(matrix.find((probe) => probe.name === "allowlist.max_output_tokens.rejected"))
+      .toMatchObject({ disposition: "preflight-reject", body: { max_output_tokens: 0 } });
     const text = matrix.find((probe) => probe.name === "allowlist.text.accepted")!;
     expect(text.disposition).toBe("post");
     expect(JSON.stringify(text.body)).not.toContain("verbosity");

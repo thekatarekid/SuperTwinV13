@@ -33,7 +33,7 @@ describe("Phase 0b authorization plan fingerprint", () => {
     expect(first).toEqual(second);
     expect(first).toEqual({
       matrixVersion: PHASE0B_MATRIX_VERSION,
-      matrixHash: "01cf41e14da1fd8de1af583b8533969ddcede8454f81356eac1c0a812b1dd591",
+      matrixHash: "3c0a8fb94c1e19de6ec991e7c665045403bcf64bd24c3ad633f351bd451769a2",
       caseCount: 70,
       inferencePostCount: 55,
       inferenceRetries: 0,
@@ -71,6 +71,20 @@ describe("Phase 0b authorization plan fingerprint", () => {
     expect(reduced.matrixHash).not.toBe(full.matrixHash);
     expect(reduced.inferencePostCount).toBeLessThan(full.inferencePostCount);
     expect(reduced.caseCount).toBe(70);
+  });
+
+  it("binds the observed gpt-5.6-sol capability shape to the revised 45-POST plan", () => {
+    const liveShape: ProbeModelCatalogue = { models: [{
+      id: "gpt-5.6-sol",
+      capabilities: { inputModalities: ["text", "image"], parallelToolCalls: true },
+    }] };
+    expect(buildPhase0bAuthorizationPlan(liveShape, "gpt-5.6-sol", planEnv)).toEqual({
+      matrixVersion: PHASE0B_MATRIX_VERSION,
+      matrixHash: "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09",
+      caseCount: 70,
+      inferencePostCount: 45,
+      inferenceRetries: 0,
+    });
   });
 
   it("rejects incomplete matrices instead of fingerprinting a smaller plan", () => {

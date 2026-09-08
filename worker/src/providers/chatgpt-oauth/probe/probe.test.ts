@@ -133,10 +133,11 @@ describe("Phase 0b offline safety", () => {
     });
     expect(requests.find((request) => request.name === "blank-context-canary")?.body).toMatchObject({
       instructions: "",
-      max_output_tokens: 16,
       store: false,
       stream: true,
     });
+    expect(requests.find((request) => request.name === "blank-context-canary")?.body)
+      .not.toHaveProperty("max_output_tokens");
   });
 
   it("refuses live work without opt-in, concrete version, and a temp scratch home", () => {
@@ -227,6 +228,12 @@ describe("Phase 0b offline safety", () => {
     );
     expect(formatLiveDeclaration("contract")).toContain(
       "SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS",
+    );
+    expect(formatLiveDeclaration("contract")).toContain(
+      "SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_REVISION",
+    );
+    expect(formatLiveDeclaration("contract")).toContain(
+      "SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID",
     );
     expect(formatLiveDeclaration("discover")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=0");
     expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
@@ -374,7 +381,7 @@ describe("Phase 0b offline safety", () => {
         planFingerprint: {
           accountFingerprint: "7d41db9e5a28",
           modelId: "gpt-safe",
-          matrixVersion: "phase0b-contract-matrix-v1",
+          matrixVersion: "phase0b-contract-matrix-v2",
           matrixHash: "b".repeat(64),
           caseCount: 70,
           inferencePostCount: 55,

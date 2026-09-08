@@ -12,7 +12,11 @@ import { buildContractProbeMatrix } from "./matrix.js";
 import {
   AUTHORIZATION_ID_ENV,
   AUTHORIZATION_LEDGER_PATH_ENV,
+  AUTHORIZATION_MATRIX_HASH_ENV,
+  AUTHORIZATION_MATRIX_VERSION_ENV,
   AUTHORIZATION_OWNER_ENV,
+  AUTHORIZATION_PLAN_REVISION_ENV,
+  AUTHORIZATION_PLAN_TRANSITION_ID_ENV,
   AUTHORIZED_INFERENCE_POSTS_ENV,
   AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
   bindLiveInferenceAuthorizationPlan,
@@ -42,6 +46,10 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       AUTHORIZATION_LEDGER_PATH_ENV,
       AUTHORIZATION_ID_ENV,
       AUTHORIZATION_OWNER_ENV,
+      AUTHORIZATION_MATRIX_VERSION_ENV,
+      AUTHORIZATION_MATRIX_HASH_ENV,
+      AUTHORIZATION_PLAN_REVISION_ENV,
+      AUTHORIZATION_PLAN_TRANSITION_ID_ENV,
       AUTHORIZED_INFERENCE_POSTS_ENV,
       AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
     ]) {
@@ -56,6 +64,18 @@ describe("Phase 0b live cumulative authorization wiring", () => {
     await expect(prepareLiveInferenceAuthorization("canary", {
       ...complete,
       [AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV]: "45",
+    })).rejects.toThrow(/preflight binding/);
+    await expect(prepareLiveInferenceAuthorization("canary", {
+      ...complete,
+      [AUTHORIZATION_PLAN_REVISION_ENV]: "2",
+    })).rejects.toThrow(/preflight binding/);
+    await expect(prepareLiveInferenceAuthorization("canary", {
+      ...complete,
+      [AUTHORIZATION_PLAN_TRANSITION_ID_ENV]: "different-transition",
+    })).rejects.toThrow(/preflight binding/);
+    await expect(prepareLiveInferenceAuthorization("canary", {
+      ...complete,
+      [AUTHORIZATION_MATRIX_HASH_ENV]: "f".repeat(64),
     })).rejects.toThrow(/preflight binding/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -77,7 +97,7 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       consumedPosts: 2,
     });
     await expect(prepareLiveInferenceAuthorization("contract", contractEnv)).resolves.toMatchObject({
-      ledger: { plannedInferencePosts: 44, authorizedPosts: 55, consumedPosts: 2 },
+      ledger: { plannedInferencePosts: 43, authorizedPosts: 55, consumedPosts: 2 },
     });
     const currentPlanCatalogue = {
       models: [{ id: "gpt-probe", capabilities: { parallelToolCalls: true, structuredOutput: true } }],
@@ -88,16 +108,16 @@ describe("Phase 0b live cumulative authorization wiring", () => {
     });
     const currentPrepared = await prepareLiveInferenceAuthorization("contract", currentGrantEnv);
     expect(currentPrepared).toMatchObject({
-      ledger: { plannedInferencePosts: 46, authorizedPosts: 55, consumedPosts: 2 },
+      ledger: { plannedInferencePosts: 45, authorizedPosts: 55, consumedPosts: 2 },
     });
     await expect(bindLiveInferenceAuthorizationPlan(
       currentPrepared,
       currentPlanCatalogue,
       "gpt-probe",
       currentGrantEnv,
-    )).resolves.toMatchObject({ plan: { inferencePostCount: 46 } });
+    )).resolves.toMatchObject({ plan: { inferencePostCount: 45 } });
     const insufficientEnv = await addTestInferenceAuthorization(baseEnv("contract"), undefined, {
-      authorizedPosts: 45,
+      authorizedPosts: 44,
       consumedPosts: 2,
     });
     await expect(prepareLiveInferenceAuthorization("contract", insufficientEnv)).rejects.toThrow(/insufficient/);
@@ -115,7 +135,7 @@ describe("Phase 0b live cumulative authorization wiring", () => {
     expect(testConsumedInferencePosts(env)).toBe(0);
 
     const countDrift = await addTestInferenceAuthorization(baseEnv("canary"), undefined, {
-      plannedInferencePosts: 43,
+      plannedInferencePosts: 42,
     });
     const countPrepared = await prepareLiveInferenceAuthorization("canary", countDrift);
     await expect(bindLiveInferenceAuthorizationPlan(countPrepared, {

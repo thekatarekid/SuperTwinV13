@@ -26,7 +26,10 @@ import {
   formatLiveDeclaration,
 } from "./safety.js";
 import { prepareLiveInferenceAuthorization } from "./live-authorization.js";
-import { initializeInferenceAuthorizationFromEnvironment } from "./authorization-ledger-init.js";
+import {
+  appendInferenceAuthorizationPlanSuccessorFromEnvironment,
+  initializeInferenceAuthorizationFromEnvironment,
+} from "./authorization-ledger-init.js";
 import { requestedProbeModelId } from "./models.js";
 import {
   runBrowserAuthSmoke,
@@ -48,6 +51,7 @@ export interface ProbeCliDependencies {
   runContractProbe?: typeof runContractProbeScaffold;
   runDiscoveryProbe?: typeof runDiscoveryProbe;
   initializeAuthorizationLedger?: typeof initializeInferenceAuthorizationFromEnvironment;
+  appendAuthorizationPlanSuccessor?: typeof appendInferenceAuthorizationPlanSuccessorFromEnvironment;
   createBrowserSmokeHooks?: (
     options: BrowserSmokeRuntimeOptions,
   ) => Promise<BrowserAuthSmokeHooks>;
@@ -76,7 +80,19 @@ export async function runProbeCli(
   const liveDiscover = args.includes("--live-discover");
   const liveCanary = args.includes("--live-canary");
   const liveBrowserAuthSmoke = args.includes("--live-browser-auth-smoke");
+  const appendAuthorizationPlanSuccessor = args.includes("--append-authorization-plan-successor");
   const initializeAuthorizationLedger = args.includes("--initialize-authorization-ledger");
+  if (appendAuthorizationPlanSuccessor) {
+    if (args.length !== 1 || args[0] !== "--append-authorization-plan-successor") {
+      throw new Error("REFUSED: --append-authorization-plan-successor must be the only CLI argument");
+    }
+    const evidence = await (
+      dependencies.appendAuthorizationPlanSuccessor ??
+      appendInferenceAuthorizationPlanSuccessorFromEnvironment
+    )(env);
+    process.stdout.write(`${redactedJson(evidence)}\n`);
+    return 0;
+  }
   if (initializeAuthorizationLedger) {
     if (args.length !== 1 || args[0] !== "--initialize-authorization-ledger") {
       throw new Error("REFUSED: --initialize-authorization-ledger must be the only CLI argument");

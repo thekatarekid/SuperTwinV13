@@ -248,6 +248,9 @@ function capabilityRequirement(probe: ContractProbeCase, model: ProbeModel): str
   if (probe.name === "allowlist.reasoning.accepted" && !capabilities.reasoningEfforts?.length) {
     return "model catalogue does not declare reasoning efforts";
   }
+  if (probe.name === "allowlist.max_output_tokens.accepted" && capabilities.maxOutputTokens === undefined) {
+    return "model catalogue does not declare max-output-token support";
+  }
   if (["allowlist.prompt_cache_key.accepted", "allowlist.prompt_cache_options.accepted", "focused.cache-implicit", "focused.cache-explicit"].includes(probe.name) &&
       (capabilities.promptCacheKey !== true || capabilities.promptCacheOptions !== true)) {
     return "model catalogue does not declare prompt-cache option support";
@@ -261,6 +264,20 @@ function capabilityRequirement(probe: ContractProbeCase, model: ProbeModel): str
   return undefined;
 }
 
+function applyDeclaredOutputLimit(
+  body: Record<string, unknown>,
+  model: ProbeModel,
+): Record<string, unknown> {
+  if (model.capabilities.maxOutputTokens !== undefined) {
+    return {
+      ...body,
+      max_output_tokens: Math.min(16, model.capabilities.maxOutputTokens),
+    };
+  }
+  const { max_output_tokens: _omitted, ...withoutOutputLimit } = body;
+  return withoutOutputLimit;
+}
+
 function applyModelCapabilities(probe: ContractProbeCase, model: ProbeModel): ContractProbeCase {
   if (probe.expectation === "rejected") return { ...probe, disposition: "preflight-reject" };
   const unsupportedReason = capabilityRequirement(probe, model);
@@ -269,7 +286,10 @@ function applyModelCapabilities(probe: ContractProbeCase, model: ProbeModel): Co
       ...probe,
       disposition: "unsupported-skip",
       unsupportedReason,
-      body: baseline(model.id, `Skipped unsupported fixture ${probe.name}.`),
+      body: applyDeclaredOutputLimit(
+        baseline(model.id, `Skipped unsupported fixture ${probe.name}.`),
+        model,
+      ),
     };
   }
   let body = probe.body;
@@ -291,9 +311,7 @@ function applyModelCapabilities(probe: ContractProbeCase, model: ProbeModel): Co
   if (probe.name === "allowlist.text.accepted" && model.capabilities.verbosity === true) {
     body = { ...body, text: { format: { type: "text" }, verbosity: "low" } };
   }
-  if (model.capabilities.maxOutputTokens !== undefined) {
-    body = { ...body, max_output_tokens: Math.min(16, model.capabilities.maxOutputTokens) };
-  }
+  body = applyDeclaredOutputLimit(body, model);
   if (probe.category === "ladder" && model.capabilities.promptCacheKey === true) {
     body = {
       ...body,
@@ -458,7 +476,10 @@ export function validateProbeRequestBody(body: Record<string, unknown>): string[
   if (body.text !== undefined && (!body.text || typeof body.text !== "object" || Array.isArray(body.text))) {
     errors.push("text");
   }
-  if (!Number.isInteger(body.max_output_tokens) || Number(body.max_output_tokens) <= 0) errors.push("max_output_tokens");
+  if (body.max_output_tokens !== undefined &&
+      (!Number.isInteger(body.max_output_tokens) || Number(body.max_output_tokens) <= 0)) {
+    errors.push("max_output_tokens");
+  }
   if (body.previous_response_id !== undefined &&
       (typeof body.previous_response_id !== "string" || !body.previous_response_id)) errors.push("previous_response_id");
   if (body.prompt_cache_key !== undefined &&

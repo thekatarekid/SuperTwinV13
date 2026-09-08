@@ -31,6 +31,7 @@ import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 import type { ProbeModelCatalogue } from "./models.js";
 import {
   addTestInferenceAuthorization,
+  addTestSuccessorInferenceAuthorization,
   cleanupTestInferenceAuthorizations,
   testConsumedInferencePosts,
   testMatchedCanaryReservationPost,
@@ -541,7 +542,7 @@ describe("mocked contract runner scaffold", () => {
     expect(output).not.toContain("resp_probe");
   });
 
-  it("runs the exact discovered gpt-5.6-sol 46-POST plan end to end", async () => {
+  it("runs the exact discovered gpt-5.6-sol 45-POST plan end to end", async () => {
     const accountId = "acct-discovered-gpt-5-6-sol";
     const plan = buildPhase0bAuthorizationPlan(
       DISCOVERED_GPT_5_6_SOL_CATALOGUE,
@@ -549,20 +550,20 @@ describe("mocked contract runner scaffold", () => {
       { SUPERTWIN_APP_VERSION: "13.12.2" },
     );
     expect(plan).toEqual({
-      matrixVersion: "phase0b-contract-matrix-v1",
-      matrixHash: "b02baf6834d23ad8fbaf5df4f693f3f924ce6f8787cc9173f1668995e96cac88",
+      matrixVersion: "phase0b-contract-matrix-v2",
+      matrixHash: "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09",
       caseCount: 70,
-      inferencePostCount: 46,
+      inferencePostCount: 45,
       inferenceRetries: 0,
     });
-    const liveEnv = await addTestInferenceAuthorization({
+    const liveEnv = await addTestSuccessorInferenceAuthorization({
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
       SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
       SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-5.6-sol",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-discovered-plan-test"),
-    }, DISCOVERED_GPT_5_6_SOL_CATALOGUE, { authorizedPosts: 55, consumedPosts: 0 });
+    }, DISCOVERED_GPT_5_6_SOL_CATALOGUE);
 
     let inferencePosts = 0;
     const sequences: number[] = [];
@@ -612,20 +613,20 @@ describe("mocked contract runner scaffold", () => {
       env: liveEnv,
     });
 
-    expect(sequences).toHaveLength(46);
-    expect(new Set(sequences).size).toBe(46);
-    expect(inferencePosts).toBe(46);
-    expect(testConsumedInferencePosts(liveEnv)).toBe(46);
-    expect(fetchMock).toHaveBeenCalledTimes(53);
+    expect(sequences).toHaveLength(45);
+    expect(new Set(sequences).size).toBe(45);
+    expect(inferencePosts).toBe(45);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(48);
+    expect(fetchMock).toHaveBeenCalledTimes(52);
     expect(evidence).toMatchObject({
-      plannedInferencePosts: 46,
-      actualInferencePosts: 46,
+      plannedInferencePosts: 45,
+      actualInferencePosts: 45,
       checkpoint: { canary: "not-reused" },
       modelCatalogue: { ids: ["gpt-5.6-sol"], selectedId: "gpt-5.6-sol" },
-      httpActuals: { inference: 46, total: 53 },
+      httpActuals: { inference: 45, total: 52 },
     });
     expect(evidence.cases).toHaveLength(70);
-    expect(evidence.cases.filter(({ status }) => status === "unsupported-skip")).toHaveLength(9);
+    expect(evidence.cases.filter(({ status }) => status === "unsupported-skip")).toHaveLength(10);
   });
 
   it("reuses only an exact matched canary and runs the remaining 54 POSTs", async () => {
@@ -733,8 +734,8 @@ describe("mocked contract runner scaffold", () => {
   });
 
   it.each([
-    { planned: 46, reused: false, expectedFetches: 46 },
-    { planned: 46, reused: true, expectedFetches: 45 },
+    { planned: 45, reused: false, expectedFetches: 45 },
+    { planned: 45, reused: true, expectedFetches: 44 },
   ])("hard-caps a $planned-post current plan at $expectedFetches fetches when reused=$reused", async ({
     planned,
     reused,

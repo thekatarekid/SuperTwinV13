@@ -16,7 +16,7 @@ import {
 } from "./matrix.js";
 import type { ProbeModelCatalogue } from "./models.js";
 
-export const PHASE0B_MATRIX_VERSION = "phase0b-contract-matrix-v1";
+export const PHASE0B_MATRIX_VERSION = "phase0b-contract-matrix-v2";
 export const PHASE0B_INFERENCE_RETRIES = 0;
 
 export interface Phase0bAuthorizationPlan {

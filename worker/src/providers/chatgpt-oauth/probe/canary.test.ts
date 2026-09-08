@@ -165,7 +165,7 @@ describe("Phase 0b canary-only runner", () => {
       caseSequence: 1,
       caseName: "canary.blank-context",
       acceptancePolicyVersion: "phase0b-canary-success-v1",
-      plannedInferencePosts: 44,
+      plannedInferencePosts: 43,
       reservationPost: 1,
     });
     const output = redactedJson(evidence);

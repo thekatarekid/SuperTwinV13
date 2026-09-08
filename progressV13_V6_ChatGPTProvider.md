@@ -39,6 +39,7 @@
 - 2026-09-08: Live-contract activation wiring passed independent offline review: 72/72 focused tests plus worker typecheck; dual opt-ins, scratch home, safe explicit model, exact fingerprint, redaction, SIGINT cleanup, and exact-once failure accounting all fail closed before network.
 - 2026-09-08: Added separately gated metadata-only discovery: account-visible safe model/capability catalogue plus terminal quota health, max 304 OAuth/metadata HTTP requests, exactly 0 inference/other calls, no persistence or model guess.
 - 2026-09-08: Discovery restriction scanner stops on bounded CAPTCHA/account enforcement structures without false-positive model descriptions; independent review passed. Probe 103/103 and full offline worker 4,143/4,143 passed (7 intentional skips); 0 live calls.
+- 2026-09-08: Added all-mode no-residual scratch-artifact proof with canonical temp ancestry, no-follow owner/mode checks, stable component identities, exact baseline preservation, safe composed failures, and success-output ordering. Independent review passed; probe 113/113 and full worker 4,153/4,153 passed (7 intentional skips), 0 live calls.
 - 2026-09-08: Parallel read-only Phase 1 prep mapped P1-A types/compatibility plus G1 gate/classification seams, tests, ownership and accounting hazards; no gated source changes made.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.

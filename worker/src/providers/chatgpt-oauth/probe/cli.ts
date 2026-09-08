@@ -13,6 +13,8 @@ import {
 } from "./accounting.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
 import { runDiscoveryProbe } from "./discovery-runner.js";
+import { EphemeralProbeTokenSession } from "./refresh.js";
+import { enforceScratchHomeInvariant } from "./scratch.js";
 import {
   assertLiveContractProbePreflight,
   assertLiveDiscoveryProbePreflight,
@@ -21,6 +23,7 @@ import {
 } from "./safety.js";
 
 export interface ProbeCliDependencies {
+  runAuthFlow?: typeof runDeviceCodeFlow;
   runContractProbe?: typeof runContractProbeScaffold;
   runDiscoveryProbe?: typeof runDiscoveryProbe;
 }
@@ -41,6 +44,7 @@ export async function runProbeCli(
   env: NodeJS.ProcessEnv = process.env,
   dependencies: ProbeCliDependencies = {},
 ): Promise<number> {
+  env = { ...env };
   const liveAuth = args.includes("--live-auth");
   const liveContract = args.includes("--live-contract");
   const liveDiscover = args.includes("--live-discover");
@@ -62,10 +66,9 @@ export async function runProbeCli(
     throw new Error("REFUSED: --live-discover additionally requires --live-auth");
   }
   if (liveDiscover) return runLiveDiscoveryProbe(env, dependencies);
-  assertLiveProbeOptIn(env);
-
   const accounting = new ProbeHttpAccounting(LIVE_AUTH_HTTP_LIMITS);
   const abortController = new AbortController();
+  let session: EphemeralProbeTokenSession | undefined;
   let accountingPrinted = false;
   const printAccounting = (): void => {
     if (accountingPrinted) return;
@@ -88,15 +91,26 @@ export async function runProbeCli(
     },
   };
   try {
-    const tokens = await runDeviceCodeFlow(hooks);
-    const fingerprint = accountFingerprint(accountIdFromAccessToken(tokens.accessToken));
+    const evidence = await enforceScratchHomeInvariant(env, async () => {
+      assertLiveProbeOptIn(env);
+      try {
+        const tokens = await (dependencies.runAuthFlow ?? runDeviceCodeFlow)(hooks);
+        session = new EphemeralProbeTokenSession(tokens);
+        const fingerprint = accountFingerprint(accountIdFromAccessToken(tokens.accessToken));
+        return {
+          status: "authenticated-ephemeral",
+          scratchHomeProof: "no-residual-artifacts",
+          account_fingerprint: fingerprint,
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken,
+        };
+      } finally {
+        abortController.abort(new Error("Phase 0b auth-only probe finished"));
+        session?.logout();
+      }
+    });
     process.stdout.write(
-      `${redactedJson({
-        status: "authenticated-ephemeral",
-        account_fingerprint: fingerprint,
-        access_token: tokens.accessToken,
-        refresh_token: tokens.refreshToken,
-      })}\n`,
+      `${redactedJson(evidence)}\n`,
     );
     return 0;
   } finally {
@@ -109,7 +123,6 @@ async function runLiveDiscoveryProbe(
   env: NodeJS.ProcessEnv,
   dependencies: ProbeCliDependencies,
 ): Promise<number> {
-  assertLiveDiscoveryProbePreflight(env);
   const abortController = new AbortController();
   let httpActuals: ProbeHttpCounts = { ...ZERO_HTTP_COUNTS };
   const onSigint = (): void => {
@@ -117,7 +130,8 @@ async function runLiveDiscoveryProbe(
   };
   process.once("SIGINT", onSigint);
   try {
-    const evidence = await (dependencies.runDiscoveryProbe ?? runDiscoveryProbe)({
+    const runner = dependencies.runDiscoveryProbe ?? runDiscoveryProbe;
+    const execute = () => runner({
       fetch,
       sleep: (milliseconds: number, signal?: AbortSignal) => sleep(milliseconds, undefined, { signal }),
       now: Date.now,
@@ -130,6 +144,12 @@ async function runLiveDiscoveryProbe(
         httpActuals = finalized.httpActuals;
       },
     });
+    const evidence = dependencies.runDiscoveryProbe
+      ? await enforceScratchHomeInvariant(env, async () => {
+        assertLiveDiscoveryProbePreflight(env);
+        return execute();
+      })
+      : await execute();
     process.stdout.write(`${redactedJson(evidence)}\n`);
     return 0;
   } finally {
@@ -143,7 +163,6 @@ async function runLiveContractProbe(
   dependencies: ProbeCliDependencies,
 ): Promise<number> {
   // Validate every pre-OAuth gate again inside the runner; neither layer may be bypassed.
-  assertLiveContractProbePreflight(env);
   const abortController = new AbortController();
   let httpActuals: ProbeHttpCounts = { ...ZERO_HTTP_COUNTS };
   const onSigint = (): void => {
@@ -151,7 +170,8 @@ async function runLiveContractProbe(
   };
   process.once("SIGINT", onSigint);
   try {
-    const evidence = await (dependencies.runContractProbe ?? runContractProbeScaffold)({
+    const runner = dependencies.runContractProbe ?? runContractProbeScaffold;
+    const execute = () => runner({
       fetch,
       sleep: (milliseconds: number, signal?: AbortSignal) => sleep(milliseconds, undefined, { signal }),
       now: Date.now,
@@ -164,6 +184,12 @@ async function runLiveContractProbe(
         httpActuals = finalized.httpActuals;
       },
     });
+    const evidence = dependencies.runContractProbe
+      ? await enforceScratchHomeInvariant(env, async () => {
+        assertLiveContractProbePreflight(env);
+        return execute();
+      })
+      : await execute();
     process.stdout.write(`${redactedJson(evidence)}\n`);
     return 0;
   } finally {

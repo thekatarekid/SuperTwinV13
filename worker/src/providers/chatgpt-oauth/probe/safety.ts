@@ -1,6 +1,3 @@
-import { homedir, tmpdir } from "node:os";
-import { isAbsolute, relative, resolve } from "node:path";
-
 import {
   FULL_PROBE_CASE_BUDGET,
   FULL_PROBE_INFERENCE_POST_BUDGET,
@@ -18,6 +15,7 @@ import {
   LIVE_DISCOVERY_HTTP_REQUEST_BUDGET,
 } from "./accounting.js";
 import { requestedProbeModelId } from "./models.js";
+import { assertEmptyScratchHome } from "./scratch.js";
 
 export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
 export const LIVE_DISCOVERY_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_DISCOVERY_PROBE";
@@ -43,19 +41,7 @@ export const LIVE_PROBE_DECLARATION: LiveProbeDeclaration = {
 };
 
 export function assertScratchProbeHome(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env.SUPERTWIN_HOME?.trim();
-  if (!configured) throw new Error("REFUSED: SUPERTWIN_HOME must name an explicit scratch directory");
-
-  const home = resolve(configured);
-  const production = resolve(homedir(), "SuperTwinV13");
-  if (home === production) throw new Error("REFUSED: the Phase 0b probe cannot use the production home");
-
-  const temporaryRoot = resolve(tmpdir());
-  const fromTemp = relative(temporaryRoot, home);
-  if (!fromTemp || fromTemp.startsWith("..") || isAbsolute(fromTemp)) {
-    throw new Error(`REFUSED: probe home must be a child of the system temporary directory (${temporaryRoot})`);
-  }
-  return home;
+  return assertEmptyScratchHome(env);
 }
 
 export function assertLiveProbeOptIn(env: NodeJS.ProcessEnv = process.env): string {

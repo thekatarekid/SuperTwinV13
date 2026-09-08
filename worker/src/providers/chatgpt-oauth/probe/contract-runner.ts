@@ -37,6 +37,7 @@ import {
   type ProbeConcurrencyMetrics,
   type SanitizedProbeMetric,
 } from "./metrics.js";
+import { enforceScratchHomeInvariant } from "./scratch.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 128 * 1024;
@@ -77,6 +78,7 @@ export interface ContractCaseEvidence {
 export interface FullContractEvidence {
   mode: "contract-scaffold";
   persistedCredentials: false;
+  scratchHomeProof: "no-residual-artifacts";
   inferenceRetries: 0;
   plannedInferencePosts: number;
   actualInferencePosts: number;
@@ -392,7 +394,9 @@ async function executeMatrix(
 export async function runContractProbeScaffold(
   hooks: ContractProbeHooks,
 ): Promise<FullContractEvidence> {
-  assertLiveContractProbePreflight(hooks.env ?? process.env);
+  const env = { ...(hooks.env ?? process.env) };
+  assertLiveContractProbePreflight(env);
+  return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = listeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_CONTRACT_HTTP_LIMITS);
   const probeAbort = new AbortController();
@@ -405,6 +409,7 @@ export async function runContractProbeScaffold(
     signal: AbortSignal.any(signals),
   };
   let session: EphemeralProbeTokenSession | undefined;
+  let primaryFailure: unknown;
   try {
   const tokens = await runDeviceCodeFlow(probeHooks);
   session = new EphemeralProbeTokenSession(tokens);
@@ -515,6 +520,7 @@ export async function runContractProbeScaffold(
   return {
     mode: "contract-scaffold",
     persistedCredentials: false,
+    scratchHomeProof: "no-residual-artifacts",
     inferenceRetries: 0,
     plannedInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
     actualInferencePosts,
@@ -544,17 +550,32 @@ export async function runContractProbeScaffold(
     localListeningSocketsCreated: false,
     cases: sanitizeReturnedCases(cases),
   };
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
     probeAbort.abort(new Error("Phase 0b contract probe finished"));
     session?.logout();
-    hooks.onFinalized?.({
-      httpActuals: accounting.snapshot(),
-      logout: session?.evidence() ?? {
-        authenticated: false,
-        hasRefreshToken: false,
-        previousRecoveryPairAvailable: false,
-      },
-      aborted: probeAbort.signal.aborted,
-    });
+    try {
+      hooks.onFinalized?.({
+        httpActuals: accounting.snapshot(),
+        logout: session?.evidence() ?? {
+          authenticated: false,
+          hasRefreshToken: false,
+          previousRecoveryPairAvailable: false,
+        },
+        aborted: probeAbort.signal.aborted,
+      });
+    } catch (finalizationError) {
+      if (primaryFailure !== undefined) {
+        throw new AggregateError(
+          [primaryFailure, finalizationError],
+          "Phase 0b contract failed and finalization also failed",
+          { cause: primaryFailure },
+        );
+      }
+      throw finalizationError;
+    }
   }
+  });
 }

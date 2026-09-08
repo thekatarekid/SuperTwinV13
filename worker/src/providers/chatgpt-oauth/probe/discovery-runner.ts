@@ -10,6 +10,7 @@ import { parseProbeQuota, type ProbeQuotaWindow } from "./quota.js";
 import { EphemeralProbeTokenSession, type SafeSessionEvidence } from "./refresh.js";
 import { buildBackendHeaders } from "./requests.js";
 import { hasBoundedRestrictionSignal } from "./restriction.js";
+import { enforceScratchHomeInvariant } from "./scratch.js";
 import {
   assertLiveDiscoveryProbeAccount,
   assertLiveDiscoveryProbePreflight,
@@ -28,6 +29,7 @@ export interface DiscoveryProbeHooks extends DeviceFlowHooks {
 export interface DiscoveryProbeEvidence {
   mode: "discovery";
   evidenceCompleteness: "partial-metadata-only";
+  scratchHomeProof: "no-residual-artifacts";
   persistedCredentials: false;
   inferenceCalls: 0;
   accountFingerprint: string;
@@ -108,8 +110,9 @@ async function fetchMetadata(
 export async function runDiscoveryProbe(
   hooks: DiscoveryProbeHooks,
 ): Promise<DiscoveryProbeEvidence> {
-  const env = hooks.env ?? process.env;
+  const env = { ...(hooks.env ?? process.env) };
   assertLiveDiscoveryProbePreflight(env);
+  return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = listeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_DISCOVERY_HTTP_LIMITS);
   const probeAbort = new AbortController();
@@ -122,6 +125,7 @@ export async function runDiscoveryProbe(
     signal: AbortSignal.any(signals),
   };
   let session: EphemeralProbeTokenSession | undefined;
+  let primaryFailure: unknown;
   try {
     const tokens = await runDeviceCodeFlow(probeHooks);
     session = new EphemeralProbeTokenSession(tokens);
@@ -156,6 +160,7 @@ export async function runDiscoveryProbe(
     return {
       mode: "discovery",
       evidenceCompleteness: "partial-metadata-only",
+      scratchHomeProof: "no-residual-artifacts",
       persistedCredentials: false,
       inferenceCalls: 0,
       accountFingerprint: account.fingerprint,
@@ -178,17 +183,32 @@ export async function runDiscoveryProbe(
       logout,
       localListeningSocketsCreated: false,
     };
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
     probeAbort.abort(new Error("Phase 0b discovery probe finished"));
     session?.logout();
-    hooks.onFinalized?.({
-      httpActuals: accounting.snapshot(),
-      logout: session?.evidence() ?? {
-        authenticated: false,
-        hasRefreshToken: false,
-        previousRecoveryPairAvailable: false,
-      },
-      aborted: probeAbort.signal.aborted,
-    });
+    try {
+      hooks.onFinalized?.({
+        httpActuals: accounting.snapshot(),
+        logout: session?.evidence() ?? {
+          authenticated: false,
+          hasRefreshToken: false,
+          previousRecoveryPairAvailable: false,
+        },
+        aborted: probeAbort.signal.aborted,
+      });
+    } catch (finalizationError) {
+      if (primaryFailure !== undefined) {
+        throw new AggregateError(
+          [primaryFailure, finalizationError],
+          "Phase 0b discovery failed and finalization also failed",
+          { cause: primaryFailure },
+        );
+      }
+      throw finalizationError;
+    }
   }
+  });
 }

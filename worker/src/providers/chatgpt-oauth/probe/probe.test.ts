@@ -217,10 +217,11 @@ describe("Phase 0b offline safety", () => {
     ).rejects.toThrow(/requires SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE=1/);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(stderrSpy).toHaveBeenCalledOnce();
+    expect(stderrSpy).toHaveBeenCalledTimes(2);
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=55");
+    expect(String(stderrSpy.mock.calls[1]?.[0])).toContain('"total":0');
   });
 
   it("requires the additional live-contract flag pairing before any fetch", async () => {
@@ -285,6 +286,7 @@ describe("Phase 0b offline safety", () => {
       return {
         mode: "discovery",
         evidenceCompleteness: "partial-metadata-only",
+        scratchHomeProof: "no-residual-artifacts",
         persistedCredentials: false,
         inferenceCalls: 0,
         accountFingerprint: "7d41db9e5a28",

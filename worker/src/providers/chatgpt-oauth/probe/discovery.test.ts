@@ -175,6 +175,7 @@ describe("Phase 0b metadata-only discovery runner", () => {
     expect(evidence).toEqual({
       mode: "discovery",
       evidenceCompleteness: "partial-metadata-only",
+      scratchHomeProof: "no-residual-artifacts",
       persistedCredentials: false,
       inferenceCalls: 0,
       accountFingerprint: accountFingerprint(accountId),

@@ -14,13 +14,16 @@ import {
   FULL_PROBE_CASE_BUDGET,
   FULL_PROBE_INFERENCE_POST_BUDGET,
 } from "./constants.js";
-import { runContractProbeScaffold } from "./contract-runner.js";
+import {
+  buildContractCaseMismatchDiagnostic,
+  runContractProbeScaffold,
+} from "./contract-runner.js";
 import {
   buildContractProbeMatrix,
   PROBED_ALLOWLIST_FIELDS,
 } from "./matrix.js";
 import { redactedJson } from "./redact.js";
-import { consumeBoundedSse } from "./sse.js";
+import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
 import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 
 function jwt(accountId: string): string {
@@ -105,6 +108,37 @@ describe("ephemeral account and SSE evidence", () => {
     expect(accountIdFromAccessToken(jwt(accountId))).toBe(accountId);
     expect(accountFingerprint(accountId)).toMatch(/^[a-f0-9]{12}$/);
     expect(accountFingerprint(accountId)).not.toContain(accountId);
+  });
+
+  it("bounds mismatch diagnostics and excludes raw SSE content and identifiers", () => {
+    const diagnostic = buildContractCaseMismatchDiagnostic(
+      new Response("ignored", { status: 200 }),
+      true,
+      {
+        eventTypes: [
+          "response.identifier_shaped_unknown",
+          "unsafe secret event\nvalue",
+          ...Array.from({ length: 63 }, () => "response.created"),
+        ],
+        terminal: true,
+        completed: false,
+        responseId: "resp-secret-must-not-appear",
+        substantiveOutput: true,
+      } as SseProbeEvidence,
+    );
+    expect(diagnostic.eventTypes).toHaveLength(64);
+    expect(diagnostic.eventTypes.slice(0, 2)).toEqual(["<unknown>", "<unknown>"]);
+    expect(diagnostic.flags.eventTypesTruncated).toBe(true);
+    expect(diagnostic).toMatchObject({
+      status: 200,
+      contentTypeCategory: "event-stream",
+      eventCount: 0,
+      outputTextBytes: 0,
+    });
+    const output = JSON.stringify(diagnostic);
+    expect(output).not.toContain("unsafe secret");
+    expect(output).not.toContain("identifier_shaped_unknown");
+    expect(output).not.toContain("resp-secret");
   });
 
   it("parses fragmented UTF-8 SSE and captures only event types, response ID, and numeric usage", async () => {
@@ -413,14 +447,30 @@ describe("mocked contract runner scaffold", () => {
     });
 
     const finalized = vi.fn();
-    await expect(runContractProbeScaffold({
-      fetch: fetchMock,
-      sleep: vi.fn(async () => undefined),
-      now: vi.fn(() => 0),
-      onUserCode: vi.fn(),
-      onFinalized: finalized,
-      env: contractEnv(accountId),
-    })).rejects.toThrow(/canary\.blank-context did not match/);
+    let failure: unknown;
+    try {
+      await runContractProbeScaffold({
+        fetch: fetchMock,
+        sleep: vi.fn(async () => undefined),
+        now: vi.fn(() => 0),
+        onUserCode: vi.fn(),
+        onFinalized: finalized,
+        env: contractEnv(accountId),
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const message = failure instanceof Error ? failure.message : String(failure);
+    expect(message).toContain("canary.blank-context did not match");
+    expect(message).toContain('"status":200');
+    expect(message).toContain('"contentTypeCategory":"event-stream"');
+    expect(message).toContain('"eventCount":3');
+    expect(message).toContain('"outputTextBytes":0');
+    expect(message).toContain('"eventTypes":["response.created","response.created","response.completed"]');
+    expect(message).toContain('"completed":true');
+    expect(message).toContain('"substantiveOutput":false');
+    expect(message).not.toContain("resp_probe");
+    expect(message).not.toContain("probe-signature");
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === CODEX_RESPONSES_URL)).toHaveLength(1);
     expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
       aborted: true,

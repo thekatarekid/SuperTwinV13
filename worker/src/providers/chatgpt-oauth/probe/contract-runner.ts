@@ -76,6 +76,29 @@ export interface ContractCaseEvidence {
   activeSockets?: number;
 }
 
+export interface ContractCaseMismatchDiagnostic {
+  status: number;
+  contentTypeCategory: "event-stream" | "other";
+  eventCount: number;
+  outputTextBytes: number;
+  eventTypes: string[];
+  flags: {
+    responseOk: boolean;
+    eventStream: boolean;
+    bodyPresent: boolean;
+    eventTypesTruncated: boolean;
+    terminal: boolean;
+    completed: boolean;
+    incomplete: boolean;
+    failed: boolean;
+    error: boolean;
+    restrictionSignal: boolean;
+    substantiveOutput: boolean;
+    usagePresent: boolean;
+    stoppedEarly: boolean;
+  };
+}
+
 export interface FullContractEvidence {
   mode: "contract-scaffold";
   persistedCredentials: false;
@@ -101,6 +124,63 @@ export interface FullContractEvidence {
 }
 
 class ContractRestrictionError extends Error {}
+
+const DIAGNOSTIC_EVENT_TYPES = new Set([
+  "error",
+  "response.created",
+  "response.output_item.added",
+  "response.output_item.done",
+  "response.output_text.delta",
+  "response.output_text.done",
+  "response.reasoning_summary_text.delta",
+  "response.text.delta",
+  "response.audio.delta",
+  "response.function_call_arguments.delta",
+  "response.function_call_arguments.done",
+  "response.reasoning_text.delta",
+  "response.completed",
+  "response.incomplete",
+  "response.failed",
+]);
+const MAX_DIAGNOSTIC_EVENT_TYPES = 64;
+
+function boundedDiagnosticCount(value: unknown, maximum: number): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? Math.min(value, maximum)
+    : 0;
+}
+
+export function buildContractCaseMismatchDiagnostic(
+  response: Pick<Response, "status" | "ok" | "body">,
+  eventStream: boolean,
+  stream?: SseProbeEvidence,
+): ContractCaseMismatchDiagnostic {
+  const eventTypes = stream?.eventTypes ?? [];
+  return {
+    status: response.status,
+    contentTypeCategory: eventStream ? "event-stream" : "other",
+    eventCount: boundedDiagnosticCount(stream?.eventCount, 10_000),
+    outputTextBytes: boundedDiagnosticCount(stream?.outputTextBytes, 2 * 1024 * 1024),
+    eventTypes: eventTypes.slice(0, MAX_DIAGNOSTIC_EVENT_TYPES).map(
+      (type) => DIAGNOSTIC_EVENT_TYPES.has(type) ? type : "<unknown>",
+    ),
+    flags: {
+      responseOk: response.ok,
+      eventStream,
+      bodyPresent: response.body !== null,
+      eventTypesTruncated: eventTypes.length > MAX_DIAGNOSTIC_EVENT_TYPES,
+      terminal: stream?.terminal ?? false,
+      completed: stream?.completed ?? false,
+      incomplete: stream?.incomplete ?? false,
+      failed: stream?.failed ?? false,
+      error: stream?.error ?? false,
+      restrictionSignal: stream?.restrictionSignal ?? false,
+      substantiveOutput: stream?.substantiveOutput ?? false,
+      usagePresent: stream?.usagePresent ?? false,
+      stoppedEarly: stream?.stoppedEarly ?? false,
+    },
+  };
+}
 
 function boundedRequestId(value: string): string {
   if (!/^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
@@ -334,7 +414,15 @@ async function executeCase(
       ...resourcePeak,
     };
     if (!evidence.matchedExpectation) {
-      throw new Error(`Contract case ${probe.name} did not match its declared expectation`);
+      const diagnostic = buildContractCaseMismatchDiagnostic(
+        response,
+        contentType.includes("text/event-stream"),
+        stream,
+      );
+      throw new Error(
+        `Contract case ${probe.name} did not match its declared expectation; ` +
+        `safe_diagnostic=${JSON.stringify(diagnostic)}`,
+      );
     }
     return evidence;
   } finally {

@@ -39,6 +39,7 @@ import { V6_INJECTION } from "./migrations/0208_v6_injection.js";
 import { V6_LIBRARY_PERF } from "./migrations/0209_v6_library_perf.js";
 import { V6_EXTRACT_QUEUE } from "./migrations/0210_v6_extract_queue.js";
 import { CHATGPT_PROVIDER_DECISIONS } from "./migrations/0211_chatgpt_provider_decisions.js";
+import { PROVIDER_SETTINGS_NAMESPACE } from "./migrations/0212_provider_settings_namespace.js";
 
 export interface Migration {
   id: string;
@@ -1029,4 +1030,7 @@ export const MIGRATIONS: Migration[] = [
   // canonical decisions ledger. Stable ids and INSERT OR IGNORE keep the
   // per-install seed deterministic and idempotent.
   { id: "0211_chatgpt_provider_decisions", sql: CHATGPT_PROVIDER_DECISIONS },
+  // Copy every legacy step/role model and reasoning choice into the Claude
+  // provider namespace. Legacy rows stay in place for one compatibility release.
+  { id: "0212_provider_settings_namespace", sql: PROVIDER_SETTINGS_NAMESPACE },
 ];

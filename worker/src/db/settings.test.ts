@@ -20,6 +20,8 @@ import { join } from "node:path";
 import { closeDb, getDb } from "./connection.js";
 import { runMigrations } from "./index.js";
 import {
+  ACTIVE_PROVIDER_KEY,
+  DEFAULT_ACTIVE_PROVIDER,
   DEFAULT_MEDIA_CONCURRENCY,
   DEFAULT_MEDIA_RATE_PER_MIN,
   DEFAULT_VIDEO_FRAME_INTERVAL_SEC,
@@ -28,6 +30,7 @@ import {
   DEFAULT_WHISPER_MODEL,
   DEBUG_EXPORT_KEY,
   getAllSelectedModels,
+  getActiveProvider,
   getDebugExportEnabled,
   getMediaBackfillEnabled,
   getMediaBusinessEnabled,
@@ -46,6 +49,8 @@ import {
   getMediaWhisperModel,
   getNotificationsEnabled,
   getProcessEnabled,
+  getProviderModelSelection,
+  getProviderReasoningSelection,
   getSelectedModel,
   getSemanticRetrievalPreference,
   MAX_MEDIA_CONCURRENCY,
@@ -66,6 +71,10 @@ import {
   MEDIA_WHISPER_MODEL_KEY,
   MIN_VIDEO_MAX_HEIGHT,
   MODEL_KEY,
+  PROVIDER_SETTING_KEYS,
+  PROVIDER_SETTING_SOURCES,
+  providerModelKey,
+  providerReasoningKey,
   setDebugExportEnabled,
   setMediaBackfillEnabled,
   setMediaBusinessEnabled,
@@ -84,6 +93,9 @@ import {
   setMediaWhisperModel,
   setNotificationsEnabled,
   setProcessEnabled,
+  setActiveProvider,
+  setProviderModelSelection,
+  setProviderReasoningSelection,
   setSelectedModel,
   setSemanticRetrievalEnabled,
 } from "./settings.js";
@@ -124,6 +136,78 @@ function storedState(): Record<string, string> {
     ).map((r) => [r.key, r.value]),
   );
 }
+
+describe("provider-keyed model and reasoning settings", () => {
+  it("enumerates all 21 sources as exactly 19 persisted keys", () => {
+    expect(PROVIDER_SETTING_SOURCES).toHaveLength(21);
+    expect(PROVIDER_SETTING_KEYS).toHaveLength(19);
+    const duplicates = PROVIDER_SETTING_SOURCES.filter(
+      (key, index, all) => all.indexOf(key) !== index,
+    );
+    expect(duplicates).toEqual(["chat", "extract"]);
+    expect(new Set(PROVIDER_SETTING_KEYS)).toEqual(new Set(PROVIDER_SETTING_SOURCES));
+  });
+
+  it("defaults the active provider to Claude and rejects corrupt persisted values", () => {
+    expect(getActiveProvider()).toBe(DEFAULT_ACTIVE_PROVIDER);
+    setRawState(ACTIVE_PROVIDER_KEY, "not-a-provider");
+    expect(getActiveProvider()).toBe("claude-local");
+    setActiveProvider("chatgpt-oauth");
+    expect(getActiveProvider()).toBe("chatgpt-oauth");
+    expect(() => setActiveProvider("other" as never)).toThrow(/unknown provider/i);
+  });
+
+  it("keeps provider choices separate and never leaks a Claude legacy id to ChatGPT", () => {
+    setRawState("selected_model_classify", "claude-haiku-legacy");
+    expect(getProviderModelSelection("claude-local", "classify")).toBe("claude-haiku-legacy");
+    expect(getProviderModelSelection("chatgpt-oauth", "classify")).toBeNull();
+
+    setProviderModelSelection("claude-local", "classify", "claude-sonnet");
+    setProviderModelSelection("chatgpt-oauth", "classify", "gpt-5.6-sol");
+    setProviderReasoningSelection("claude-local", "classify", "high");
+    setProviderReasoningSelection("chatgpt-oauth", "classify", "medium");
+
+    expect(getProviderModelSelection("claude-local", "classify")).toBe("claude-sonnet");
+    expect(getProviderModelSelection("chatgpt-oauth", "classify")).toBe("gpt-5.6-sol");
+    expect(getProviderReasoningSelection("claude-local", "classify")).toBe("high");
+    expect(getProviderReasoningSelection("chatgpt-oauth", "classify")).toBe("medium");
+    expect(storedState()).toMatchObject({
+      [providerModelKey("claude-local", "classify")]: "claude-sonnet",
+      [providerModelKey("chatgpt-oauth", "classify")]: "gpt-5.6-sol",
+      [providerReasoningKey("claude-local", "classify")]: "high",
+      [providerReasoningKey("chatgpt-oauth", "classify")]: "medium",
+      // Claude dual-writes during the one-release compatibility window.
+      selected_model_classify: "claude-sonnet",
+      selected_thinking_classify: "high",
+    });
+  });
+
+  it("resolves exact, explicit family alias, and version stem in that order", () => {
+    setProviderModelSelection("chatgpt-oauth", "orient", "stem");
+    expect(getProviderModelSelection("chatgpt-oauth", "orient.v7")).toBe("stem");
+
+    setProviderModelSelection("chatgpt-oauth", "orient.v6", "family");
+    expect(getProviderModelSelection("chatgpt-oauth", "live.v1", ["orient.v6"])).toBe("family");
+
+    setProviderModelSelection("chatgpt-oauth", "live.v1", "exact");
+    expect(getProviderModelSelection("chatgpt-oauth", "live.v1", ["orient.v6"])).toBe("exact");
+  });
+
+  it("uses Claude legacy reasoning only when no namespaced value exists", () => {
+    setRawState("selected_thinking_decide", "high");
+    expect(getProviderReasoningSelection("claude-local", "decide.v9")).toBe("high");
+    expect(getProviderReasoningSelection("chatgpt-oauth", "decide.v9")).toBeNull();
+    setProviderReasoningSelection("claude-local", "decide", "low");
+    expect(getProviderReasoningSelection("claude-local", "decide.v9")).toBe("low");
+  });
+
+  it("treats an explicit empty namespaced choice as authoritative over legacy", () => {
+    setRawState("selected_model_chat", "legacy-model");
+    setProviderModelSelection("claude-local", "chat", "");
+    expect(getProviderModelSelection("claude-local", "chat")).toBe("");
+    expect(getSelectedModel("chat")).toBe("");
+  });
+});
 
 describe("media reader settings", () => {
   it("both switches default ON", () => {

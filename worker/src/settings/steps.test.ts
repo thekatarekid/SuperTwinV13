@@ -111,6 +111,27 @@ describe("candidate overrides (settings/overrides.ts)", () => {
     expect(stepOverride("orient.v7")?.model).toBe("opus");
     expect(stepOverride("orient.v6")?.model).toBe("haiku");
   });
+
+  it("preserves a valid provider dimension through parse and encode", () => {
+    process.env[STEP_OVERRIDES_ENV] = encodeStepOverrides({
+      decide: { provider: "chatgpt-oauth", model: "gpt-5.6-sol", thinking: "high" },
+    });
+    expect(readStepOverrides()).toEqual({
+      decide: { provider: "chatgpt-oauth", model: "gpt-5.6-sol", thinking: "high" },
+    });
+    expect(stepOverride("decide.v9")?.provider).toBe("chatgpt-oauth");
+  });
+
+  it("drops an entry with an invalid provider instead of applying its model to the active provider", () => {
+    process.env[STEP_OVERRIDES_ENV] = JSON.stringify({
+      decide: { provider: "unknown", model: "wrong-provider-model" },
+      critic: { provider: "claude-local", model: "haiku" },
+    });
+    expect(readStepOverrides()).toEqual({
+      critic: { provider: "claude-local", model: "haiku" },
+    });
+    expect(stepOverride("decide")).toBeNull();
+  });
 });
 
 describe("the stem fallback — one Settings key per step, across prompt versions", () => {

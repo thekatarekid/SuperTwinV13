@@ -13,9 +13,12 @@
 // override keyed on its stem (`critic`), the way Settings keys its steps.
 // ===========================================================================
 
+import type { ProviderId } from "../providers/types.js";
+
 export const STEP_OVERRIDES_ENV = "SUPERTWIN_STEP_OVERRIDES";
 
 export interface StepOverride {
+  provider?: ProviderId;
   model?: string;
   thinking?: string;
 }
@@ -35,8 +38,20 @@ export function readStepOverrides(env: NodeJS.ProcessEnv = process.env): StepOve
       if (v && typeof v === "object" && !Array.isArray(v)) {
         for (const [k, o] of Object.entries(v as Record<string, unknown>)) {
           if (!o || typeof o !== "object") continue;
-          const { model, thinking } = o as Record<string, unknown>;
+          const { provider, model, thinking } = o as Record<string, unknown>;
+          // A present but invalid provider must not degrade to a model-only
+          // override against whichever provider happens to be active.
+          if (
+            provider !== undefined &&
+            provider !== "claude-local" &&
+            provider !== "chatgpt-oauth"
+          ) {
+            continue;
+          }
           const entry: StepOverride = {};
+          if (provider === "claude-local" || provider === "chatgpt-oauth") {
+            entry.provider = provider;
+          }
           if (typeof model === "string" && model.trim() !== "") entry.model = model.trim();
           if (typeof thinking === "string" && thinking.trim() !== "") entry.thinking = thinking.trim();
           parsed[k] = entry;

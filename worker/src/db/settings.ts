@@ -18,6 +18,7 @@
 
 import { appStateGet, appStateSet } from "./ingest.js";
 import type { ModelRole } from "../providers/claude-local/models.js";
+import type { ProviderId } from "../providers/types.js";
 
 // ---- app_state keys ---------------------------------------------------------
 
@@ -40,6 +41,165 @@ export const MODEL_KEY_BY_ROLE: Record<ModelRole, string> = {
   classify: "selected_model_classify",
   adjudicate: "selected_model_adjudicate",
 };
+
+/** Provider-neutral settings namespace (ChatGPT V2 §9.2). */
+export const ACTIVE_PROVIDER_KEY = "ai.provider.active";
+export const DEFAULT_ACTIVE_PROVIDER: ProviderId = "claude-local";
+
+/** The 11 Settings picker sources. Keep in sync with INTELLIGENCE_STEPS. */
+export const INTELLIGENCE_STEP_SETTING_KEYS = [
+  "orient",
+  "critic",
+  "extract",
+  "decide",
+  "digest",
+  "consolidate",
+  "assist",
+  "executor",
+  "chat",
+  "tier",
+  "brief",
+] as const;
+
+/**
+ * All 21 sources of model settings: 11 picker steps plus 10 internal roles.
+ * `chat` and `extract` intentionally occur in both source namespaces.
+ */
+export const PROVIDER_SETTING_SOURCES: readonly string[] = [
+  ...INTELLIGENCE_STEP_SETTING_KEYS,
+  ...Object.keys(MODEL_KEY_BY_ROLE),
+];
+
+/** The deduplicated persisted contract: exactly 19 step-or-role keys. */
+export const PROVIDER_SETTING_KEYS: readonly string[] = [
+  ...new Set(PROVIDER_SETTING_SOURCES),
+];
+
+export function isProviderId(value: unknown): value is ProviderId {
+  return value === "claude-local" || value === "chatgpt-oauth";
+}
+
+function checkedSettingKey(key: string): string {
+  const normalized = key.trim();
+  if (!normalized) throw new TypeError("provider setting key must not be empty");
+  return normalized;
+}
+
+export function providerModelKey(provider: ProviderId, key: string): string {
+  return `ai.model.${provider}.${checkedSettingKey(key)}`;
+}
+
+export function providerReasoningKey(provider: ProviderId, key: string): string {
+  return `ai.reasoning.${provider}.${checkedSettingKey(key)}`;
+}
+
+/** Invalid persisted values fail safely to Claude, the fresh-install default. */
+export function getActiveProvider(): ProviderId {
+  const value = appStateGet(ACTIVE_PROVIDER_KEY)?.trim();
+  return isProviderId(value) ? value : DEFAULT_ACTIVE_PROVIDER;
+}
+
+export function setActiveProvider(provider: ProviderId): void {
+  if (!isProviderId(provider)) throw new TypeError("unknown provider id");
+  appStateSet(ACTIVE_PROVIDER_KEY, provider);
+}
+
+/**
+ * Exact key, caller-supplied aliases, then the version stem. This reproduces
+ * both existing fallbacks: `orient.v7 -> orient`, and a VersionedPrompt's
+ * `pass -> settingsKey`. Duplicate candidates are removed without reordering.
+ */
+function settingCandidates(key: string, fallbackKeys: readonly string[]): string[] {
+  const exact = checkedSettingKey(key);
+  const candidates = [exact, ...fallbackKeys.map(checkedSettingKey)];
+  for (const candidate of [...candidates]) {
+    const stem = candidate.split(".")[0]!;
+    if (stem) candidates.push(stem);
+  }
+  return [...new Set(candidates)];
+}
+
+function legacySettingValue(
+  prefix: string,
+  candidates: readonly string[],
+): string | null {
+  for (const candidate of candidates) {
+    const value = appStateGet(`${prefix}${candidate}`);
+    if (value !== null) return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Read a provider-keyed model choice. During the one-release compatibility
+ * window only Claude may fall back to `selected_model_<key>`; a ChatGPT read
+ * can never inherit a Claude model id.
+ */
+export function getProviderModelSelection(
+  provider: ProviderId,
+  key: string,
+  fallbackKeys: readonly string[] = [],
+): string | null {
+  const candidates = settingCandidates(key, fallbackKeys);
+  for (const candidate of candidates) {
+    const value = appStateGet(providerModelKey(provider, candidate));
+    if (value !== null) return value.trim();
+  }
+  if (provider !== "claude-local") return null;
+  const legacy = legacySettingValue("selected_model_", candidates);
+  if (legacy !== null) return legacy;
+  // The pre-role key belonged to chat alone and remains a read fallback only.
+  if (candidates.includes("chat")) {
+    const value = appStateGet(MODEL_KEY);
+    if (value !== null) return value.trim();
+  }
+  return null;
+}
+
+export function setProviderModelSelection(
+  provider: ProviderId,
+  key: string,
+  id: string,
+): void {
+  const normalizedKey = checkedSettingKey(key);
+  const value = id.trim();
+  appStateSet(providerModelKey(provider, normalizedKey), value);
+  // One-release bridge for routes/eval tools not migrated in this serial task.
+  // Migration 0212 mirrors their legacy writes in the opposite direction.
+  if (provider === "claude-local") {
+    appStateSet(`selected_model_${normalizedKey}`, value);
+  }
+}
+
+/** Provider-keyed reasoning with the same exact/alias/stem compatibility. */
+export function getProviderReasoningSelection(
+  provider: ProviderId,
+  key: string,
+  fallbackKeys: readonly string[] = [],
+): string | null {
+  const candidates = settingCandidates(key, fallbackKeys);
+  for (const candidate of candidates) {
+    const value = appStateGet(providerReasoningKey(provider, candidate));
+    if (value !== null) return value.trim();
+  }
+  return provider === "claude-local"
+    ? legacySettingValue("selected_thinking_", candidates)
+    : null;
+}
+
+export function setProviderReasoningSelection(
+  provider: ProviderId,
+  key: string,
+  level: string,
+): void {
+  const normalizedKey = checkedSettingKey(key);
+  const value = level.trim();
+  appStateSet(providerReasoningKey(provider, normalizedKey), value);
+  if (provider === "claude-local") {
+    appStateSet(`selected_thinking_${normalizedKey}`, value);
+  }
+}
+
 /**
  * What a role falls back to when the user has not picked anything (arch §4.2).
  * Chat inherits the subscription default (""); the mechanical, high-volume jobs
@@ -425,18 +585,13 @@ export function setProcessEnabled(role: ModelRole, enabled: boolean): void {
  * value so existing installs keep their prior choice.
  */
 export function getSelectedModel(role: ModelRole): string {
-  const own = appStateGet(MODEL_KEY_BY_ROLE[role]);
-  if (own) return own;
-  if (role === "chat") {
-    const legacy = appStateGet(MODEL_KEY);
-    if (legacy) return legacy;
-  }
-  return MODEL_DEFAULT_BY_ROLE[role];
+  const selected = getProviderModelSelection(DEFAULT_ACTIVE_PROVIDER, role);
+  return selected || MODEL_DEFAULT_BY_ROLE[role];
 }
 
-/** Persist the selected model id for a role. Storing "" represents/clears to default. */
+/** Persist the Claude role choice in the new namespace. "" clears to default. */
 export function setSelectedModel(role: ModelRole, id: string): void {
-  appStateSet(MODEL_KEY_BY_ROLE[role], id);
+  setProviderModelSelection(DEFAULT_ACTIVE_PROVIDER, role, id);
 }
 
 /**

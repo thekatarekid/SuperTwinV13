@@ -166,6 +166,9 @@ describe("0020_v2_core applies", () => {
       // ChatGPT provider Phase 0a: three owner-approved governance rows in
       // the canonical decisions ledger; no user content is seeded.
       "0211_chatgpt_provider_decisions",
+      // P1-D: copies legacy model/reasoning rows into the Claude provider
+      // namespace without deleting or overwriting settings.
+      "0212_provider_settings_namespace",
     ]);
 
     expect(

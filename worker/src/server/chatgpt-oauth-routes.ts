@@ -6,6 +6,7 @@ import {
   type BrowserOAuthLoginStart,
 } from "../providers/chatgpt-oauth/auth.js";
 import type { ProviderAuthState, ProviderErrorCode } from "../providers/types.js";
+import { requireTrustedMutationOrigin } from "./app-origin.js";
 
 const ROOT = "/api/providers/chatgpt-oauth";
 const MAX_BODY_BYTES = 16 * 1_024;
@@ -205,6 +206,7 @@ export async function handleChatGptOAuthRoute(
   }
 
   try {
+    if (req.method === "POST") requireTrustedMutationOrigin(req);
     if (req.method === "GET" && url.pathname === `${ROOT}/status`) {
       requireNoQuery(url);
       const status = active.status();

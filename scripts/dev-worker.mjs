@@ -130,7 +130,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return 2;
   }
 
-  const childEnv = { ...env, SUPERTWIN_WORKER_PORT: String(plan.port) };
+  const childEnv = {
+    ...env,
+    NODE_ENV: "development",
+    SUPERTWIN_DEV_ORIGIN: env.SUPERTWIN_DEV_ORIGIN ?? "http://localhost:1420",
+    SUPERTWIN_WORKER_PORT: String(plan.port),
+  };
   let scratchHome = null;
   const keepHome = env.SUPERTWIN_DEV_WORKER_KEEP_HOME === "1";
 

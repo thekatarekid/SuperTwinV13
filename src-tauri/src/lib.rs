@@ -142,6 +142,8 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
         .command("npm")
         .args(["run", "worker:live"])
         .current_dir(repo_root())
+        .env("NODE_ENV", "development")
+        .env("SUPERTWIN_DEV_ORIGIN", "http://localhost:1420")
         // Home guard token (worker/src/home-guard.ts, S0.2): the worker refuses
         // to boot against ~/SuperTwinV13 unless the app launched it.
         .env("SUPERTWIN_LAUNCHED_BY", "app"))
@@ -175,6 +177,7 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
         .map_err(|e| format!("could not create node sidecar command: {e}"))?
         .args([worker_cjs.to_string_lossy().to_string()])
         .current_dir(worker_dir.clone())
+        .env("NODE_ENV", "production")
         .env(
             "SUPERTWIN_WHATSAPP_BIN",
             daemon_bin.to_string_lossy().to_string(),

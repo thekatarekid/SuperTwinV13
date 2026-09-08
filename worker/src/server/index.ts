@@ -32,6 +32,7 @@ import { moduleDir } from "../module-path.js";
 import { bootDegradations } from "../boot-guard.js";
 import { BUILT_THROUGH_PHASE } from "../version.js";
 import { appStateGet, rescanMedia, type RescanType } from "../db/ingest.js";
+import { isTrustedAppOrigin } from "./app-origin.js";
 import { getV2 as getProviderV2, listV2 as listProvidersV2, sendProviderRequest } from "../providers/index.js";
 import type {
   NeutralProviderResult,
@@ -360,11 +361,9 @@ export interface StartServerOptions {
 /** Very small CORS: allow localhost (any port) + the Tauri origin. */
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
-  const ok =
-    !origin ||
-    origin === "tauri://localhost" ||
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-  res.setHeader("Access-Control-Allow-Origin", ok && origin ? origin : "*");
+  if (typeof origin === "string" && isTrustedAppOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "content-type");
 }

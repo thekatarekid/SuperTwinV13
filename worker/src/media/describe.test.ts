@@ -64,7 +64,12 @@ afterEach(() => {
 /** A real file under the media root, so existsSync agrees it is readable. */
 function file(name: string): string {
   const path = join(tmpDir, "media", name);
-  writeFileSync(path, "x");
+  const lower = name.toLowerCase();
+  writeFileSync(path, lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+    ? Buffer.from([0xff, 0xd8, 0xff, 0xd9])
+    : lower.endsWith(".png")
+      ? Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      : "x");
   return path;
 }
 
@@ -329,7 +334,7 @@ describe("describeMedia", () => {
     expect(Object.hasOwn(provider.calls[0], "continuation")).toBe(false);
   });
 
-  it("selects but fails the ChatGPT data-URL route until P4b-B, without fallback", async () => {
+  it("sends ChatGPT media as a data URL without a host path or fallback", async () => {
     const provider = stubProvider("invented caption", "ok", "chatgpt-oauth", {
       supportsHostTools: true,
       inputModalities: ["text", "image"],
@@ -339,13 +344,19 @@ describe("describeMedia", () => {
     });
 
     expect(result).toMatchObject({
-      status: "error",
+      status: "done",
       provider: "chatgpt-oauth",
       model: "gpt-media",
-      errorCode: "CAPABILITY_UNSUPPORTED",
+      description: "invented caption",
     });
-    expect(result.error).toContain("P4b-B");
-    expect(provider.calls).toHaveLength(0);
+    expect(provider.calls).toHaveLength(1);
+    const encoded = provider.calls[0]!.input[0]!;
+    expect(encoded.type).toBe("message");
+    if (encoded.type !== "message") throw new Error("expected message");
+    expect(encoded.content.some((part) => part.type === "input_image" && part.image_url.startsWith("data:image/jpeg;base64,"))).toBe(true);
+    expect(JSON.stringify(encoded)).not.toContain(tmpDir);
+    expect(provider.calls[0]).not.toHaveProperty("hostTools");
+    expect(provider.calls[0]!.maxAgentTurns).toBe(1);
   });
 
   it("rejects a ChatGPT model without advertised image input before send", async () => {
@@ -360,6 +371,32 @@ describe("describeMedia", () => {
       errorCode: "CAPABILITY_UNSUPPORTED",
     });
     expect(result.error).toContain("does not advertise image input");
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("rejects a ChatGPT image-only model at the production modality guard before send", async () => {
+    const provider = stubProvider("invented caption", "ok", "chatgpt-oauth", {
+      inputModalities: ["image"],
+    });
+    const result = await describeMedia(row({ mediaPath: file("IMG-no-text.jpg") }), { provider });
+    expect(result).toMatchObject({
+      status: "error",
+      provider: "chatgpt-oauth",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+    });
+    expect(result.error).toContain("requires advertised text and image input");
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("rejects a mixed image/document batch without provider fallback or send", async () => {
+    const imageRow = row({ id: "image-1", mediaPath: file("mixed.jpg") });
+    const documentRow = row({
+      id: "document-1", kind: "document", mediaPath: file("mixed.txt"),
+      mime: "text/plain", filename: "mixed.txt",
+    });
+    const provider = stubProvider("invented", "ok", "claude-local");
+    const batch = await describeMediaBatch([imageRow, documentRow], { provider });
+    expect(batch.call).toMatchObject({ status: "error", errorCode: "CAPABILITY_UNSUPPORTED" });
     expect(provider.calls).toHaveLength(0);
   });
 
@@ -480,6 +517,21 @@ function batchAnswer(rows: PendingMediaRow[], ids?: string[]): string {
 }
 
 describe("describeMedia with sampled frames", () => {
+  it("fails a 20-frame ChatGPT sequence before send instead of claiming unattached frames", async () => {
+    const provider = stubProvider("invented", "ok", "chatgpt-oauth", { inputModalities: ["text", "image"] });
+    const frames = Array.from({ length: 20 }, (_, index) => ({
+      path: file(`long-${index}.jpg`),
+      seconds: index,
+    }));
+    const result = await describeMedia(
+      row({ kind: "video", mediaPath: file("long.mp4"), thumbPath: file("long-thumb.jpg") }),
+      { provider, frames },
+    );
+    expect(result).toMatchObject({ status: "error", errorCode: "CAPABILITY_UNSUPPORTED" });
+    expect(result.error).toContain("limited to 8");
+    expect(provider.calls).toHaveLength(0);
+  });
+
   it("reads every frame in ONE call, with turns enough to open them all", async () => {
     const provider = stubProvider("A market stall; the seller hands over a bag.");
     const frames = [0, 1, 2, 3].map((i) => ({
@@ -736,7 +788,7 @@ describe("describeMediaBatch", () => {
     });
   });
 
-  it("fails the whole ChatGPT batch closed before any provider send", async () => {
+  it("sends and safely re-associates a ChatGPT image batch without fallback", async () => {
     const rows = images(3);
     const provider = stubProvider(batchAnswer(rows), "ok", "chatgpt-oauth", {
       supportsHostTools: true,
@@ -744,19 +796,95 @@ describe("describeMediaBatch", () => {
     });
     const batch = await describeMediaBatch(rows, { provider });
 
-    expect(provider.calls).toHaveLength(0);
+    expect(provider.calls).toHaveLength(1);
     expect(batch.call).toMatchObject({
-      status: "error",
+      status: "done",
       provider: "chatgpt-oauth",
-      errorCode: "CAPABILITY_UNSUPPORTED",
     });
     for (const row of rows) {
       expect(batch.results.get(row.id)).toMatchObject({
-        status: "error",
-        errorCode: "CAPABILITY_UNSUPPORTED",
+        status: "done",
       });
     }
+    expect(JSON.stringify(provider.calls[0]!.input)).not.toContain(tmpDir);
   });
+
+  it("chunks ChatGPT batches and preserves global ids across ordered responses", async () => {
+    const rows = images(9);
+    const provider = stubProvider("", "ok", "chatgpt-oauth", { inputModalities: ["text", "image"] });
+    provider.send = async (request) => {
+      provider.calls.push(request);
+      const encoded = JSON.stringify(request.input);
+      const ids = [...encoded.matchAll(/Attached image (#\d{2,3})/g)].map((match) => match[1]!);
+      request.onEvent({
+        type: "delta",
+        text: ids.map((id) => `${BATCH_MARKER} ${id}\nDescription for ${id}.`).join("\n\n"),
+      });
+      return {
+        continuation: null,
+        usage: { ...emptyUsage(), inputTokens: 1, outputTokens: 1 },
+        freshFallback: false,
+        status: "ok",
+      };
+    };
+
+    const batch = await describeMediaBatch(rows, { provider });
+    expect(provider.calls).toHaveLength(2);
+    expect(batch.call).toMatchObject({ status: "done", usage: { inputTokens: 2, outputTokens: 2 } });
+    for (const [index, media] of rows.entries()) {
+      expect(batch.results.get(media.id)).toMatchObject({
+        status: "done",
+        description: `Description for ${batchImageId(index)}.`,
+      });
+    }
+    expect(provider.calls.every((call) => !JSON.stringify(call.input).includes(tmpDir))).toBe(true);
+  });
+
+  it("uses one absolute deadline across ChatGPT chunks and never starts a late chunk", async () => {
+    const rows = images(9);
+    const provider = stubProvider("", "ok", "chatgpt-oauth", { inputModalities: ["text", "image"] });
+    provider.send = async (request) => {
+      provider.calls.push(request);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return {
+        continuation: null,
+        usage: { ...emptyUsage(), inputTokens: 7, outputTokens: 3 },
+        freshFallback: false,
+        status: "ok",
+      };
+    };
+    const batch = await describeMediaBatch(rows, { provider, timeoutMs: 5 });
+    expect(provider.calls).toHaveLength(1);
+    expect(batch.call).toMatchObject({
+      status: "error", errorCode: "TIMEOUT",
+      usage: { inputTokens: 7, outputTokens: 3 },
+    });
+    expect(batch.call.promptChars).toBeGreaterThan(0);
+  });
+
+  it("preserves completed-chunk accounting when cancellation stops later chunks", async () => {
+    const rows = images(9);
+    const controller = new AbortController();
+    const provider = stubProvider("", "ok", "chatgpt-oauth", { inputModalities: ["text", "image"] });
+    provider.send = async (request) => {
+      provider.calls.push(request);
+      controller.abort();
+      return {
+        continuation: null,
+        usage: { ...emptyUsage(), inputTokens: 4, outputTokens: 2 },
+        freshFallback: false,
+        status: "ok",
+      };
+    };
+    const batch = await describeMediaBatch(rows, { provider, signal: controller.signal });
+    expect(provider.calls).toHaveLength(1);
+    expect(batch.call).toMatchObject({
+      status: "error", errorCode: "CANCELLED",
+      usage: { inputTokens: 4, outputTokens: 2 },
+    });
+    expect(batch.call.promptChars).toBeGreaterThan(0);
+  });
+
 
   it("an answer missing one block is rejected WHOLE — the two that did line up are not applied", async () => {
     const rows = images(3);

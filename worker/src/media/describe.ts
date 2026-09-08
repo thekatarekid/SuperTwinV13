@@ -56,6 +56,7 @@ import type {
   ProviderV2,
   Usage,
 } from "../providers/types.js";
+import { emptyUsage, sumUsage } from "../providers/usage.js";
 import { bindTraceContext, withTraceContext } from "../traces/context.js";
 import {
   DEFAULT_IMAGE_BATCH_SIZE,
@@ -67,7 +68,14 @@ import {
 import {
   routeMediaProvider,
   type MediaInputKind,
+  type MediaProviderRoute,
 } from "./provider-routing.js";
+import {
+  buildChatGptMediaChunks,
+  ChatGptMediaEncodingError,
+  type ChatGptMediaImage,
+} from "./describe-chatgpt.js";
+import { assertMediaModalityContract, type MediaBatchKind } from "./modality-guard.js";
 
 /** Only Read. No Grep/Glob/Bash — the reader opens exactly the named files. */
 export const MEDIA_ALLOWED_TOOLS = ["Read"] as const;
@@ -570,7 +578,7 @@ export function normalizeId(raw: string): string {
 function resolveMediaCall(
   opts: DescribeOptions,
   input: MediaInputKind,
-): ResolvedModelCall {
+): MediaProviderRoute {
   const injected = opts.provider &&
     "catalogue" in opts.provider &&
     "capabilities" in opts.provider &&
@@ -588,22 +596,7 @@ function resolveMediaCall(
     { source: "role", key: "media" },
     injected ? { provider: injected } : {},
   );
-  const route = routeMediaProvider(resolved, input);
-  // P4b-A selects the data-URL transport from the immutable capability
-  // snapshot. P4b-B owns its encoder; until it lands this Claude-path module
-  // must stop before a path or request reaches ChatGPT.
-  if (route.kind === "chatgpt-data-url") {
-    throw new ProviderSelectionError(
-      "CAPABILITY_UNSUPPORTED",
-      "ChatGPT image capability is available but the P4b-B data-URL media encoder is not installed",
-      {
-        providerId: resolved.providerId,
-        key: resolved.key,
-        model: resolved.model,
-      },
-    );
-  }
-  return resolved;
+  return routeMediaProvider(resolved, input);
 }
 
 function mediaRequest(
@@ -639,6 +632,99 @@ function mediaRequest(
   };
 }
 
+async function sendMediaTransport(options: {
+  route: MediaProviderRoute;
+  images: readonly ChatGptMediaImage[];
+  prompt: string | ((images: readonly ChatGptMediaImage[]) => string);
+  pool: ResourcePool;
+  runId: string;
+  timeoutMs: number;
+  deadlineAt: number;
+  maxAgentTurns: number;
+  signal?: AbortSignal;
+  caller: string;
+}): Promise<{ result: NeutralProviderResult; text: string; failure: string; promptChars: number }> {
+  const { route, prompt, pool } = options;
+  const deadline = options.deadlineAt;
+  const timeoutSignal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+  const provider = route.resolved.provider;
+  const chunks = route.kind === "chatgpt-data-url"
+    ? await buildChatGptMediaChunks(prompt, options.images, signal)
+    : null;
+  const requests: ProviderRequest[] = chunks
+    ? chunks.map((chunk, index) => ({
+        runId: `${options.runId}-part-${index + 1}`,
+        model: route.resolved.model,
+        instructions: "",
+        input: [...chunk.input],
+        toolChoice: "none",
+        persistContinuation: false,
+        skipHostSettings: true,
+        maxOutputTokens: requireMaxOutputTokens(route.resolved),
+        maxAgentTurns: 1,
+        timeoutMs: options.timeoutMs,
+        signal,
+        onEvent: () => undefined,
+      }))
+    : [mediaRequest(route.resolved, {
+        runId: options.runId,
+        prompt: typeof prompt === "string" ? prompt : prompt(options.images),
+        maxAgentTurns: options.maxAgentTurns,
+        timeoutMs: options.timeoutMs,
+        signal,
+        onEvent: () => undefined,
+      })];
+
+  let text = "";
+  let failure = "";
+  let usage = emptyUsage();
+  let continuation: string | null = null;
+  let freshFallback = false;
+  let promptChars = 0;
+  for (const request of requests) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0 || signal.aborted) {
+      const code: ProviderErrorCode = options.signal?.aborted ? "CANCELLED" : "TIMEOUT";
+      return {
+        result: { status: "error", errorCode: code, continuation: null, usage, freshFallback },
+        text,
+        failure: code === "CANCELLED" ? "ChatGPT media call was cancelled" : "ChatGPT media call timed out",
+        promptChars,
+      };
+    }
+    request.timeoutMs = remainingMs;
+    promptChars += request.input.reduce((total, item) => item.type === "message"
+      ? total + item.content.reduce((sum, content) => sum + (content.type === "input_text" ? content.text.length : 0), 0)
+      : total, 0);
+    request.onEvent = (event) => {
+      if (event.type === "delta") text += event.text;
+      else if (event.type === "error") failure = event.message;
+    };
+    const result = await withTraceContext(
+      { pass: "media", caller: options.caller },
+      () => pool.run("llm", bindTraceContext(() => provider.send(request)), { lane: "enrichment" }),
+    );
+    usage = sumUsage(usage, result.usage);
+    continuation = result.continuation;
+    freshFallback ||= result.freshFallback;
+    if (result.status !== "ok") {
+      return { result: { ...result, usage, freshFallback }, text, failure, promptChars };
+    }
+    if (Date.now() >= deadline || signal.aborted) {
+      const code: ProviderErrorCode = options.signal?.aborted ? "CANCELLED" : "TIMEOUT";
+      return {
+        result: { status: "error", errorCode: code, continuation: null, usage, freshFallback },
+        text,
+        failure: code === "CANCELLED" ? "ChatGPT media call was cancelled" : "ChatGPT media call timed out",
+        promptChars,
+      };
+    }
+    if (chunks && text.length > 0) text += "\n";
+  }
+  return { result: { status: "ok", continuation, usage, freshFallback }, text: text.trimEnd(), failure, promptChars };
+}
+
 function mediaFailure(
   error: unknown,
   resolved?: ResolvedModelCall,
@@ -647,7 +733,8 @@ function mediaFailure(
   const errorCode: ProviderErrorCode | undefined = selection?.code ??
     (error instanceof ProviderGateError ||
       error instanceof BudgetExceededError ||
-      error instanceof ModelActivityPausedError
+      error instanceof ModelActivityPausedError ||
+      error instanceof ChatGptMediaEncodingError
       ? error.code
       : undefined);
   return {
@@ -675,89 +762,103 @@ export async function describeMedia(
   const frames = (opts.frames ?? []).filter((f) => existsSync(f.path));
 
   let prompt: string;
-  let mediaInput: MediaInputKind;
+  let mediaInput: MediaInputKind = "image";
+  let imagePaths: string[] = frames.map((frame) => frame.path);
+  let strategy: Exclude<MediaStrategy, { kind: "unsupported" }> | null = null;
   let files = frames.length;
-  if (frames.length > 0) {
-    prompt = buildFramesPrompt(row, frames);
-    mediaInput = "image";
-  } else {
-    const strategy = mediaStrategy(row);
-    if (strategy.kind === "unsupported") {
+  if (frames.length === 0) {
+    const selected = mediaStrategy(row);
+    if (selected.kind === "unsupported") {
       return {
         description: null,
         status: "unsupported",
         model: "",
-        error: strategy.reason,
+        error: selected.reason,
       };
     }
-    if (!existsSync(strategy.path)) {
+    strategy = selected;
+    if (!existsSync(selected.path)) {
       return {
         description: null,
         status: "skipped",
         model: "",
-        error: `file not found: ${strategy.path}`,
+        error: `file not found: ${selected.path}`,
       };
     }
-    // Same 1092 px cap as a batch: a solo read of a 12 MP photo pays the same
-    // vision tokens for the same caption (§10.1 point 2).
-    const vision =
-      strategy.kind === "image"
-        ? await prepareVisionImage(strategy.path, { signal: opts.signal })
-        : { path: strategy.path };
-    prompt = buildPrompt(row, { ...strategy, path: vision.path });
-    mediaInput = strategy.kind === "document" ? "document" : "image";
+    mediaInput = selected.kind === "document" ? "document" : "image";
+    if (mediaInput === "image") imagePaths = [selected.path];
     files = 1;
   }
 
+  let route: MediaProviderRoute;
   let resolved: ResolvedModelCall;
   try {
-    resolved = resolveMediaCall(opts, mediaInput);
+    route = resolveMediaCall(opts, mediaInput);
+    resolved = route.resolved;
+    assertMediaModalityContract(
+      resolved,
+      mediaInput === "document" ? ["document"] : imagePaths.map(() => "image" as const),
+    );
     requireMaxOutputTokens(resolved);
   } catch (error) {
     return mediaFailure(error);
   }
   const model = resolved.model;
-  const provider = resolved.provider;
+  const timeoutMs = opts.timeoutMs ?? Math.min(DESCRIBE_TIMEOUT_MS * files, MAX_BATCH_TIMEOUT_MS);
+  const deadlineAt = Date.now() + timeoutMs;
+  try {
+    if (frames.length > 0) {
+      if (route.kind === "chatgpt-data-url") {
+        if (frames.length > 8) throw new ChatGptMediaEncodingError("ChatGPT video sequences are limited to 8 attached frames");
+        prompt = buildFramesPrompt(row, frames);
+      } else {
+        const preparedFrames = [] as MediaFrame[];
+        for (const frame of frames) {
+          const vision = await prepareVisionImage(frame.path, { signal: opts.signal });
+          preparedFrames.push({ ...frame, path: vision.path });
+        }
+        prompt = buildFramesPrompt(row, preparedFrames);
+      }
+    } else {
+      const chosen = strategy!;
+      const vision = route.kind === "claude-host-read" && chosen.kind === "image"
+        ? await prepareVisionImage(chosen.path, { signal: opts.signal })
+        : { path: chosen.path };
+      prompt = buildPrompt(row, { ...chosen, path: vision.path });
+    }
+  } catch (error) {
+    return mediaFailure(error, resolved);
+  }
 
-  let text = "";
-  let failure = "";
   // Trace scope (build P0.7): one media read is one traced run. It takes an
   // enrichment-lane slot (S0.9 / T8-3) so a photo backlog paces against the
   // same cap as everything else instead of bypassing it.
   const pool = opts.pool ?? resourcePool;
   const runId = opts.runId ?? `media-${randomUUID()}`;
   let result: NeutralProviderResult;
+  let text = "";
+  let failure = "";
+  let promptChars = prompt.length;
   try {
-    result = await withTraceContext(
-      { pass: "media", caller: "media/describe" },
-      () =>
-        pool.run(
-          "llm",
-          bindTraceContext(() =>
-            provider.send(mediaRequest(resolved, {
-              runId,
-              prompt,
-              // One Read per file plus the answer, with slack for a retried
-              // Read: a sequence of frames is several Reads before it answers.
-              maxAgentTurns:
-                files > 1 ? files + MEDIA_MAX_TURNS : MEDIA_MAX_TURNS,
-              timeoutMs:
-                opts.timeoutMs ??
-                Math.min(DESCRIBE_TIMEOUT_MS * files, MAX_BATCH_TIMEOUT_MS),
-              signal: opts.signal,
-              onEvent: (ev) => {
-                if (ev.type === "delta") text += ev.text;
-                else if (ev.type === "error") failure = ev.message;
-              },
-            })),
-          ),
-          { lane: "enrichment" },
-        ),
-    );
+    const sent = await sendMediaTransport({
+      route,
+      images: imagePaths.map((path, index) => ({ id: batchImageId(index), path })),
+      prompt,
+      pool,
+      runId,
+      maxAgentTurns: files > 1 ? files + MEDIA_MAX_TURNS : MEDIA_MAX_TURNS,
+      timeoutMs,
+      deadlineAt,
+      signal: opts.signal,
+      caller: "media/describe",
+    });
+    ({ result, text, failure, promptChars } = sent);
   } catch (error) {
-    return { ...mediaFailure(error, resolved), promptChars: prompt.length };
+    return error instanceof ChatGptMediaEncodingError
+      ? mediaFailure(error, resolved)
+      : { ...mediaFailure(error, resolved), promptChars: prompt.length };
   }
-  const spend = { usage: result.usage, promptChars: prompt.length };
+  const spend = { usage: result.usage, promptChars };
 
   if (result.status !== "ok") {
     return {
@@ -804,7 +905,7 @@ export async function describeMediaBatch(
   opts: DescribeOptions = {},
 ): Promise<DescribeBatchResult> {
   const results = new Map<string, DescribeResult>();
-  const items: { row: PendingMediaRow; path: string; id: string }[] = [];
+  const items: { row: PendingMediaRow; path: string; sourcePath: string; id: string; kind: MediaBatchKind }[] = [];
 
   for (const row of rows) {
     const strategy = mediaStrategy(row);
@@ -823,11 +924,13 @@ export async function describeMediaBatch(
         error: `file not found: ${strategy.path}`,
       });
     } else {
-      // ≤1092 px on the longest edge before it is sent (§10.1 point 2). A file
-      // ffmpeg cannot measure or scale is sent as it is — an expensive read
-      // beats no read.
-      const vision = await prepareVisionImage(strategy.path, { signal: opts.signal });
-      items.push({ row, path: vision.path, id: batchImageId(items.length) });
+      items.push({
+        row,
+        path: strategy.path,
+        sourcePath: strategy.path,
+        id: batchImageId(items.length),
+        kind: strategy.kind === "document" ? "document" : "image",
+      });
     }
   }
 
@@ -840,9 +943,12 @@ export async function describeMediaBatch(
     };
   }
 
+  let route: MediaProviderRoute;
   let resolved: ResolvedModelCall;
   try {
-    resolved = resolveMediaCall(opts, "image");
+    route = resolveMediaCall(opts, items.every((item) => item.kind === "document") ? "document" : "image");
+    resolved = route.resolved;
+    assertMediaModalityContract(resolved, items.map((item) => item.kind));
     requireMaxOutputTokens(resolved);
   } catch (error) {
     const failed = mediaFailure(error);
@@ -852,7 +958,21 @@ export async function describeMediaBatch(
     return { results, call: failed };
   }
   const model = resolved.model;
-  const provider = resolved.provider;
+  const timeoutMs = opts.timeoutMs ?? Math.min(DESCRIBE_TIMEOUT_MS * items.length, MAX_BATCH_TIMEOUT_MS);
+  const deadlineAt = Date.now() + timeoutMs;
+  if (route.kind === "claude-host-read") {
+    try {
+      for (const item of items) {
+        if (item.kind !== "image") continue;
+        const vision = await prepareVisionImage(item.sourcePath, { signal: opts.signal });
+        item.path = vision.path;
+      }
+    } catch (error) {
+      const failed = mediaFailure(error, resolved);
+      for (const { row } of items) results.set(row.id, { ...failed });
+      return { results, call: failed };
+    }
+  }
   const noCall: DescribeResult = {
     description: null,
     status: "skipped",
@@ -862,47 +982,45 @@ export async function describeMediaBatch(
   };
 
   const prompt = buildBatchPrompt(items);
-  let text = "";
-  let failure = "";
   // Trace scope (build P0.7): one media batch is one traced run, on an
   // enrichment-lane slot (S0.9 / T8-3).
   const pool = opts.pool ?? resourcePool;
   const runId = opts.runId ?? `media-batch-${randomUUID()}`;
   let result: NeutralProviderResult;
+  let text = "";
+  let failure = "";
+  let promptChars = prompt.length;
   try {
-    result = await withTraceContext(
-      { pass: "media", caller: "media/describe-batch" },
-      () =>
-        pool.run(
-          "llm",
-          bindTraceContext(() =>
-            provider.send(mediaRequest(resolved, {
-              runId,
-              prompt,
-              // One Read per file plus the answer, with slack for a retried Read.
-              maxAgentTurns: items.length + MEDIA_MAX_TURNS,
-              timeoutMs:
-                opts.timeoutMs ??
-                Math.min(DESCRIBE_TIMEOUT_MS * items.length, MAX_BATCH_TIMEOUT_MS),
-              signal: opts.signal,
-              onEvent: (ev) => {
-                if (ev.type === "delta") text += ev.text;
-                else if (ev.type === "error") failure = ev.message;
-              },
-            })),
-          ),
-          { lane: "enrichment" },
-        ),
-    );
+    const sent = await sendMediaTransport({
+      route,
+      images: items.map(({ id, path, sourcePath }) => ({
+        id,
+        path: route.kind === "chatgpt-data-url" ? sourcePath : path,
+      })),
+      prompt: route.kind === "chatgpt-data-url"
+        ? (images) => buildBatchPrompt(images.map((image) => {
+            const item = items.find((candidate) => candidate.id === image.id);
+            if (!item) throw new Error("media chunk lost its source row");
+            return item;
+          }))
+        : prompt,
+      pool,
+      runId,
+      maxAgentTurns: items.length + MEDIA_MAX_TURNS,
+      timeoutMs,
+      deadlineAt,
+      signal: opts.signal,
+      caller: "media/describe-batch",
+    });
+    ({ result, text, failure, promptChars } = sent);
   } catch (error) {
-    const failed = {
-      ...mediaFailure(error, resolved),
-      promptChars: prompt.length,
-    };
+    const failed = error instanceof ChatGptMediaEncodingError
+      ? mediaFailure(error, resolved)
+      : { ...mediaFailure(error, resolved), promptChars: prompt.length };
     for (const { row } of items) results.set(row.id, { ...failed });
     return { results, call: failed };
   }
-  const spend = { usage: result.usage, promptChars: prompt.length };
+  const spend = { usage: result.usage, promptChars };
 
   if (result.status !== "ok" || !text.trim()) {
     const error =

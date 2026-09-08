@@ -274,6 +274,7 @@ export async function probeDimensions(
     if (!m) return null;
     return { width: Number(m[1]), height: Number(m[2]) };
   } catch {
+    if (signal?.aborted) throw signal.reason ?? new Error("image probe cancelled");
     return null;
   }
 }
@@ -296,7 +297,7 @@ export interface VisionImage {
  */
 export async function prepareVisionImage(
   path: string,
-  opts: { maxEdge?: number; signal?: AbortSignal } = {},
+  opts: { maxEdge?: number; signal?: AbortSignal; outputPath?: string; forceEncode?: boolean } = {},
 ): Promise<VisionImage> {
   const maxEdge = opts.maxEdge ?? VISION_MAX_EDGE;
   const ffmpeg = resolveFfmpegBin();
@@ -306,12 +307,12 @@ export async function prepareVisionImage(
   if (!size) return { path, scaled: false, longestEdge: null, note: "dimensions unreadable" };
 
   const target = visionTarget(size.width, size.height, maxEdge);
-  if (!target.scaled) {
+  if (!target.scaled && !opts.forceEncode) {
     return { path, scaled: false, longestEdge: Math.max(size.width, size.height) };
   }
 
-  const out = visionCopyPath(path, maxEdge);
-  if (existsSync(out)) return { path: out, scaled: true, longestEdge: Math.max(target.width, target.height) };
+  const out = opts.outputPath ?? visionCopyPath(path, maxEdge);
+  if (!opts.outputPath && existsSync(out)) return { path: out, scaled: true, longestEdge: Math.max(target.width, target.height) };
   try {
     const result = await run(
       ffmpeg,
@@ -342,6 +343,7 @@ export async function prepareVisionImage(
       };
     }
   } catch (err) {
+    if (opts.signal?.aborted) throw opts.signal.reason ?? err;
     return {
       path,
       scaled: false,

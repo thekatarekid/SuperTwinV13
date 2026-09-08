@@ -1325,6 +1325,28 @@ describe("failures", () => {
     expect(r.ids).toHaveLength(3);
   });
 
+  it("does not retry a typed capability failure while Phase 4b is unavailable", async () => {
+    seed("a", "2026-07-02T10:00:00.000Z");
+    const r = reader(() => ({
+      description: null,
+      status: "error",
+      provider: "chatgpt-oauth",
+      model: "gpt-media",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+      error: "CAPABILITY_UNSUPPORTED: media enrichment requires Phase 4b",
+    }));
+    queue = new MediaQueue(r.opts);
+    queue.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stored("whatsapp:a")).toMatchObject({
+      media_desc_status: "error",
+      media_desc_error: "CAPABILITY_UNSUPPORTED: media enrichment requires Phase 4b",
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(r.ids).toEqual(["whatsapp:a"]);
+  });
+
   it("logs one run per call, with the prompt size and the cache halves of the spend", async () => {
     seed("a", "2026-07-02T10:00:02.000Z");
     seed("b", "2026-07-02T10:00:01.000Z");
@@ -1346,6 +1368,7 @@ describe("failures", () => {
         call: {
           description: null,
           status: "done",
+          provider: "chatgpt-oauth",
           model: "haiku",
           error: null,
           promptChars: 812,
@@ -1366,7 +1389,7 @@ describe("failures", () => {
     expect(
       getDb()
         .prepare(
-          `SELECT run_id, kind, status, prompt_chars, input_tokens,
+          `SELECT provider, run_id, kind, status, prompt_chars, input_tokens,
                   cache_creation_input_tokens, cache_read_input_tokens,
                   output_tokens, cost_usd
              FROM extraction_runs`,
@@ -1374,6 +1397,7 @@ describe("failures", () => {
         .all(),
     ).toEqual([
       {
+        provider: "chatgpt-oauth",
         run_id: "media-batch-whatsapp:a-2",
         kind: "media",
         status: "ok",

@@ -34,10 +34,28 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import type { MediaDescStatus, MediaFrame, PendingMediaRow } from "../db/ingest.js";
-import { DEFAULT_PROVIDER_ID, get as getProvider } from "../providers/index.js";
-import type { Provider, Usage } from "../providers/index.js";
-import { getSelectedModel } from "../db/settings.js";
+import {
+  BudgetExceededError,
+  ModelActivityPausedError,
+} from "../providers/budget.js";
+import { ProviderGateError } from "../providers/gate.js";
 import { resourcePool, type ResourcePool } from "../providers/pool.js";
+import {
+  ProviderSelectionError,
+  requireMaxOutputTokens,
+  resolveModelCall,
+  type ResolvedModelCall,
+} from "../providers/selection.js";
+import type {
+  ProviderErrorCode,
+  ProviderId,
+  LegacyProvider,
+  NeutralProviderResult,
+  ProviderRequest,
+  ProviderStreamEvent,
+  ProviderV2,
+  Usage,
+} from "../providers/types.js";
 import { bindTraceContext, withTraceContext } from "../traces/context.js";
 import {
   DEFAULT_IMAGE_BATCH_SIZE,
@@ -94,6 +112,10 @@ export interface DescribeResult {
   status: MediaDescStatus;
   model: string;
   error: string | null;
+  /** Exact provider snapshot used for the call; absent when no call was needed. */
+  provider?: ProviderId;
+  /** Typed provider disposition used by the queue; absent for local parse errors. */
+  errorCode?: ProviderErrorCode;
   usage?: Usage;
   /** Prompt size for the run log. Absent when no call was made. */
   promptChars?: number;
@@ -116,8 +138,9 @@ export interface DescribeBatchResult {
 }
 
 export interface DescribeOptions {
-  /** Override the provider (tests stub the CLI). Defaults to the registry's. */
-  provider?: Provider;
+  /** Strict production/test injection. Legacy shape remains type-only for one
+   * release so external test fixtures compile, but is rejected before send. */
+  provider?: ProviderV2 | LegacyProvider;
   /**
    * The LLM pool the read takes an ENRICHMENT-lane slot from (S0.9 / T8-3,
    * §4.4.1.1). Defaults to the process pool; tests inject their own.
@@ -540,6 +563,110 @@ export function normalizeId(raw: string): string {
   return /^\d+$/.test(bare) ? `#${String(Number(bare)).padStart(2, "0")}` : raw.trim();
 }
 
+function resolveMediaCall(opts: DescribeOptions): ResolvedModelCall {
+  const injected = opts.provider &&
+    "catalogue" in opts.provider &&
+    "capabilities" in opts.provider &&
+    "killAll" in opts.provider
+    ? opts.provider
+    : undefined;
+  if (opts.provider && !injected) {
+    throw new ProviderSelectionError(
+      "PROVIDER_UNAVAILABLE",
+      "legacy provider injection is not accepted by the provider-neutral media reader",
+      { key: "media" },
+    );
+  }
+  const resolved = resolveModelCall(
+    { source: "role", key: "media" },
+    injected ? { provider: injected } : {},
+  );
+  // Phase 1 has only Claude's local-path/Read transport. Even a future
+  // ChatGPT catalogue row claiming host tools must not make this path send an
+  // absolute file path; Phase 4b owns the separate data-URL implementation.
+  if (resolved.providerId !== "claude-local") {
+    throw new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      "media enrichment requires Claude's local Read host tool until Phase 4b",
+      {
+        providerId: resolved.providerId,
+        key: resolved.key,
+        model: resolved.model,
+      },
+    );
+  }
+  if (
+    !resolved.provider.capabilities.hostTools ||
+    !resolved.modelSnapshot.supportsHostTools ||
+    !resolved.modelSnapshot.inputModalities.includes("text")
+  ) {
+    throw new ProviderSelectionError(
+      "CAPABILITY_UNSUPPORTED",
+      `model ${resolved.model} cannot perform the required Read-host-tool media call`,
+      {
+        providerId: resolved.providerId,
+        key: resolved.key,
+        model: resolved.model,
+      },
+    );
+  }
+  return resolved;
+}
+
+function mediaRequest(
+  resolved: ResolvedModelCall,
+  options: {
+    runId: string;
+    prompt: string;
+    maxAgentTurns: number;
+    timeoutMs: number;
+    signal?: AbortSignal;
+    onEvent: (event: ProviderStreamEvent) => void;
+  },
+): ProviderRequest {
+  return {
+    runId: options.runId,
+    model: resolved.model,
+    instructions: "",
+    input: [{
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: options.prompt }],
+    }],
+    hostTools: [...MEDIA_ALLOWED_TOOLS],
+    toolChoice: "auto",
+    cache: { mode: "implicit" },
+    cwd: mediaRoot(),
+    skipHostSettings: true,
+    maxOutputTokens: requireMaxOutputTokens(resolved),
+    maxAgentTurns: options.maxAgentTurns,
+    timeoutMs: options.timeoutMs,
+    signal: options.signal,
+    onEvent: options.onEvent,
+  };
+}
+
+function mediaFailure(
+  error: unknown,
+  resolved?: ResolvedModelCall,
+): DescribeResult {
+  const selection = error instanceof ProviderSelectionError ? error : null;
+  const errorCode: ProviderErrorCode | undefined = selection?.code ??
+    (error instanceof ProviderGateError ||
+      error instanceof BudgetExceededError ||
+      error instanceof ModelActivityPausedError
+      ? error.code
+      : undefined);
+  return {
+    description: null,
+    status: "error",
+    model: resolved?.model ?? selection?.model ?? "",
+    provider: resolved?.providerId ?? selection?.providerId ?? undefined,
+    errorCode,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
 /**
  * Read one queued attachment. Never throws: a spawn/timeout/CLI failure comes
  * back as status "error" with the message, which the queue retries a bounded
@@ -550,7 +677,6 @@ export async function describeMedia(
   row: PendingMediaRow,
   opts: DescribeOptions = {},
 ): Promise<DescribeResult> {
-  const model = getSelectedModel("media");
   // A frame the sweep already took is not a file the reader can open, and the
   // prompt is about to promise that every path in it is readable.
   const frames = (opts.frames ?? []).filter((f) => existsSync(f.path));
@@ -565,7 +691,7 @@ export async function describeMedia(
       return {
         description: null,
         status: "unsupported",
-        model,
+        model: "",
         error: strategy.reason,
       };
     }
@@ -573,7 +699,7 @@ export async function describeMedia(
       return {
         description: null,
         status: "skipped",
-        model,
+        model: "",
         error: `file not found: ${strategy.path}`,
       };
     }
@@ -587,15 +713,15 @@ export async function describeMedia(
     files = 1;
   }
 
-  const provider = opts.provider ?? getProvider(DEFAULT_PROVIDER_ID);
-  if (!provider) {
-    return {
-      description: null,
-      status: "error",
-      model,
-      error: `provider "${DEFAULT_PROVIDER_ID}" is not registered`,
-    };
+  let resolved: ResolvedModelCall;
+  try {
+    resolved = resolveMediaCall(opts);
+    requireMaxOutputTokens(resolved);
+  } catch (error) {
+    return mediaFailure(error);
   }
+  const model = resolved.model;
+  const provider = resolved.provider;
 
   let text = "";
   let failure = "";
@@ -603,30 +729,38 @@ export async function describeMedia(
   // enrichment-lane slot (S0.9 / T8-3) so a photo backlog paces against the
   // same cap as everything else instead of bypassing it.
   const pool = opts.pool ?? resourcePool;
-  const result = await withTraceContext(
-    { pass: "media", caller: "media/describe" },
-    () =>
-      pool.run("llm", bindTraceContext(() =>
-      provider.send({
-    runId: opts.runId ?? `media-${randomUUID()}`,
-    message: prompt,
-    cwd: mediaRoot(),
-    allowedTools: [...MEDIA_ALLOWED_TOOLS],
-    // One Read per file plus the answer, with slack for a retried Read: a
-    // sequence of frames is several Reads before it can say anything.
-    maxTurns: files > 1 ? files + MEDIA_MAX_TURNS : MEDIA_MAX_TURNS,
-    model,
-    skipUserSettings: true,
-    timeoutMs:
-      opts.timeoutMs ??
-      Math.min(DESCRIBE_TIMEOUT_MS * files, MAX_BATCH_TIMEOUT_MS),
-    signal: opts.signal,
-    onEvent: (ev) => {
-      if (ev.type === "delta") text += ev.text;
-      else if (ev.type === "error") failure = ev.message;
-    },
-      })), { lane: "enrichment" }),
-  );
+  const runId = opts.runId ?? `media-${randomUUID()}`;
+  let result: NeutralProviderResult;
+  try {
+    result = await withTraceContext(
+      { pass: "media", caller: "media/describe" },
+      () =>
+        pool.run(
+          "llm",
+          bindTraceContext(() =>
+            provider.send(mediaRequest(resolved, {
+              runId,
+              prompt,
+              // One Read per file plus the answer, with slack for a retried
+              // Read: a sequence of frames is several Reads before it answers.
+              maxAgentTurns:
+                files > 1 ? files + MEDIA_MAX_TURNS : MEDIA_MAX_TURNS,
+              timeoutMs:
+                opts.timeoutMs ??
+                Math.min(DESCRIBE_TIMEOUT_MS * files, MAX_BATCH_TIMEOUT_MS),
+              signal: opts.signal,
+              onEvent: (ev) => {
+                if (ev.type === "delta") text += ev.text;
+                else if (ev.type === "error") failure = ev.message;
+              },
+            })),
+          ),
+          { lane: "enrichment" },
+        ),
+    );
+  } catch (error) {
+    return { ...mediaFailure(error, resolved), promptChars: prompt.length };
+  }
   const spend = { usage: result.usage, promptChars: prompt.length };
 
   if (result.status !== "ok") {
@@ -634,6 +768,8 @@ export async function describeMedia(
       description: null,
       status: "error",
       model,
+      provider: resolved.providerId,
+      errorCode: result.errorCode,
       error: failure || result.errorCode || "the media read failed",
       ...spend,
     };
@@ -645,11 +781,19 @@ export async function describeMedia(
       description: null,
       status: "error",
       model,
+      provider: resolved.providerId,
       error: "the model returned no description",
       ...spend,
     };
   }
-  return { description, status: "done", model, error: null, ...spend };
+  return {
+    description,
+    status: "done",
+    model,
+    provider: resolved.providerId,
+    error: null,
+    ...spend,
+  };
 }
 
 /**
@@ -663,7 +807,6 @@ export async function describeMediaBatch(
   rows: readonly PendingMediaRow[],
   opts: DescribeOptions = {},
 ): Promise<DescribeBatchResult> {
-  const model = getSelectedModel("media");
   const results = new Map<string, DescribeResult>();
   const items: { row: PendingMediaRow; path: string; id: string }[] = [];
 
@@ -673,14 +816,14 @@ export async function describeMediaBatch(
       results.set(row.id, {
         description: null,
         status: "unsupported",
-        model,
+        model: "",
         error: strategy.reason,
       });
     } else if (!existsSync(strategy.path)) {
       results.set(row.id, {
         description: null,
         status: "skipped",
-        model,
+        model: "",
         error: `file not found: ${strategy.path}`,
       });
     } else {
@@ -694,22 +837,33 @@ export async function describeMediaBatch(
 
   // A verdict that cost no call is logged as no call: "skipped" is what the run
   // log treats as nothing to record.
+  if (items.length === 0) {
+    return {
+      results,
+      call: { description: null, status: "skipped", model: "", error: null },
+    };
+  }
+
+  let resolved: ResolvedModelCall;
+  try {
+    resolved = resolveMediaCall(opts);
+    requireMaxOutputTokens(resolved);
+  } catch (error) {
+    const failed = mediaFailure(error);
+    for (const { row } of items) {
+      results.set(row.id, { ...failed });
+    }
+    return { results, call: failed };
+  }
+  const model = resolved.model;
+  const provider = resolved.provider;
   const noCall: DescribeResult = {
     description: null,
     status: "skipped",
     model,
+    provider: resolved.providerId,
     error: null,
   };
-  if (items.length === 0) return { results, call: noCall };
-
-  const provider = opts.provider ?? getProvider(DEFAULT_PROVIDER_ID);
-  if (!provider) {
-    const error = `provider "${DEFAULT_PROVIDER_ID}" is not registered`;
-    for (const { row } of items) {
-      results.set(row.id, { description: null, status: "error", model, error });
-    }
-    return { results, call: { ...noCall, status: "error", error } };
-  }
 
   const prompt = buildBatchPrompt(items);
   let text = "";
@@ -717,29 +871,41 @@ export async function describeMediaBatch(
   // Trace scope (build P0.7): one media batch is one traced run, on an
   // enrichment-lane slot (S0.9 / T8-3).
   const pool = opts.pool ?? resourcePool;
-  const result = await withTraceContext(
-    { pass: "media", caller: "media/describe-batch" },
-    () =>
-      pool.run("llm", bindTraceContext(() =>
-      provider.send({
-    runId: opts.runId ?? `media-batch-${randomUUID()}`,
-    message: prompt,
-    cwd: mediaRoot(),
-    allowedTools: [...MEDIA_ALLOWED_TOOLS],
-    // One Read per file plus the answer, with slack for a retried Read.
-    maxTurns: items.length + MEDIA_MAX_TURNS,
-    model,
-    skipUserSettings: true,
-    timeoutMs:
-      opts.timeoutMs ??
-      Math.min(DESCRIBE_TIMEOUT_MS * items.length, MAX_BATCH_TIMEOUT_MS),
-    signal: opts.signal,
-    onEvent: (ev) => {
-      if (ev.type === "delta") text += ev.text;
-      else if (ev.type === "error") failure = ev.message;
-    },
-      })), { lane: "enrichment" }),
-  );
+  const runId = opts.runId ?? `media-batch-${randomUUID()}`;
+  let result: NeutralProviderResult;
+  try {
+    result = await withTraceContext(
+      { pass: "media", caller: "media/describe-batch" },
+      () =>
+        pool.run(
+          "llm",
+          bindTraceContext(() =>
+            provider.send(mediaRequest(resolved, {
+              runId,
+              prompt,
+              // One Read per file plus the answer, with slack for a retried Read.
+              maxAgentTurns: items.length + MEDIA_MAX_TURNS,
+              timeoutMs:
+                opts.timeoutMs ??
+                Math.min(DESCRIBE_TIMEOUT_MS * items.length, MAX_BATCH_TIMEOUT_MS),
+              signal: opts.signal,
+              onEvent: (ev) => {
+                if (ev.type === "delta") text += ev.text;
+                else if (ev.type === "error") failure = ev.message;
+              },
+            })),
+          ),
+          { lane: "enrichment" },
+        ),
+    );
+  } catch (error) {
+    const failed = {
+      ...mediaFailure(error, resolved),
+      promptChars: prompt.length,
+    };
+    for (const { row } of items) results.set(row.id, { ...failed });
+    return { results, call: failed };
+  }
   const spend = { usage: result.usage, promptChars: prompt.length };
 
   if (result.status !== "ok" || !text.trim()) {
@@ -752,11 +918,22 @@ export async function describeMediaBatch(
         description: null,
         status: "error",
         model,
+        provider: resolved.providerId,
+        errorCode: result.errorCode,
         error,
         ...spend,
       });
     }
-    return { results, call: { ...noCall, status: "error", error, ...spend } };
+    return {
+      results,
+      call: {
+        ...noCall,
+        status: "error",
+        errorCode: result.errorCode,
+        error,
+        ...spend,
+      },
+    };
   }
 
   const sent = items.map((i) => i.id);
@@ -804,6 +981,7 @@ export async function describeMediaBatch(
       // file was looked at and had nothing to give. Retrying cannot change that.
       status: description === null ? "skipped" : "done",
       model,
+      provider: resolved.providerId,
       error: description === null ? "the model could not describe this file" : null,
       ...spend,
     });

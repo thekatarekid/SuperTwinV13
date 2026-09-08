@@ -15,9 +15,19 @@ import { join } from "node:path";
 import { closeDb } from "../db/connection.js";
 import { runMigrations } from "../db/index.js";
 import type { PendingMediaRow } from "../db/ingest.js";
-import type { Provider, ProviderResult, SendOptions } from "../providers/index.js";
 import { setSelectedModel } from "../db/settings.js";
+import type {
+  NeutralProviderResult,
+  ProviderAuthState,
+  ProviderCapabilities,
+  ProviderId,
+  ProviderModel,
+  ProviderModelCatalogue,
+  ProviderRequest,
+  ProviderV2,
+} from "../providers/types.js";
 import { emptyUsage } from "../providers/usage.js";
+import { ProviderGateError } from "../providers/gate.js";
 import { verifyEcho } from "./batch.js";
 import {
   BATCH_MARKER,
@@ -75,21 +85,70 @@ function row(overrides: Partial<PendingMediaRow> = {}): PendingMediaRow {
 /** Provider stub: records every send and replies with `reply`. */
 function stubProvider(
   reply: string,
-  status: ProviderResult["status"] = "ok",
-): Provider & { calls: SendOptions[] } {
-  const calls: SendOptions[] = [];
+  status: NeutralProviderResult["status"] = "ok",
+  id: ProviderId = "claude-local",
+  modelOverrides: Partial<ProviderModel> = {},
+): ProviderV2 & { calls: ProviderRequest[] } {
+  const calls: ProviderRequest[] = [];
+  const capabilities: ProviderCapabilities = {
+    functionTools: false,
+    hostTools: id === "claude-local",
+    continuation: id === "claude-local",
+    requiresAuthentication: false,
+  };
+  const model = (modelId: string, isDefault: boolean): ProviderModel => ({
+    id: modelId,
+    displayName: modelId,
+    isDefault,
+    hidden: false,
+    inputModalities: ["text"],
+    reasoningValues: ["off"],
+    defaultReasoning: "off",
+    supportsTools: false,
+    supportsHostTools: id === "claude-local",
+    supportsParallelToolCalls: false,
+    supportsStructuredOutput: false,
+    supportsStrictTools: false,
+    supportsVerbosity: false,
+    supportsPromptCacheKey: false,
+    supportsPromptCacheOptions: false,
+    contextWindow: 200_000,
+    maxOutputTokens: 8_192,
+    billingLabel: null,
+    ...modelOverrides,
+  });
   return {
-    id: "stub",
+    id,
+    displayName: "Media fixture",
+    capabilities,
     calls,
     cancel: () => false,
-    async send(opts: SendOptions): Promise<ProviderResult> {
+    killAll: () => {},
+    authState(): ProviderAuthState {
+      return { status: "ready", error: null };
+    },
+    catalogue(): ProviderModelCatalogue {
+      return {
+        providerId: id,
+        mode: "discovered",
+        source: "media-test",
+        discoveredAt: "2026-09-08T00:00:00.000Z",
+        revision: `media-test-${id}`,
+        error: null,
+        models: [
+          model(id === "claude-local" ? "claude-haiku-4-5-20251001" : "gpt-media", true),
+          model("claude-opus-4-5-20251101", false),
+        ],
+      };
+    },
+    async send(opts: ProviderRequest): Promise<NeutralProviderResult> {
       calls.push(opts);
       if (reply.length) opts.onEvent({ type: "delta", text: reply });
       if (status === "error") {
         opts.onEvent({ type: "error", code: "CLI_ERROR", message: "boom" });
       }
       return {
-        sessionId: "",
+        continuation: null,
         usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 20 },
         freshFallback: false,
         status,
@@ -97,6 +156,13 @@ function stubProvider(
       };
     },
   };
+}
+
+function requestText(request: ProviderRequest): string {
+  const item = request.input[0];
+  if (item?.type !== "message") return "";
+  const content = item.content[0];
+  return content?.type === "input_text" ? content.text : "";
 }
 
 describe("mediaStrategy (spec §8 table)", () => {
@@ -225,16 +291,19 @@ describe("describeMedia", () => {
       error: null,
     });
     expect(provider.calls).toHaveLength(1);
-    expect(provider.calls[0].allowedTools).toEqual(["Read"]);
+    expect(provider.calls[0].hostTools).toEqual(["Read"]);
+    expect(provider.calls[0].toolChoice).toBe("auto");
+    expect(provider.calls[0].instructions).toBe("");
     expect(provider.calls[0].cwd).toBe(mediaRoot());
     expect(provider.calls[0].runId).toBe("media-wa:alice@x/IMG");
-    expect(res.promptChars).toBe(provider.calls[0].message.length);
+    expect(res.promptChars).toBe(requestText(provider.calls[0]).length);
+    expect(provider.calls[0].maxOutputTokens).toBe(8_192);
   });
 
   it("never loads the user's global CLAUDE.md", async () => {
     const provider = stubProvider("ok");
     await describeMedia(row({ mediaPath: file("IMG.jpg") }), { provider });
-    expect(provider.calls[0].skipUserSettings).toBe(true);
+    expect(provider.calls[0].skipHostSettings).toBe(true);
   });
 
   it("uses the model selected for the media role", async () => {
@@ -245,6 +314,67 @@ describe("describeMedia", () => {
     });
     expect(provider.calls[0].model).toBe("claude-opus-4-5-20251101");
     expect(res.model).toBe("claude-opus-4-5-20251101");
+  });
+
+  it("preserves the exact packed prompt inside one strict text input", async () => {
+    const provider = stubProvider("ok");
+    const path = file("EXACT.jpg");
+    const media = row({ mediaPath: path });
+    await describeMedia(media, { provider });
+
+    expect(requestText(provider.calls[0])).toBe(
+      buildPrompt(media, { kind: "image", path }),
+    );
+    expect(Object.hasOwn(provider.calls[0], "tools")).toBe(false);
+    expect(Object.hasOwn(provider.calls[0], "continuation")).toBe(false);
+  });
+
+  it("fails ChatGPT media closed until Phase 4b without sending or falling back", async () => {
+    const provider = stubProvider("invented caption", "ok", "chatgpt-oauth", {
+      supportsHostTools: true,
+    });
+    const result = await describeMedia(row({ mediaPath: file("IMG-chatgpt.jpg") }), {
+      provider,
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      provider: "chatgpt-oauth",
+      model: "gpt-media",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+    });
+    expect(result.error).toContain("Phase 4b");
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("fails before send when the Claude model lacks Read or an output bound", async () => {
+    for (const modelOverrides of [
+      { supportsHostTools: false },
+      { maxOutputTokens: null },
+    ] satisfies Partial<ProviderModel>[]) {
+      const provider = stubProvider("invented caption", "ok", "claude-local", modelOverrides);
+      const result = await describeMedia(row({ mediaPath: file(`IMG-${provider.calls.length}.jpg`) }), {
+        provider,
+      });
+      expect(result.errorCode).toBe("CAPABILITY_UNSUPPORTED");
+      expect(provider.calls).toHaveLength(0);
+    }
+  });
+
+  it("keeps a thrown provider admission failure typed for queue routing", async () => {
+    const provider = stubProvider("never");
+    provider.send = async () => {
+      throw new ProviderGateError("AUTH_REQUIRED");
+    };
+    const result = await describeMedia(row({ mediaPath: file("AUTH.jpg") }), {
+      provider,
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      provider: "claude-local",
+      errorCode: "AUTH_REQUIRED",
+    });
   });
 
   it("an unsupported type is never sent to the model and never described", async () => {
@@ -349,11 +479,11 @@ describe("describeMedia with sampled frames", () => {
     expect(res).toMatchObject({ status: "done", error: null });
     expect(provider.calls).toHaveLength(1);
     for (const frame of frames) {
-      expect(provider.calls[0].message).toContain(frame.path);
+      expect(requestText(provider.calls[0])).toContain(frame.path);
     }
     // ...and the thumbnail it supersedes is not in the prompt at all.
-    expect(provider.calls[0].message).not.toContain("V.thumb.jpg");
-    expect(provider.calls[0].maxTurns).toBeGreaterThan(frames.length);
+    expect(requestText(provider.calls[0])).not.toContain("V.thumb.jpg");
+    expect(provider.calls[0].maxAgentTurns).toBeGreaterThan(frames.length);
   });
 
   it("falls back to the single thumbnail when sampling produced nothing", async () => {
@@ -363,8 +493,8 @@ describe("describeMedia with sampled frames", () => {
       row({ kind: "video", mediaPath: file("V2.mp4"), thumbPath: thumb }),
       { provider, frames: [] },
     );
-    expect(provider.calls[0].message).toContain(thumb);
-    expect(provider.calls[0].message).toContain("one still frame");
+    expect(requestText(provider.calls[0])).toContain(thumb);
+    expect(requestText(provider.calls[0])).toContain("one still frame");
   });
 
   it("ignores a frame the sweep already took rather than naming a missing file", async () => {
@@ -377,9 +507,9 @@ describe("describeMedia with sampled frames", () => {
         { path: join(tmpDir, "media", "V3.frame1.jpg"), seconds: 7.5 },
       ],
     });
-    expect(provider.calls[0].message).toContain(kept);
-    expect(provider.calls[0].message).not.toContain("V3.frame1.jpg");
-    expect(provider.calls[0].message).toContain("these 1 still frames");
+    expect(requestText(provider.calls[0])).toContain(kept);
+    expect(requestText(provider.calls[0])).not.toContain("V3.frame1.jpg");
+    expect(requestText(provider.calls[0])).toContain("these 1 still frames");
   });
 
   it("a video with frames but no thumbnail is readable, where before it was not", async () => {
@@ -575,8 +705,8 @@ describe("describeMediaBatch", () => {
     const batch = await describeMediaBatch(rows, { provider, runId: "media-batch-1" });
 
     expect(provider.calls).toHaveLength(1);
-    expect(provider.calls[0].skipUserSettings).toBe(true);
-    expect(provider.calls[0].allowedTools).toEqual(["Read"]);
+    expect(provider.calls[0].skipHostSettings).toBe(true);
+    expect(provider.calls[0].hostTools).toEqual(["Read"]);
     for (const r of rows) {
       expect(batch.results.get(r.id)).toMatchObject({
         description: `A photo of ${r.id}.`,
@@ -586,8 +716,29 @@ describe("describeMediaBatch", () => {
     }
     expect(batch.call).toMatchObject({
       status: "done",
-      promptChars: provider.calls[0].message.length,
+      promptChars: requestText(provider.calls[0]).length,
     });
+  });
+
+  it("fails the whole ChatGPT batch closed before any provider send", async () => {
+    const rows = images(3);
+    const provider = stubProvider(batchAnswer(rows), "ok", "chatgpt-oauth", {
+      supportsHostTools: true,
+    });
+    const batch = await describeMediaBatch(rows, { provider });
+
+    expect(provider.calls).toHaveLength(0);
+    expect(batch.call).toMatchObject({
+      status: "error",
+      provider: "chatgpt-oauth",
+      errorCode: "CAPABILITY_UNSUPPORTED",
+    });
+    for (const row of rows) {
+      expect(batch.results.get(row.id)).toMatchObject({
+        status: "error",
+        errorCode: "CAPABILITY_UNSUPPORTED",
+      });
+    }
   });
 
   it("an answer missing one block is rejected WHOLE — the two that did line up are not applied", async () => {
@@ -703,7 +854,7 @@ describe("describeMediaBatch", () => {
     const batch = await describeMediaBatch([...rows, missing], { provider });
 
     expect(batch.results.get(missing.id)?.status).toBe("skipped");
-    expect(provider.calls[0].message).not.toContain("gone.jpg");
+    expect(requestText(provider.calls[0])).not.toContain("gone.jpg");
   });
 
   it("a batch with nothing readable makes no call and logs none", async () => {
@@ -720,6 +871,6 @@ describe("describeMediaBatch", () => {
     const rows = images(6);
     const provider = stubProvider(batchAnswer(rows));
     await describeMediaBatch(rows, { provider });
-    expect(provider.calls[0].maxTurns).toBeGreaterThan(rows.length);
+    expect(provider.calls[0].maxAgentTurns).toBeGreaterThan(rows.length);
   });
 });

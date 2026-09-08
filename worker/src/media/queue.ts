@@ -84,14 +84,19 @@ import {
   type PendingTranscriptRow,
 } from "../db/ingest.js";
 import { logRun } from "../db/index.js";
-import { DEFAULT_PROVIDER_ID } from "../providers/index.js";
 import { reportBackgroundHold } from "../providers/budget.js";
 import {
+  getActiveProvider,
   getMediaBackfillEnabled,
   getMediaConcurrency,
   getMediaDescribeEnabled,
   getMediaRatePerMin,
 } from "../db/settings.js";
+import {
+  classifyFailure,
+  isRefusal as isProviderRefusal,
+} from "../providers/pool.js";
+import type { ProviderErrorCode } from "../providers/types.js";
 import {
   batchable,
   enrichmentRoute,
@@ -162,13 +167,12 @@ const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_MAX_MS = 900_000;
 
 /**
- * What "not now" looks like coming back from the CLI: the five-hour
+ * What legacy "not now" looks like coming back from the CLI: the five-hour
  * subscription limit (reported as `overageStatus: rejected`), an HTTP 429, and
  * the auth failures, where a re-login is the fix and no number of retries is.
- * Matched on the message because the provider has no code for any of it —
- * QUOTA_EXCEEDED is declared in the provider types and never emitted. The
- * numbers are anchored so a path or an id that happens to contain them cannot
- * stall the queue for a minute.
+ * This regex remains only for old CLI_ERROR-shaped fixtures. Provider-neutral
+ * results are classified by their typed errorCode first. The numbers are
+ * anchored so a path or id containing them cannot stall the queue for a minute.
  */
 const REFUSAL =
   /(rate[ _-]?limit|too many requests|\b429\b|\b40[13]\b|overage|usage limit|quota|unauthorized|authentication|invalid api key|credit balance|\/login)/i;
@@ -212,7 +216,11 @@ export interface MediaQueueOptions {
 }
 
 /** True when a failure is the API refusing to serve, not the file being bad. */
-export function isRefusal(error: string | null | undefined): boolean {
+export function isRefusal(
+  error: string | null | undefined,
+  code?: ProviderErrorCode,
+): boolean {
+  if (code) return isProviderRefusal({ code, message: error ?? "" });
   return error ? REFUSAL.test(error) : false;
 }
 
@@ -675,7 +683,15 @@ export class MediaQueue {
     if (!this.running) return;
 
     this.logRead(runId, result, Date.now() - startedAt);
-    if (result.status === "error" && isRefusal(result.error)) {
+    const disposition = result.status === "error"
+      ? classifyFailure({ code: result.errorCode, message: result.error ?? "" })
+      : null;
+    if (result.status === "error" && disposition?.hardStop) {
+      this.holdOff(result.error);
+      this.requeue(row.id, result);
+      return;
+    }
+    if (result.status === "error" && isRefusal(result.error, result.errorCode)) {
       this.holdOff(result.error);
       // Not this row's failure — the call never looked at it, so it keeps its
       // attempts AND its place in the live set.
@@ -786,7 +802,22 @@ export class MediaQueue {
     // A refusal belongs to the CALL, not to any file in it: it is counted once
     // however many rows carry the message, and re-asking one file at a time is
     // sixteen more knocks on the same closed door.
-    const refused = batch.call.status === "error" && isRefusal(batch.call.error);
+    const disposition = batch.call.status === "error"
+      ? classifyFailure({
+          code: batch.call.errorCode,
+          message: batch.call.error ?? "",
+        })
+      : null;
+    if (disposition?.hardStop) {
+      this.holdOff(batch.call.error);
+      for (const row of rows) {
+        const result = batch.results.get(row.id);
+        if (result?.status === "error") this.requeue(row.id, result);
+      }
+      return { results: new Map(), refused: true };
+    }
+    const refused = batch.call.status === "error" &&
+      isRefusal(batch.call.error, batch.call.errorCode);
     if (refused) {
       this.holdOff(batch.call.error);
       for (const row of rows) {
@@ -834,8 +865,12 @@ export class MediaQueue {
     this.live.delete(id);
 
     if (result.status === "error") {
+      const disposition = classifyFailure({
+        code: result.errorCode,
+        message: result.error ?? "",
+      });
       const attempt = (this.attempts.get(id) ?? 0) + 1;
-      if (attempt < MAX_ATTEMPTS) {
+      if (disposition.spendsRetryBudget && attempt < MAX_ATTEMPTS) {
         this.attempts.set(id, attempt);
         // Still queued, but the reason is on the row so a stuck item is
         // explainable while it is still being retried.
@@ -1020,7 +1055,7 @@ export class MediaQueue {
   }
 
   /**
-   * Every Claude call is logged; the ones we never made are not. Usage is NOT
+   * Every provider call is logged; the ones we never made are not. Usage is NOT
    * added to the quota counter: the backlog would otherwise burn the window the
    * chat gate spends, and a background reader must never lock the user out of
    * chat.
@@ -1032,7 +1067,7 @@ export class MediaQueue {
   ): void {
     if (result.status === "unsupported" || result.status === "skipped") return;
     logRun({
-      provider: DEFAULT_PROVIDER_ID,
+      provider: result.provider ?? getActiveProvider(),
       sessionId: null,
       runId,
       kind: "media",
@@ -1044,7 +1079,7 @@ export class MediaQueue {
       costUsd: result.usage?.costUsd ?? null,
       durationMs,
       status: result.status === "done" ? "ok" : "error",
-      errorCode: result.error,
+      errorCode: result.errorCode ?? result.error,
       role: "media",
       model: result.model,
     });

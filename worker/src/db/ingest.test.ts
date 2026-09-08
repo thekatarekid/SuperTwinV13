@@ -228,6 +228,11 @@ describe("migration 0003_phase1_threads", () => {
         input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
         run_count INTEGER NOT NULL DEFAULT 0, updated_at TEXT
       );
+      -- 0002 table that 0212_provider_settings_namespace reads and mirrors.
+      CREATE TABLE app_state (
+        key TEXT PRIMARY KEY, value TEXT,
+        updated_at TEXT NOT NULL DEFAULT 'legacy-updated'
+      );
       -- 0001 chat tables that 0005_grounded_chat ALTERs.
       CREATE TABLE chat_sessions (
         session_id TEXT PRIMARY KEY, provider TEXT, cwd TEXT, prompt_bundle_hash TEXT,
@@ -299,6 +304,11 @@ describe("migration 0003_phase1_threads", () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT, window_start TEXT,
         input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
         run_count INTEGER NOT NULL DEFAULT 0, updated_at TEXT
+      );
+      -- 0002 table that 0212_provider_settings_namespace reads and mirrors.
+      CREATE TABLE app_state (
+        key TEXT PRIMARY KEY, value TEXT,
+        updated_at TEXT NOT NULL DEFAULT 'legacy-updated'
       );
       -- 0001 chat tables that 0005_grounded_chat ALTERs.
       CREATE TABLE chat_sessions (
@@ -1428,6 +1438,16 @@ describe("migration 0008_media", () => {
     // which lives on events beside the three FTS triggers until item 1.1.
     // 0101_world_model adds the spaces_fts trio (the space_index FTS lane).
     expect(triggers).toEqual([
+      // 0214_chat_provider_continuations: public UUID fill/immutability and
+      // provider binding/token-generation transition invariants.
+      "chat_sessions_continuation_binding_transition",
+      "chat_sessions_continuation_generation_monotonic",
+      "chat_sessions_continuation_insert_guard",
+      "chat_sessions_continuation_token_transition",
+      "chat_sessions_continuation_update_guard",
+      "chat_sessions_conversation_id_fill",
+      "chat_sessions_conversation_id_insert_guard",
+      "chat_sessions_conversation_id_update_guard",
       // 0202_v6_fts_projection (V6 S2.3): chunks_fts rides on chunks via its own trio.
       "chunks_ad",
       "chunks_ai",
@@ -1436,6 +1456,11 @@ describe("migration 0008_media", () => {
       "events_ai",
       "events_au",
       "events_stream_compat_ai",
+      // 0212_provider_settings_namespace: one-release mirroring triggers.
+      "provider_settings_model_insert",
+      "provider_settings_model_update",
+      "provider_settings_reasoning_insert",
+      "provider_settings_reasoning_update",
       "spaces_fts_ad",
       "spaces_fts_ai",
       "spaces_fts_au",

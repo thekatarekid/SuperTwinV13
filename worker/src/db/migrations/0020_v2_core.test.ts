@@ -172,6 +172,9 @@ describe("0020_v2_core applies", () => {
       // Phase 0a amendment: appends browser Authorization Code + PKCE as the
       // shipped product ceremony without changing the original probe record.
       "0213_chatgpt_browser_pkce_decision",
+      // P1-H2: additive public conversation identity and bounded, nullable
+      // provider continuation binding; legacy session PK/FKs remain intact.
+      "0214_chat_provider_continuations",
     ]);
 
     expect(

@@ -41,6 +41,7 @@ import { V6_EXTRACT_QUEUE } from "./migrations/0210_v6_extract_queue.js";
 import { CHATGPT_PROVIDER_DECISIONS } from "./migrations/0211_chatgpt_provider_decisions.js";
 import { PROVIDER_SETTINGS_NAMESPACE } from "./migrations/0212_provider_settings_namespace.js";
 import { CHATGPT_BROWSER_PKCE_DECISION } from "./migrations/0213_chatgpt_browser_pkce_decision.js";
+import { CHAT_PROVIDER_CONTINUATIONS } from "./migrations/0214_chat_provider_continuations.js";
 
 export interface Migration {
   id: string;
@@ -1037,4 +1038,7 @@ export const MIGRATIONS: Migration[] = [
   // Append the accepted browser Authorization Code + PKCE product-login
   // amendment without rewriting the original device-probe decision history.
   { id: "0213_chatgpt_browser_pkce_decision", sql: CHATGPT_BROWSER_PKCE_DECISION },
+  // Separate the public conversation UUID from provider-owned continuation
+  // state while leaving the legacy session primary key/FKs intact for cutover.
+  { id: "0214_chat_provider_continuations", sql: CHAT_PROVIDER_CONTINUATIONS },
 ];

@@ -1371,6 +1371,16 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
           .all() as { name: string }[]
       ).map((r) => r.name),
     ).toEqual([
+      // 0214_chat_provider_continuations: public UUID fill/immutability and
+      // provider binding/generation invariants on the additive chat columns.
+      "chat_sessions_continuation_binding_transition",
+      "chat_sessions_continuation_generation_monotonic",
+      "chat_sessions_continuation_insert_guard",
+      "chat_sessions_continuation_token_transition",
+      "chat_sessions_continuation_update_guard",
+      "chat_sessions_conversation_id_fill",
+      "chat_sessions_conversation_id_insert_guard",
+      "chat_sessions_conversation_id_update_guard",
       // 0202_v6_fts_projection (V6 S2.3): chunks_fts rides on chunks via its own trio.
       "chunks_ad",
       "chunks_ai",
@@ -1379,6 +1389,12 @@ describe("DB installed at the 0018 state (0019–0020)", () => {
       "events_ai",
       "events_au",
       "events_stream_compat_ai",
+      // 0212_provider_settings_namespace: one-release mirroring of legacy
+      // Claude model/reasoning writes into the provider namespace.
+      "provider_settings_model_insert",
+      "provider_settings_model_update",
+      "provider_settings_reasoning_insert",
+      "provider_settings_reasoning_update",
       // 0101_world_model: the space_index FTS lane's sync triggers.
       "spaces_fts_ad",
       "spaces_fts_ai",

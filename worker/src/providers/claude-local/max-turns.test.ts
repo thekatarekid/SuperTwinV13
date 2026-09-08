@@ -168,7 +168,7 @@ describe("the adapter on a turn-cap stop", () => {
 describe("the pool on a soft stop", () => {
   it("names it a soft stop by code and by message", () => {
     expect(isSoftStop({ code: "MAX_TURNS" })).toBe(true);
-    expect(isSoftStop({ message: "Reached maximum number of turns (1)" })).toBe(true);
+    expect(isSoftStop({ code: "CLI_ERROR", message: "Reached maximum number of turns (1)" })).toBe(true);
     expect(isSoftStop({ code: "TIMEOUT", message: "run exceeded 120000ms" })).toBe(false);
   });
 

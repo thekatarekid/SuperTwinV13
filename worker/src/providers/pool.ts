@@ -26,12 +26,14 @@
 //     So `caching.warm_first` (default ON) runs the first call of a batch alone
 //     and releases the remaining N−1 only after it returns.
 //
-//  3. ERROR POLICY (§4.6). A refusal (rate limit, auth, quota) is an outage,
+//  3. ERROR POLICY (§4.6). A refusal (rate limit or quota) is an outage,
 //     not the unit's fault: pause the lane, back off 60 s → 900 s, and DO NOT
 //     spend the unit's retry budget — punishing good units for an outage is how
-//     a whole backlog gets quarantined. Every other failure retries
-//     2 s / 10 s / 30 s and is then quarantined so the rest keep moving.
-//     The code set is the provider's existing seven; there is no AUTH_REQUIRED.
+//     a whole backlog gets quarantined. Transient failures retry 2 s / 10 s /
+//     30 s and are then quarantined so the rest keep moving; stale model and
+//     unsupported-capability failures quarantine immediately.
+//     Authentication and unavailable-provider states are explicit holds: only
+//     a human or compatibility change clears them, so retrying wastes work.
 //
 //  4. BREAKER (V6 P1 S0.7 / T0-10, Product §23.4, SPD-07). Ten consecutive
 //     NON-refusal failures on one lane pause that lane for 30 minutes and raise
@@ -254,8 +256,8 @@ export class Semaphore {
 // ---------------------------------------------------------------------------
 
 /**
- * What "not now" looks like coming back from the CLI. Auth failures arrive as
- * CLI_ERROR with a refusal-shaped message — there is NO AUTH_REQUIRED code.
+ * Legacy Claude CLI refusal text. Only a CLI_ERROR may use this fallback;
+ * providers with typed errors are classified exclusively by code.
  */
 export const REFUSAL_RE =
   /rate.limit|too many requests|\b429\b|\b40[13]\b|quota|usage limit|unauthorized|authentication|invalid api key|credit balance|\/login/i;
@@ -297,11 +299,10 @@ export interface FailureDecision {
    */
   softStop?: boolean;
   /**
-   * Set when the gate refused BEFORE spawn — the budget latch or the kill
-   * switch (FIX-C1). `action` is "hold": nothing ran, nothing is owed, and
-   * nothing about waiting fixes it. The caller must not retry, must not
-   * quarantine the unit and must not dead-letter its bundle; the lane's entry
-   * gate keeps the work until an operator resumes.
+   * Set when a permanent pre-send condition refuses work — a budget/kill
+   * switch, auth state, unavailable provider, or incompatible backend.
+   * `action` is "hold": nothing ran and waiting alone cannot fix it. The
+   * caller must not retry, quarantine, or dead-letter the unit.
    */
   hardStop?: boolean;
 }
@@ -329,23 +330,61 @@ export interface BreakerTrip {
  */
 export function isSoftStop(err: ProviderFailure): boolean {
   if (err.code === "MAX_TURNS") return true;
-  return /reached maximum number of turns/i.test(err.message ?? "");
+  return (
+    err.code === "CLI_ERROR" &&
+    /reached maximum number of turns/i.test(err.message ?? "")
+  );
 }
 
 /**
- * True for a HARD stop (FIX-C1): providers/budget.ts refused the call before a
- * process was spawned — the spend/call ceiling latch or the "stop all model
- * activity" switch. Nothing ran, the unit did nothing wrong, the lane is not
- * failing, and no amount of waiting clears it because only a human does.
+ * True for a permanent pre-send hold (FIX-C1 / V2 §7.2). Nothing ran, the unit
+ * did nothing wrong, and retrying cannot clear a latch, missing login/provider,
+ * or incompatible backend.
  */
 export function isHardStop(err: ProviderFailure): boolean {
-  return err.code === "BUDGET_EXCEEDED" || err.code === "MODEL_ACTIVITY_PAUSED";
+  return (
+    err.code === "BUDGET_EXCEEDED" ||
+    err.code === "MODEL_ACTIVITY_PAUSED" ||
+    err.code === "AUTH_REQUIRED" ||
+    err.code === "AUTH_EXPIRED" ||
+    err.code === "PROVIDER_UNAVAILABLE" ||
+    err.code === "BACKEND_UNSUPPORTED"
+  );
 }
 
-/** True for the outage-shaped failures: rate limit, quota, auth. */
+/** True for outage-shaped failures. Typed codes win over legacy CLI text. */
 export function isRefusal(err: ProviderFailure): boolean {
-  if (err.code === "QUOTA_EXCEEDED") return true;
-  return REFUSAL_RE.test(err.message ?? "");
+  if (err.code === "QUOTA_EXCEEDED" || err.code === "RATE_LIMITED") return true;
+  return err.code === "CLI_ERROR" && REFUSAL_RE.test(err.message ?? "");
+}
+
+const PROVIDER_ERROR_CODES = {
+  TIMEOUT: true,
+  SPAWN_FAILED: true,
+  CLI_ERROR: true,
+  POISONED_SESSION: true,
+  CANCELLED: true,
+  QUOTA_EXCEEDED: true,
+  BUDGET_EXCEEDED: true,
+  MODEL_ACTIVITY_PAUSED: true,
+  MAX_TURNS: true,
+  BAD_REQUEST: true,
+  AUTH_REQUIRED: true,
+  AUTH_EXPIRED: true,
+  PROVIDER_UNAVAILABLE: true,
+  MODEL_UNAVAILABLE: true,
+  CAPABILITY_UNSUPPORTED: true,
+  BACKEND_UNSUPPORTED: true,
+  RATE_LIMITED: true,
+  TRANSPORT_ERROR: true,
+} as const satisfies Record<ProviderErrorCode, true>;
+
+function isProviderErrorCode(code: string | undefined): code is ProviderErrorCode {
+  return code !== undefined && Object.hasOwn(PROVIDER_ERROR_CODES, code);
+}
+
+function assertNeverProviderCode(code: never): never {
+  throw new Error(`unclassified provider error code: ${String(code)}`);
 }
 
 /** Refusal backoff for the nth consecutive refusal (n counted from 1). */
@@ -366,45 +405,85 @@ export function classifyFailure(
   retriesSpent = 0,
   consecutiveRefusals = 1,
 ): FailureDecision {
-  if (err.code === "CANCELLED") {
-    return {
-      action: "cancelled",
-      waitMs: 0,
-      spendsRetryBudget: false,
-      reason: "cancelled",
-    };
+  const code = err.code;
+  if (isProviderErrorCode(code)) {
+    switch (code) {
+      case "CANCELLED":
+        return {
+          action: "cancelled",
+          waitMs: 0,
+          spendsRetryBudget: false,
+          reason: "cancelled",
+        };
+      case "BUDGET_EXCEEDED":
+      case "MODEL_ACTIVITY_PAUSED":
+      case "AUTH_REQUIRED":
+      case "AUTH_EXPIRED":
+      case "PROVIDER_UNAVAILABLE":
+      case "BACKEND_UNSUPPORTED":
+        return {
+          action: "hold",
+          waitMs: 0,
+          spendsRetryBudget: false,
+          reason: "hard-stop",
+          hardStop: true,
+        };
+      case "MAX_TURNS":
+        return {
+          action: "quarantine",
+          waitMs: 0,
+          spendsRetryBudget: false,
+          reason: "error",
+          softStop: true,
+        };
+      case "QUOTA_EXCEEDED":
+      case "RATE_LIMITED":
+        return {
+          action: "pause",
+          waitMs: refusalBackoffMs(consecutiveRefusals),
+          spendsRetryBudget: false,
+          reason: "refusal",
+        };
+      case "MODEL_UNAVAILABLE":
+      case "CAPABILITY_UNSUPPORTED":
+        return {
+          action: "quarantine",
+          waitMs: 0,
+          spendsRetryBudget: false,
+          reason: "error",
+        };
+      case "CLI_ERROR":
+        if (isSoftStop(err)) {
+          return {
+            action: "quarantine",
+            waitMs: 0,
+            spendsRetryBudget: false,
+            reason: "error",
+            softStop: true,
+          };
+        }
+        if (isRefusal(err)) {
+          return {
+            action: "pause",
+            waitMs: refusalBackoffMs(consecutiveRefusals),
+            spendsRetryBudget: false,
+            reason: "refusal",
+          };
+        }
+        break;
+      case "TIMEOUT":
+      case "SPAWN_FAILED":
+      case "POISONED_SESSION":
+      case "BAD_REQUEST":
+      case "TRANSPORT_ERROR":
+        break;
+      default:
+        return assertNeverProviderCode(code);
+    }
   }
-  // Before every other test: a hard stop must never be read as an outage and
-  // given a backoff, nor as an error and given a retry ladder. There is no
-  // wait that clears it.
-  if (isHardStop(err)) {
-    return {
-      action: "hold",
-      waitMs: 0,
-      spendsRetryBudget: false,
-      reason: "hard-stop",
-      hardStop: true,
-    };
-  }
-  if (isSoftStop(err)) {
-    // Handed straight back: no wait, no retry budget, and — the point of the
-    // whole exercise — no second full-context call issued from in here.
-    return {
-      action: "quarantine",
-      waitMs: 0,
-      spendsRetryBudget: false,
-      reason: "error",
-      softStop: true,
-    };
-  }
-  if (isRefusal(err)) {
-    return {
-      action: "pause",
-      waitMs: refusalBackoffMs(consecutiveRefusals),
-      spendsRetryBudget: false,
-      reason: "refusal",
-    };
-  }
+
+  // Unknown/absent legacy codes and typed transient/CLI failures all use the
+  // bounded ordinary retry ladder. Message heuristics never run here.
   const spent = Math.max(0, Math.floor(retriesSpent));
   if (spent >= RETRY_DELAYS_MS.length) {
     return {
@@ -659,9 +738,9 @@ export class ResourcePool {
   // ---- error policy -------------------------------------------------------
 
   /**
-   * Record one failure against a lane and get the decision. A refusal pauses
-   * the lane for a doubling backoff and does NOT spend the unit's retry budget;
-   * anything else walks the 2 s / 10 s / 30 s ladder and is then quarantined.
+   * Record one failure against a lane and get the decision. Refusals pause the
+   * lane without spending retry budget; transient failures walk the bounded
+   * ladder; permanent and non-retryable codes follow their typed disposition.
    */
   noteFailure(
     lane: LaneKey,

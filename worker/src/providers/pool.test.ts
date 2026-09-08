@@ -241,13 +241,50 @@ describe("error policy (§4.6)", () => {
     "authentication_error",
   ];
 
-  it("recognises every refusal shape, and nothing else", () => {
-    for (const m of refusals) expect(isRefusal({ message: m })).toBe(true);
-    // Auth failures arrive as CLI_ERROR — there is no AUTH_REQUIRED code.
-    expect(isRefusal({ code: "CLI_ERROR", message: "unauthorized" })).toBe(true);
+  it("uses refusal text only as a legacy CLI_ERROR fallback", () => {
+    for (const m of refusals) {
+      expect(isRefusal({ code: "CLI_ERROR", message: m })).toBe(true);
+      expect(isRefusal({ message: m })).toBe(false);
+      expect(isRefusal({ code: "TIMEOUT", message: m })).toBe(false);
+    }
     expect(isRefusal({ code: "QUOTA_EXCEEDED" })).toBe(true);
+    expect(isRefusal({ code: "RATE_LIMITED", message: "benign" })).toBe(true);
     expect(isRefusal({ code: "TIMEOUT", message: "run exceeded 120000ms" })).toBe(false);
     expect(isRefusal({ message: "malformed row at line 4" })).toBe(false);
+  });
+
+  it.each([
+    ["AUTH_REQUIRED", "hold", false],
+    ["AUTH_EXPIRED", "hold", false],
+    ["PROVIDER_UNAVAILABLE", "hold", false],
+    ["BACKEND_UNSUPPORTED", "hold", false],
+    ["MODEL_UNAVAILABLE", "quarantine", false],
+    ["CAPABILITY_UNSUPPORTED", "quarantine", false],
+    ["RATE_LIMITED", "pause", false],
+    ["QUOTA_EXCEEDED", "pause", false],
+    ["TRANSPORT_ERROR", "retry", true],
+    ["BUDGET_EXCEEDED", "hold", false],
+    ["MODEL_ACTIVITY_PAUSED", "hold", false],
+    ["MAX_TURNS", "quarantine", false],
+    ["CANCELLED", "cancelled", false],
+  ] as const)(
+    "%s maps to %s without an accidental retry-budget charge",
+    (code, action, spendsRetryBudget) => {
+      expect(classifyFailure({ code }, 0)).toMatchObject({
+        action,
+        spendsRetryBudget,
+      });
+    },
+  );
+
+  it("typed hold/quarantine codes cannot be overridden by refusal-shaped text", () => {
+    expect(
+      classifyFailure({ code: "AUTH_REQUIRED", message: "HTTP 429" }).action,
+    ).toBe("hold");
+    expect(
+      classifyFailure({ code: "MODEL_UNAVAILABLE", message: "usage limit" })
+        .action,
+    ).toBe("quarantine");
   });
 
   it("a refusal pauses the lane and does NOT spend the retry budget", () => {
@@ -299,18 +336,18 @@ describe("error policy (§4.6)", () => {
     let now = 0;
     const pool = new ResourcePool({ now: () => now });
     const lane = "llm:enrichment" as const;
-    expect(pool.noteFailure(lane, { message: "usage limit" }).waitMs).toBe(60_000);
-    expect(pool.noteFailure(lane, { message: "usage limit" }).waitMs).toBe(120_000);
+    expect(pool.noteFailure(lane, { code: "CLI_ERROR", message: "usage limit" }).waitMs).toBe(60_000);
+    expect(pool.noteFailure(lane, { code: "CLI_ERROR", message: "usage limit" }).waitMs).toBe(120_000);
     pool.noteSuccess(lane);
-    expect(pool.noteFailure(lane, { message: "usage limit" }).waitMs).toBe(60_000);
+    expect(pool.noteFailure(lane, { code: "CLI_ERROR", message: "usage limit" }).waitMs).toBe(60_000);
   });
 
   it("sustained refusals halve the effective LLM concurrency, then ramp back", () => {
     let now = 0;
     const pool = new ResourcePool({ now: () => now });
     expect(pool.effectiveLlmLimit()).toBe(8);
-    pool.noteFailure("llm:understanding", { message: "rate limit" });
-    pool.noteFailure("llm:understanding", { message: "rate limit" });
+    pool.noteFailure("llm:understanding", { code: "CLI_ERROR", message: "rate limit" });
+    pool.noteFailure("llm:understanding", { code: "CLI_ERROR", message: "rate limit" });
     expect(pool.effectiveLlmLimit()).toBe(4);
     expect(pool.limitOf("llm")).toBe(4);
     now += 600_001;
@@ -328,7 +365,7 @@ describe("error policy (§4.6)", () => {
         now += ms;
       },
     });
-    pool.noteFailure("llm:understanding", { message: "usage limit" });
+    pool.noteFailure("llm:understanding", { code: "CLI_ERROR", message: "usage limit" });
     let ran = false;
     await pool.run("llm", () => {
       ran = true;

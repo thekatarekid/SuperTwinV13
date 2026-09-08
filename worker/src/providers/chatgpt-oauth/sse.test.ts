@@ -55,7 +55,8 @@ function usage(input = 12, output = 7): Record<string, unknown> {
   return {
     input_tokens: input,
     output_tokens: output,
-    input_tokens_details: { cached_tokens: 5 },
+    total_tokens: input + output,
+    input_tokens_details: { cached_tokens: Math.min(5, input) },
   };
 }
 
@@ -102,6 +103,15 @@ describe("production ChatGPT SSE parsing", () => {
       { type: "continuation", token: "resp_private_1" },
       { type: "done", continuation: "resp_private_1", usage: result.usage, stopReason: "completed" },
     ]);
+  });
+
+  it("accepts the pinned transport's response.text.delta alias", async () => {
+    const sink = capture();
+    await expect(consumeChatGptSse(responseFor([
+      { type: "response.text.delta", delta: "alias text" },
+      { type: "response.completed", response: { usage: usage() } },
+    ]), sink.options)).resolves.toMatchObject({ status: "ok" });
+    expect(sink.events[0]).toEqual({ type: "delta", text: "alias text" });
   });
 
   it("omits response identifiers unless continuation was explicitly requested", async () => {

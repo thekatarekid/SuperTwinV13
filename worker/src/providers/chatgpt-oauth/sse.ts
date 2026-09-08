@@ -4,6 +4,7 @@ import type {
   ProviderStreamEvent,
   Usage,
 } from "../types.js";
+import { ChatGptUsageError, parseChatGptUsage } from "./usage.js";
 
 export const MAX_SSE_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const MAX_SSE_LINE_BYTES = 64 * 1024;
@@ -89,41 +90,19 @@ function boundedIdentifier(value: unknown): string | null {
   return Buffer.byteLength(value, "utf8") <= MAX_SSE_IDENTIFIER_BYTES ? value : null;
 }
 
-function exactCounter(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key];
-  if (value === undefined) return undefined;
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+function parseUsage(value: unknown): Usage | null {
+  const raw = object(value);
+  if (!raw) return null;
+  if (!Object.hasOwn(raw, "input_tokens") && !Object.hasOwn(raw, "output_tokens")) return null;
+  try {
+    return parseChatGptUsage(raw).usage;
+  } catch (error) {
+    if (!(error instanceof ChatGptUsageError)) throw error;
     throw new ChatGptSseError(
       "BACKEND_UNSUPPORTED",
       "ChatGPT stream contained invalid usage counters",
     );
   }
-  return value as number;
-}
-
-function parseUsage(value: unknown): Usage | null {
-  const raw = object(value);
-  if (!raw) return null;
-  const inputTokens = exactCounter(raw, "input_tokens");
-  const outputTokens = exactCounter(raw, "output_tokens");
-  if (inputTokens === undefined && outputTokens === undefined) return null;
-  if (inputTokens === undefined || outputTokens === undefined) {
-    throw new ChatGptSseError(
-      "BACKEND_UNSUPPORTED",
-      "ChatGPT stream contained incomplete usage counters",
-    );
-  }
-  const inputDetails = object(raw.input_tokens_details);
-  const cachedInputTokens = inputDetails
-    ? exactCounter(inputDetails, "cached_tokens")
-    : undefined;
-  return {
-    inputTokens,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    outputTokens,
-    ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
-  };
 }
 
 function errorPayload(event: Record<string, unknown>): unknown {
@@ -535,7 +514,7 @@ export async function consumeChatGptSse(
       }
       return null;
     }
-    if (type === "response.output_text.delta") {
+    if (type === "response.output_text.delta" || type === "response.text.delta") {
       if (typeof event.delta !== "string") {
         fail(new ChatGptSseError("BACKEND_UNSUPPORTED", "ChatGPT stream contained an invalid text delta"));
       }

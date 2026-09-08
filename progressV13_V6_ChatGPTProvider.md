@@ -43,4 +43,6 @@
 - 2026-09-08: Parallel read-only Phase 1 prep mapped P1-A types/compatibility plus G1 gate/classification seams, tests, ownership and accounting hazards; no gated source changes made.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.
-- Next: run the 0-inference metadata discovery with explicit authorization, choose an account-visible model, then obtain exact main-account risk/call authorization and execute the budgeted live contract before Phase 1.
+- 2026-09-08: Owner-authorized metadata discovery made 12 HTTP requests (device 1, polls 8, token 1, models 1, quota 1), 0 inference/other calls, then failed closed on an explicit null secondary quota window; scratch home was absent afterward.
+- 2026-09-08: Aligned quota parsing with pinned Hermes: null secondary means absent and reset metadata is optional; malformed present values still fail closed. Probe 119/119, focused audit 55/55, and worker typecheck pass with 0 additional live calls.
+- Next: retry the corrected 0-inference metadata discovery, choose an account-visible model, then obtain exact main-account risk/call authorization and execute the budgeted live contract before Phase 1.

@@ -94,6 +94,7 @@ function mockedDiscoveryFetch(
         plan_type: "plus",
         rate_limit: {
           primary_window: { used_percent: 12, reset_at: "2026-09-09T00:00:00Z" },
+          secondary_window: null,
         },
         credits: { remaining: 5, secret: "drop" },
       });

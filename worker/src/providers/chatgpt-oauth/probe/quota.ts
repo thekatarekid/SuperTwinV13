@@ -2,7 +2,7 @@ import { hasBoundedRestrictionSignal } from "./restriction.js";
 
 export interface ProbeQuotaWindow {
   usedPercent: number;
-  resetAt: number | string;
+  resetAt?: number | string;
 }
 
 export interface ProbeQuotaEvidence {
@@ -45,6 +45,7 @@ function windowFrom(value: unknown): ProbeQuotaWindow | undefined {
   if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > MAX_USED_PERCENT) {
     return undefined;
   }
+  if (reset === undefined || reset === null) return { usedPercent: used };
   const safeReset = typeof reset === "number" && Number.isSafeInteger(reset) &&
       reset > 0 && reset <= MAX_RESET_TIMESTAMP
     ? reset
@@ -89,7 +90,9 @@ export function parseProbeQuota(payload: unknown): ProbeQuotaEvidence {
     [source, "secondary_window"],
   ]);
   const secondary = windowFrom(secondaryCandidate.value);
-  if (secondaryCandidate.present && !secondary) {
+  // The live /wham/usage shape uses an explicit null when the account has no
+  // secondary window. Non-null malformed windows remain a hard failure.
+  if (secondaryCandidate.present && secondaryCandidate.value !== null && !secondary) {
     throw new Error("Quota response has an invalid secondary window");
   }
   const credits = record(source.credits);

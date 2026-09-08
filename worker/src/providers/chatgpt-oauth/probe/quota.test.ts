@@ -48,17 +48,62 @@ describe("Phase 0b quota evidence", () => {
     })).toThrow(/secondary window/);
     expect(() => parseProbeQuota({
       plan_type: "plus",
-      rate_limit: {
-        primary_window: { used_percent: 1, reset_at: 1 },
-        secondary_window: null,
-      },
-    })).toThrow(/secondary window/);
-    expect(() => parseProbeQuota({
-      plan_type: "plus",
       credits: { remaining: "unknown" },
       rate_limit: { primary_window: { used_percent: 1, reset_at: 1 } },
     })).toThrow(/credits balance/);
   });
+
+  it("treats an explicit null secondary window as absent but rejects malformed non-null objects", () => {
+    expect(parseProbeQuota({
+      plan_type: "plus",
+      rate_limit: {
+        primary_window: { used_percent: 1, reset_at: 1 },
+        secondary_window: null,
+      },
+    })).toEqual({
+      planType: "plus",
+      primary: { usedPercent: 1, resetAt: 1 },
+      healthy: true,
+      restrictionSignal: false,
+    });
+    expect(() => parseProbeQuota({
+      plan_type: "plus",
+      rate_limit: {
+        primary_window: { used_percent: 1, reset_at: 1 },
+        secondary_window: { used_percent: null, reset_at: null },
+      },
+    })).toThrow(/secondary window/);
+  });
+
+  it("accepts a secondary window with finite usage and optional reset while ignoring limit_window_seconds", () => {
+    expect(parseProbeQuota({
+      plan_type: "plus",
+      rate_limit: {
+        primary_window: { used_percent: 1, reset_at: 1 },
+        secondary_window: { used_percent: 4, limit_window_seconds: 604_800 },
+      },
+    }).secondary).toEqual({ usedPercent: 4 });
+    expect(parseProbeQuota({
+      plan_type: "plus",
+      rate_limit: {
+        primary_window: { used_percent: 1, reset_at: 1 },
+        secondary_window: { used_percent: 4, reset_at: null },
+      },
+    }).secondary).toEqual({ usedPercent: 4 });
+  });
+
+  it.each([{}, 1.5, 253_402_300_799_001, "x".repeat(129)])(
+    "rejects a malformed present secondary reset_at: %s",
+    (reset_at) => {
+      expect(() => parseProbeQuota({
+        plan_type: "plus",
+        rate_limit: {
+          primary_window: { used_percent: 1, reset_at: 1 },
+          secondary_window: { used_percent: 4, reset_at },
+        },
+      })).toThrow(/secondary window/);
+    },
+  );
 
   it.each([
     ["non-finite used percent", { plan_type: "plus", rate_limit: { primary_window: { used_percent: Infinity, reset_at: 1 } } }],

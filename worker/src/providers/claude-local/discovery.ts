@@ -37,8 +37,13 @@
 // ===========================================================================
 
 import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 
-import type { ThinkingBudget } from "../types.js";
+import type {
+  ProviderModel,
+  ProviderModelCatalogue,
+  ThinkingBudget,
+} from "../types.js";
 import { FALLBACK_MODEL_CATALOG, type CuratedModel } from "./models.js";
 import { resolveClaudeBin } from "./cli.js";
 
@@ -84,6 +89,8 @@ export interface ClaudeModelInfo {
    */
   effort: boolean;
   contextWindow: number | null;
+  maxOutputTokens: number | null;
+  hidden: boolean;
 }
 
 export interface ModelCatalog {
@@ -100,6 +107,8 @@ export interface ModelCatalog {
   /** Set only in fallback mode: what went wrong. */
   error: string | null;
   discoveredAt: string;
+  /** The CLI's preferred model/alias when it publishes one. */
+  defaultModelId: string | null;
   models: ClaudeModelInfo[];
 }
 
@@ -390,6 +399,14 @@ function num(v: Literal): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+function maxOutputTokens(v: Literal): number | null {
+  const direct = num(v);
+  if (direct !== null) return direct;
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const limits = v as { [k: string]: Literal };
+  return num(limits.upper) ?? num(limits.default);
+}
+
 /** Turn one parsed catalogue into picker rows. Throws if the shape is wrong. */
 export function projectCatalog(raw: { [k: string]: Literal }): ClaudeModelInfo[] {
   const tiers = (raw.pricing_tiers ?? {}) as { [k: string]: Literal };
@@ -437,6 +454,8 @@ export function projectCatalog(raw: { [k: string]: Literal }): ClaudeModelInfo[]
           : (levels[0] ?? null),
       effort,
       contextWindow: num(context.window),
+      maxOutputTokens: maxOutputTokens(e.max_output_tokens),
+      hidden: e.hidden === true || e.is_hidden === true,
     };
     models.push(row);
     byCatalogId.set(catalogId, row);
@@ -488,6 +507,7 @@ export function fallbackCatalog(error: string): ModelCatalog {
     source: "curated registry (worker/src/providers/claude-local/models.ts)",
     error,
     discoveredAt: new Date().toISOString(),
+    defaultModelId: "haiku",
     models: FALLBACK_MODEL_CATALOG.map(curatedToInfo),
   };
 }
@@ -505,6 +525,8 @@ function curatedToInfo(m: CuratedModel): ClaudeModelInfo {
     defaultThinking: m.thinkingLevels[0] ?? null,
     effort: m.effort,
     contextWindow: m.contextWindow,
+    maxOutputTokens: null,
+    hidden: false,
   };
 }
 
@@ -529,6 +551,7 @@ export function discoverClaudeModels(): ModelCatalog {
       source: bin,
       error: null,
       discoveredAt: new Date().toISOString(),
+      defaultModelId: str(raw.best),
       models,
     };
   } catch (err) {
@@ -541,4 +564,59 @@ export function discoverClaudeModels(): ModelCatalog {
 /** Test seam — the cache is process-wide by design. */
 export function resetModelDiscoveryForTests(): void {
   cache = null;
+}
+
+function billingLabel(model: ClaudeModelInfo): string | null {
+  if (model.inputPerMTok === null || model.outputPerMTok === null) return null;
+  return `$${model.inputPerMTok}/MTok input · $${model.outputPerMTok}/MTok output`;
+}
+
+/** Map the Claude-specific picker catalogue onto the shared provider shape. */
+export function mapClaudeProviderCatalogue(
+  catalogue: ModelCatalog,
+): ProviderModelCatalogue {
+  const defaultModelId =
+    catalogue.models.find(
+      (model) => model.id === catalogue.defaultModelId && !model.hidden,
+    )?.id ??
+    catalogue.models.find((model) => model.id === "haiku" && !model.hidden)?.id ??
+    catalogue.models.find((model) => !model.hidden)?.id ??
+    null;
+  const models: ProviderModel[] = catalogue.models.map((model) => ({
+    id: model.id,
+    displayName: model.label,
+    isDefault: defaultModelId === model.id,
+    hidden: model.hidden,
+    inputModalities: ["text", "image"],
+    reasoningValues: [...model.thinkingLevels],
+    defaultReasoning: model.defaultThinking,
+    supportsTools: true,
+    supportsHostTools: true,
+    supportsParallelToolCalls: true,
+    supportsStructuredOutput: false,
+    supportsStrictTools: false,
+    supportsVerbosity: false,
+    supportsPromptCacheKey: false,
+    supportsPromptCacheOptions: false,
+    contextWindow: model.contextWindow,
+    maxOutputTokens: model.maxOutputTokens,
+    billingLabel: billingLabel(model),
+  }));
+  const revision = createHash("sha256")
+    .update(JSON.stringify(models))
+    .digest("hex");
+  return {
+    providerId: "claude-local",
+    mode: catalogue.mode,
+    source: catalogue.source,
+    discoveredAt: catalogue.discoveredAt,
+    revision,
+    error: catalogue.error,
+    models,
+  };
+}
+
+/** Discover Claude and expose it through the provider-neutral contract. */
+export function discoverClaudeProviderCatalogue(): ProviderModelCatalogue {
+  return mapClaudeProviderCatalogue(discoverClaudeModels());
 }

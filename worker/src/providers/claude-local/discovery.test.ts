@@ -23,6 +23,7 @@ import {
   fallbackCatalog,
   findCatalogOffset,
   generationOf,
+  mapClaudeProviderCatalogue,
   projectCatalog,
   readCatalogFrom,
   thinkingLevelsFor,
@@ -38,7 +39,7 @@ const CATALOG =
   "models:[" +
   '{id:"claude-3-5-haiku",family:"haiku",display_name:"Haiku 3.5",' +
   'provider_ids:{first_party:"claude-3-5-haiku-20241022",bedrock:null},' +
-  'max_output_tokens:{default:8192,upper:8192},pricing:"haiku_35",capabilities:[]},' +
+  'max_output_tokens:{default:8192,upper:8192},pricing:"haiku_35",hidden:!0,capabilities:[]},' +
   '{id:"claude-opus-4-5",family:"opus",display_name:"Opus 4.5",' +
   'provider_ids:{first_party:"claude-opus-4-5-20251101",vertex:"claude-opus-4-5@20251101"},' +
   "context:{window:200000,supports_1m_suffix:!0}," +
@@ -111,6 +112,11 @@ describe("what a picker row says", () => {
     const haiku = byId.get("claude-3-5-haiku-20241022")!;
     expect(haiku.inputPerMTok).toBe(0.8);
     expect(haiku.outputPerMTok).toBe(4);
+  });
+
+  it("carries the catalogue-derived output ceiling", () => {
+    expect(byId.get("claude-3-5-haiku-20241022")!.maxOutputTokens).toBe(8192);
+    expect(byId.get("claude-opus-4-5-20251101")!.maxOutputTokens).toBeNull();
   });
 
   it("gives a model with no reasoning dial an EMPTY level list", () => {
@@ -209,5 +215,51 @@ describe("falling back", () => {
     expect(c.mode).toBe("fallback");
     expect(c.source).toMatch(/curated/);
     expect(c.error).toBe("nothing to read");
+  });
+});
+
+describe("provider-neutral Claude mapping", () => {
+  const specific = projectCatalog(readCatalogFrom(fixtureBinary())!);
+  const legacy = {
+    mode: "discovered" as const,
+    source: "/fixture/claude",
+    error: null,
+    discoveredAt: "2026-09-08T00:00:00.000Z",
+    defaultModelId: "opus",
+    models: specific,
+  };
+
+  it("maps identity, defaults, limits, pricing and exact reasoning values", () => {
+    const catalogue = mapClaudeProviderCatalogue(legacy);
+    const byId = new Map(catalogue.models.map((model) => [model.id, model]));
+    const haiku = byId.get("claude-3-5-haiku-20241022")!;
+    const opus = byId.get("opus")!;
+
+    expect(catalogue.providerId).toBe("claude-local");
+    expect(catalogue.mode).toBe("discovered");
+    expect(catalogue.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(opus.isDefault).toBe(true);
+    expect(haiku).toMatchObject({
+      displayName: "Haiku 3.5",
+      hidden: true,
+      inputModalities: ["text", "image"],
+      reasoningValues: [],
+      supportsTools: true,
+      supportsHostTools: true,
+      supportsParallelToolCalls: true,
+      supportsStructuredOutput: false,
+      maxOutputTokens: 8192,
+      billingLabel: "$0.8/MTok input · $4/MTok output",
+    });
+  });
+
+  it("derives a stable revision from model capabilities, not discovery time", () => {
+    const first = mapClaudeProviderCatalogue(legacy);
+    const later = mapClaudeProviderCatalogue({
+      ...legacy,
+      source: "/another/claude",
+      discoveredAt: "2026-09-09T00:00:00.000Z",
+    });
+    expect(later.revision).toBe(first.revision);
   });
 });

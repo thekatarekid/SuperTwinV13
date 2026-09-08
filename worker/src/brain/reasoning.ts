@@ -23,9 +23,16 @@
 import { getDb } from "../db/connection.js";
 import {
   discoverClaudeModels,
-  type ClaudeModelInfo,
 } from "../providers/claude-local/discovery.js";
-import type { ThinkingBudget } from "../providers/types.js";
+import {
+  claudeProviderCatalogue,
+  findProviderModel,
+} from "../providers/catalogue.js";
+import type {
+  ProviderModel,
+  ProviderModelCatalogue,
+  ThinkingBudget,
+} from "../providers/types.js";
 import { stepOverride } from "../settings/overrides.js";
 
 /** app_state key holding one step's reasoning level. */
@@ -61,16 +68,54 @@ export function storedThinkingForPass(pass: string): ThinkingBudget {
   }
 }
 
-/** The catalogue row for a model id (a version or an alias), or null. */
-export function modelInfo(model: string): ClaudeModelInfo | null {
+/** The provider catalogue row for a model id (a version or an alias), or null. */
+export function modelInfo(
+  model: string,
+  catalogue?: ProviderModelCatalogue,
+): ProviderModel | null {
   if (!model) return null;
-  return discoverClaudeModels().models.find((m) => m.id === model) ?? null;
+  return findProviderModel(catalogue ?? claudeProviderCatalogue(), model);
 }
 
 /** What one step's reasoning setting means for `provider.send`. */
 export interface ReasoningOptions {
   thinkingBudget?: ThinkingBudget;
   effort?: Exclude<ThinkingBudget, "off">;
+}
+
+export interface ReasoningCapabilityResolution {
+  requested: ThinkingBudget;
+  effective: ThinkingBudget;
+  clamped: boolean;
+}
+
+function modelReasoningValues(model: ProviderModel): ThinkingBudget[] {
+  return model.reasoningValues.filter(isThinkingLevel);
+}
+
+/**
+ * Resolve one requested level against one provider/model snapshot. ChatGPT's
+ * `max` has no wire equivalent, so it clamps to the highest advertised named
+ * effort; every other unsupported value remains a deliberate omission.
+ */
+export function resolveReasoningCapability(
+  requested: ThinkingBudget,
+  model: ProviderModel,
+  catalogue: ProviderModelCatalogue,
+): ReasoningCapabilityResolution | null {
+  const supported = modelReasoningValues(model);
+  if (supported.includes(requested)) {
+    return { requested, effective: requested, clamped: false };
+  }
+  if (catalogue.providerId !== "chatgpt-oauth" || requested !== "max") {
+    return null;
+  }
+  const effective = [...LEVELS]
+    .reverse()
+    .find((level) => level !== "max" && level !== "off" && supported.includes(level));
+  return effective
+    ? { requested, effective, clamped: true }
+    : null;
 }
 
 /**
@@ -80,17 +125,33 @@ export interface ReasoningOptions {
  * setting left behind by a model swap must not turn into a flag the CLI
  * rejects. `{}` means "send what this build has always sent".
  */
-export function reasoningForPass(pass: string, model: string): ReasoningOptions {
+export function reasoningForPass(
+  pass: string,
+  model: string,
+  catalogue?: ProviderModelCatalogue,
+): ReasoningOptions {
   const level = storedThinkingForPass(pass);
   // The overwhelmingly common case, and the one that must stay free: nothing
   // to resolve, nothing to look up, no catalogue read.
   if (level === "off") return {};
-  const info = modelInfo(model);
-  if (!info || !info.thinkingLevels.includes(level)) return {};
+  const selectedCatalogue = catalogue ?? claudeProviderCatalogue();
+  const info = modelInfo(model, selectedCatalogue);
+  if (!info) return {};
+  const resolved = resolveReasoningCapability(level, info, selectedCatalogue);
+  if (!resolved || resolved.effective === "off") return {};
+  const effective = resolved.effective as Exclude<ThinkingBudget, "off">;
+
+  // The current SendOptions seam still needs to know which of Claude's two
+  // levers to populate. The neutral catalogue owns capability admission; this
+  // Claude-only lookup disappears with the P1-G request migration.
+  if (selectedCatalogue.providerId !== "claude-local") {
+    return { thinkingBudget: effective, effort: effective };
+  }
+  const claude = discoverClaudeModels().models.find((candidate) => candidate.id === model);
   // Both are set for an effort model on purpose: `--effort` names the level,
   // and the budget stops plain completion from pinning the ceiling to zero
   // underneath it.
-  return info.effort
-    ? { thinkingBudget: level, effort: level as Exclude<ThinkingBudget, "off"> }
-    : { thinkingBudget: level };
+  return claude?.effort
+    ? { thinkingBudget: effective, effort: effective }
+    : { thinkingBudget: effective };
 }

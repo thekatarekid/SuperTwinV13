@@ -135,7 +135,7 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
           status: caseEvidence.status as number,
           ok: typeof caseEvidence.status === "number" && caseEvidence.status >= 200 && caseEvidence.status < 300,
           body: eventStream ? ({} as ReadableStream<Uint8Array>) : null,
-        }, eventStream ? "text/event-stream" : "", caseEvidence.stream),
+        }, eventStream ? "text/event-stream" : null, caseEvidence.stream),
         httpActuals: actuals,
         logout,
         localListeningSocketsCreated: false,

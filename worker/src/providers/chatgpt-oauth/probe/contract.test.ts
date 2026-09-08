@@ -76,7 +76,7 @@ function sseResponse(type = "response.completed", output = "probe", toolCall = f
     ];
   return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
     status: 200,
-    headers: { "content-type": "text/event-stream" },
+    headers: { "content-type": "TeXt/EvEnT-StReAm; Charset=UTF-8" },
   });
 }
 
@@ -144,29 +144,30 @@ describe("ephemeral account and SSE evidence", () => {
   it("classifies bounded non-SSE bodies and re-sanitizes hostile builder input", () => {
     const response = new Response("ignored", {
       status: 400,
-      headers: { "content-type": "application/problem+json; charset=utf-8" },
+      headers: { "content-type": "Application/Problem+JSON; Charset=UTF-8" },
     });
     const secret = "secret-arbitrary-diagnostic-value";
+    const hostileText = JSON.stringify({
+      error: {
+        param: `input[0].${secret}`,
+        type: secret,
+        code: secret,
+        message: `The input and max_output_tokens fields conflict. ${secret}`,
+      },
+    });
     const diagnostic = buildContractCaseMismatchDiagnostic(
       response,
-      response.headers.get("content-type") ?? "",
+      response.headers.get("content-type"),
       undefined,
       {
-        text: JSON.stringify({
-          error: {
-            param: `input[0].${secret}`,
-            type: secret,
-            code: secret,
-            message: `The input and max_output_tokens fields conflict. ${secret}`,
-          },
-        }),
-        bytes: 999_999_999,
+        text: hostileText,
+        bytes: Buffer.byteLength(hostileText),
       },
     );
     expect(diagnostic).toMatchObject({
       contentTypeCategory: "json",
       nonSseBodyCategory: "json-error-envelope",
-      nonSseResponseBytes: 128 * 1024,
+      nonSseResponseBytes: Buffer.byteLength(hostileText),
       nonSseError: {
         paramRoot: "input",
         typeCategory: "<unknown>",
@@ -176,12 +177,40 @@ describe("ephemeral account and SSE evidence", () => {
     });
     expect(JSON.stringify(diagnostic)).not.toContain(secret);
 
+    const invalidRaw = buildContractCaseMismatchDiagnostic(response, "application/json", undefined, {
+      text: hostileText,
+      bytes: 999_999_999,
+      nonSseError: { paramRoot: secret },
+    });
+    expect(invalidRaw).not.toHaveProperty("nonSseError");
+    expect(invalidRaw).not.toHaveProperty("nonSseResponseBytes");
+    expect(JSON.stringify(invalidRaw)).not.toContain(secret);
+
     expect(buildContractCaseMismatchDiagnostic(response, "", undefined, { text: "", bytes: 0 }))
       .toMatchObject({ contentTypeCategory: "absent", nonSseBodyCategory: "empty" });
     expect(buildContractCaseMismatchDiagnostic(response, "text/plain", undefined, { text: "not-json", bytes: 8 }))
       .toMatchObject({ contentTypeCategory: "other", nonSseBodyCategory: "non-json" });
     expect(buildContractCaseMismatchDiagnostic(response, "application/json", undefined, { text: "{}", bytes: 2 }))
       .toMatchObject({ contentTypeCategory: "json", nonSseBodyCategory: "json-other" });
+
+    const knownError = JSON.stringify({ error: { param: "reasoning.effort", type: "invalid_request_error" } });
+    expect(buildContractCaseMismatchDiagnostic(response, "APPLICATION/JSON; charset=utf-8", undefined, {
+      text: knownError,
+      bytes: Buffer.byteLength(knownError),
+    })).toMatchObject({
+      contentTypeCategory: "json",
+      nonSseError: { paramRoot: "reasoning", typeCategory: "invalid-request" },
+    });
+    expect(buildContractCaseMismatchDiagnostic(
+      new Response("ignored", { status: 401 }),
+      "application/json",
+      undefined,
+      { text: knownError, bytes: Buffer.byteLength(knownError) },
+    )).not.toHaveProperty("nonSseError");
+    expect(buildContractCaseMismatchDiagnostic(response, "text/plain", undefined, {
+      text: knownError,
+      bytes: Buffer.byteLength(knownError),
+    })).not.toHaveProperty("nonSseError");
   });
 
   it("parses fragmented UTF-8 SSE and captures only event types, response ID, and numeric usage", async () => {

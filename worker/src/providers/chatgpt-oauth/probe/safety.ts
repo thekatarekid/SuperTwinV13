@@ -17,6 +17,12 @@ import {
 } from "./accounting.js";
 import { requestedProbeModelId } from "./models.js";
 import { assertEmptyScratchHome } from "./scratch.js";
+import { LIVE_BROWSER_AUTH_SMOKE_ENV } from "./browser-auth-smoke.js";
+import {
+  BROWSER_SMOKE_CONTROLLED_REMOTE_LIMIT,
+  BROWSER_SMOKE_NETWORK_LIMITS,
+  BROWSER_SMOKE_WORKER_FETCH_LIMIT,
+} from "./browser-smoke-budget.js";
 
 export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
 export const LIVE_DISCOVERY_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_DISCOVERY_PROBE";
@@ -112,6 +118,42 @@ export function assertLiveCanaryProbeAccount(
 ): DedicatedProbeAccount {
   assertLiveCanaryProbePreflight(env);
   return assertExpectedProbeAccount(accessToken, env);
+}
+
+/** Browser Authorization Code + PKCE has a dedicated zero-inference opt-in. */
+export function assertLiveBrowserAuthSmokePreflight(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const scratchHome = assertLiveProbeOptIn(env);
+  if (env[LIVE_BROWSER_AUTH_SMOKE_ENV] !== "1") {
+    throw new Error(
+      `REFUSED: live browser-auth smoke requires ${LIVE_BROWSER_AUTH_SMOKE_ENV}=1`,
+    );
+  }
+  expectedProbeAccountFingerprint(env);
+  return scratchHome;
+}
+
+export function formatBrowserAuthSmokeDeclaration(): string {
+  const limits = BROWSER_SMOKE_NETWORK_LIMITS;
+  return [
+    "PHASE_0B_BROWSER_AUTH_SMOKE_DECLARATION",
+    `MAX_AUTHORIZATION_NAVIGATIONS=${limits.authorizeNavigation}`,
+    `MAX_TOKEN_EXCHANGE_POSTS=${limits.tokenExchange}`,
+    `MAX_TOKEN_REFRESH_POSTS=${limits.tokenRefresh}`,
+    `MAX_DEVICE_CODE_REQUESTS=${limits.deviceCode}`,
+    `MAX_DEVICE_POLL_REQUESTS=${limits.devicePoll}`,
+    `MAX_MODEL_REQUESTS=${limits.models}`,
+    `MAX_QUOTA_REQUESTS=${limits.quota}`,
+    `MAX_INFERENCE_POSTS=${limits.inference}`,
+    `MAX_OTHER_REQUESTS=${limits.other}`,
+    `MAX_WORKER_FETCH_REQUESTS=${BROWSER_SMOKE_WORKER_FETCH_LIMIT}`,
+    `MAX_CONTROLLED_REMOTE_OPERATIONS=${BROWSER_SMOKE_CONTROLLED_REMOTE_LIMIT}`,
+    "OAUTH_RETRIES=0",
+    "INFERENCE_RETRIES=0",
+    "CUMULATIVE_AUTHORIZATION=not-applicable-no-inference",
+    "CALLBACK=http://localhost:1455/auth/callback",
+  ].join("\n");
 }
 
 /** Run after OAuth exchange and before model, quota, or inference requests. */

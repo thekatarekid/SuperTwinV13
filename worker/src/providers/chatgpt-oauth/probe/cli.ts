@@ -17,15 +17,30 @@ import { runCanaryProbe } from "./canary-runner.js";
 import { EphemeralProbeTokenSession } from "./refresh.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
 import {
+  assertLiveBrowserAuthSmokePreflight,
   assertLiveContractProbePreflight,
   assertLiveCanaryProbePreflight,
   assertLiveDiscoveryProbePreflight,
   assertLiveProbeOptIn,
+  formatBrowserAuthSmokeDeclaration,
   formatLiveDeclaration,
 } from "./safety.js";
 import { prepareLiveInferenceAuthorization } from "./live-authorization.js";
 import { initializeInferenceAuthorizationFromEnvironment } from "./authorization-ledger-init.js";
 import { requestedProbeModelId } from "./models.js";
+import {
+  runBrowserAuthSmoke,
+  type BrowserAuthSmokeHooks,
+} from "./browser-auth-smoke.js";
+import {
+  formatBrowserSmokeNetworkActuals,
+  ZERO_BROWSER_SMOKE_NETWORK_COUNTS,
+  type BrowserSmokeNetworkCounts,
+} from "./browser-smoke-budget.js";
+import {
+  createBrowserSmokeRuntimeHooks,
+  type BrowserSmokeRuntimeOptions,
+} from "./browser-smoke-runtime.js";
 
 export interface ProbeCliDependencies {
   runAuthFlow?: typeof runDeviceCodeFlow;
@@ -33,6 +48,10 @@ export interface ProbeCliDependencies {
   runContractProbe?: typeof runContractProbeScaffold;
   runDiscoveryProbe?: typeof runDiscoveryProbe;
   initializeAuthorizationLedger?: typeof initializeInferenceAuthorizationFromEnvironment;
+  createBrowserSmokeHooks?: (
+    options: BrowserSmokeRuntimeOptions,
+  ) => Promise<BrowserAuthSmokeHooks>;
+  runBrowserAuthSmoke?: typeof runBrowserAuthSmoke;
 }
 
 const ZERO_HTTP_COUNTS: Readonly<ProbeHttpCounts> = Object.freeze({
@@ -56,6 +75,7 @@ export async function runProbeCli(
   const liveContract = args.includes("--live-contract");
   const liveDiscover = args.includes("--live-discover");
   const liveCanary = args.includes("--live-canary");
+  const liveBrowserAuthSmoke = args.includes("--live-browser-auth-smoke");
   const initializeAuthorizationLedger = args.includes("--initialize-authorization-ledger");
   if (initializeAuthorizationLedger) {
     if (args.length !== 1 || args[0] !== "--initialize-authorization-ledger") {
@@ -75,6 +95,17 @@ export async function runProbeCli(
     throw new Error(
       "REFUSED: --emit-authorization-plan requires exactly the live discovery mode",
     );
+  }
+  if (liveBrowserAuthSmoke) {
+    // The bounded declaration is always emitted before opt-in checks, crypto,
+    // listener creation, browser navigation, or fetch.
+    process.stderr.write(`${formatBrowserAuthSmokeDeclaration()}\n`);
+    if (args.length !== 1 || args[0] !== "--live-browser-auth-smoke") {
+      throw new Error(
+        "REFUSED: --live-browser-auth-smoke must be the only CLI argument",
+      );
+    }
+    return runLiveBrowserAuthSmokeProbe(env, dependencies);
   }
   if (!liveAuth && !liveContract && !liveDiscover && !liveCanary) {
     process.stdout.write(`${redactedJson(dryRunSnapshot(env))}\n`);
@@ -153,6 +184,48 @@ export async function runProbeCli(
   } finally {
     process.off("SIGINT", onSigint);
     printAccounting();
+  }
+}
+
+async function runLiveBrowserAuthSmokeProbe(
+  env: NodeJS.ProcessEnv,
+  dependencies: ProbeCliDependencies,
+): Promise<number> {
+  const abortController = new AbortController();
+  let networkActuals: BrowserSmokeNetworkCounts = {
+    ...ZERO_BROWSER_SMOKE_NETWORK_COUNTS,
+  };
+  const onSigint = (): void => {
+    abortController.abort(new Error("Phase 0b browser-auth smoke cancelled by SIGINT"));
+  };
+  process.once("SIGINT", onSigint);
+  try {
+    // This preflight must finish before constructing the real runtime hooks.
+    assertLiveBrowserAuthSmokePreflight(env);
+    const onNetworkActuals = (counts: BrowserSmokeNetworkCounts): void => {
+      networkActuals = { ...counts };
+    };
+    const createHooks =
+      dependencies.createBrowserSmokeHooks ?? createBrowserSmokeRuntimeHooks;
+    const createdHooks = await createHooks({
+      env,
+      signal: abortController.signal,
+      onNetworkActuals,
+    });
+    const evidence = await (
+      dependencies.runBrowserAuthSmoke ?? runBrowserAuthSmoke
+    )({
+      ...createdHooks,
+      env: { ...env },
+      signal: abortController.signal,
+      onNetworkActuals,
+    });
+    process.stdout.write(`${redactedJson(evidence)}\n`);
+    return 0;
+  } finally {
+    abortController.abort(new Error("Phase 0b browser-auth smoke finished"));
+    process.off("SIGINT", onSigint);
+    process.stderr.write(`${formatBrowserSmokeNetworkActuals(networkActuals)}\n`);
   }
 }
 

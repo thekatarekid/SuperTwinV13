@@ -45,19 +45,33 @@ import {
   describeWorkerError,
   downloadEmbeddingModel,
   fetchEmbeddingModels,
+  fetchChatGptLoginStatus,
+  fetchChatGptProviderStatus,
   fetchSettingsIntelligence,
+  cancelChatGptLogin,
+  logoutChatGpt,
   runGoldenSet,
+  saveIntelligenceProvider,
   saveIntelligenceStep,
+  startChatGptLogin,
+  type ChatGptLoginStart,
+  type ChatGptLoginStatus,
+  type ChatGptProviderStatus,
   type EmbeddingRegistry,
   type GoldenState,
   type IntelligenceSettings,
   type ModelOptionRow,
 } from "../../lib/api";
+import { openExternal } from "../../lib/tauri";
 import { ModelList, type ModelRowView } from "./ModelList";
 import { rowStyle } from "./shared";
 
 /** How often the encoder list re-reads itself while a fetch is in flight. */
 const PROGRESS_POLL_MS = 1000;
+const LOGIN_POLL_MS = 750;
+
+const CHATGPT_CONSENT =
+  "SuperTwin will send selected WhatsApp messages, browser text, screen captures, and derived context to OpenAI using your personal ChatGPT/Codex subscription. This is consumer-service traffic, not API business data. OpenAI may retain or use content according to your account’s data controls. SuperTwin cannot guarantee no training, Temporary Chat treatment, or deletion. Confirm you have permission to share this data. You can sign out and stop future sends at any time.";
 
 /** One line for each verdict the golden gate can be sitting on. */
 function goldenLine(g: GoldenState): string {
@@ -91,6 +105,23 @@ function priceOf(m: ModelOptionRow): string {
  * halves of an in-place upgrade never render an empty dropdown.
  */
 function modelRows(s: IntelligenceSettings): ModelOptionRow[] {
+  if (s.catalogue?.models) {
+    return s.catalogue.models
+      .filter((model) => !model.hidden)
+      .map((model) => ({
+        id: model.id,
+        label: model.displayName,
+        family: model.id,
+        alias: false,
+        resolves_to: null,
+        input_per_mtok: null,
+        output_per_mtok: null,
+        thinking_levels: model.reasoningValues,
+        default_thinking: model.defaultReasoning,
+        effort: model.reasoningValues.length > 0,
+        context_window: model.contextWindow,
+      }));
+  }
   if (s.models && s.models.length > 0) return s.models;
   return s.options.map((id) => ({
     id,
@@ -107,12 +138,50 @@ function modelRows(s: IntelligenceSettings): ModelOptionRow[] {
   }));
 }
 
+function catalogueLine(s: IntelligenceSettings, count: number): string {
+  if (s.catalogue) {
+    const provider = s.provider.selected === "chatgpt-oauth" ? "ChatGPT" : "Claude";
+    if (s.catalogue.mode === "cached") {
+      return `${count} cached ${provider} models — live discovery is unavailable${s.catalogue.error ? ` (${s.catalogue.error})` : ""}`;
+    }
+    if (s.catalogue.mode === "fallback") {
+      return `${count} fallback ${provider} models${s.catalogue.error ? ` — ${s.catalogue.error}` : ""}`;
+    }
+    return `${count} models available from ${provider}`;
+  }
+  const discovery = s.discovery;
+  return discovery?.mode === "discovered"
+    ? `${count} models read from the local Claude CLI · prices per million tokens`
+    : discovery?.mode === "cached"
+      ? `${count} models read from the Claude CLI earlier — could not re-read it now (${discovery.error ?? "unknown"})`
+      : discovery
+        ? `curated fallback list — could not read the CLI's catalogue (${discovery.error ?? "unknown"})`
+        : "model list served by the worker";
+}
+
+function providerPrice(s: IntelligenceSettings, modelId: string): string {
+  const neutral = s.catalogue?.models.find((model) => model.id === modelId);
+  if (neutral?.billingLabel) return neutral.billingLabel;
+  const legacy = modelRows(s).find((model) => model.id === modelId);
+  return legacy ? priceOf(legacy) : "price unlisted";
+}
+
 export function IntelligencePanel(): JSX.Element {
   const [embed, setEmbed] = useState<EmbeddingRegistry | null>(null);
   const [embedError, setEmbedError] = useState<string | null>(null);
   const [goldenNote, setGoldenNote] = useState<string | null>(null);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [chatGptStatus, setChatGptStatus] = useState<ChatGptProviderStatus | null>(null);
+  const [chatGptStatusLoading, setChatGptStatusLoading] = useState(false);
+  const [login, setLogin] = useState<ChatGptLoginStart | null>(null);
+  const [loginStatus, setLoginStatus] = useState<ChatGptLoginStatus | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const goldenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  const authGeneration = useRef(0);
+  const statusTicket = useRef(0);
+  const mutationTicket = useRef(0);
 
   // The step table gates the pane; the encoder registry is a section inside it
   // and carries its own failure line, so one being down never hides the other
@@ -121,6 +190,23 @@ export function IntelligencePanel(): JSX.Element {
   const s = load.data;
   const setS = load.setData;
   const attempt = load.attempt;
+
+  useEffect(() => {
+    // React development StrictMode intentionally mounts, cleans up, and mounts
+    // again; restore the live marker on that second setup.
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      authGeneration.current += 1;
+      statusTicket.current += 1;
+      mutationTicket.current += 1;
+    };
+  }, []);
+
+  const isCurrentAuth = useCallback(
+    (generation: number) => mounted.current && authGeneration.current === generation,
+    [],
+  );
 
   const refreshEmbed = useCallback(async () => {
     try {
@@ -132,14 +218,121 @@ export function IntelligencePanel(): JSX.Element {
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    setS(await fetchSettingsIntelligence());
-    await refreshEmbed();
-  }, [refreshEmbed, setS]);
-
   useEffect(() => {
     void refreshEmbed();
   }, [refreshEmbed, attempt]);
+
+  const selectedProvider = s?.provider?.selected ?? "claude-local";
+
+  const refreshChatGptStatus = useCallback(async (generation = authGeneration.current) => {
+    if (!isCurrentAuth(generation)) return;
+    const ticket = ++statusTicket.current;
+    const isLatest = () => isCurrentAuth(generation) && statusTicket.current === ticket;
+    setChatGptStatusLoading(true);
+    try {
+      const next = await fetchChatGptProviderStatus();
+      if (!isLatest()) return;
+      setChatGptStatus(next);
+      setProviderError(null);
+    } catch (err) {
+      if (!isLatest()) return;
+      setProviderError(describeWorkerError(err));
+    } finally {
+      if (isLatest()) setChatGptStatusLoading(false);
+    }
+  }, [isCurrentAuth]);
+
+  const refreshAuthIntelligence = useCallback(async (
+    generation: number,
+    ticket?: number,
+  ) => {
+    const isLatest = () =>
+      isCurrentAuth(generation) &&
+      (ticket === undefined || mutationTicket.current === ticket);
+    try {
+      const next = await fetchSettingsIntelligence();
+      if (isLatest()) setS(next);
+    } catch (err) {
+      if (isLatest()) setProviderError(describeWorkerError(err));
+    }
+  }, [isCurrentAuth, setS]);
+
+  const retryIntelligence = useCallback(async () => {
+    const generation = authGeneration.current;
+    const ticket = ++mutationTicket.current;
+    const isLatest = () => isCurrentAuth(generation) && mutationTicket.current === ticket;
+    setProviderBusy(true);
+    try {
+      await refreshAuthIntelligence(generation, ticket);
+    } finally {
+      if (isLatest()) setProviderBusy(false);
+    }
+  }, [isCurrentAuth, refreshAuthIntelligence]);
+
+  const saveProviderStep = useCallback(async (patch: {
+    step: string;
+    model?: string;
+    thinking?: string;
+    enabled?: boolean;
+  }) => {
+    const generation = authGeneration.current;
+    const ticket = ++mutationTicket.current;
+    const isLatest = () => isCurrentAuth(generation) && mutationTicket.current === ticket;
+    setProviderBusy(true);
+    setProviderError(null);
+    try {
+      await saveIntelligenceStep(patch);
+      if (isLatest()) await refreshAuthIntelligence(generation, ticket);
+    } catch (err) {
+      if (isLatest()) setProviderError(describeWorkerError(err));
+    } finally {
+      if (isLatest()) setProviderBusy(false);
+    }
+  }, [isCurrentAuth, refreshAuthIntelligence]);
+
+  useEffect(() => {
+    if (!s?.provider || selectedProvider !== "chatgpt-oauth") return;
+    void refreshChatGptStatus(authGeneration.current);
+  }, [refreshChatGptStatus, s?.provider, selectedProvider]);
+
+  // The browser callback completes without user input in this window. Poll the
+  // bounded, redacted attempt state and rebuild every picker when it signs in.
+  useEffect(() => {
+    if (!login) return;
+    const generation = authGeneration.current;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const next = await fetchChatGptLoginStatus(login.login_id);
+        if (stopped || !isCurrentAuth(generation)) return;
+        setLoginStatus(next);
+        if (next.status === "signed_in") {
+          setLogin(null);
+          await Promise.all([
+            refreshAuthIntelligence(generation),
+            refreshChatGptStatus(generation),
+          ]);
+          return;
+        }
+        if (["failed", "cancelled", "expired"].includes(next.status)) {
+          setLogin(null);
+          return;
+        }
+        timer = setTimeout(() => void poll(), LOGIN_POLL_MS);
+      } catch (err) {
+        if (!stopped && isCurrentAuth(generation)) {
+          setProviderError(describeWorkerError(err));
+          setLogin(null);
+        }
+      }
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [isCurrentAuth, login, refreshAuthIntelligence, refreshChatGptStatus]);
 
   // A download is minutes of work reported by polling the registry, not by a
   // held-open request; without this the progress line would never move.
@@ -159,11 +352,16 @@ export function IntelligencePanel(): JSX.Element {
   // instead of leaving a stale banner the user has to guess about.
   useEffect(() => {
     if (s?.golden?.state.status !== "running") return;
-    goldenTimer.current = setTimeout(() => void refresh().catch(() => {}), PROGRESS_POLL_MS);
+    const generation = authGeneration.current;
+    const ticket = mutationTicket.current;
+    goldenTimer.current = setTimeout(
+      () => void refreshAuthIntelligence(generation, ticket),
+      PROGRESS_POLL_MS,
+    );
     return () => {
       if (goldenTimer.current) clearTimeout(goldenTimer.current);
     };
-  }, [s, refresh]);
+  }, [refreshAuthIntelligence, s]);
 
   /** Run one registry action and adopt whatever it answers with, error included. */
   const act = useCallback(
@@ -187,21 +385,236 @@ export function IntelligencePanel(): JSX.Element {
   const groups = [...new Set(s.steps.map((x) => x.group))];
   const models = modelRows(s);
   const byId = new Map(models.map((m) => [m.id, m]));
-  const discovery = s.discovery;
+  const provider = s.provider ?? {
+    selected: "claude-local" as const,
+    options: [{ id: "claude-local" as const, label: "Claude — Claude subscription", auth_state: "ready" as const }],
+  };
+  const selectedOption = provider.options.find((option) => option.id === provider.selected);
+  const authState =
+    provider.selected === "chatgpt-oauth"
+      ? (chatGptStatus?.auth_state ?? selectedOption?.auth_state ?? "signed_out")
+      : (selectedOption?.auth_state ?? "ready");
+  const modelControlsDisabled =
+    providerBusy ||
+    login !== null ||
+    (provider.selected === "chatgpt-oauth" && chatGptStatusLoading) ||
+    authState !== "ready" ||
+    models.length === 0;
 
   return (
     <div>
       <h2>Intelligence — model per step</h2>
-      <p className="meta">default: Haiku everywhere · rec = advised, applied only by your choice</p>
-      <p className="meta">
-        {discovery?.mode === "discovered"
-          ? `${models.length} models read from the local Claude CLI · prices per million tokens`
-          : discovery?.mode === "cached"
-            ? `${models.length} models read from the Claude CLI earlier — could not re-read it now (${discovery.error ?? "unknown"})`
-            : discovery
-              ? `curated fallback list — could not read the CLI's catalogue (${discovery.error ?? "unknown"})`
-              : "model list served by the worker"}
+      <label style={rowStyle}>
+        <strong>AI provider</strong>
+        <select
+          aria-label="AI provider"
+          value={provider.selected}
+          disabled={providerBusy || login !== null}
+          onChange={(event) => {
+            const generation = ++authGeneration.current;
+            const ticket = ++mutationTicket.current;
+            const isLatest = () =>
+              isCurrentAuth(generation) && mutationTicket.current === ticket;
+            const nextProvider = event.target.value as "claude-local" | "chatgpt-oauth";
+            const activeLogin = login;
+            setProviderBusy(true);
+            setProviderError(null);
+            setChatGptStatus(null);
+            setLogin(null);
+            setLoginStatus(null);
+            void (activeLogin
+              ? cancelChatGptLogin(activeLogin.login_id).then(() => saveIntelligenceProvider(nextProvider))
+              : saveIntelligenceProvider(nextProvider))
+              .then((next) => {
+                if (isLatest()) setS(next);
+              })
+              .catch((err: unknown) => {
+                if (isLatest()) setProviderError(describeWorkerError(err));
+              })
+              .finally(() => {
+                if (isLatest()) setProviderBusy(false);
+              });
+          }}
+        >
+          {provider.options.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+      {providerBusy ? <p className="meta" role="status">Updating intelligence settings…</p> : null}
+      {providerError ? (
+        <p className="meta" role="alert">
+          {providerError}{" "}
+          <button
+            type="button"
+            className="linklike"
+            disabled={providerBusy || login !== null}
+            onClick={() => void retryIntelligence()}
+          >Retry</button>
+        </p>
+      ) : null}
+
+      {provider.selected === "chatgpt-oauth" ? (
+        <div className="golden-gate" style={{ margin: "8px 0", padding: "8px 0" }}>
+          {chatGptStatusLoading && chatGptStatus === null ? (
+            <p className="meta" role="status">Checking ChatGPT sign-in…</p>
+          ) : authState === "ready" ? (
+            <div style={rowStyle}>
+              <span>
+                <strong>ChatGPT signed in</strong>
+                <span className="meta" style={{ display: "block" }}>
+                  {[chatGptStatus?.plan, chatGptStatus?.quota.state].filter(Boolean).join(" · ") || "ChatGPT subscription"}
+                </span>
+              </span>
+              <button
+                type="button"
+                className="btn"
+                disabled={providerBusy}
+                onClick={() => {
+                  const generation = ++authGeneration.current;
+                  setProviderBusy(true);
+                  void logoutChatGpt()
+                    .then(async () => {
+                      if (!isCurrentAuth(generation)) return;
+                      setChatGptStatus(null);
+                      await refreshAuthIntelligence(generation);
+                    })
+                    .catch((err: unknown) => {
+                      if (isCurrentAuth(generation)) setProviderError(describeWorkerError(err));
+                    })
+                    .finally(() => {
+                      if (isCurrentAuth(generation)) setProviderBusy(false);
+                    });
+                }}
+              >Sign out of ChatGPT</button>
+            </div>
+          ) : (
+            <>
+              <p>{CHATGPT_CONSENT}</p>
+              <div style={rowStyle}>
+                <span className="meta" role="status">
+                  {loginStatus?.status === "exchanging"
+                    ? "Finishing sign-in…"
+                    : login
+                      ? "Waiting for approval in your browser…"
+                      : loginStatus?.status === "failed"
+                        ? `Sign-in failed${loginStatus.error ? ` (${loginStatus.error})` : ""}. Try again.`
+                        : loginStatus?.status === "cancelled"
+                          ? "Sign-in cancelled."
+                          : loginStatus?.status === "expired"
+                            ? "The sign-in window expired. Try again."
+                      : authState === "expired"
+                        ? "Your ChatGPT sign-in expired. Sign in again to continue."
+                        : authState === "unavailable"
+                          ? "ChatGPT is unavailable in this build."
+                          : authState === "degraded"
+                            ? "ChatGPT needs attention before it can run models."
+                            : "Sign in to use your ChatGPT subscription."}
+                </span>
+                {login ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={providerBusy}
+                    onClick={() => {
+                      const id = login.login_id;
+                      const generation = ++authGeneration.current;
+                      setProviderBusy(true);
+                      void cancelChatGptLogin(id)
+                        .then(async (result) => {
+                          if (!isCurrentAuth(generation)) return;
+                          if (result.cancelled) {
+                            setLogin(null);
+                            setLoginStatus({ login_id: id, status: "cancelled", expires_at: null, error: null });
+                            return;
+                          }
+                          const terminal = await fetchChatGptLoginStatus(id);
+                          if (!isCurrentAuth(generation)) return;
+                          setLoginStatus(terminal);
+                          if (terminal.status === "signed_in") {
+                            setLogin(null);
+                            await Promise.all([
+                              refreshAuthIntelligence(generation),
+                              refreshChatGptStatus(generation),
+                            ]);
+                          } else if (["failed", "cancelled", "expired"].includes(terminal.status)) {
+                            setLogin(null);
+                          } else {
+                            // Cancellation lost but the attempt is still live:
+                            // restart polling under this newer generation.
+                            setLogin((current) => current ? { ...current } : current);
+                          }
+                        })
+                        .catch((err: unknown) => {
+                          if (isCurrentAuth(generation)) {
+                            setProviderError(describeWorkerError(err));
+                            // Whether the cancel request failed or a
+                            // `{cancelled:false}` truth-read failed, the
+                            // listener may still complete. Keep polling it.
+                            setLogin((current) => current ? { ...current } : current);
+                          }
+                        })
+                        .finally(() => {
+                          if (isCurrentAuth(generation)) setProviderBusy(false);
+                        });
+                    }}
+                  >Cancel sign-in</button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={providerBusy || authState === "unavailable"}
+                    onClick={() => {
+                      const generation = ++authGeneration.current;
+                      setProviderBusy(true);
+                      setProviderError(null);
+                      void startChatGptLogin()
+                        .then(async (started) => {
+                          if (!isCurrentAuth(generation)) {
+                            await cancelChatGptLogin(started.login_id).catch(() => undefined);
+                            return;
+                          }
+                          setLogin(started);
+                          setLoginStatus({ login_id: started.login_id, status: "awaiting_browser", expires_at: started.expires_at, error: null });
+                          try {
+                            await openExternal(started.auth_url);
+                          } catch (err) {
+                            await cancelChatGptLogin(started.login_id).catch(() => undefined);
+                            if (isCurrentAuth(generation)) setLogin(null);
+                            throw err;
+                          }
+                        })
+                        .catch((err: unknown) => {
+                          if (isCurrentAuth(generation)) setProviderError(describeWorkerError(err));
+                        })
+                        .finally(() => {
+                          if (isCurrentAuth(generation)) setProviderBusy(false);
+                        });
+                    }}
+                  >Sign in with ChatGPT</button>
+                )}
+              </div>
+              {authState === "unavailable" || authState === "degraded" ? (
+                <button type="button" className="linklike" onClick={() => void refreshChatGptStatus()}>Retry ChatGPT status</button>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+
+      <p className="meta">rec = advised, applied only by your choice</p>
+      <p className="meta" role={s.catalogue?.mode === "cached" ? "status" : undefined}>
+        {catalogueLine(s, models.length)}
+        {s.catalogue?.mode === "cached" || models.length === 0 ? (
+          <>{" "}<button
+            type="button"
+            className="linklike"
+            disabled={providerBusy || login !== null}
+            onClick={() => void retryIntelligence()}
+          >Retry</button></>
+        ) : null}
       </p>
+      {models.length === 0 ? <p className="meta" role="alert">No models are available for this provider.</p> : null}
       <div className="golden-gate" style={{ margin: "8px 0" }}>
         <div style={rowStyle}>
           <strong>Golden set</strong>
@@ -213,19 +626,31 @@ export function IntelligencePanel(): JSX.Element {
             </span>
             <button
               className="btn"
-              disabled={!golden?.runner_installed || running}
+              disabled={!golden?.runner_installed || running || providerBusy || login !== null}
               title={
                 golden?.runner_installed
                   ? "Runs the whole golden set against the shipped configuration. This spends model calls."
                   : "No eval harness beside this worker, so there is nothing to run."
               }
               onClick={() => {
+                const generation = authGeneration.current;
+                const ticket = ++mutationTicket.current;
+                const isLatest = () =>
+                  isCurrentAuth(generation) && mutationTicket.current === ticket;
+                setProviderBusy(true);
                 setGoldenNote(null);
                 void runGoldenSet({})
-                  .then(() => refresh())
-                  .catch((err: unknown) =>
-                    setGoldenNote(err instanceof Error ? err.message : String(err)),
-                  );
+                  .then(async () => {
+                    if (isLatest()) await refreshAuthIntelligence(generation, ticket);
+                  })
+                  .catch((err: unknown) => {
+                    if (isLatest()) {
+                      setGoldenNote(err instanceof Error ? err.message : String(err));
+                    }
+                  })
+                  .finally(() => {
+                    if (isLatest()) setProviderBusy(false);
+                  });
               }}
             >
               {running ? "running…" : "Run golden set"}
@@ -250,7 +675,8 @@ export function IntelligencePanel(): JSX.Element {
           {s.steps
             .filter((x) => x.group === g)
             .map((x) => {
-              const picked = byId.get(x.selected);
+              const selectedModel = x.selected_model ?? x.selected;
+              const picked = byId.get(selectedModel);
               // The levels the SELECTED model offers — the worker sends them
               // per step, and the catalogue row is the fallback for a worker
               // that does not yet.
@@ -261,16 +687,13 @@ export function IntelligencePanel(): JSX.Element {
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <select
                       aria-label={`${x.label} model`}
-                      value={x.selected}
-                      onChange={(e) =>
-                        void saveIntelligenceStep({ step: x.key, model: e.target.value }).then(
-                          refresh,
-                        )
-                      }
+                      disabled={modelControlsDisabled || x.available === false}
+                      value={selectedModel}
+                      onChange={(e) => void saveProviderStep({ step: x.key, model: e.target.value })}
                     >
                       {models.map((o) => (
                         <option key={o.id} value={o.id}>
-                          {o.label} — {priceOf(o)}
+                          {o.label} — {providerPrice(s, o.id)}
                         </option>
                       ))}
                     </select>
@@ -278,13 +701,13 @@ export function IntelligencePanel(): JSX.Element {
                       aria-label={`${x.label} thinking`}
                       // A model with no reasoning dial gets a disabled control
                       // saying so, never a dropdown of choices that do nothing.
-                      disabled={levels.length === 0}
-                      value={levels.length === 0 ? "none" : (x.thinking ?? "off")}
+                      disabled={modelControlsDisabled || x.available === false || levels.length === 0}
+                      value={levels.length === 0 ? "none" : (x.reasoning ?? x.thinking ?? "off")}
                       onChange={(e) =>
-                        void saveIntelligenceStep({
+                        void saveProviderStep({
                           step: x.key,
                           thinking: e.target.value,
-                        }).then(refresh)
+                        })
                       }
                     >
                       {levels.length === 0 ? (
@@ -312,12 +735,9 @@ export function IntelligencePanel(): JSX.Element {
                     <input
                       type="checkbox"
                       aria-label={`${x.label} enabled`}
+                      disabled={providerBusy || login !== null || x.available === false}
                       checked={x.enabled}
-                      onChange={(e) =>
-                        void saveIntelligenceStep({ step: x.key, enabled: e.target.checked }).then(
-                          refresh,
-                        )
-                      }
+                      onChange={(e) => void saveProviderStep({ step: x.key, enabled: e.target.checked })}
                     />
                   </span>
                 </div>

@@ -28,6 +28,10 @@ export function sumUsage(a: Usage, b: Usage): Usage {
   if (a.costUsd !== undefined || b.costUsd !== undefined) {
     out.costUsd = (a.costUsd ?? 0) + (b.costUsd ?? 0);
   }
+  if (a.cachedInputTokens !== undefined || b.cachedInputTokens !== undefined) {
+    out.cachedInputTokens =
+      (a.cachedInputTokens ?? 0) + (b.cachedInputTokens ?? 0);
+  }
   if (
     a.cacheCreation5mInputTokens !== undefined ||
     b.cacheCreation5mInputTokens !== undefined
@@ -100,6 +104,7 @@ export function hasSpend(u: Usage): boolean {
     u.inputTokens > 0 ||
     u.cacheCreationInputTokens > 0 ||
     u.cacheReadInputTokens > 0 ||
+    (u.cachedInputTokens ?? 0) > 0 ||
     u.outputTokens > 0
   );
 }
@@ -107,13 +112,13 @@ export function hasSpend(u: Usage): boolean {
 // ---------------------------------------------------------------------------
 // [CODE] The four-way identity (arch §4.4.4)
 //
-//   total_input = cache_read + cache_creation + input_tokens
+//   Claude: total_input = cache_read + cache_creation + input_tokens
+//   ChatGPT: total_input = input_tokens; cached_input is a subset
 //
-// `inputTokens` is NOT "the input": it counts only the tokens after the last
-// cache breakpoint. Rendering it as the total is the bug that made a real
-// 59,700-token call display as 17. Anything that wants "how much input did this
-// cost" calls totalInputTokens(); anything that renders the parts renders all
-// three AND the sum, via usageParts().
+// Claude's `inputTokens` is NOT "the input": it counts only tokens after the
+// last cache breakpoint. ChatGPT's `inputTokens` already includes its optional
+// `cachedInputTokens` subset. Anything that wants the provider-correct total
+// calls totalInputTokens(); anything rendering parts uses usageParts().
 // ---------------------------------------------------------------------------
 
 /** The weights `billableTokens` applies. Exported so the UI can state them. */
@@ -134,14 +139,21 @@ export const BILLABLE_WEIGHTS = {
 } as const;
 
 export function totalInputTokens(u: Usage): number {
-  return (
-    u.cacheReadInputTokens + u.cacheCreationInputTokens + u.inputTokens
-  );
+  return u.cacheReadInputTokens + u.cacheCreationInputTokens + u.inputTokens;
+}
+
+/**
+ * Cache reads reported across the two provider-specific fields. They remain
+ * separate in Usage because pricing is provider-specific, but are one logical
+ * component when displaying total input or calculating a measured hit rate.
+ */
+export function totalCachedInputTokens(u: Usage): number {
+  return u.cacheReadInputTokens + (u.cachedInputTokens ?? 0);
 }
 
 /** The three input components plus their sum — never one without the others. */
 export interface UsageParts {
-  /** Tokens after the last cache breakpoint. Never label this "input total". */
+  /** Provider-normalized input not served from cache. */
   fresh: number;
   cacheWrite: number;
   cacheRead: number;
@@ -152,10 +164,14 @@ export interface UsageParts {
 }
 
 export function usageParts(u: Usage): UsageParts {
+  const providerNeutralCacheRead = u.cachedInputTokens ?? 0;
   return {
-    fresh: u.inputTokens,
+    // ChatGPT reports cachedInputTokens as a subset of inputTokens. Claude's
+    // cacheReadInputTokens is separate from inputTokens. Normalize the display
+    // parts without changing either provider's stored accounting semantics.
+    fresh: Math.max(0, u.inputTokens - providerNeutralCacheRead),
     cacheWrite: u.cacheCreationInputTokens,
-    cacheRead: u.cacheReadInputTokens,
+    cacheRead: totalCachedInputTokens(u),
     totalInput: totalInputTokens(u),
     output: u.outputTokens,
     billable: billableTokens(u),
@@ -213,7 +229,7 @@ export function cacheBelowMinimum(
 export function cacheHitRate(u: Usage): number | null {
   const total = totalInputTokens(u);
   if (total <= 0) return null;
-  return u.cacheReadInputTokens / total;
+  return totalCachedInputTokens(u) / total;
 }
 
 // ---------------------------------------------------------------------------

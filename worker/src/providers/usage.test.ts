@@ -11,6 +11,7 @@ import {
   identityHolds,
   projectSpend,
   sumUsage,
+  totalCachedInputTokens,
   totalInputTokens,
   usageParts,
 } from "./usage.js";
@@ -45,6 +46,12 @@ describe("billableTokens", () => {
   it("is 0 for an empty accounting", () => {
     expect(billableTokens(emptyUsage())).toBe(0);
   });
+
+  it("does not apply Claude's 10% price to provider-neutral cached input", () => {
+    expect(
+      billableTokens({ ...emptyUsage(), inputTokens: 100, cachedInputTokens: 80 }),
+    ).toBe(100);
+  });
 });
 
 describe("sumUsage", () => {
@@ -74,6 +81,16 @@ describe("sumUsage", () => {
     expect(sumUsage(emptyUsage(), REAL_RUN).costUsd).toBeCloseTo(0.02715);
     expect(sumUsage(REAL_RUN, REAL_RUN).costUsd).toBeCloseTo(0.0543);
   });
+
+  it("preserves absent cached input and sums it only when reported", () => {
+    expect(sumUsage(emptyUsage(), emptyUsage()).cachedInputTokens).toBeUndefined();
+    expect(
+      sumUsage(
+        { ...emptyUsage(), cachedInputTokens: 0 },
+        { ...emptyUsage(), cachedInputTokens: 120 },
+      ).cachedInputTokens,
+    ).toBe(120);
+  });
 });
 
 describe("hasSpend", () => {
@@ -82,6 +99,7 @@ describe("hasSpend", () => {
     expect(hasSpend({ ...emptyUsage(), cacheReadInputTokens: 48000 })).toBe(
       true,
     );
+    expect(hasSpend({ ...emptyUsage(), cachedInputTokens: 1 })).toBe(true);
   });
 });
 
@@ -110,6 +128,31 @@ describe("totalInputTokens", () => {
   it("is 0 for an empty accounting", () => {
     expect(totalInputTokens(emptyUsage())).toBe(0);
   });
+
+  it("does not double-count provider-neutral cached input, which is an input subset", () => {
+    const usage = { ...emptyUsage(), inputTokens: 100, cachedInputTokens: 80 };
+    expect(totalInputTokens(usage)).toBe(100);
+    expect(totalCachedInputTokens(usage)).toBe(80);
+    expect(usage.cacheReadInputTokens).toBe(0);
+  });
+
+  it("retains both cache-read fields in a mixed-provider aggregate", () => {
+    const usage = {
+      ...emptyUsage(),
+      inputTokens: 100,
+      cacheReadInputTokens: 20,
+      cachedInputTokens: 80,
+    };
+    expect(totalInputTokens(usage)).toBe(120);
+    expect(totalCachedInputTokens(usage)).toBe(100);
+    expect(usageParts(usage)).toMatchObject({
+      fresh: 20,
+      cacheWrite: 0,
+      cacheRead: 100,
+      totalInput: 120,
+    });
+    expect(cacheHitRate(usage)).toBeCloseTo(100 / 120, 10);
+  });
 });
 
 describe("usageParts", () => {
@@ -132,6 +175,19 @@ describe("usageParts", () => {
     expect(identityHolds(REAL_RUN)).toBe(true);
     expect(identityHolds({ ...REAL_RUN, totalInputTokens: 58_669 })).toBe(true);
     expect(identityHolds({ ...REAL_RUN, totalInputTokens: 18 })).toBe(false);
+  });
+
+  it("reports provider-neutral cached input as cache read without repricing it", () => {
+    expect(
+      usageParts({ ...emptyUsage(), inputTokens: 100, cachedInputTokens: 80 }),
+    ).toEqual({
+      fresh: 20,
+      cacheWrite: 0,
+      cacheRead: 80,
+      totalInput: 100,
+      output: 0,
+      billable: 100,
+    });
   });
 });
 
@@ -173,6 +229,12 @@ describe("cacheHitRate", () => {
     expect(
       cacheHitRate({ ...emptyUsage(), inputTokens: 1200, outputTokens: 90 }),
     ).toBe(0);
+  });
+
+  it("uses provider-neutral cached input when that is what the provider reports", () => {
+    expect(
+      cacheHitRate({ ...emptyUsage(), inputTokens: 100, cachedInputTokens: 80 }),
+    ).toBe(0.8);
   });
 });
 

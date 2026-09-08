@@ -31,9 +31,14 @@
 
 import { runMigrations } from "./db/index.js";
 import { startServer, type ServerHandle } from "./server/index.js";
-import { register } from "./providers/index.js";
+import {
+  killAllRegisteredProviders,
+  register,
+  registerV2,
+} from "./providers/index.js";
 import { installCliGoldenRunnerIfAvailable, resetStaleGoldenRun } from "./settings/golden-gate.js";
 import { claudeLocalProvider } from "./providers/claude-local/index.js";
+import { claudeLocalProviderV2 } from "./providers/claude-local/neutral.js";
 import { registerSource } from "./adapters/registry.js";
 import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
@@ -89,12 +94,13 @@ async function main(): Promise<void> {
   // ---- Process hygiene (S0.2, T0-15): a crash kills every in-flight `claude`
   // child first; a pre-existing worker on this home is terminated and the pid
   // file claimed, so two workers never dispatch against one database.
-  installCrashKill(() => claudeLocalProvider.killAll());
+  installCrashKill(killAllRegisteredProviders);
   const sweep = sweepStaleWorkers(home);
   if (sweep.killed !== null) console.error(`[worker] startup sweep: terminated stale worker pid ${sweep.killed}`);
 
   runMigrations();
   register(claudeLocalProvider);
+  registerV2(claudeLocalProviderV2);
 
   // ---- Logs: create ~/SuperTwinV13/logs (+ /runs) and tee the node console
   // into a durable file next to the per-run transcripts. Best-effort by design
@@ -344,7 +350,11 @@ async function main(): Promise<void> {
     console.error(`[worker] ${sig} received — shutting down`);
     try {
       // Kill any live children so nothing is orphaned...
-      claudeLocalProvider.killAll();
+      try {
+        killAllRegisteredProviders();
+      } catch (error) {
+        console.error("[worker] one or more providers failed to stop cleanly:", error);
+      }
       // Each handle is null when its subsystem never started (W1).
       parentWatch?.stop();
       dispatcher?.stop();

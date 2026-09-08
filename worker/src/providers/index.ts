@@ -6,7 +6,11 @@ export * from "./types.js";
 export * from "./usage.js";
 export {
   register,
+  registerV2,
   get,
+  getV2,
   list,
+  listV2,
+  killAllRegisteredProviders,
   DEFAULT_PROVIDER_ID,
 } from "./registry.js";

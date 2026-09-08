@@ -28,6 +28,10 @@ import type {
   ProviderV2,
 } from "./types.js";
 import { emptyUsage } from "./usage.js";
+import {
+  registerV2,
+  resetProviderRegistryForTests,
+} from "./registry.js";
 
 function model(
   id: string,
@@ -141,6 +145,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetProviderRegistryForTests();
   closeDb();
   delete process.env.SUPERTWIN_HOME;
   delete process.env.SUPERTWIN_DB_PATH;
@@ -149,6 +154,12 @@ afterEach(() => {
 });
 
 describe("provider/model selection snapshot", () => {
+  it("uses only the strict V2 registry for production resolution", () => {
+    const provider = new FakeProvider("chatgpt-oauth");
+    setActiveProvider("chatgpt-oauth");
+    registerV2(provider);
+    expect(resolveModelCall({ source: "step", key: "decide" }).provider).toBe(provider);
+  });
   it("preserves exact -> settingsKey -> stem model precedence", () => {
     const provider = new FakeProvider("chatgpt-oauth");
     setProviderModelSelection("chatgpt-oauth", "live", "gpt-stem");

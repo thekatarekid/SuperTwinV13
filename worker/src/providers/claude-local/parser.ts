@@ -65,7 +65,7 @@
 //   stream_event/(content_block_stop|message_start|message_delta|message_stop).
 // ---------------------------------------------------------------------------
 
-import type { ProviderStreamEvent, Usage } from "../types.js";
+import type { ProviderJson, ProviderStreamEvent, Usage } from "../types.js";
 import { emptyUsage, sumUsage } from "../usage.js";
 
 /** Extra terminal detail the adapter needs but that isn't a stream event. */
@@ -163,6 +163,8 @@ export class StreamJsonParser {
    * blocks still streams both.
    */
   private readonly emittedTextBlocks = new Set<string>();
+  /** Tool blocks are repeated on full assistant lines; one wire id is one call. */
+  private readonly emittedToolCalls = new Set<string>();
 
   /**
    * Everything accounted for so far, INCLUDING a turn still in flight. The
@@ -233,14 +235,9 @@ export class StreamJsonParser {
           out.emittedDelta = true;
         }
       } else if (evType === "content_block_start") {
-        const block = (ev.content_block ?? {}) as Record<string, unknown>;
-        if (block.type === "tool_use") {
-          out.events.push({
-            type: "tool_use",
-            name: typeof block.name === "string" ? block.name : "unknown",
-            input: block.input ?? {},
-          });
-        }
+        // A tool_use start precedes its input_json_delta fragments, so its
+        // input is incomplete. The terminal assistant block below is the one
+        // complete, correlated tool event; emitting both duplicates the call.
       } else if (evType === "message_start") {
         const msg = (ev.message ?? {}) as Record<string, unknown>;
         this.sawTurnStream = true;
@@ -293,11 +290,16 @@ export class StreamJsonParser {
           this.emittedTextBlocks.add(key);
           this.markFromAssistant(out, { type: "delta", text: b.text });
         } else if (b.type === "tool_use") {
-          this.markFromAssistant(out, {
-            type: "tool_use",
-            name: typeof b.name === "string" ? b.name : "unknown",
-            input: b.input ?? {},
-          });
+          const callId = typeof b.id === "string" && b.id.length > 0
+            ? b.id
+            : undefined;
+          if (callId && this.emittedToolCalls.has(callId)) continue;
+          if (callId) this.emittedToolCalls.add(callId);
+          const name = typeof b.name === "string" ? b.name : "unknown";
+          const input = (b.input ?? {}) as ProviderJson;
+          this.markFromAssistant(out, callId
+            ? { type: "tool_use", callId, name, input }
+            : { type: "tool_use", name, input });
         }
       }
       return;

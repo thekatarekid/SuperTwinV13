@@ -16,7 +16,7 @@ import {
 } from "../brain/reasoning.js";
 import { readStepOverrides, type StepOverride } from "../settings/overrides.js";
 import { findProviderModel } from "./catalogue.js";
-import { get as getRegisteredProvider } from "./registry.js";
+import { getV2 as getRegisteredProviderV2 } from "./registry.js";
 import type {
   ProviderErrorCode,
   ProviderId,
@@ -91,23 +91,8 @@ export interface ResolveModelCallDependencies {
   getStepOverrides?: () => ReturnType<typeof readStepOverrides>;
 }
 
-function isProviderV2(value: unknown): value is ProviderV2 {
-  if (!value || typeof value !== "object") return false;
-  const provider = value as Partial<ProviderV2>;
-  return (
-    (provider.id === "claude-local" || provider.id === "chatgpt-oauth") &&
-    typeof provider.displayName === "string" &&
-    typeof provider.authState === "function" &&
-    typeof provider.catalogue === "function" &&
-    typeof provider.send === "function" &&
-    typeof provider.cancel === "function" &&
-    typeof provider.killAll === "function"
-  );
-}
-
 function defaultProviderLookup(providerId: ProviderId): ProviderV2 | undefined {
-  const provider: unknown = getRegisteredProvider(providerId);
-  return isProviderV2(provider) ? provider : undefined;
+  return getRegisteredProviderV2(providerId);
 }
 
 /** Exact key, explicit settings-key aliases, then each version stem. */

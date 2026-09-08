@@ -150,13 +150,43 @@ class ClaudeLocalProvider implements Provider {
   }
 
   async send(opts: SendOptions): Promise<ProviderResult> {
+    // Legacy callers name a file. Preserve their one-release behaviour,
+    // including the historical unreadable-file fallback, at this boundary.
+    let systemPrompt: string | undefined;
+    if (opts.systemPromptFile) {
+      try {
+        systemPrompt = await readFile(opts.systemPromptFile, "utf8");
+      } catch {
+        systemPrompt = undefined;
+      }
+    }
+    return this.sendPrepared(opts, systemPrompt);
+  }
+
+  /**
+   * Additive V2 seam: neutral callers already hold the exact instructions.
+   * Keeping this separate prevents a temporary file and prevents an exact
+   * empty string from becoming the legacy unreadable-file fallback.
+   */
+  async sendWithDirectInstructions(
+    opts: Omit<SendOptions, "systemPromptFile">,
+    instructions: string,
+    authState?: () => import("../types.js").ProviderAuthState,
+  ): Promise<ProviderResult> {
+    return this.sendPrepared(opts, instructions, authState);
+  }
+
+  private async sendPrepared(
+    opts: Omit<SendOptions, "systemPromptFile">,
+    systemPrompt: string | undefined,
+    authState?: () => import("../types.js").ProviderAuthState,
+  ): Promise<ProviderResult> {
     const {
       runId,
       message,
       sessionId,
       cwd,
       allowedTools = [],
-      systemPromptFile,
       maxTurns,
       plainCompletion = false,
       skipUserSettings = false,
@@ -172,17 +202,6 @@ class ClaudeLocalProvider implements Provider {
 
     // Never ~/Documents, ~/Desktop or ~/Downloads (§4.1.4).
     const runCwd = safeCwd(cwd);
-
-    // Read the system prompt ONCE (fresh sessions only). If unreadable, we
-    // proceed without it rather than failing the whole send.
-    let systemPrompt: string | undefined;
-    if (systemPromptFile) {
-      try {
-        systemPrompt = await readFile(systemPromptFile, "utf8");
-      } catch {
-        systemPrompt = undefined;
-      }
-    }
 
     // Decide whether to attempt a resume. Only when the caller gave a
     // well-formed UUID. (cwd/bundle mismatch is enforced by the server BEFORE
@@ -212,6 +231,7 @@ class ClaudeLocalProvider implements Provider {
         systemPrompt: systemPrompt ?? null,
         packedContext: args.message,
         onEvent: args.onEvent,
+        authState,
         execute: (onEvent) => this.runOnce({ ...args, onEvent }),
       });
     };

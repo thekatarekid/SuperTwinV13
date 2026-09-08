@@ -56,4 +56,6 @@
 - 2026-09-08: The field-diagnostic login window expired unapproved after 15 minutes: 1 device + 169 polls = 170 OAuth requests; token/models/quota/inference/other were 0. Scratch home was removed and cumulative inference remains 2/55.
 - 2026-09-08: Unified case-insensitive SSE/JSON content classification and hardened bounded HTTP-400 projection at the exported boundary; probe 130/130 and worker typecheck pass with 0 additional live calls.
 - 2026-09-08: Cumulative authorization audit: two failed canaries consumed 2/55 and cannot count as completed cases. A fresh full 55-POST matrix would require at least 57 cumulative attempts and is not authorized; full mode must remain unused.
+- 2026-09-08: Added an isolated, unwired SQLite cumulative-authorization primitive: immutable account/model/matrix grant, explicit initial count, 0600 DB in a canonical 0700 external directory, FULL-sync transactions, crash-released writer locks, and durable cap reservations. It is not imported by live runners and currently enforces nothing.
+- 2026-09-08: Full offline worker regression passed: 342 files, 4,170 tests, 7 intentional skips, 0 live calls.
 - Next: when the owner is ready at the device page, run one fresh one-request canary diagnostic (cumulative maximum 3/55) to identify the rejected request field, then adapt only to observed evidence.

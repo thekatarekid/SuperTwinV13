@@ -5,7 +5,7 @@
 // children. Every OS touch is injected — nothing is spawned or signalled.
 // ===========================================================================
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,11 +13,33 @@ import { join } from "node:path";
 import {
   NO_PARENT_ENV,
   PARENT_LOSS_GRACE_MS,
+  installCrashKill,
   pidFilePath,
   releasePidFile,
   startParentWatch,
   sweepStaleWorkers,
 } from "./process-guard.js";
+
+describe("crash provider cleanup", () => {
+  it("still exits after cleanup fans out and reports an aggregate failure", () => {
+    const before = new Set(process.listeners("unhandledRejection"));
+    const exits: number[] = [];
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    installCrashKill(
+      () => { throw new AggregateError([new Error("first provider")], "cleanup failed"); },
+      (code) => { exits.push(code); },
+    );
+    const added = process.listeners("unhandledRejection").filter((listener) => !before.has(listener));
+    expect(added).toHaveLength(1);
+    try {
+      expect(() => added[0]!(new Error("crash"), Promise.resolve())).toThrow(AggregateError);
+      expect(exits).toEqual([1]);
+    } finally {
+      process.off("unhandledRejection", added[0]!);
+      stderr.mockRestore();
+    }
+  });
+});
 
 function fakeClock(start = 1_000_000) {
   let now = start;

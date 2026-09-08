@@ -6,6 +6,7 @@ export * from "./types.js";
 export * from "./usage.js";
 export {
   register,
+  registerProviderFacades,
   registerV2,
   get,
   getV2,
@@ -14,3 +15,4 @@ export {
   killAllRegisteredProviders,
   DEFAULT_PROVIDER_ID,
 } from "./registry.js";
+export { bootstrapBuiltInProviders } from "./bootstrap.js";

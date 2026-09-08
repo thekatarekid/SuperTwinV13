@@ -4,6 +4,13 @@
 
 import type { Provider, ProviderId, ProviderV2 } from "./types.js";
 
+export interface ProviderFacades {
+  /** One-release Claude-only compatibility surface. */
+  legacy: Provider;
+  /** Strict provider-neutral surface used by all migrated work. */
+  v2: ProviderV2;
+}
+
 /** Default provider id used when a caller does not specify one. */
 export const DEFAULT_PROVIDER_ID = "claude-local";
 
@@ -30,6 +37,19 @@ export function registerV2(provider: ProviderV2): void {
   providersV2.set(provider.id, provider);
 }
 
+/**
+ * Register both views of one backend as one boot operation. A mismatched pair
+ * is refused before either registry changes, so legacy and strict callers can
+ * never resolve different provider identities after a partial bootstrap.
+ */
+export function registerProviderFacades(facades: ProviderFacades): void {
+  if (facades.legacy.id !== facades.v2.id) {
+    throw new TypeError("legacy and V2 provider facades must have the same id");
+  }
+  providers.set(facades.legacy.id, facades.legacy);
+  providersV2.set(facades.v2.id, facades.v2);
+}
+
 /** Strict lookup used by the provider/model resolver and migrated call sites. */
 export function getV2(id: ProviderId): ProviderV2 | undefined {
   return providersV2.get(id);
@@ -46,7 +66,9 @@ export function listV2(): ProviderV2[] {
  */
 export function killAllRegisteredProviders(): void {
   const failures: unknown[] = [];
-  for (const provider of providersV2.values()) {
+  // The map already deduplicates replacements by id. The Set additionally
+  // protects shutdown if two ids ever intentionally expose one shared facade.
+  for (const provider of new Set(providersV2.values())) {
     try {
       provider.killAll();
     } catch (error) {

@@ -7,6 +7,7 @@ import {
   list,
   listV2,
   register,
+  registerProviderFacades,
   registerV2,
   resetProviderRegistryForTests,
 } from "./registry.js";
@@ -71,6 +72,21 @@ describe("parallel provider registries", () => {
     registerV2(modern);
     expect(get("claude-local")).toBe(old);
     expect(getV2("claude-local")).toBe(modern);
+    expect(list()).toEqual([old]);
+    expect(listV2()).toEqual([modern]);
+  });
+
+  it("registers matching legacy and V2 facades atomically", () => {
+    const old = legacy();
+    const modern = neutral("claude-local");
+    registerProviderFacades({ legacy: old, v2: modern });
+    expect(get("claude-local")).toBe(old);
+    expect(getV2("claude-local")).toBe(modern);
+
+    expect(() => registerProviderFacades({
+      legacy: old,
+      v2: neutral("chatgpt-oauth"),
+    })).toThrow(/same id/);
     expect(list()).toEqual([old]);
     expect(listV2()).toEqual([modern]);
   });

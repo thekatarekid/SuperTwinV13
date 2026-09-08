@@ -32,13 +32,10 @@
 import { runMigrations } from "./db/index.js";
 import { startServer, type ServerHandle } from "./server/index.js";
 import {
+  bootstrapBuiltInProviders,
   killAllRegisteredProviders,
-  register,
-  registerV2,
 } from "./providers/index.js";
 import { installCliGoldenRunnerIfAvailable, resetStaleGoldenRun } from "./settings/golden-gate.js";
-import { claudeLocalProvider } from "./providers/claude-local/index.js";
-import { claudeLocalProviderV2 } from "./providers/claude-local/neutral.js";
 import { registerSource } from "./adapters/registry.js";
 import { WhatsAppAdapter } from "./adapters/whatsapp/adapter.js";
 import { WHATSAPP_MANIFEST } from "./adapters/whatsapp/manifest.js";
@@ -99,8 +96,7 @@ async function main(): Promise<void> {
   if (sweep.killed !== null) console.error(`[worker] startup sweep: terminated stale worker pid ${sweep.killed}`);
 
   runMigrations();
-  register(claudeLocalProvider);
-  registerV2(claudeLocalProviderV2);
+  bootstrapBuiltInProviders();
 
   // ---- Logs: create ~/SuperTwinV13/logs (+ /runs) and tee the node console
   // into a durable file next to the per-run transcripts. Best-effort by design
@@ -401,5 +397,12 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   console.error("[worker] fatal:", err);
+  try {
+    killAllRegisteredProviders();
+  } catch (error) {
+    // One broken provider must not prevent the fatal path from terminating;
+    // the registry has already attempted every other V2 provider.
+    console.error("[worker] one or more providers failed during fatal cleanup:", error);
+  }
   process.exit(1);
 });

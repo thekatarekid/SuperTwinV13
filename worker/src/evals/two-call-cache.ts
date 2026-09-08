@@ -181,11 +181,8 @@ async function main(): Promise<void> {
     // measured "no cache" and is not one — then the containment chokepoint
     // that refuses a production DB and opens the consent gate.
     runMigrations();
-    const [{ register }, { claudeLocalProvider }] = await Promise.all([
-      import("../providers/registry.js"),
-      import("../providers/claude-local/index.js"),
-    ]);
-    register(claudeLocalProvider);
+    const { bootstrapBuiltInProviders } = await import("../providers/bootstrap.js");
+    bootstrapBuiltInProviders();
     await registerProductExecutors();
     const m = await measureTwoCall(id);
     console.log(renderTwoCall(m));

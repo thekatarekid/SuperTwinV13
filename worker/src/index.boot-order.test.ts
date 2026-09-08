@@ -42,7 +42,7 @@ describe("hard rails come first, and stay hard", () => {
     ["the crash-kill hook", "installCrashKill("],
     ["the stale-worker sweep", "sweepStaleWorkers(home)"],
     ["migrations", "runMigrations();"],
-    ["the provider registry", "register(claudeLocalProvider);"],
+    ["the provider registry", "bootstrapBuiltInProviders();"],
     ["the adapter manifest", "registerSource({"],
   ])("%s runs before the listener", (_label, needle) => {
     expect(at(needle)).toBeLessThan(at("await startServer("));
@@ -51,7 +51,7 @@ describe("hard rails come first, and stay hard", () => {
   it.each([
     ["enforceHomeGuard", "enforceHomeGuard"],
     ["runMigrations", "runMigrations"],
-    ["register", "register(claudeLocalProvider)"],
+    ["bootstrapBuiltInProviders", "bootstrapBuiltInProviders"],
     ["sweepStaleWorkers", "sweepStaleWorkers"],
     ["registerSource", "registerSource"],
     ["startServer", "startServer"],
@@ -118,6 +118,20 @@ describe("optional subsystems come after the listener", () => {
 });
 
 describe("shutdown survives a degraded boot", () => {
+  it("fans provider cleanup out before subsystem shutdown and catches aggregate failures", () => {
+    const kill = at("killAllRegisteredProviders();");
+    expect(kill).toBeLessThan(at("parentWatch?.stop()"));
+    expect(SOURCE.slice(kill, at("parentWatch?.stop()"))).toContain("catch (error)");
+  });
+
+  it("the fatal main path also fans out provider cleanup before exit", () => {
+    const fatal = at('console.error("[worker] fatal:", err);');
+    const tail = SOURCE.slice(fatal);
+    expect(tail).toContain("killAllRegisteredProviders();");
+    expect(tail.indexOf("killAllRegisteredProviders();")).toBeLessThan(tail.indexOf("process.exit(1);"));
+    expect(tail).toContain("catch (error)");
+  });
+
   it.each([
     "parentWatch?.stop()",
     "dispatcher?.stop()",

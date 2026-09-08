@@ -68,4 +68,5 @@
 - 2026-09-08: Ledger schema v3 now immutably binds the discovered planned count. Offline probe 196/196, worker typecheck, diff check and independent audit pass; the actual-shape E2E proves 46 durable pre-fetch reservations, 70 evidence rows, and exact accounting.
 - 2026-09-08: Corrected cumulative math: 53 attempts remain, so the fresh 46-POST plan fits; after a successful attempt-3 canary checkpoint, the 45-POST resume also fits within the remaining 52.
 - 2026-09-08: Full worker regression passed 4,235 tests with one process-tree sampling race in CNS-01; its immediate isolated 60-second rerun passed, closed the worker port, removed scratch state, and made 0 model calls.
-- Next: initialize the approved ledger offline at cap 55 / consumed 2 / planned 46, then run one attended one-request canary diagnostic.
+- 2026-09-08: Initialized the external owner-only `0600` authorization ledger at cap 55 / consumed 2 / planned 46 with the exact live plan hash. Initializer reported `networkCalls: 0`, `createOnce: true`, remaining 53; its empty scratch home was removed.
+- Next: run one attended, ledger-enforced, one-request canary diagnostic.

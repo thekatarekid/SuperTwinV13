@@ -1,4 +1,5 @@
 export const REQUESTED_PROBE_MODEL_ENV = "SUPERTWIN_CHATGPT_PROBE_MODEL";
+const SAFE_PROBE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 export const PROBE_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 export type ProbeReasoningEffort = (typeof PROBE_REASONING_EFFORTS)[number];
 
@@ -22,6 +23,17 @@ export interface ProbeModel {
 
 export interface ProbeModelCatalogue {
   models: ProbeModel[];
+}
+
+/** Validate the operator-selected model identifier before any OAuth/network request. */
+export function requestedProbeModelId(env: NodeJS.ProcessEnv = process.env): string {
+  const modelId = env[REQUESTED_PROBE_MODEL_ENV]?.trim();
+  if (!modelId || !SAFE_PROBE_MODEL_ID.test(modelId)) {
+    throw new Error(
+      `REFUSED: ${REQUESTED_PROBE_MODEL_ENV} must be a 1-128 character safe model identifier`,
+    );
+  }
+  return modelId;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -117,8 +129,10 @@ export function selectRequestedProbeModel(
   requested?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): ProbeModel {
-  const modelId = requested?.trim() || env[REQUESTED_PROBE_MODEL_ENV]?.trim();
-  if (!modelId) throw new Error(`REFUSED: select a visible model with ${REQUESTED_PROBE_MODEL_ENV}`);
+  const requestedEnv = requested === undefined
+    ? env
+    : { ...env, [REQUESTED_PROBE_MODEL_ENV]: requested };
+  const modelId = requestedProbeModelId(requestedEnv);
   const model = catalogue.models.find((candidate) => candidate.id === modelId);
   if (!model) throw new Error("REFUSED: requested Phase 0b model is unavailable or hidden");
   return model;

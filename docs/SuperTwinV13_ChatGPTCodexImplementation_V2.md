@@ -8,7 +8,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 
 ### Implementation Status (2026-09-08)
 
-- **Overall:** In progress; Phase 0a is accepted and durably seeded. Phase 0b's auth-only subgate passed on 2026-09-08; the billable live contract matrix remains disabled pending explicit account-risk and call-count authorization.
+- **Overall:** In progress; Phase 0a is accepted and durably seeded. Phase 0b's auth-only subgate passed on 2026-09-08; the billable live contract matrix is implemented and remains unexecuted pending explicit account-risk and call-count authorization.
 - **Baseline:** implementation commits are recorded in the progress log; application version `13.12.2` (no new app build yet).
 - **Tracking:** See `progressV13_V6_ChatGPTProvider.md` for the concise running log.
 - **Acceptance method:** The packaged `.app`/`.dmg` is verified with macOS Computer Use. Browser automation is reserved for browser-specific connector flows.
@@ -16,7 +16,7 @@ This document supersedes `SuperTwinV13_ChatGPTCodexImplementation_V1.md`. Sectio
 #### Phase and Task Checklist
 
 - [x] **Phase 0a — Decision Gate:** accepted by Aditya Katare; use the Hermes-compatible OAuth pattern and explicitly accept the documented private-backend/account risk; consent copy approved. The three complete records are idempotently seeded into the canonical `decisions` ledger on fresh and upgraded installs without overwriting local amendments.
-- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted and the auth-only subgate passed. `--live-auth` completed with 9 OAuth requests and 0 model/catalogue, quota, inference, or other requests. The full matrix contains exactly 70 cases, of which 15 invalid shapes reject before fetch, so its ceiling is 55 inference POSTs with no retries. Dedicated-account, ephemeral refresh/rotation/logout, capability, per-case output, cancellation, exact HTTP-accounting, cache, quota and concurrency/resource evidence are implemented offline. Live-contract remains fail-closed pending explicit account-risk and call-count authorization; do not use the main account without it.
+- [ ] **Phase 0b — Direct Backend Contract:** offline probe scaffold accepted and the auth-only subgate passed. `--live-auth` completed with 9 OAuth requests and 0 model/catalogue, quota, inference, or other requests. The full matrix contains exactly 70 cases, of which 15 invalid shapes reject before fetch, so its ceiling is 55 inference POSTs with no retries. Dedicated-account, ephemeral refresh/rotation/logout, capability, per-case output, cancellation, exact HTTP-accounting, cache, quota and concurrency/resource evidence are implemented offline. The live-contract CLI is runnable only behind dual opt-ins, scratch-home, safe explicit-model, and exact account-fingerprint gates; it remains unexecuted pending explicit account-risk and call-count authorization. Do not use the main account without it.
 - [ ] **P1-A — Provider-neutral contract types:** pending Phase 0b exit evidence.
 - [ ] **P1-B–P1-E — G1 foundations:** pending P1-A.
 - [ ] **P1-F — Provider/model resolver:** pending G1.

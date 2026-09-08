@@ -43,6 +43,19 @@ export function accountFingerprint(accountId: string): string {
   return createHash("sha256").update(accountId, "utf8").digest("hex").slice(0, 12);
 }
 
+/** Validate the out-of-band account binding before any live OAuth request. */
+export function expectedProbeAccountFingerprint(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const configured = env[EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]?.trim().toLowerCase();
+  if (!configured || !/^[a-f0-9]{12}$/.test(configured)) {
+    throw new Error(
+      `REFUSED: ${EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV} must be the dedicated test account's 12-hex fingerprint`,
+    );
+  }
+  return configured;
+}
+
 /** Bind a decoded OAuth account to the dedicated test account selected out of band. */
 export function assertExpectedProbeAccount(
   accessToken: string,
@@ -51,12 +64,7 @@ export function assertExpectedProbeAccount(
   // Decode first so comparison is always against the account actually represented by the token.
   const accountId = accountIdFromAccessToken(accessToken);
   const actual = accountFingerprint(accountId);
-  const configured = env[EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]?.trim().toLowerCase();
-  if (!configured || !/^[a-f0-9]{12}$/.test(configured)) {
-    throw new Error(
-      `REFUSED: ${EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV} must be the dedicated test account's 12-hex fingerprint`,
-    );
-  }
+  const configured = expectedProbeAccountFingerprint(env);
   if (!timingSafeEqual(Buffer.from(actual, "ascii"), Buffer.from(configured, "ascii"))) {
     throw new Error("REFUSED: authenticated ChatGPT account is not the dedicated Phase 0b test account");
   }

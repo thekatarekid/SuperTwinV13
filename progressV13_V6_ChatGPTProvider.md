@@ -36,6 +36,7 @@
 - 2026-09-08: Phase 0b auth-only subgate passed after the required account security setting was discovered and enabled; safe fingerprint `7d41db9e5a28`.
 - 2026-09-08: Auth exact actuals: device-code 1 + poll 7 + token 1 = 9 HTTP requests; model/catalogue 0, quota 0, inference 0, other 0. Ephemeral tokens were redacted and not persisted.
 - 2026-09-08: Full Phase 0b live contract remains pending; do not use the main account without explicit account-risk acceptance and exact call-count authorization.
+- 2026-09-08: Live-contract activation wiring passed independent offline review: 72/72 focused tests plus worker typecheck; dual opt-ins, scratch home, safe explicit model, exact fingerprint, redaction, SIGINT cleanup, and exact-once failure accounting all fail closed before network.
 - 2026-09-08: Parallel read-only Phase 1 prep mapped P1-A types/compatibility plus G1 gate/classification seams, tests, ownership and accounting hazards; no gated source changes made.
 - 2026-09-08: Full offline worker gate after the expanded probe passed: 335 files, 4,064 tests, 7 intentional skips, 0 live calls; scratch worker port/home cleanup passed.
 - 2026-09-08: App remains 13.12.2; no new DMG built.

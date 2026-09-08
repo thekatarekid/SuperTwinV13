@@ -16,7 +16,7 @@ import {
 import { parseProbeModelCatalogue, selectRequestedProbeModel } from "./models.js";
 import { redactProbeValue } from "./redact.js";
 import { buildBackendHeaders } from "./requests.js";
-import { assertLiveContractProbeAccount, assertLiveContractProbeOptIn } from "./safety.js";
+import { assertLiveContractProbeAccount, assertLiveContractProbePreflight } from "./safety.js";
 import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
 import { EphemeralProbeTokenSession, ProbeAuthError, type SafeSessionEvidence } from "./refresh.js";
 import {
@@ -392,7 +392,7 @@ async function executeMatrix(
 export async function runContractProbeScaffold(
   hooks: ContractProbeHooks,
 ): Promise<FullContractEvidence> {
-  assertLiveContractProbeOptIn(hooks.env ?? process.env);
+  assertLiveContractProbePreflight(hooks.env ?? process.env);
   const listeningSocketsBefore = listeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_CONTRACT_HTTP_LIMITS);
   const probeAbort = new AbortController();

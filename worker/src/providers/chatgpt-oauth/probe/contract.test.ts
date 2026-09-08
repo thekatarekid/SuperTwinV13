@@ -21,6 +21,7 @@ import {
 } from "./matrix.js";
 import { redactedJson } from "./redact.js";
 import { consumeBoundedSse } from "./sse.js";
+import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 
 function jwt(accountId: string): string {
   const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -144,6 +145,27 @@ describe("mocked contract runner scaffold", () => {
       onUserCode: vi.fn(),
       env: {},
     })).rejects.toThrow(/live OAuth\/network access requires/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["malformed", "bad model/with whitespace"],
+  ])("refuses a %s selected model before the first OAuth request", async (_label, model) => {
+    const accountId = "acct-model-preflight";
+    const env = contractEnv(accountId);
+    if (model === undefined) delete env[REQUESTED_PROBE_MODEL_ENV];
+    else env[REQUESTED_PROBE_MODEL_ENV] = model;
+    const fetchMock = vi.fn<typeof fetch>();
+
+    await expect(runContractProbeScaffold({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      env,
+    })).rejects.toThrow(new RegExp(REQUESTED_PROBE_MODEL_ENV));
+
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

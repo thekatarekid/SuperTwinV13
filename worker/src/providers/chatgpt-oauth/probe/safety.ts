@@ -10,9 +10,11 @@ import {
 } from "./constants.js";
 import {
   assertExpectedProbeAccount,
+  expectedProbeAccountFingerprint,
   type DedicatedProbeAccount,
 } from "./account.js";
 import { LIVE_CONTRACT_HTTP_REQUEST_BUDGET } from "./accounting.js";
+import { requestedProbeModelId } from "./models.js";
 
 export const LIVE_CONTRACT_PROBE_ENV = "SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE";
 
@@ -68,12 +70,20 @@ export function assertLiveContractProbeOptIn(env: NodeJS.ProcessEnv = process.en
   return scratchHome;
 }
 
+/** Every value knowable before OAuth must pass before the first network request. */
+export function assertLiveContractProbePreflight(env: NodeJS.ProcessEnv = process.env): string {
+  const scratchHome = assertLiveContractProbeOptIn(env);
+  expectedProbeAccountFingerprint(env);
+  requestedProbeModelId(env);
+  return scratchHome;
+}
+
 /** Run after OAuth exchange and before model, quota, or inference requests. */
 export function assertLiveContractProbeAccount(
   accessToken: string,
   env: NodeJS.ProcessEnv = process.env,
 ): DedicatedProbeAccount {
-  assertLiveContractProbeOptIn(env);
+  assertLiveContractProbePreflight(env);
   return assertExpectedProbeAccount(accessToken, env);
 }
 
@@ -91,7 +101,9 @@ export function formatLiveDeclaration(mode: "auth" | "contract" = "auth"): strin
     `PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget}`,
     `MAX_LIVE_CONTRACT_HTTP_REQUESTS=${LIVE_CONTRACT_HTTP_REQUEST_BUDGET}`,
     "PREFLIGHT_REJECTIONS=15",
-    "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange",
+    mode === "contract"
+      ? "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange + 1 refresh"
+      : "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange",
     "INFERENCE_RETRIES=0",
     "STOP_ON_RATE_LIMIT_CAPTCHA_OR_ACCOUNT_FLAG=1",
   ].join("\n");

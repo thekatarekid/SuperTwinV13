@@ -19,6 +19,7 @@ import {
   LIVE_AUTH_INFERENCE_CALL_BUDGET,
 } from "./constants.js";
 import { runProbeCli } from "./cli.js";
+import { runContractProbeScaffold } from "./contract-runner.js";
 import {
   formatHttpAccounting,
   LIVE_AUTH_HTTP_LIMITS,
@@ -34,9 +35,11 @@ import {
 } from "./device-flow.js";
 import { buildDryRunRequests, dryRunSnapshot } from "./requests.js";
 import { redactedJson } from "./redact.js";
+import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 import {
   assertLiveContractProbeAccount,
   assertLiveContractProbeOptIn,
+  assertLiveContractProbePreflight,
   assertLiveProbeOptIn,
   formatLiveDeclaration,
   LIVE_CONTRACT_PROBE_ENV,
@@ -144,6 +147,7 @@ describe("Phase 0b offline safety", () => {
     const env = {
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-account-gate"),
     };
@@ -163,6 +167,7 @@ describe("Phase 0b offline safety", () => {
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
       [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: accountFingerprint(accountId),
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-account-match"),
     });
@@ -181,6 +186,7 @@ describe("Phase 0b offline safety", () => {
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=55");
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_CONTRACT_HTTP_REQUESTS=361");
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
+    expect(formatLiveDeclaration("contract")).toContain("1 token exchange + 1 refresh");
   });
 
   it("prints the declaration, refuses missing opt-in, and never fetches", async () => {
@@ -211,14 +217,184 @@ describe("Phase 0b offline safety", () => {
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=55");
   });
 
-  it("keeps the incomplete live contract runner fail-closed before opt-in or fetch", async () => {
+  it("refuses contract execution before fetch unless both opt-ins, fingerprint, and model are present", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    await expect(runProbeCli(["--live-auth", "--live-contract"], {})).rejects.toThrow(
-      /live contract execution is not enabled/,
+    const contractRunner = vi.fn<typeof runContractProbeScaffold>();
+    const base = {
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-gates"),
+    };
+
+    await expect(runProbeCli(["--live-auth", "--live-contract"], base, {
+      runContractProbe: contractRunner,
+    })).rejects.toThrow(/live OAuth\/network access requires/);
+    await expect(runProbeCli(["--live-auth", "--live-contract"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+    }, { runContractProbe: contractRunner })).rejects.toThrow(new RegExp(LIVE_CONTRACT_PROBE_ENV));
+    await expect(runProbeCli(["--live-auth", "--live-contract"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+    }, { runContractProbe: contractRunner })).rejects.toThrow(
+      new RegExp(EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
     );
+    await expect(runProbeCli(["--live-auth", "--live-contract"], {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "not-12-hex",
+    }, { runContractProbe: contractRunner })).rejects.toThrow(
+      new RegExp(EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
+    );
+    const validAccountEnv = {
+      ...base,
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+    };
+    await expect(runProbeCli(["--live-auth", "--live-contract"], validAccountEnv, {
+      runContractProbe: contractRunner,
+    })).rejects.toThrow(new RegExp(REQUESTED_PROBE_MODEL_ENV));
+    await expect(runProbeCli(["--live-auth", "--live-contract"], {
+      ...validAccountEnv,
+      [REQUESTED_PROBE_MODEL_ENV]: "bad model/with whitespace",
+    }, { runContractProbe: contractRunner })).rejects.toThrow(new RegExp(REQUESTED_PROBE_MODEL_ENV));
+
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(contractRunner).not.toHaveBeenCalled();
     expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PHASE_0B_LIVE_CONTRACT_DECLARATION");
+  });
+
+  it("delegates an explicitly gated contract run once and prints redacted evidence plus exact actuals", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const actuals = {
+      deviceCode: 1,
+      devicePoll: 7,
+      token: 2,
+      models: 1,
+      quota: 2,
+      inference: 55,
+      other: 0,
+      total: 68,
+    };
+    const contractRunner = vi.fn<typeof runContractProbeScaffold>(async (contractHooks) => {
+      contractHooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      return {
+        mode: "contract-scaffold",
+        accountFingerprint: "7d41db9e5a28",
+        accessToken: "must-not-print",
+      } as unknown as Awaited<ReturnType<typeof runContractProbeScaffold>>;
+    });
+    const env = {
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-run"),
+    };
+
+    expect(assertLiveContractProbePreflight(env)).toBe(env.SUPERTWIN_HOME);
+    await expect(runProbeCli(["--live-auth", "--live-contract"], env, {
+      runContractProbe: contractRunner,
+    })).resolves.toBe(0);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(contractRunner).toHaveBeenCalledOnce();
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("PHASE_0B_LIVE_CONTRACT_DECLARATION");
+    expect(stderrSpy.mock.calls.map(([value]) => String(value)).join("\n")).toContain(
+      `PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`,
+    );
+    const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(output).toContain('"accountFingerprint": "7d41db9e5a28"');
+    expect(output).not.toContain("must-not-print");
+  });
+
+  it("prints finalized nonzero HTTP actuals exactly once on contract failure without stdout", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const secret = "must-not-print-failed-token";
+    const actuals = {
+      deviceCode: 1, devicePoll: 3, token: 1, models: 0,
+      quota: 0, inference: 0, other: 0, total: 5,
+    };
+    const contractRunner = vi.fn<typeof runContractProbeScaffold>(async (hooks) => {
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      void secret;
+      throw new Error("forced mocked contract failure");
+    });
+    const env = {
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-failure"),
+    };
+
+    await expect(runProbeCli(["--live-auth", "--live-contract"], env, {
+      runContractProbe: contractRunner,
+    })).rejects.toThrow(/forced mocked contract failure/);
+
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+    expect(stderr).not.toContain(secret);
+    expect(stdoutSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts the passed contract signal on SIGINT, removes its listener, and prints final actuals once", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const listenersBefore = process.listeners("SIGINT");
+    const actuals = {
+      deviceCode: 1, devicePoll: 2, token: 0, models: 0,
+      quota: 0, inference: 0, other: 0, total: 3,
+    };
+    const contractRunner = vi.fn<typeof runContractProbeScaffold>(async (hooks) => {
+      expect(hooks.signal?.aborted).toBe(false);
+      const prior = new Set(listenersBefore);
+      const added = process.listeners("SIGINT").filter((listener) => !prior.has(listener));
+      expect(added).toHaveLength(1);
+      added[0]!("SIGINT");
+      expect(hooks.signal?.aborted).toBe(true);
+      hooks.onFinalized?.({
+        httpActuals: actuals,
+        logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
+        aborted: true,
+      });
+      throw hooks.signal?.reason ?? new Error("expected SIGINT abort");
+    });
+    const env = {
+      SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
+      [LIVE_CONTRACT_PROBE_ENV]: "1",
+      [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
+      [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
+      SUPERTWIN_APP_VERSION: "13.12.2",
+      SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-sigint"),
+    };
+
+    await expect(runProbeCli(["--live-auth", "--live-contract"], env, {
+      runContractProbe: contractRunner,
+    })).rejects.toThrow(/cancelled by SIGINT/);
+
+    expect(process.listeners("SIGINT")).toEqual(listenersBefore);
+    const stderr = stderrSpy.mock.calls.map(([value]) => String(value)).join("");
+    expect(stderr.match(/PHASE_0B_HTTP_ACTUALS=/g)).toHaveLength(1);
+    expect(stderr).toContain(`PHASE_0B_HTTP_ACTUALS=${JSON.stringify(actuals)}`);
+    expect(stdoutSpy).not.toHaveBeenCalled();
   });
 
   it("records exact per-endpoint HTTP attempts without retaining request data", async () => {

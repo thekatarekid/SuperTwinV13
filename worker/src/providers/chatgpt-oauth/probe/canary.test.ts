@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { accountFingerprint } from "./account.js";
 import { LIVE_CANARY_HTTP_LIMITS, ProbeHttpAccounting } from "./accounting.js";
@@ -16,6 +16,13 @@ import {
 import { buildContractProbeMatrix } from "./matrix.js";
 import { redactedJson } from "./redact.js";
 import { LIVE_CANARY_PROBE_ENV } from "./safety.js";
+import {
+  addTestInferenceAuthorization,
+  cleanupTestInferenceAuthorizations,
+  testConsumedInferencePosts,
+} from "./authorization-test-support.js";
+
+afterAll(cleanupTestInferenceAuthorizations);
 
 function jwt(accountId: string): string {
   const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -24,15 +31,15 @@ function jwt(accountId: string): string {
   })}.probe-signature`;
 }
 
-function env(accountId: string): NodeJS.ProcessEnv {
-  return {
+async function env(accountId: string): Promise<NodeJS.ProcessEnv> {
+  return addTestInferenceAuthorization({
     SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
     [LIVE_CANARY_PROBE_ENV]: "1",
     SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
     SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-probe",
     SUPERTWIN_APP_VERSION: "13.12.2",
     SUPERTWIN_HOME: join(tmpdir(), `supertwin-canary-${process.pid}-${Date.now()}`),
-  };
+  });
 }
 
 function jsonResponse(status: number, value: unknown): Response {
@@ -91,7 +98,11 @@ function canaryFetch(accountId: string, substantive = true, inferenceResponse?: 
 describe("Phase 0b canary-only runner", () => {
   it("runs the exact first matrix case once with pre/post quota and explicit refresh", async () => {
     const accountId = "acct-canary-secret";
-    const { fetchMock, inferenceBodies } = canaryFetch(accountId);
+    const liveEnv = await env(accountId);
+    const { fetchMock, inferenceBodies } = canaryFetch(accountId, true, () => {
+      expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+      return sseResponse();
+    });
     const finalized = vi.fn();
     const evidence = await runCanaryProbe({
       fetch: fetchMock,
@@ -100,7 +111,7 @@ describe("Phase 0b canary-only runner", () => {
       onUserCode: vi.fn(),
       onFinalized: finalized,
       requestId: () => "00000000-0000-4000-8000-000000000000",
-      env: env(accountId),
+      env: liveEnv,
     });
 
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
@@ -145,6 +156,7 @@ describe("Phase 0b canary-only runner", () => {
       httpActuals: evidence.httpActuals,
       logout: evidence.logout,
     }));
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
     const output = redactedJson(evidence);
     for (const secret of [accountId, "refresh-secret", "resp-secret", "authorization-secret"]) {
       expect(output).not.toContain(secret);
@@ -153,6 +165,7 @@ describe("Phase 0b canary-only runner", () => {
 
   it("keeps mismatch acceptance strict and returns only the safe diagnostic in the error", async () => {
     const accountId = "acct-canary-mismatch";
+    const liveEnv = await env(accountId);
     const { fetchMock } = canaryFetch(accountId, false);
     const finalized = vi.fn();
     let failure: unknown;
@@ -163,7 +176,7 @@ describe("Phase 0b canary-only runner", () => {
         now: vi.fn(() => 0),
         onUserCode: vi.fn(),
         onFinalized: finalized,
-        env: env(accountId),
+        env: liveEnv,
       });
     } catch (error) {
       failure = error;
@@ -174,6 +187,7 @@ describe("Phase 0b canary-only runner", () => {
     expect(message).toContain('"substantiveOutput":false');
     expect(message).not.toContain(accountId);
     expect(message).not.toContain("resp-secret");
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
     expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
       httpActuals: {
         deviceCode: 1, devicePoll: 1, token: 2, models: 1,
@@ -198,7 +212,7 @@ describe("Phase 0b canary-only runner", () => {
           sleep: vi.fn(async () => undefined),
           now: vi.fn(() => 0),
           onUserCode: vi.fn(),
-          env: env(accountId),
+          env: await env(accountId),
         });
       } catch (failure) {
         return failure instanceof Error ? failure.message : String(failure);
@@ -259,6 +273,30 @@ describe("Phase 0b canary-only runner", () => {
     });
     expect(nestedParam).toContain('"paramRoot":"input"');
     expect(nestedParam).not.toContain("[0].type");
+  });
+
+  it("does not refund a durable reservation when the inference fetch throws", async () => {
+    const accountId = "acct-canary-fetch-failure";
+    const liveEnv = await env(accountId);
+    const { fetchMock } = canaryFetch(accountId, true, () => {
+      expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+      throw new Error("forced transport failure");
+    });
+    const finalized = vi.fn();
+
+    await expect(runCanaryProbe({
+      fetch: fetchMock,
+      sleep: vi.fn(async () => undefined),
+      now: vi.fn(() => 0),
+      onUserCode: vi.fn(),
+      onFinalized: finalized,
+      env: liveEnv,
+    })).rejects.toThrow(/forced transport failure/);
+
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
+      httpActuals: expect.objectContaining({ inference: 1 }),
+    }));
   });
 
   it("hard-refuses a second inference request", async () => {

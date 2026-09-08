@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +50,12 @@ import {
   LIVE_CANARY_PROBE_ENV,
   LIVE_DISCOVERY_PROBE_ENV,
 } from "./safety.js";
+import {
+  addTestInferenceAuthorization,
+  cleanupTestInferenceAuthorizations,
+} from "./authorization-test-support.js";
+
+afterAll(cleanupTestInferenceAuthorizations);
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -83,15 +89,15 @@ function cliDiscoveryEnv(): NodeJS.ProcessEnv {
   };
 }
 
-function cliCanaryEnv(): NodeJS.ProcessEnv {
-  return {
+async function cliCanaryEnv(): Promise<NodeJS.ProcessEnv> {
+  return addTestInferenceAuthorization({
     SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
     [LIVE_CANARY_PROBE_ENV]: "1",
     [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
     [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
     SUPERTWIN_APP_VERSION: "13.12.2",
     SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-canary"),
-  };
+  });
 }
 
 describe("Phase 0b offline safety", () => {
@@ -442,7 +448,7 @@ describe("Phase 0b offline safety", () => {
     }, { runCanaryProbe: canaryRunner })).rejects.toThrow(new RegExp(REQUESTED_PROBE_MODEL_ENV));
 
     const contractRunner = vi.fn<typeof runContractProbeScaffold>();
-    await expect(runProbeCli(["--live-auth", "--live-contract"], cliCanaryEnv(), {
+    await expect(runProbeCli(["--live-auth", "--live-contract"], await cliCanaryEnv(), {
       runContractProbe: contractRunner,
     })).rejects.toThrow(new RegExp(LIVE_CONTRACT_PROBE_ENV));
 
@@ -476,7 +482,7 @@ describe("Phase 0b offline safety", () => {
       } as unknown as Awaited<ReturnType<typeof runCanaryProbe>>;
     });
 
-    await expect(runProbeCli(["--live-auth", "--live-canary"], cliCanaryEnv(), {
+    await expect(runProbeCli(["--live-auth", "--live-canary"], await cliCanaryEnv(), {
       runCanaryProbe: canaryRunner,
     })).resolves.toBe(0);
 
@@ -511,7 +517,7 @@ describe("Phase 0b offline safety", () => {
       );
     });
 
-    await expect(runProbeCli(["--live-auth", "--live-canary"], cliCanaryEnv(), {
+    await expect(runProbeCli(["--live-auth", "--live-canary"], await cliCanaryEnv(), {
       runCanaryProbe: canaryRunner,
     })).rejects.toThrow(/safe_diagnostic=.*substantiveOutput.*false/);
 
@@ -543,7 +549,7 @@ describe("Phase 0b offline safety", () => {
       throw hooks.signal?.reason ?? new Error("expected canary-only SIGINT abort");
     });
 
-    await expect(runProbeCli(["--live-auth", "--live-canary"], cliCanaryEnv(), {
+    await expect(runProbeCli(["--live-auth", "--live-canary"], await cliCanaryEnv(), {
       runCanaryProbe: canaryRunner,
     })).rejects.toThrow(/canary-only probe cancelled by SIGINT/);
 
@@ -630,14 +636,14 @@ describe("Phase 0b offline safety", () => {
         accessToken: "must-not-print",
       } as unknown as Awaited<ReturnType<typeof runContractProbeScaffold>>;
     });
-    const env = {
+    const env = await addTestInferenceAuthorization({
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
       [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
       [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-run"),
-    };
+    });
 
     expect(assertLiveContractProbePreflight(env)).toBe(env.SUPERTWIN_HOME);
     await expect(runProbeCli(["--live-auth", "--live-contract"], env, {
@@ -672,14 +678,14 @@ describe("Phase 0b offline safety", () => {
       void secret;
       throw new Error("forced mocked contract failure");
     });
-    const env = {
+    const env = await addTestInferenceAuthorization({
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
       [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
       [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-failure"),
-    };
+    });
 
     await expect(runProbeCli(["--live-auth", "--live-contract"], env, {
       runContractProbe: contractRunner,
@@ -714,14 +720,14 @@ describe("Phase 0b offline safety", () => {
       });
       throw hooks.signal?.reason ?? new Error("expected SIGINT abort");
     });
-    const env = {
+    const env = await addTestInferenceAuthorization({
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
       [EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV]: "7d41db9e5a28",
       [REQUESTED_PROBE_MODEL_ENV]: "gpt-probe",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-cli-contract-sigint"),
-    };
+    });
 
     await expect(runProbeCli(["--live-auth", "--live-contract"], env, {
       runContractProbe: contractRunner,

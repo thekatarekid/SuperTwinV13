@@ -23,6 +23,7 @@ import {
   assertLiveProbeOptIn,
   formatLiveDeclaration,
 } from "./safety.js";
+import { prepareLiveInferenceAuthorization } from "./live-authorization.js";
 
 export interface ProbeCliDependencies {
   runAuthFlow?: typeof runDeviceCodeFlow;
@@ -157,6 +158,7 @@ async function runLiveCanaryProbe(
     const evidence = dependencies.runCanaryProbe
       ? await enforceScratchHomeInvariant(env, async () => {
         assertLiveCanaryProbePreflight(env);
+        await prepareLiveInferenceAuthorization("canary", env);
         return execute();
       })
       : await execute();
@@ -236,6 +238,7 @@ async function runLiveContractProbe(
     const evidence = dependencies.runContractProbe
       ? await enforceScratchHomeInvariant(env, async () => {
         assertLiveContractProbePreflight(env);
+        await prepareLiveInferenceAuthorization("contract", env);
         return execute();
       })
       : await execute();

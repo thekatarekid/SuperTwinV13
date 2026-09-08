@@ -9,12 +9,18 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { accountFingerprint } from "./account.js";
 import { runProbeCli } from "./cli.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
 import { runDiscoveryProbe } from "./discovery-runner.js";
+import {
+  addTestInferenceAuthorization,
+  cleanupTestInferenceAuthorizations,
+} from "./authorization-test-support.js";
+
+afterAll(cleanupTestInferenceAuthorizations);
 import { assertEmptyScratchHome, beginScratchHomeProof } from "./scratch.js";
 import { LIVE_CONTRACT_PROBE_ENV, LIVE_DISCOVERY_PROBE_ENV } from "./safety.js";
 
@@ -252,9 +258,13 @@ describe("Phase 0b no-residual-artifacts proof", () => {
 
     let failure: unknown;
     try {
-      await runProbeCli(["--live-auth", "--live-contract"], liveEnv("contract", home), {
+      await runProbeCli(
+        ["--live-auth", "--live-contract"],
+        await addTestInferenceAuthorization(liveEnv("contract", home)),
+        {
         runContractProbe: runner,
-      });
+        },
+      );
     } catch (error) {
       failure = error;
     }

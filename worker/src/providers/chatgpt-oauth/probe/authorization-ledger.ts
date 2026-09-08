@@ -34,6 +34,11 @@ export interface InferenceAuthorizationLedger extends InferenceAuthorizationGran
   consumedPosts: number;
 }
 
+export type InferenceAuthorizationBinding = Pick<
+  InferenceAuthorizationGrant,
+  "authorizationId" | "owner" | "accountFingerprint" | "modelId" | "authorizedPosts"
+>;
+
 export interface AuthorizationLedgerLocation {
   /** Explicit path to the external ledger. There is intentionally no default. */
   ledgerPath: string;
@@ -299,6 +304,36 @@ function sameGrant(actual: InferenceAuthorizationLedger, expected: InferenceAuth
   return GRANT_KEYS.every((key) => actual[key] === expected[key]);
 }
 
+function validateBinding(value: unknown): InferenceAuthorizationBinding {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail("invalid authorization binding");
+  const binding = value as Record<string, unknown>;
+  const keys = ["accountFingerprint", "authorizationId", "authorizedPosts", "modelId", "owner"];
+  if (!exactKeys(binding, keys)) fail("invalid authorization binding fields");
+  const placeholderGrant = validateGrant({
+    ...binding,
+    matrixVersion: "preflight-matrix",
+    matrixHash: "0".repeat(64),
+  });
+  return Object.freeze({
+    authorizationId: placeholderGrant.authorizationId,
+    owner: placeholderGrant.owner,
+    accountFingerprint: placeholderGrant.accountFingerprint,
+    modelId: placeholderGrant.modelId,
+    authorizedPosts: placeholderGrant.authorizedPosts,
+  });
+}
+
+function sameBinding(
+  actual: InferenceAuthorizationLedger,
+  expected: InferenceAuthorizationBinding,
+): boolean {
+  return actual.authorizationId === expected.authorizationId &&
+    actual.owner === expected.owner &&
+    actual.accountFingerprint === expected.accountFingerprint &&
+    actual.modelId === expected.modelId &&
+    actual.authorizedPosts === expected.authorizedPosts;
+}
+
 async function closeAndVerify(
   db: Database.Database | undefined,
   directory: DirectoryIdentity,
@@ -316,10 +351,8 @@ async function closeAndVerify(
 }
 
 /**
- * UNWIRED PRIMITIVE: no live probe imports this module yet. Once integrated,
- * the explicit ledger directory and its same-UID owner are trusted. This can
- * prevent accidental and concurrent overspend; it cannot stop that owner from
- * deleting or rewriting their own ledger outside the running process.
+ * Explicit ledger initialization workflow. Live runners never call this: an
+ * owner must create the ledger out of band before selecting an inference mode.
  */
 export async function initializeInferenceAuthorizationLedger(
   location: AuthorizationLedgerLocation,
@@ -397,6 +430,37 @@ export async function readInferenceAuthorizationLedger(
     db = openLedger(ledgerPath);
     const ledger = readRow(db);
     if (!sameGrant(ledger, expected)) fail("authorization ledger does not match the immutable grant");
+    await closeAndVerify(db, directory, ledgerPath, file);
+    db = undefined;
+    return ledger;
+  } catch (error) {
+    try {
+      await closeAndVerify(db, directory, ledgerPath, file);
+    } catch {
+      // Preserve the primary validation error.
+    }
+    db = undefined;
+    if (error instanceof AuthorizationLedgerError) throw error;
+    fail("authorization ledger could not be read securely");
+  }
+}
+
+/**
+ * Pre-OAuth validation for the grant fields known without account metadata.
+ * Matrix identity is deliberately checked later against the capability-resolved plan.
+ */
+export async function readInferenceAuthorizationBinding(
+  location: AuthorizationLedgerLocation,
+  expectedBindingInput: InferenceAuthorizationBinding,
+): Promise<InferenceAuthorizationLedger> {
+  const expected = validateBinding(expectedBindingInput);
+  const { ledgerPath, directory } = await resolveLocation(location);
+  const file = await validateLedgerFile(ledgerPath);
+  let db: Database.Database | undefined;
+  try {
+    db = openLedger(ledgerPath);
+    const ledger = readRow(db);
+    if (!sameBinding(ledger, expected)) fail("authorization ledger does not match the preflight binding");
     await closeAndVerify(db, directory, ledgerPath, file);
     db = undefined;
     return ledger;

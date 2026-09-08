@@ -41,6 +41,11 @@ import {
 } from "./metrics.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
 import { hasModelCatalogueRestrictionSignal } from "./restriction.js";
+import {
+  bindLiveInferenceAuthorizationPlan,
+  prepareLiveInferenceAuthorization,
+  reserveLiveInferencePosts,
+} from "./live-authorization.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 128 * 1024;
@@ -52,6 +57,7 @@ export interface ContractProbeHooks extends DeviceFlowHooks {
   requestId?(): string;
   measureNow?(): number;
   resourceSnapshot?(): { rssBytes: number; heapUsedBytes: number; activeSockets: number };
+  reserveInferencePosts?(posts: number): Promise<void>;
   onFinalized?(evidence: {
     httpActuals: ProbeHttpCounts;
     logout: SafeSessionEvidence;
@@ -445,6 +451,7 @@ export async function executeContractProbeCase(
   hooks: ContractProbeHooks,
   controllers: Set<AbortController>,
   previousResponseId?: string,
+  reservationAlreadyHeld = false,
 ): Promise<ContractCaseEvidence> {
   const controller = new AbortController();
   controllers.add(controller);
@@ -487,6 +494,13 @@ export async function executeContractProbeCase(
   const resourceTimer = setInterval(sampleResources, 10);
   resourceTimer.unref();
   try {
+    if (!reservationAlreadyHeld) {
+      hooks.signal?.throwIfAborted();
+      if (!hooks.reserveInferencePosts) {
+        throw new Error("REFUSED: inference reservation hook is unavailable");
+      }
+      await hooks.reserveInferencePosts(1);
+    }
     const response = await hooks.fetch(CODEX_RESPONSES_URL, {
       method: "POST",
       headers: requestHeaders,
@@ -598,7 +612,14 @@ async function executeMatrix(
     if (stage.some((probe) => !isPostedProbeCase(probe))) {
       throw new Error(`Phase 0b ladder-${concurrency} contains a non-posted case`);
     }
-    const pending = stage.map((probe) => executeContractProbeCase(probe, headers, hooks, controllers));
+    if (!hooks.reserveInferencePosts) {
+      throw new Error("REFUSED: inference reservation hook is unavailable");
+    }
+    hooks.signal?.throwIfAborted();
+    await hooks.reserveInferencePosts(stage.length);
+    const pending = stage.map(
+      (probe) => executeContractProbeCase(probe, headers, hooks, controllers, undefined, true),
+    );
     let results: ContractCaseEvidence[];
     try {
       results = await Promise.all(pending);
@@ -612,15 +633,13 @@ async function executeMatrix(
   return evidence.sort((a, b) => a.sequence - b.sequence);
 }
 
-/**
- * Offline-testable Phase 0b runner scaffold. The CLI deliberately does not
- * expose this until the remaining live safety and evidence gates are complete.
- */
+/** Offline-testable Phase 0b runner with cumulative live authorization. */
 export async function runContractProbeScaffold(
   hooks: ContractProbeHooks,
 ): Promise<FullContractEvidence> {
   const env = { ...(hooks.env ?? process.env) };
   assertLiveContractProbePreflight(env);
+  const authorization = await prepareLiveInferenceAuthorization("contract", env);
   return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = contractListeningSocketCount();
   const accounting = new ProbeHttpAccounting(LIVE_CONTRACT_HTTP_LIMITS);
@@ -630,6 +649,7 @@ export async function runContractProbeScaffold(
   );
   const probeHooks: ContractProbeHooks = {
     ...hooks,
+    env,
     fetch: accounting.wrap(hooks.fetch, AbortSignal.any(signals)),
     signal: AbortSignal.any(signals),
   };
@@ -638,9 +658,9 @@ export async function runContractProbeScaffold(
   try {
   const tokens = await runDeviceCodeFlow(probeHooks);
   session = new EphemeralProbeTokenSession(tokens);
-  const account = assertLiveContractProbeAccount(tokens.accessToken, probeHooks.env ?? process.env);
+  const account = assertLiveContractProbeAccount(tokens.accessToken, env);
   const accountId = account.accountId;
-  let headers = buildBackendHeaders(session.current().accessToken, accountId, probeHooks.env ?? process.env);
+  let headers = buildBackendHeaders(session.current().accessToken, accountId, env);
 
   const modelsResponse = await fetchContractMetadataJson(CODEX_MODELS_URL, headers, probeHooks);
   if (hasModelCatalogueRestrictionSignal(modelsResponse.value)) {
@@ -650,22 +670,31 @@ export async function runContractProbeScaffold(
   }
   const catalogue = parseProbeModelCatalogue(modelsResponse.value);
   if (!catalogue.models.length) throw new Error("Authenticated model catalogue contains no usable model IDs");
-  const selectedModel = selectRequestedProbeModel(catalogue, undefined, probeHooks.env ?? process.env);
+  const selectedModel = selectRequestedProbeModel(catalogue, undefined, env);
+  const boundAuthorization = await bindLiveInferenceAuthorizationPlan(
+    authorization,
+    catalogue,
+    selectedModel.id,
+    env,
+  );
   const quotaResponse = await fetchContractMetadataJson(CODEX_USAGE_URL, headers, probeHooks);
   const quotaEvidence = parseProbeQuota(quotaResponse.value);
   if (!quotaEvidence.healthy) throw new Error("Phase 0b account is quota-limited or restricted at start");
   const refreshed = await session.refresh(probeHooks);
   const refreshedAccount = assertLiveContractProbeAccount(
     refreshed.accessToken,
-    probeHooks.env ?? process.env,
+    env,
   );
   if (refreshedAccount.fingerprint !== account.fingerprint) {
     throw new Error("REFUSED: OAuth refresh changed the dedicated Phase 0b account");
   }
-  headers = buildBackendHeaders(refreshed.accessToken, accountId, probeHooks.env ?? process.env);
+  headers = buildBackendHeaders(refreshed.accessToken, accountId, env);
   const refreshEvidence = session.evidence();
-  const matrix = buildContractProbeMatrix(catalogue, selectedModel.id, probeHooks.env ?? process.env);
-  const cases = await executeMatrix(matrix, headers, probeHooks);
+  const matrix = buildContractProbeMatrix(catalogue, selectedModel.id, env);
+  const cases = await executeMatrix(matrix, headers, {
+    ...probeHooks,
+    reserveInferencePosts: (posts) => reserveLiveInferencePosts(boundAuthorization, posts),
+  });
   const evidenceInferencePosts = cases.filter(
     (probe) => probe.status !== "preflight-rejected" && probe.status !== "unsupported-skip",
   ).length;

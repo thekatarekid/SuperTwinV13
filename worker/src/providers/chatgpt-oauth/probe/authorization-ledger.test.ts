@@ -176,11 +176,12 @@ describe("Phase 0b cumulative inference authorization ledger", () => {
       .toMatchObject({ consumedPosts: 0 });
   });
 
-  it("is isolated from every live probe entry point", async () => {
-    for (const file of ["cli.ts", "canary-runner.ts", "contract-runner.ts", "discovery-runner.ts"]) {
-      const source = await readFile(new URL(file, import.meta.url), "utf8");
-      expect(source).not.toContain("authorization-ledger");
-      expect(source).not.toContain("reserveInferencePosts");
-    }
+  it("is wired only into inference-capable live entry points", async () => {
+    const liveAuthorization = await readFile(new URL("live-authorization.ts", import.meta.url), "utf8");
+    const discovery = await readFile(new URL("discovery-runner.ts", import.meta.url), "utf8");
+    expect(liveAuthorization).toContain("readInferenceAuthorizationBinding");
+    expect(liveAuthorization).toContain("reserveInferencePosts");
+    expect(discovery).not.toContain("live-authorization");
+    expect(discovery).not.toContain("reserveInferencePosts");
   });
 });

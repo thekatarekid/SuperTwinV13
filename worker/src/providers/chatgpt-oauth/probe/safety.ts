@@ -148,6 +148,14 @@ export function formatLiveDeclaration(mode: "auth" | "discover" | "canary" | "co
     `PLANNED_FULL_PHASE_0B_CASES=${LIVE_PROBE_DECLARATION.plannedFullProbeCaseBudget}`,
     `PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=${LIVE_PROBE_DECLARATION.plannedFullProbeInferencePostBudget}`,
     `MAX_LIVE_CONTRACT_HTTP_REQUESTS=${LIVE_CONTRACT_HTTP_REQUEST_BUDGET}`,
+    mode === "contract" || mode === "canary"
+      ? "CUMULATIVE_AUTHORIZATION=existing external SQLite ledger required"
+      : "CUMULATIVE_AUTHORIZATION=not-applicable-no-inference",
+    ...(mode === "contract" || mode === "canary" ? [
+      "AUTHORIZATION_ENV=SUPERTWIN_CHATGPT_AUTHORIZATION_LEDGER_PATH + SUPERTWIN_CHATGPT_AUTHORIZATION_ID + SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER + SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS",
+      `PREFLIGHT_REMAINING_INFERENCE_POSTS=${mode === "contract" ? FULL_PROBE_INFERENCE_POST_BUDGET : 1}`,
+      "RESERVATION_POLICY=durable-before-fetch-no-refunds; ladder-stage-batch-before-peers",
+    ] : []),
     "PREFLIGHT_REJECTIONS=15",
     mode === "contract" || mode === "canary"
       ? "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange + 1 refresh"

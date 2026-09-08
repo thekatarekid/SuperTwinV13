@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +25,14 @@ import {
 import { redactedJson } from "./redact.js";
 import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
 import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
+import type { ProbeModelCatalogue } from "./models.js";
+import {
+  addTestInferenceAuthorization,
+  cleanupTestInferenceAuthorizations,
+  testConsumedInferencePosts,
+} from "./authorization-test-support.js";
+
+afterAll(cleanupTestInferenceAuthorizations);
 
 function jwt(accountId: string): string {
   const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -33,15 +41,34 @@ function jwt(accountId: string): string {
   })}.probe-signature`;
 }
 
-function contractEnv(accountId: string): NodeJS.ProcessEnv {
-  return {
+const CAPABLE_CATALOGUE: ProbeModelCatalogue = { models: [{
+  id: "gpt-probe",
+  capabilities: {
+    inputModalities: ["text", "image"],
+    reasoningEfforts: ["low"],
+    maxOutputTokens: 4096,
+    tools: true,
+    parallelToolCalls: true,
+    verbosity: true,
+    promptCacheKey: true,
+    promptCacheOptions: true,
+    structuredOutput: true,
+  },
+}] };
+
+async function contractEnv(
+  accountId: string,
+  expectedFingerprint = accountFingerprint(accountId),
+  catalogue: ProbeModelCatalogue = CAPABLE_CATALOGUE,
+): Promise<NodeJS.ProcessEnv> {
+  return addTestInferenceAuthorization({
     SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
     [LIVE_CONTRACT_PROBE_ENV]: "1",
-    SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
+    SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: expectedFingerprint,
     SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-probe",
     SUPERTWIN_APP_VERSION: "13.12.2",
     SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-contract-test"),
-  };
+  }, catalogue);
 }
 
 function jsonResponse(status: number, value: unknown): Response {
@@ -259,7 +286,7 @@ describe("mocked contract runner scaffold", () => {
     ["malformed", "bad model/with whitespace"],
   ])("refuses a %s selected model before the first OAuth request", async (_label, model) => {
     const accountId = "acct-model-preflight";
-    const env = contractEnv(accountId);
+    const env = await contractEnv(accountId);
     if (model === undefined) delete env[REQUESTED_PROBE_MODEL_ENV];
     else env[REQUESTED_PROBE_MODEL_ENV] = model;
     const fetchMock = vi.fn<typeof fetch>();
@@ -290,8 +317,7 @@ describe("mocked contract runner scaffold", () => {
       }
       throw new Error(`Account gate allowed unexpected URL: ${url}`);
     });
-    const env = contractEnv(accountId);
-    env.SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT = "000000000000";
+    const env = await contractEnv(accountId, "000000000000");
     const finalized = vi.fn();
 
     await expect(runContractProbeScaffold({
@@ -312,13 +338,18 @@ describe("mocked contract runner scaffold", () => {
 
   it("performs auth, model/quota reads, and each of the 55 inference POSTs exactly once", async () => {
     const accountId = "acct-never-log-this";
+    const liveEnv = await contractEnv(accountId);
     let inferencePosts = 0;
+    const consumedAtStageStart = new Map<number, number>();
     let continuationBody: Record<string, unknown> | undefined;
     let canaryHeaders: Record<string, string> | undefined;
     let cancellationSignal: AbortSignal | null | undefined;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
       if (url === CODEX_DEVICE_CODE_URL) {
+        // The runner must remain bound to its immutable entry snapshot.
+        liveEnv.SUPERTWIN_APP_VERSION = "99.99.99";
+        liveEnv.SUPERTWIN_CHATGPT_PROBE_MODEL = "mutated-after-entry";
         return jsonResponse(200, { user_code: "ABCD-EFGH", device_auth_id: "device-secret", interval: 3 });
       }
       if (url === CODEX_DEVICE_TOKEN_URL) {
@@ -349,6 +380,10 @@ describe("mocked contract runner scaffold", () => {
         inferencePosts += 1;
         const headers = init?.headers as Record<string, string>;
         const sequence = Number(headers.session_id.split("-").at(-1));
+        expect(testConsumedInferencePosts(liveEnv)).toBeGreaterThanOrEqual(inferencePosts);
+        if ([42, 43, 47, 55].includes(sequence)) {
+          consumedAtStageStart.set(sequence, testConsumedInferencePosts(liveEnv));
+        }
         if (sequence === 1) canaryHeaders = headers;
         if (sequence === 2) cancellationSignal = init?.signal;
         if (sequence === 21) continuationBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -368,10 +403,14 @@ describe("mocked contract runner scaffold", () => {
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
       requestId: () => "00000000-0000-4000-8000-000000000000",
-      env: contractEnv(accountId),
+      env: liveEnv,
     });
 
     expect(inferencePosts).toBe(FULL_PROBE_INFERENCE_POST_BUDGET);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(FULL_PROBE_INFERENCE_POST_BUDGET);
+    expect(consumedAtStageStart).toEqual(new Map([
+      [42, 27], [43, 31], [47, 39], [55, 55],
+    ]));
     expect(fetchMock).toHaveBeenCalledTimes(62);
     expect(evidence).toMatchObject({
       persistedCredentials: false,
@@ -469,7 +508,7 @@ describe("mocked contract runner scaffold", () => {
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
       onFinalized: finalized,
-      env: contractEnv(accountId),
+      env: await contractEnv(accountId),
     })).rejects.toThrow(/upstream restriction \(HTTP 200\)/);
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -527,7 +566,13 @@ describe("mocked contract runner scaffold", () => {
         now: vi.fn(() => 0),
         onUserCode: vi.fn(),
         onFinalized: finalized,
-        env: contractEnv(accountId),
+        env: await contractEnv(accountId, accountFingerprint(accountId), {
+          models: [{ id: "gpt-probe", capabilities: {
+            inputModalities: ["text", "image"], reasoningEfforts: ["low"], tools: true,
+            parallelToolCalls: true, verbosity: true, promptCacheKey: true,
+            promptCacheOptions: true, structuredOutput: true,
+          } }],
+        }),
       });
     } catch (error) {
       failure = error;
@@ -553,6 +598,7 @@ describe("mocked contract runner scaffold", () => {
 
   it("aborts and settles every concurrency-4 peer before rejecting, without starting concurrency-8", async () => {
     const accountId = "acct-concurrency-abort-test";
+    const liveEnv = await contractEnv(accountId);
     const startedSequences: number[] = [];
     const abortedPeers = new Set<number>();
     const settledPeers = new Set<number>();
@@ -612,12 +658,13 @@ describe("mocked contract runner scaffold", () => {
       sleep: vi.fn(async () => undefined),
       now: vi.fn(() => 0),
       onUserCode: vi.fn(),
-      env: contractEnv(accountId),
+      env: liveEnv,
     })).rejects.toThrow(/ladder\.4\.1 did not match/);
 
     expect(abortedPeers).toEqual(new Set([44, 45, 46]));
     expect(settledPeers).toEqual(new Set([44, 45, 46]));
     expect(startedSequences).toEqual(expect.arrayContaining([42, 43, 44, 45, 46]));
     expect(startedSequences.some((sequence) => sequence >= 47)).toBe(false);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(31);
   });
 });

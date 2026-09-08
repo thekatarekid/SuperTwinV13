@@ -24,6 +24,11 @@ import {
   assertLiveCanaryProbePreflight,
 } from "./safety.js";
 import { enforceScratchHomeInvariant } from "./scratch.js";
+import {
+  bindLiveInferenceAuthorizationPlan,
+  prepareLiveInferenceAuthorization,
+  reserveLiveInferencePosts,
+} from "./live-authorization.js";
 
 export interface CanaryProbeHooks extends ContractProbeHooks {}
 
@@ -48,6 +53,7 @@ export interface CanaryProbeEvidence {
 export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryProbeEvidence> {
   const env = { ...(hooks.env ?? process.env) };
   assertLiveCanaryProbePreflight(env);
+  const authorization = await prepareLiveInferenceAuthorization("canary", env);
   return enforceScratchHomeInvariant(env, async () => {
     const listeningSocketsBefore = contractListeningSocketCount();
     const accounting = new ProbeHttpAccounting(LIVE_CANARY_HTTP_LIMITS);
@@ -76,6 +82,12 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
       const catalogue = parseProbeModelCatalogue(modelsResponse.value);
       if (!catalogue.models.length) throw new Error("Canary model catalogue contains no safe visible model IDs");
       const model = selectRequestedProbeModel(catalogue, undefined, env);
+      const boundAuthorization = await bindLiveInferenceAuthorizationPlan(
+        authorization,
+        catalogue,
+        model.id,
+        env,
+      );
 
       const quotaResponse = await fetchContractMetadataJson(CODEX_USAGE_URL, headers, probeHooks);
       const quota = parseProbeQuota(quotaResponse.value);
@@ -93,7 +105,10 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
       if (!canary || canary.name !== "canary.blank-context" || canary.sequence !== 1) {
         throw new Error("Canary-only runner could not resolve the exact first contract case");
       }
-      const caseEvidence = await executeContractProbeCase(canary, headers, probeHooks, new Set());
+      const caseEvidence = await executeContractProbeCase(canary, headers, {
+        ...probeHooks,
+        reserveInferencePosts: (posts) => reserveLiveInferencePosts(boundAuthorization, posts),
+      }, new Set());
 
       const finalQuotaResponse = await fetchContractMetadataJson(CODEX_USAGE_URL, headers, probeHooks);
       const finalQuota = parseProbeQuota(finalQuotaResponse.value);

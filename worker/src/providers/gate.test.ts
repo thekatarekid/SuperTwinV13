@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { TraceRecord } from "../traces/store.js";
 import { withTraceContext } from "../traces/context.js";
@@ -7,6 +7,7 @@ import {
   BUDGET_TRIPPED_REASON_KEY,
   MODEL_ACTIVITY_PAUSED_KEY,
   budgetStatus,
+  providerCallBudgetStatus,
   resetBudgetForTests,
   setBudgetStore,
   type BudgetStore,
@@ -24,12 +25,17 @@ import type {
   LegacyProviderResult,
   Provider,
   ProviderAuthState,
+  ProviderId,
   ProviderStreamEvent,
   SendOptions,
 } from "./types.js";
 import { emptyUsage } from "./usage.js";
 
 const state = new Map<string, string>();
+const CHATGPT_HOUR_ENV = "SUPERTWIN_BUDGET_CHATGPT_OAUTH_CALLS_PER_HOUR";
+const CHATGPT_DAY_ENV = "SUPERTWIN_BUDGET_CHATGPT_OAUTH_CALLS_PER_DAY";
+const savedChatGptHour = process.env[CHATGPT_HOUR_ENV];
+const savedChatGptDay = process.env[CHATGPT_DAY_ENV];
 const budgetStore: BudgetStore = {
   get: (key) => state.get(key) ?? null,
   set: (key, value) => void state.set(key, value),
@@ -37,10 +43,19 @@ const budgetStore: BudgetStore = {
 };
 
 beforeEach(() => {
+  delete process.env[CHATGPT_HOUR_ENV];
+  delete process.env[CHATGPT_DAY_ENV];
   state.clear();
   resetBudgetForTests();
   setBudgetStore(budgetStore);
   resetSpendHeartbeatForTests();
+});
+
+afterAll(() => {
+  if (savedChatGptHour === undefined) delete process.env[CHATGPT_HOUR_ENV];
+  else process.env[CHATGPT_HOUR_ENV] = savedChatGptHour;
+  if (savedChatGptDay === undefined) delete process.env[CHATGPT_DAY_ENV];
+  else process.env[CHATGPT_DAY_ENV] = savedChatGptDay;
 });
 
 afterEach(() => {
@@ -58,12 +73,12 @@ function result(): LegacyProviderResult {
 }
 
 class GatedFakeProvider implements Provider {
-  readonly id: string;
+  readonly id: ProviderId;
   calls = 0;
   auth: ProviderAuthState = { status: "ready", error: null };
   readonly order: string[] = [];
 
-  constructor(id: string) {
+  constructor(id: ProviderId) {
     this.id = id;
   }
 
@@ -108,7 +123,7 @@ async function sendThroughRegistry(provider: GatedFakeProvider): Promise<LegacyP
 describe("shared provider gate", () => {
   it("blocks a registry-resolved provider at the kill switch before quota, auth, or send", async () => {
     state.set(MODEL_ACTIVITY_PAUSED_KEY, "2026-09-08T00:00:00.000Z");
-    const fake = new GatedFakeProvider("fake-gate-kill");
+    const fake = new GatedFakeProvider("claude-local");
 
     await expect(sendThroughRegistry(fake)).rejects.toMatchObject({
       code: "MODEL_ACTIVITY_PAUSED",
@@ -121,7 +136,7 @@ describe("shared provider gate", () => {
   it("blocks a registry-resolved provider at the budget latch before quota, auth, or send", async () => {
     state.set(BUDGET_TRIPPED_KEY, "2026-09-08T00:00:00.000Z");
     state.set(BUDGET_TRIPPED_REASON_KEY, "test latch");
-    const fake = new GatedFakeProvider("fake-gate-budget");
+    const fake = new GatedFakeProvider("claude-local");
 
     await expect(sendThroughRegistry(fake)).rejects.toMatchObject({
       code: "BUDGET_EXCEEDED",
@@ -132,7 +147,7 @@ describe("shared provider gate", () => {
   });
 
   it("checks quota before auth and does not admit a signed-out provider", async () => {
-    const fake = new GatedFakeProvider("fake-gate-auth");
+    const fake = new GatedFakeProvider("claude-local");
     fake.auth = { status: "signed_out", error: null };
 
     await expect(sendThroughRegistry(fake)).rejects.toEqual(
@@ -145,7 +160,7 @@ describe("shared provider gate", () => {
   });
 
   it("admits, streams, accounts, and traces one physical attempt exactly once", async () => {
-    const fake = new GatedFakeProvider("fake-gate-success");
+    const fake = new GatedFakeProvider("claude-local");
     const events: ProviderStreamEvent[] = [];
     const traces: TraceRecord[] = [];
 
@@ -168,6 +183,20 @@ describe("shared provider gate", () => {
       raw_output: "ok",
       status: "ok",
     });
+  });
+
+  it("tags ChatGPT attempts and refuses N+1 before transport", async () => {
+    process.env[CHATGPT_HOUR_ENV] = "1";
+    process.env[CHATGPT_DAY_ENV] = "1";
+    const fake = new GatedFakeProvider("chatgpt-oauth");
+
+    await sendThroughRegistry(fake);
+    await expect(sendThroughRegistry(fake)).rejects.toMatchObject({
+      code: "BUDGET_EXCEEDED",
+    });
+
+    expect(fake.calls).toBe(1);
+    expect(providerCallBudgetStatus("chatgpt-oauth").hourCalls).toBe(1);
   });
 
   it("traces an admitted neutral error result with its typed error code", async () => {

@@ -78,6 +78,12 @@ import { resolveDbPath } from "../db/connection.js";
 import { appStateDelete, appStateGet, appStateSet } from "../db/ingest.js";
 import { isProductionDbPath } from "../home-guard.js";
 import { currentTraceMeta } from "../traces/context.js";
+import type { ProviderId } from "./types.js";
+
+export interface ProviderCallCeilings {
+  callsPerHour: number;
+  callsPerDay: number;
+}
 
 export interface BudgetCeilings {
   /**
@@ -90,6 +96,7 @@ export interface BudgetCeilings {
   usdPerDay: number;
   callsPerHour: number;
   callsPerDay: number;
+  providerCalls: Partial<Record<ProviderId, ProviderCallCeilings>>;
 }
 
 /** Plan §3 S0.2. Env overrides exist for ops, never lower than zero. */
@@ -99,11 +106,14 @@ export const DEFAULT_CEILINGS: Readonly<BudgetCeilings> = Object.freeze({
   usdPerDay: 15,
   callsPerHour: 400,
   callsPerDay: 3000,
+  providerCalls: Object.freeze({}),
 });
 
 /** `app_state` keys. The latch key is the one the plan names. */
 export const BUDGET_TRIPPED_KEY = "budget_tripped_at";
 export const BUDGET_TRIPPED_REASON_KEY = "budget_tripped_reason";
+/** Provider whose own call ceiling latched; absent for global USD/call trips. */
+export const BUDGET_TRIPPED_PROVIDER_KEY = "budget_tripped_provider";
 export const BUDGET_LEDGER_KEY = "budget.ledger";
 /**
  * ISO time of the operator's last reset — the point the HOUR windows are
@@ -122,6 +132,8 @@ interface Bucket {
   m: number;
   calls: number;
   usd: number;
+  /** Additive: persisted buckets from older releases legitimately omit it. */
+  providerCalls?: Partial<Record<ProviderId, number>>;
 }
 
 /** What the budget reads and writes. Keyed like app_state. */
@@ -181,15 +193,41 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+function optionalPositiveEnvInteger(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function chatGptCallCeilings(): ProviderCallCeilings | undefined {
+  const callsPerHour = optionalPositiveEnvInteger(
+    "SUPERTWIN_BUDGET_CHATGPT_OAUTH_CALLS_PER_HOUR",
+  );
+  const callsPerDay = optionalPositiveEnvInteger(
+    "SUPERTWIN_BUDGET_CHATGPT_OAUTH_CALLS_PER_DAY",
+  );
+  return callsPerHour !== null && callsPerDay !== null
+    ? { callsPerHour, callsPerDay }
+    : undefined;
+}
+
 /** The active ceilings: defaults, each overridable by SUPERTWIN_BUDGET_*. */
 export function budgetCeilings(): BudgetCeilings {
+  const chatgpt = chatGptCallCeilings();
   return {
     usdPerCall: envNumber("SUPERTWIN_BUDGET_USD_PER_CALL", DEFAULT_CEILINGS.usdPerCall),
     usdPerHour: envNumber("SUPERTWIN_BUDGET_USD_PER_HOUR", DEFAULT_CEILINGS.usdPerHour),
     usdPerDay: envNumber("SUPERTWIN_BUDGET_USD_PER_DAY", DEFAULT_CEILINGS.usdPerDay),
     callsPerHour: envNumber("SUPERTWIN_BUDGET_CALLS_PER_HOUR", DEFAULT_CEILINGS.callsPerHour),
     callsPerDay: envNumber("SUPERTWIN_BUDGET_CALLS_PER_DAY", DEFAULT_CEILINGS.callsPerDay),
+    providerCalls: chatgpt ? { "chatgpt-oauth": chatgpt } : {},
   };
+}
+
+/** Flag-on prerequisite for a provider whose subscription spend has no USD. */
+export function hasProviderCallCeilings(providerId: ProviderId): boolean {
+  return budgetCeilings().providerCalls[providerId] !== undefined;
 }
 
 // ---- ledger ----------------------------------------------------------------
@@ -215,7 +253,22 @@ function loadLedger(s: BudgetStore, now: number): Bucket[] {
       typeof (b as Bucket).usd === "number" &&
       (b as Bucket).m >= floor
     ) {
-      out.push({ m: (b as Bucket).m, calls: (b as Bucket).calls, usd: (b as Bucket).usd });
+      const rawProviderCalls = (b as Bucket).providerCalls;
+      const providerCalls: Partial<Record<ProviderId, number>> = {};
+      if (rawProviderCalls && typeof rawProviderCalls === "object") {
+        for (const providerId of ["claude-local", "chatgpt-oauth"] as const) {
+          const value = rawProviderCalls[providerId];
+          if (Number.isSafeInteger(value) && (value as number) >= 0) {
+            providerCalls[providerId] = value;
+          }
+        }
+      }
+      out.push({
+        m: (b as Bucket).m,
+        calls: (b as Bucket).calls,
+        usd: (b as Bucket).usd,
+        ...(Object.keys(providerCalls).length > 0 ? { providerCalls } : {}),
+      });
     }
   }
   return out;
@@ -232,6 +285,25 @@ function bucketFor(ledger: Bucket[], now: number): Bucket {
   const b: Bucket = { m, calls: 0, usd: 0 };
   ledger.push(b);
   return b;
+}
+
+function providerTotals(
+  ledger: Bucket[],
+  providerId: ProviderId,
+  now: number,
+  windowMs: number,
+  sinceMs = 0,
+): number {
+  const windowFloor = Math.floor((now - windowMs) / MINUTE_MS);
+  const resumeFloor = sinceMs > 0
+    ? Math.floor(sinceMs / MINUTE_MS) - 1
+    : Number.NEGATIVE_INFINITY;
+  const floor = Math.max(windowFloor, resumeFloor);
+  let calls = 0;
+  for (const bucket of ledger) {
+    if (bucket.m > floor) calls += bucket.providerCalls?.[providerId] ?? 0;
+  }
+  return calls;
 }
 
 export interface WindowTotals {
@@ -287,6 +359,13 @@ export interface BudgetStatus {
   ceilings: BudgetCeilings;
 }
 
+export interface ProviderCallBudgetStatus {
+  providerId: ProviderId;
+  hourCalls: number;
+  dayCalls: number;
+  ceilings: ProviderCallCeilings | null;
+}
+
 /** Current windows, latch and kill switch, for /api/ops and the tests. */
 export function budgetStatus(now: number = Date.now()): BudgetStatus {
   const s = store();
@@ -300,6 +379,22 @@ export function budgetStatus(now: number = Date.now()): BudgetStatus {
     hour: totals(ledger, now, HOUR_MS, resumed),
     day: totals(ledger, now, DAY_MS),
     ceilings: budgetCeilings(),
+  };
+}
+
+/** Provider-specific counters and configured limits, without any raw ledger. */
+export function providerCallBudgetStatus(
+  providerId: ProviderId,
+  now: number = Date.now(),
+): ProviderCallBudgetStatus {
+  const s = store();
+  const ledger = loadLedger(s, now);
+  const resumed = resumedAtMs(s);
+  return {
+    providerId,
+    hourCalls: providerTotals(ledger, providerId, now, HOUR_MS, resumed),
+    dayCalls: providerTotals(ledger, providerId, now, DAY_MS),
+    ceilings: budgetCeilings().providerCalls[providerId] ?? null,
   };
 }
 
@@ -362,6 +457,7 @@ export function resetBudgetLatch(now: number = Date.now()): void {
   const was = s.get(BUDGET_TRIPPED_KEY);
   s.delete(BUDGET_TRIPPED_KEY);
   s.delete(BUDGET_TRIPPED_REASON_KEY);
+  s.delete(BUDGET_TRIPPED_PROVIDER_KEY);
   // FIX-C1: the hour that caused the trip is forgiven from here, or the first
   // call after the reset would re-breach it and re-latch on the spot. The day
   // is not forgiven — see the header.
@@ -536,6 +632,29 @@ function breach(ledger: Bucket[], now: number, c: BudgetCeilings, hourSince = 0)
   return null;
 }
 
+function providerCallBreach(
+  ledger: Bucket[],
+  providerId: ProviderId | undefined,
+  now: number,
+  ceilings: BudgetCeilings,
+  hourSince: number,
+): string | null {
+  if (!providerId) return null;
+  const providerCeilings = ceilings.providerCalls[providerId];
+  if (!providerCeilings) return null;
+  const hourCalls = providerTotals(ledger, providerId, now, HOUR_MS, hourSince);
+  const dayCalls = providerTotals(ledger, providerId, now, DAY_MS);
+  if (hourCalls + 1 > providerCeilings.callsPerHour) {
+    return `${providerId}: ${hourCalls} calls in the last hour ` +
+      `(provider ceiling ${providerCeilings.callsPerHour})`;
+  }
+  if (dayCalls + 1 > providerCeilings.callsPerDay) {
+    return `${providerId}: ${dayCalls} calls in the last day ` +
+      `(provider ceiling ${providerCeilings.callsPerDay})`;
+  }
+  return null;
+}
+
 /**
  * The gate. Call right after assertTraceContext and BEFORE spawn.
  *
@@ -551,6 +670,7 @@ function evaluateCallAdmission(
   meta: BudgetCallMeta | null,
   now: number,
   commit: boolean,
+  providerId?: ProviderId,
 ): void {
   const s = store();
   const pausedAt = s.get(MODEL_ACTIVITY_PAUSED_KEY);
@@ -561,11 +681,27 @@ function evaluateCallAdmission(
   const exempt = isLatchExempt(meta);
   const resumed = resumedAtMs(s);
 
-  const reason = breach(ledger, now, ceilings, resumed);
-  if (reason) tripBudget(reason, now);
+  const providerReason = providerCallBreach(
+    ledger,
+    providerId,
+    now,
+    ceilings,
+    resumed,
+  );
+  const reason = providerReason ?? breach(ledger, now, ceilings, resumed);
+  if (reason) {
+    tripBudget(reason, now);
+    if (providerReason !== null && providerId) {
+      s.set(BUDGET_TRIPPED_PROVIDER_KEY, providerId);
+    }
+  }
 
   const tripped = s.get(BUDGET_TRIPPED_KEY);
-  if (tripped !== null && !exempt) {
+  const latchedProvider = s.get(BUDGET_TRIPPED_PROVIDER_KEY);
+  const providerHardStop = providerReason !== null || latchedProvider === providerId;
+  // A provider-scoped call ceiling is the subscription provider's actual stop
+  // mechanism when USD is unknown, so interactive calls cannot bypass it.
+  if (tripped !== null && (!exempt || providerHardStop)) {
     const why = reason ?? s.get(BUDGET_TRIPPED_REASON_KEY) ?? "budget latch set";
     throw new BudgetExceededError(why, {
       trippedAt: tripped,
@@ -579,7 +715,13 @@ function evaluateCallAdmission(
   }
 
   if (commit) {
-    bucketFor(ledger, now).calls += 1;
+    const bucket = bucketFor(ledger, now);
+    bucket.calls += 1;
+    if (providerId) {
+      bucket.providerCalls ??= {};
+      bucket.providerCalls[providerId] =
+        (bucket.providerCalls[providerId] ?? 0) + 1;
+    }
     saveLedger(s, ledger);
   }
 }
@@ -604,6 +746,23 @@ export function admitCall(
   now: number = Date.now(),
 ): void {
   evaluateCallAdmission(meta, now, true);
+}
+
+/** Provider-tagged forms used by the shared gate for every physical attempt. */
+export function preflightProviderCall(
+  providerId: ProviderId,
+  meta: BudgetCallMeta | null = currentTraceMeta(),
+  now: number = Date.now(),
+): void {
+  evaluateCallAdmission(meta, now, false, providerId);
+}
+
+export function admitProviderCall(
+  providerId: ProviderId,
+  meta: BudgetCallMeta | null = currentTraceMeta(),
+  now: number = Date.now(),
+): void {
+  evaluateCallAdmission(meta, now, true, providerId);
 }
 
 /** Add what one CLI invocation cost, once the result line reports it. */

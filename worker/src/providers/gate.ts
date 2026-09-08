@@ -7,11 +7,16 @@ import {
   assertTraceContext,
   recordProviderInvocation,
 } from "../traces/context.js";
-import { admitCall, preflightCall, recordCallCost } from "./budget.js";
+import {
+  admitProviderCall,
+  preflightProviderCall,
+  recordCallCost,
+} from "./budget.js";
 import { noteRefusal, noteSpend, refusalCode } from "./spend-heartbeat.js";
 import type {
   ProviderAuthState,
   ProviderErrorCode,
+  ProviderId,
   ProviderStreamEvent,
   Usage,
 } from "./types.js";
@@ -64,7 +69,7 @@ export interface GatedProviderAttemptResult {
 export interface GatedProviderAttemptOptions<
   T extends GatedProviderAttemptResult,
 > {
-  providerId: string;
+  providerId: ProviderId;
   runId: string;
   attempt: number;
   model: string | null;
@@ -103,10 +108,10 @@ export async function runGatedProviderAttempt<
   try {
     // The first check establishes the mandated ordering without spending a
     // call. `admitCall` repeats it synchronously before committing the slot.
-    preflightCall();
+    preflightProviderCall(opts.providerId);
     opts.checkQuota?.();
     if (opts.authState) assertProviderAuthReady(opts.authState());
-    admitCall();
+    admitProviderCall(opts.providerId);
     admitted = true;
 
     result = await opts.execute((event) => {

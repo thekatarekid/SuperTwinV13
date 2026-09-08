@@ -8,6 +8,7 @@ import Database from "better-sqlite3";
 
 import { closeDb } from "./connection.js";
 import {
+  abortChatTurn,
   appendChatUserMessage,
   clearChatContinuation,
   commitAssistantTurn,
@@ -184,6 +185,17 @@ describe("provider-neutral chat session API", () => {
       generation: 1,
     });
 
+    expect(commitAssistantTurn({
+      conversationId: CONVERSATION_A,
+      expectedGeneration: 1,
+      provider: "claude-local",
+      model: "claude-sonnet-5",
+      promptBundleHash: HASH_A,
+      continuation: "unreserved-token",
+      assistantMessage: { content: "must reserve before sending" },
+    })).toBeNull();
+    expect(getChatMessages(CONVERSATION_A)).toHaveLength(1);
+
     expect(reserveChatTurn({
       conversationId: CONVERSATION_A,
       expectedGeneration: 1,
@@ -274,22 +286,22 @@ describe("provider-neutral chat session API", () => {
       model: "gpt-5.6-sol",
       promptBundleHash: HASH_B,
     })).toBeNull();
-    expect(clearChatContinuation({ conversationId: CONVERSATION_A, expectedGeneration: 3 })).toBe(4);
+    expect(clearChatContinuation({ conversationId: CONVERSATION_A, expectedGeneration: 3 })).toBe(5);
     expect(clearChatContinuation({ conversationId: CONVERSATION_A, expectedGeneration: 3 })).toBeNull();
     expect(rebindChatContinuation({
       conversationId: CONVERSATION_A,
-      expectedGeneration: 4,
+      expectedGeneration: 5,
       provider: "chatgpt-oauth",
       model: "gpt-5.6-sol",
       promptBundleHash: HASH_B,
-    })).toBe(5);
+    })).toBe(7);
     expect(getChatContinuation(CONVERSATION_A)).toEqual({
       conversationId: CONVERSATION_A,
       provider: "chatgpt-oauth",
       model: "gpt-5.6-sol",
       promptBundleHash: HASH_B,
       continuation: null,
-      generation: 5,
+      generation: 7,
     });
     expect(getChatSession(CONVERSATION_A)).toMatchObject({
       conversationId: CONVERSATION_A,
@@ -365,6 +377,7 @@ describe("provider-neutral chat session API", () => {
            SET continuation_generation = continuation_generation + 1
          WHERE conversation_id = @conversationId
            AND continuation_generation = @expectedGeneration
+           AND continuation_generation % 2 = 1
            AND continuation_provider = @provider
            AND continuation_model = @model
            AND continuation_prompt_bundle_hash = @promptBundleHash
@@ -377,9 +390,56 @@ describe("provider-neutral chat session API", () => {
         promptBundleHash: HASH_A,
       });
       expect(loser).toBeUndefined();
+
+      const fresh = second.prepare(`
+        SELECT continuation_generation AS generation
+          FROM chat_sessions WHERE conversation_id = ?
+      `).get(CONVERSATION_A) as { generation: number };
+      expect(fresh.generation).toBe(2);
+      const freshLoser = second.prepare(`
+        UPDATE chat_sessions
+           SET continuation_generation = continuation_generation + 1
+         WHERE conversation_id = @conversationId
+           AND continuation_generation = @expectedGeneration
+           AND continuation_generation % 2 = 1
+           AND continuation_provider = @provider
+           AND continuation_model = @model
+           AND continuation_prompt_bundle_hash = @promptBundleHash
+        RETURNING continuation_generation
+      `).get({
+        conversationId: CONVERSATION_A,
+        expectedGeneration: fresh.generation,
+        provider: "claude-local",
+        model: "claude-sonnet-5",
+        promptBundleHash: HASH_A,
+      });
+      expect(freshLoser).toBeUndefined();
     } finally {
       second.close();
     }
+
+    expect(clearChatContinuation({ conversationId: CONVERSATION_A, expectedGeneration: 2 })).toBeNull();
+    expect(rebindChatContinuation({
+      conversationId: CONVERSATION_A,
+      expectedGeneration: 2,
+      provider: "chatgpt-oauth",
+      model: "gpt-5.6-sol",
+      promptBundleHash: HASH_B,
+    })).toBeNull();
+    expect(abortChatTurn({
+      conversationId: CONVERSATION_A,
+      expectedGeneration: 2,
+      provider: "claude-local",
+      model: "wrong-model",
+      promptBundleHash: HASH_A,
+    })).toBeNull();
+    expect(abortChatTurn({
+      conversationId: CONVERSATION_A,
+      expectedGeneration: 2,
+      provider: "claude-local",
+      model: "claude-sonnet-5",
+      promptBundleHash: HASH_A,
+    })).toBe(3);
 
     // A restarted stale caller also fails closed rather than dispatching.
     closeDb();
@@ -390,6 +450,6 @@ describe("provider-neutral chat session API", () => {
       model: "claude-sonnet-5",
       promptBundleHash: HASH_A,
     })).toBeNull();
-    expect(getChatContinuation(CONVERSATION_A)?.generation).toBe(2);
+    expect(getChatContinuation(CONVERSATION_A)).toMatchObject({ continuation: null, generation: 3 });
   });
 });

@@ -241,6 +241,7 @@ export interface ChatContinuationState {
   model: string | null;
   promptBundleHash: string | null;
   continuation: string | null;
+  /** 0 = migrated/unbound; positive odd = idle; positive even = reserved. */
   generation: number;
 }
 
@@ -256,6 +257,7 @@ export interface RebindChatContinuationParams extends ContinuationCas {
 }
 
 export type ReserveChatTurnParams = RebindChatContinuationParams;
+export type AbortChatTurnParams = RebindChatContinuationParams;
 
 export interface CommitAssistantTurnParams extends RebindChatContinuationParams {
   continuation: string | null;
@@ -383,6 +385,7 @@ interface Statements {
   getChatMessages: Database.Statement;
   getChatContinuation: Database.Statement;
   reserveChatTurn: Database.Statement;
+  abortChatTurn: Database.Statement;
   clearChatContinuation: Database.Statement;
   rebindChatContinuation: Database.Statement;
   commitChatContinuation: Database.Statement;
@@ -462,19 +465,35 @@ function statements(): Statements {
        WHERE conversation_id = @conversationId
          AND continuation_generation = @expectedGeneration
          AND continuation_generation < 2147483647
+         AND continuation_generation % 2 = 1
          AND continuation_provider = @provider
          AND continuation_model = @model
          AND continuation_prompt_bundle_hash = @promptBundleHash
       RETURNING provider_continuation, continuation_generation
     `),
-    clearChatContinuation: db.prepare(`
+    abortChatTurn: db.prepare(`
       UPDATE chat_sessions
          SET provider_continuation = NULL,
              continuation_generation = continuation_generation + 1,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE conversation_id = @conversationId
          AND continuation_generation = @expectedGeneration
-         AND continuation_generation < 2147483647
+         AND continuation_generation BETWEEN 2 AND 2147483646
+         AND continuation_generation % 2 = 0
+         AND continuation_provider = @provider
+         AND continuation_model = @model
+         AND continuation_prompt_bundle_hash = @promptBundleHash
+      RETURNING continuation_generation
+    `),
+    clearChatContinuation: db.prepare(`
+      UPDATE chat_sessions
+         SET provider_continuation = NULL,
+             continuation_generation = continuation_generation + 2,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE conversation_id = @conversationId
+         AND continuation_generation = @expectedGeneration
+         AND continuation_generation BETWEEN 1 AND 2147483645
+         AND continuation_generation % 2 = 1
       RETURNING continuation_generation
     `),
     rebindChatContinuation: db.prepare(`
@@ -482,11 +501,19 @@ function statements(): Statements {
          SET continuation_provider = @provider,
              continuation_model = @model,
              continuation_prompt_bundle_hash = @promptBundleHash,
-             continuation_generation = continuation_generation + 1,
+             continuation_generation = CASE
+               WHEN continuation_generation = 0 THEN 1
+               ELSE continuation_generation + 2
+             END,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE conversation_id = @conversationId
          AND continuation_generation = @expectedGeneration
-         AND continuation_generation < 2147483647
+         AND (
+           continuation_generation = 0 OR (
+             continuation_generation BETWEEN 1 AND 2147483645
+             AND continuation_generation % 2 = 1
+           )
+         )
          AND provider_continuation IS NULL
       RETURNING continuation_generation
     `),
@@ -497,7 +524,8 @@ function statements(): Statements {
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE conversation_id = @conversationId
          AND continuation_generation = @expectedGeneration
-         AND continuation_generation < 2147483647
+         AND continuation_generation BETWEEN 2 AND 2147483646
+         AND continuation_generation % 2 = 0
          AND continuation_provider = @provider
          AND continuation_model = @model
          AND continuation_prompt_bundle_hash = @promptBundleHash
@@ -926,7 +954,8 @@ export function getChatContinuation(conversationId: string): ChatContinuationSta
 
 /**
  * Reserve one provider send before inference. Two processes holding the same
- * generation cannot both win; the loser receives null and must not dispatch.
+ * or freshly-read generation cannot both win: only odd (idle) generations
+ * advance to even (reserved). A loser receives null and must not dispatch.
  */
 export function reserveChatTurn(params: ReserveChatTurnParams): ChatContinuationState | null {
   const row = statements().reserveChatTurn.get(params) as
@@ -943,7 +972,19 @@ export function reserveChatTurn(params: ReserveChatTurnParams): ChatContinuation
   };
 }
 
-/** Invalidate the opaque token if the caller still owns the generation. */
+/**
+ * Release a failed reserved send. Clearing the old token is deliberate: once
+ * dispatch began, its provider-side consumption is unknowable, so the next
+ * turn reconstructs instead of risking an unsafe resume.
+ */
+export function abortChatTurn(params: AbortChatTurnParams): number | null {
+  const row = statements().abortChatTurn.get(params) as
+    | { continuation_generation: number }
+    | undefined;
+  return row?.continuation_generation ?? null;
+}
+
+/** Invalidate an idle continuation while preserving the idle parity state. */
 export function clearChatContinuation(params: ContinuationCas): number | null {
   const row = statements().clearChatContinuation.get(params) as
     | { continuation_generation: number }

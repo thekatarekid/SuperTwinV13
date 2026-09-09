@@ -67,6 +67,8 @@ export interface CliOptions {
   checkCoverage: boolean;
   /** Also fail on a pending case or an unmeasured hard gate. */
   strict: boolean;
+  /** Exact pending case IDs permitted under strict mode. */
+  allowPending: string[];
   liveness: boolean;
   materialize: boolean;
   /** Waive the eval-home boundary and seed fixtures into ~/SuperTwinV13. */
@@ -103,6 +105,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     hideNoDataGates: false,
     checkCoverage: true,
     strict: false,
+    allowPending: [],
     liveness: false,
     materialize: false,
     allowProductionHome: false,
@@ -159,6 +162,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         break;
       case "--strict":
         options.strict = true;
+        break;
+      case "--allow-pending":
+        options.allowPending = next().split(",").map((id) => id.trim().toUpperCase()).filter(Boolean);
         break;
       case "--liveness":
         options.liveness = true;
@@ -390,9 +396,13 @@ export async function main(argv: readonly string[], out: (line: string) => void 
       if (!parity.ok) ok = false;
     }
     if (options.strict) {
+      const allowed = new Set(options.allowPending);
+      const pendingIds = suite.results.filter((result) => result.status === "pending").map((result) => result.id);
+      const unexpectedPending = pendingIds.filter((id) => !allowed.has(id));
+      const missingAllowed = options.allowPending.filter((id) => !pendingIds.includes(id));
       const unmeasured = suite.gates.filter((g) => g.hard && g.status === "no_data").length;
-      if (suite.totals.pending > 0 || unmeasured > 0) {
-        out(`eval --strict: ${suite.totals.pending} pending case(s), ${unmeasured} unmeasured hard gate(s)`);
+      if (unexpectedPending.length > 0 || missingAllowed.length > 0 || unmeasured > 0) {
+        out(`eval --strict: ${unexpectedPending.length} unexpected pending case(s), ${missingAllowed.length} missing allowed pending case(s), ${unmeasured} unmeasured hard gate(s)`);
         ok = false;
       }
     }

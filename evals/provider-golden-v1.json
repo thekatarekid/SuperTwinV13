@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "fixture_root": "evals/v13",
+  "fixture_files": 281,
+  "fixture_sha256": "b3905513a9aaa92e51457da7b44ef68d38c57f6a6d3161173082e648ca0a7a69",
+  "cases": { "live": 116, "code": 162 },
+  "logical_calls": { "executor": 116, "judge_initial": 116, "judge_repair": 116 },
+  "nominal_no_repair_physical_calls": 232,
+  "allowed_pending_case_ids": ["TRC-01", "TRC-03"],
+  "providers": {
+    "claude-local": {
+      "physical_call_ceiling": 348,
+      "physical_attempts_per_logical_call": 1,
+      "usd_per_physical_call_ceiling": 0.05,
+      "usd_run_ceiling": 15
+    },
+    "chatgpt-oauth": {
+      "physical_call_ceiling": 696,
+      "physical_attempts_per_logical_call": 2,
+      "cost_semantics": "unknown"
+    }
+  }
+}

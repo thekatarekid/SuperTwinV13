@@ -19,6 +19,7 @@ import { retryAfterMs } from "./usage.js";
 import type { ChatGptTokenSession } from "./keychain.js";
 import { buildChatGptRequest } from "./request.js";
 import { consumeChatGptSse, ChatGptSseError } from "./sse.js";
+import { enforceGoldenPhysicalSend, recordGoldenProviderCost } from "../../evals/provider-golden-rail.js";
 
 export const CHATGPT_BACKEND_BASE_URL = "https://chatgpt.com/backend-api/codex";
 export const CHATGPT_RESPONSES_URL = `${CHATGPT_BACKEND_BASE_URL}/responses`;
@@ -610,6 +611,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
         }
         let response: Response;
         try {
+          enforceGoldenPhysicalSend({ provider: "chatgpt-oauth", model: model.id,
+            accountId: authorization.accountId, reason: attempt === 2 ? "http_401_retry" : "initial" });
+          recordGoldenProviderCost("chatgpt-oauth", undefined);
           response = await this.dependencies.fetch(CHATGPT_RESPONSES_URL, {
             method: "POST",
             redirect: "error",

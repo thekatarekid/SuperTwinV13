@@ -47,7 +47,8 @@ function renderGates(gates: readonly GateReading[], hideNoData: boolean): string
 }
 
 function renderFailure(r: CaseResult, maxNotes: number): string[] {
-  const lines = [`  ${r.id} (${r.pass}, ${r.mode}) — ${r.reason ?? "failed"}`];
+  const binding = r.providerId ? `, ${r.providerId}:${r.executorModel}/${r.judgeModel}` : "";
+  const lines = [`  ${r.id} (${r.pass}, ${r.mode}${binding}) — ${r.reason ?? "failed"}`];
   for (const hit of r.wrongHits) {
     lines.push(`      wrong[${hit.label}] by ${hit.by}${hit.note ? `: ${hit.note}` : ""}`);
   }
@@ -67,6 +68,15 @@ export function renderReport(suite: SuiteResult, dir: string, options: ReportOpt
   lines.push(...renderCategories(suite));
   lines.push("");
   lines.push(...renderGates(suite.gates, options.hideNoDataGates ?? false));
+
+  const boundResults = suite.results.filter((result) => result.providerId !== undefined);
+  if (boundResults.length > 0) {
+    lines.push("");
+    lines.push("provider/model bindings (per result):");
+    for (const result of boundResults) {
+      lines.push(`  ${result.id}: ${result.providerId}:${result.executorModel}/${result.judgeModel}`);
+    }
+  }
 
   const failures = suite.results.filter((r) => r.status === "fail");
   if (failures.length > 0) {

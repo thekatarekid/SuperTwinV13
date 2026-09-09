@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 import { homeRoot } from "../../home.js";
 import type { ProviderAuthState, ProviderErrorCode } from "../types.js";
 
-const KEYCHAIN_SERVICE = "SuperTwinV13 ChatGPT OAuth";
+/** Public only so the native release verifier can target one exact item. */
+export const CHATGPT_KEYCHAIN_SERVICE = "SuperTwinV13 ChatGPT OAuth";
 const ACCOUNT_PREFIX = "supertwin.chatgpt-oauth.";
 const REFRESH_SKEW_MS = 120_000;
 const MAX_KEYCHAIN_VALUE_BYTES = 128 * 1024;
@@ -270,7 +271,7 @@ export class ChatGptKeychainStore {
   async loadEnvelope(): Promise<StoredCredentialEnvelope | undefined> {
     try {
       const result = await this.#command("/usr/bin/security", [
-        "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", this.account, "-w",
+        "find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", this.account, "-w",
       ]);
       return decodeEnvelope(result.stdout.trimEnd());
     } catch (error) {
@@ -344,7 +345,7 @@ export class ChatGptKeychainStore {
   async clear(): Promise<void> {
     try {
       await this.#command("/usr/bin/security", [
-        "delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", this.account,
+        "delete-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", this.account,
       ]);
     } catch (error) {
       if (isMissingItem(error)) return;
@@ -356,7 +357,7 @@ export class ChatGptKeychainStore {
     const encoded = encodeEnvelope(envelope);
     try {
       await this.#command("/usr/bin/security", [
-        "add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", this.account, "-w",
+        "add-generic-password", "-U", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", this.account, "-w",
       ], encoded, signal);
     } catch (error) {
       if (error instanceof ChatGptCredentialError) throw error;

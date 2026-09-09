@@ -11,8 +11,11 @@
     "test": "vitest run",
     "probe:chatgpt-oauth": "tsx src/providers/chatgpt-oauth/probe/cli.ts",
     "probe:chatgpt-oauth:browser-auth-smoke": "tsx src/providers/chatgpt-oauth/probe/cli.ts --live-browser-auth-smoke",
+    "verify:native-keychain": "tsx src/providers/chatgpt-oauth/native-keychain-verification-cli.ts --native-keychain-verification",
     "test:live:claude": "node -e \"if(process.env.SUPERTWIN_RUN_LIVE_CLAUDE_TESTS!=='1'){console.error('REFUSED: live Claude tests spend money. Re-run with SUPERTWIN_RUN_LIVE_CLAUDE_TESTS=1');process.exit(1)};console.error('LIVE COST: running 3 real-Claude suites (up to 14 model turns; Anthropic charges may apply).')\" && vitest run --mode live-claude src/providers/claude-local/adapter.integration.test.ts src/providers/claude-local/transport.integration.test.ts src/server/server.integration.test.ts",
-    "eval": "tsx src/evals/cli.ts"
+    "eval": "tsx src/evals/cli.ts",
+    "golden:provider:preflight": "tsx src/evals/provider-golden-cli.ts",
+    "golden:provider": "tsx src/evals/provider-golden-live.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "4.2.0",

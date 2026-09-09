@@ -25,6 +25,7 @@ import type { ProviderErrorCode, ProviderV2 } from "../providers/types.js";
 import type { Fixture } from "./fixtures.js";
 import type { ExecutorResult } from "./runner.js";
 import { calendarBlock } from "./executors/seeds.js";
+import { withGoldenCallKind } from "./provider-golden-rail.js";
 
 export type JudgeExpected = "satisfied" | "partial" | "missed";
 
@@ -231,11 +232,11 @@ export function haikuJudge(options: HaikuJudgeOptions = {}): Judge {
       );
     }
     const maxOutputTokens = requireMaxOutputTokens(resolved);
-    const first = await callOnce(prompt, runId, resolved, maxOutputTokens);
+    const first = await withGoldenCallKind("judge_initial", () => callOnce(prompt, runId, resolved, maxOutputTokens));
     try {
       return parseJudgeReply(first, labels);
     } catch {
-      const second = await callOnce(prompt, `${runId}-retry`, resolved, maxOutputTokens);
+      const second = await withGoldenCallKind("judge_repair", () => callOnce(prompt, `${runId}-retry`, resolved, maxOutputTokens));
       return parseJudgeReply(second, labels);
     }
   };

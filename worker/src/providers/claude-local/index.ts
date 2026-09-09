@@ -78,6 +78,7 @@ import type {
   Usage,
 } from "../types.js";
 import { emptyUsage, hasSpend, sumUsage } from "../usage.js";
+import { enforceGoldenPhysicalSend, goldenClaudeCallBudget, recordGoldenProviderCost } from "../../evals/provider-golden-rail.js";
 import {
   StreamJsonParser,
   isMaxTurnsResult,
@@ -210,7 +211,7 @@ class ClaudeLocalProvider implements Provider {
     let freshFallback = false;
 
     // The per-call ceiling (S0.4): the caller's, else the configured one.
-    const callBudgetUsd = maxBudgetUsd ?? budgetCeilings().usdPerCall;
+    const callBudgetUsd = goldenClaudeCallBudget(maxBudgetUsd ?? budgetCeilings().usdPerCall);
 
     // Every CLI invocation records a trace (build P0.7): tap the delta stream
     // for the raw output, time the invocation, and hand the whole thing to the
@@ -223,7 +224,7 @@ class ClaudeLocalProvider implements Provider {
     ): Promise<RunAttempt> => {
       attemptNo += 1;
       const thisAttempt = attemptNo;
-      return runGatedProviderAttempt({
+      const result = await runGatedProviderAttempt({
         providerId: this.id,
         runId,
         attempt: thisAttempt,
@@ -234,6 +235,8 @@ class ClaudeLocalProvider implements Provider {
         authState,
         execute: (onEvent) => this.runOnce({ ...args, onEvent }),
       });
+      recordGoldenProviderCost(this.id, result.usage.costUsd);
+      return result;
     };
 
     // ---- Attempt 1: resume (if requested) or fresh.
@@ -373,6 +376,7 @@ class ClaudeLocalProvider implements Provider {
       let child: ChildProcessWithoutNullStreams;
       try {
         const claudeBin = resolveClaudeBin();
+        enforceGoldenPhysicalSend({ provider: this.id, model: model ?? "", maxBudgetUsd });
         child = spawn(claudeBin, cliArgs, {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],

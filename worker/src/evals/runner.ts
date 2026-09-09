@@ -24,6 +24,7 @@
 import type { Fixture, WrongMode } from "./fixtures.js";
 import { measureGates, type GateInput, type GateReading } from "./gates.js";
 import type { Judge } from "./judge.js";
+import { activeGoldenResultBinding } from "./provider-golden-rail.js";
 
 /** A wrong[] mode the executor detected by code. */
 export interface Violation {
@@ -116,6 +117,9 @@ export interface CaseResult {
   gateObservations: GateInput[];
   notes: string[];
   durationMs: number;
+  providerId?: string;
+  executorModel?: string;
+  judgeModel?: string;
 }
 
 export interface SuiteOptions {
@@ -153,6 +157,7 @@ export async function runCase(fixture: Fixture, options: SuiteOptions): Promise<
     pass: fixture.pass,
     mode: fixture.mode,
     gates: fixture.gates,
+    ...(activeGoldenResultBinding() ?? {}),
   };
   const done = (partial: Omit<CaseResult, keyof typeof base | "durationMs">): CaseResult => ({
     ...base,

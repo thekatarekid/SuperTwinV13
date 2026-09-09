@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #import <Security/Security.h>
 
 static NSString *const Service = @"SuperTwinV13 ChatGPT OAuth";
@@ -81,7 +82,7 @@ int supertwin_keychain_execute(const char *operationBytes, const char *accountBy
     NSString *label = labelBytes ? [NSString stringWithUTF8String:labelBytes] : nil;
     NSString *persistentRefText = persistentRefBytes ? [NSString stringWithUTF8String:persistentRefBytes] : nil;
     NSSet<NSString *> *allowed = [NSSet setWithArray:@[@"exists", @"read", @"upsert", @"delete",
-      @"create", @"lookup-owned", @"read-ref", @"delete-owned-ref"]];
+      @"create", @"lookup-owned", @"read-ref", @"update-owned-ref", @"delete-owned-ref"]];
     if (![allowed containsObject:operation] ||
         !exact(account, @"supertwin\\.chatgpt-oauth\\.[a-f0-9]{16}") ||
         (label && !exact(label, @"SuperTwinV13 golden [a-f0-9]{32}"))) return 64;
@@ -133,6 +134,7 @@ int supertwin_keychain_execute(const char *operationBytes, const char *accountBy
         } else result = mapped(status);
       }
     } else if ([operation isEqualToString:@"lookup-owned"] || [operation isEqualToString:@"read-ref"] ||
+               [operation isEqualToString:@"update-owned-ref"] ||
                [operation isEqualToString:@"delete-owned-ref"]) {
       NSData *persistent = [operation isEqualToString:@"lookup-owned"] ? nil : decodeRef(persistentRefText);
       if (!label || (![operation isEqualToString:@"lookup-owned"] && !persistent)) result = 64;
@@ -152,8 +154,21 @@ int supertwin_keychain_execute(const char *operationBytes, const char *accountBy
         if (status != errSecSuccess) result = mapped(status);
         else {
           NSDictionary *match = CFBridgingRelease(found);
-          if (![operation isEqualToString:@"delete-owned-ref"]) {
+          if ([operation isEqualToString:@"lookup-owned"] || [operation isEqualToString:@"read-ref"]) {
             result = matchFrame(match, account, label, output, outputLength);
+          } else if ([operation isEqualToString:@"update-owned-ref"]) {
+            NSData *actualRef = match[(__bridge id)kSecValuePersistentRef];
+            NSString *actualService = match[(__bridge id)kSecAttrService];
+            NSString *actualAccount = match[(__bridge id)kSecAttrAccount];
+            NSString *actualLabel = match[(__bridge id)kSecAttrLabel];
+            NSData *input = inputBytes && inputLength > 0 ? [NSData dataWithBytes:inputBytes length:inputLength] : nil;
+            if (!input || ![actualService isEqualToString:Service] ||
+                ![actualAccount isEqualToString:account] || ![actualLabel isEqualToString:label] ||
+                ![actualRef isEqualToData:persistent]) result = 66;
+            else result = mapped(SecItemUpdate((__bridge CFDictionaryRef)@{
+              (__bridge id)kSecValuePersistentRef: persistent,
+              (__bridge id)kSecUseAuthenticationUI: (__bridge id)kSecUseAuthenticationUIFail},
+              (__bridge CFDictionaryRef)@{(__bridge id)kSecValueData: input}));
           } else {
             NSData *value = match[(__bridge id)kSecValueData];
             NSData *actualRef = match[(__bridge id)kSecValuePersistentRef];
@@ -182,4 +197,46 @@ int supertwin_keychain_execute(const char *operationBytes, const char *accountBy
 
 void supertwin_keychain_free(void *pointer) {
   if (pointer) free(pointer);
+}
+
+// Startup-only signed golden gate. No WebView exists when this is called.
+int supertwin_signed_app_valid(const char *pathBytes, const char *teamBytes) {
+  @autoreleasepool {
+    if (!pathBytes || !teamBytes) return 0;
+    NSString *path = [NSString stringWithUTF8String:pathBytes];
+    NSString *team = [NSString stringWithUTF8String:teamBytes];
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"];
+    if (!path || ![path.pathExtension isEqualToString:@"app"] || team.length != 10 ||
+        [team rangeOfCharacterFromSet:allowed.invertedSet].location != NSNotFound) return 0;
+    SecStaticCodeRef code = NULL;
+    SecRequirementRef requirement = NULL;
+    OSStatus created = SecStaticCodeCreateWithPath((__bridge CFURLRef)[NSURL fileURLWithPath:path],
+      kSecCSDefaultFlags, &code);
+    NSString *requirementText = [NSString stringWithFormat:
+      @"anchor apple generic and identifier \"com.supertwin.v13\" and certificate leaf[subject.OU] = \"%@\" and certificate 1[field.1.2.840.113635.100.6.1.13] exists", team];
+    OSStatus required = SecRequirementCreateWithString(
+      (__bridge CFStringRef)requirementText, kSecCSDefaultFlags, &requirement);
+    OSStatus valid = (created == errSecSuccess && required == errSecSuccess)
+      ? SecStaticCodeCheckValidity(code, kSecCSCheckAllArchitectures | kSecCSStrictValidate, requirement) : errSecParam;
+    if (requirement) CFRelease(requirement);
+    if (code) CFRelease(code);
+    return valid == errSecSuccess ? 1 : 0;
+  }
+}
+
+int supertwin_confirm_golden(const uint8_t *bytes, size_t length) {
+  @autoreleasepool {
+    if (!bytes || length == 0 || length > 128 * 1024) return 0;
+    NSString *declaration = [[NSString alloc] initWithBytes:bytes length:length encoding:NSUTF8StringEncoding];
+    if (!declaration) return 0;
+    [NSApplication sharedApplication];
+    [NSApp activateIgnoringOtherApps:YES];
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.alertStyle = NSAlertStyleCritical;
+    alert.messageText = @"Authorize SuperTwin provider golden operation?";
+    alert.informativeText = declaration;
+    [alert addButtonWithTitle:@"Authorize exact declaration"];
+    [alert addButtonWithTitle:@"Cancel"];
+    return [alert runModal] == NSAlertFirstButtonReturn ? 1 : 0;
+  }
 }

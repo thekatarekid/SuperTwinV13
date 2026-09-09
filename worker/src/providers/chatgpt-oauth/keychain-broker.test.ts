@@ -6,6 +6,8 @@ import {
   KEYCHAIN_BROKER_HELLO_PREFIX,
   KEYCHAIN_BROKER_REQUEST_PREFIX,
   KEYCHAIN_BROKER_RESPONSE_PREFIX,
+  SIGNED_GOLDEN_APPROVAL_PREFIX,
+  SIGNED_GOLDEN_DECLARATION_PREFIX,
   StdioKeychainBroker,
 } from "./keychain-broker.js";
 import { ChatGptKeychainStore, type KeychainCommand } from "./keychain.js";
@@ -33,6 +35,16 @@ function requestId(line: string): number {
 }
 
 describe("private stdio Keychain broker client", () => {
+  it("exposes parent-pipe death synchronously so golden execution can hard-stop", async () => {
+    const input = new PassThrough(); const output = new PassThrough();
+    const broker = new StdioKeychainBroker(input, output);
+    const disconnected = broker.disconnectSignal();
+    expect(disconnected.aborted).toBe(false);
+    input.end();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(disconnected.aborted).toBe(true);
+    await expect(broker.command("read")).rejects.toThrow(/unavailable/);
+  });
   it("waits for a split private HELLO and correlates bounded authenticated responses", async () => {
     const input = new PassThrough(); const output = new PassThrough();
     const broker = new StdioKeychainBroker(input, output);
@@ -132,5 +144,22 @@ describe("private stdio Keychain broker client", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(durableMutations).toBe(1);
     expect(request).toBe(emittedRequest); // no late callback can emit another write
+  });
+
+  it("requires an exact private native-owner approval before resolving a declaration", async () => {
+    const input = new PassThrough(); const output = new PassThrough();
+    const broker = new StdioKeychainBroker(input, output);
+    let wire = ""; output.on("data", (chunk) => { wire += chunk.toString(); });
+    input.write(`${KEYCHAIN_BROKER_HELLO_PREFIX}${SESSION}\n`);
+    const authorization = "a".repeat(64);
+    const pending = broker.requestGoldenOwnerApproval({ mode: "P6-F", authorization_id: authorization });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(wire).toMatch(new RegExp(`^${SIGNED_GOLDEN_DECLARATION_PREFIX}[A-Za-z0-9_-]+\\n$`));
+    expect(Buffer.from(wire.trim().slice(SIGNED_GOLDEN_DECLARATION_PREFIX.length), "base64url").toString())
+      .toContain('"mode":"P6-F"');
+    let settled = false; void pending.then(() => { settled = true; });
+    await new Promise((resolve) => setImmediate(resolve)); expect(settled).toBe(false);
+    input.write(`${SIGNED_GOLDEN_APPROVAL_PREFIX}${authorization}\n`);
+    await expect(pending).resolves.toBeUndefined();
   });
 });

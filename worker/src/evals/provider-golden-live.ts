@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,8 +7,6 @@ import { runMigrations } from "../db/index.js";
 import { closeDb } from "../db/connection.js";
 import { PROVIDER_SETTING_KEYS, setActiveProvider, setProviderModelSelection } from "../db/settings.js";
 import { bootstrapBuiltInProviders } from "../providers/bootstrap.js";
-import { initializeProductionChatGptRuntime, type ProductionChatGptRuntime } from "../providers/chatgpt-oauth/runtime.js";
-import { ChatGptKeychainStore, type ChatGptTokenPair } from "../providers/chatgpt-oauth/keychain.js";
 import { main as evalMain } from "./cli.js";
 import { parseGoldenPreflight } from "./provider-golden-cli.js";
 import { ProviderGoldenRail, readGoldenManifest, resolveGoldenRepositoryIdentity, withProviderGoldenRail,
@@ -18,16 +15,12 @@ import { ProviderGoldenRail, readGoldenManifest, resolveGoldenRepositoryIdentity
 export const GOLDEN_LIVE_OPT_IN = "SUPERTWIN_RUN_PROVIDER_GOLDEN";
 
 interface GoldenLiveDependencies {
-  initializeChatGpt: typeof initializeProductionChatGptRuntime;
   runEval: typeof evalMain;
   output(line: string): void;
   repositoryIdentity?: GoldenRepositoryIdentityReader;
-  loadCredential?(home: string, ownership: string): Promise<ChatGptTokenPair | undefined>;
-  cleanupCredential?(home: string, ownership: string, expected: ChatGptTokenPair): Promise<boolean>;
 }
 
 const DEFAULT_DEPENDENCIES: GoldenLiveDependencies = {
-  initializeChatGpt: initializeProductionChatGptRuntime,
   runEval: evalMain,
   output: (line) => process.stdout.write(line),
 };
@@ -55,6 +48,9 @@ export async function executeProviderGolden(
   if (authorizationAt >= 0) { control.add(authorizationAt); control.add(authorizationAt + 1); }
   const declarationArgs = argv.filter((_value, index) => !control.has(index));
   const declaration = parseGoldenPreflight(declarationArgs);
+  if (declaration.provider === "chatgpt-oauth") {
+    throw new Error("ChatGPT golden requires the combined signed-app broker flow");
+  }
   const repoRoot = resolve(import.meta.dirname, "../../..");
   const manifest = readGoldenManifest(repoRoot);
   const rail = new ProviderGoldenRail(manifest, declaration);
@@ -74,8 +70,6 @@ export async function executeProviderGolden(
   process.env.SUPERTWIN_DB_PATH = resolve(home, "supertwinv13.db");
   try {
     return await withProviderGoldenRail(rail, async () => {
-      let chatRuntime: ProductionChatGptRuntime | null = null;
-      let ownedCredential: ChatGptTokenPair | undefined;
       try {
         const executionIdentity = resolveGoldenRepositoryIdentity(repoRoot, dependencies.repositoryIdentity);
         if (JSON.stringify(executionIdentity) !== JSON.stringify(repositoryIdentity)) {
@@ -84,46 +78,16 @@ export async function executeProviderGolden(
         // Keep this last: a repository-status subprocess is an attacker-controlled
         // scheduling window. Rebind the home immediately before the first write.
         rail.assertEvalHomeUnchanged();
-        if (declaration.provider === "chatgpt-oauth") {
-          const load = dependencies.loadCredential ?? (async (evalHome, ownership) =>
-            new ChatGptKeychainStore({ resolveHome: () => evalHome }).loadOwned(ownership));
-          ownedCredential = await load(home, declaration.keychainOwnership!);
-          const fingerprint = ownedCredential?.accountId &&
-            createHash("sha256").update(ownedCredential.accountId).digest("hex").slice(0, 12);
-          if (!ownedCredential || fingerprint !== declaration.accountFingerprint) {
-            throw new Error("isolated ChatGPT eval credential ownership is invalid");
-          }
-          rail.assertEvalHomeUnchanged();
-        }
         runMigrations();
         bootstrapBuiltInProviders();
         setActiveProvider(declaration.provider);
         for (const key of PROVIDER_SETTING_KEYS) setProviderModelSelection(declaration.provider, key,
           key === "classify" ? declaration.judgeModel : declaration.executorModel);
-        if (declaration.provider === "chatgpt-oauth") {
-          // Runtime construction, including any compatibility canary, is inside the same
-          // rail as the suite. There is no preflight-to-fetch gap.
-          chatRuntime = await dependencies.initializeChatGpt({ appVersion: "13.12.2", enabled: () => true,
-            activeProvider: () => "claude-local", suppressCompatibilityCanary: true });
-          if (chatRuntime.session.authState().status !== "ready") throw new Error("isolated ChatGPT eval home is not signed in");
-        }
         return await dependencies.runEval(["--dir", resolve(repoRoot, manifest.fixture_root), "--judge", "haiku",
           "--strict", "--allow-pending", manifest.allowed_pending_case_ids.join(","),
           "--compare-baseline", "--ast-parity"]);
       } finally {
-        try { ownedCredential = chatRuntime?.session.current() ?? ownedCredential; } catch { /* retain preloaded owned pair */ }
-        let shutdownFailed = false;
-        try { await chatRuntime?.shutdown(); } catch { shutdownFailed = true; }
-        if (declaration.provider === "chatgpt-oauth") {
-          const cleanup = dependencies.cleanupCredential ?? (async (evalHome, ownership, expected) =>
-            new ChatGptKeychainStore({ resolveHome: () => evalHome }).clearOwned(ownership, expected));
-          if (ownedCredential && (!declaration.keychainOwnership ||
-              !await cleanup(home, declaration.keychainOwnership, ownedCredential))) {
-            throw new Error("provider golden eval credential cleanup failed");
-          }
-        }
         dependencies.output(`${JSON.stringify({ provider_golden_actuals: rail.snapshot() })}\n`);
-        if (shutdownFailed) throw new Error("provider golden runtime shutdown failed");
       }
     });
   } finally {

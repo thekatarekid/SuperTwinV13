@@ -16,6 +16,9 @@ export interface GoldenManifest {
   fixture_root: string;
   fixture_files: number;
   fixture_sha256: string;
+  baseline_files?: number;
+  baseline_sha256?: string;
+  gate_source_sha256?: string;
   code_identity: { files: readonly string[]; sha256: string };
   cases: { live: number; code: number };
   logical_calls: Record<GoldenCallKind, number>;
@@ -45,7 +48,7 @@ export interface GoldenDeclaration {
   evalHome: string;
   keychainAccount?: string;
   accountFingerprint?: string;
-  keychainOwnership?: string;
+  keychainBrokerBinding?: string;
 }
 
 export interface GoldenCounters {
@@ -157,7 +160,9 @@ export function fixtureDigest(root: string): { files: number; sha256: string } {
 function codeDigest(repoRoot: string, files: readonly string[]): string {
   const hash = createHash("sha256");
   for (const file of files) {
-    if (!file.startsWith("worker/src/") || file.includes("..")) fail("INVALID_MANIFEST");
+    if (!file.startsWith("worker/src/") || file.includes("..")) {
+      fail("INVALID_MANIFEST");
+    }
     hash.update(file, "utf8"); hash.update("\0");
     hash.update(readFileSync(resolve(repoRoot, file))); hash.update("\0");
   }
@@ -203,12 +208,16 @@ export function validateGoldenDeclaration(declaration: GoldenDeclaration): Golde
   const evalHome = bindGoldenEvalHome(declaration.evalHome).path;
   if (evalHome === realpathSync(productionHome())) fail("INVALID_DECLARATION");
   if (declaration.provider === "chatgpt-oauth") {
+    const brokerBound = declaration.keychainBrokerBinding !== undefined &&
+      /^[a-f0-9]{64}$/.test(declaration.keychainBrokerBinding);
     if (!declaration.accountFingerprint || !SAFE_ACCOUNT.test(declaration.accountFingerprint) ||
         declaration.keychainAccount !== keychainAccountForHome(evalHome) ||
-        !declaration.keychainOwnership || !/^[a-f0-9]{32}$/.test(declaration.keychainOwnership)) fail("INVALID_DECLARATION");
+        !brokerBound) {
+      fail("INVALID_DECLARATION");
+    }
   } else if (declaration.provider === "claude-local") {
     if (declaration.accountFingerprint !== undefined || declaration.keychainAccount !== undefined ||
-        declaration.keychainOwnership !== undefined) {
+        declaration.keychainBrokerBinding !== undefined) {
       fail("INVALID_DECLARATION");
     }
   } else fail("INVALID_DECLARATION");
@@ -323,7 +332,7 @@ export class ProviderGoldenRail {
       eval_home_identity: { dev: this.#homeIdentity.dev, ino: this.#homeIdentity.ino, mode: "0700", empty: true },
       ...(repositoryIdentity ? { repository_identity: repositoryIdentity } : {}),
       ...(this.declaration.accountFingerprint ? { account_fingerprint: this.declaration.accountFingerprint } : {}),
-      ...(this.declaration.keychainOwnership ? { keychain_ownership: this.declaration.keychainOwnership } : {}),
+      ...(this.declaration.keychainBrokerBinding ? { keychain_broker_binding_sha256: this.declaration.keychainBrokerBinding } : {}),
     };
     return { ...declaration, authorization_id: createHash("sha256").update(JSON.stringify(declaration)).digest("hex") };
   }

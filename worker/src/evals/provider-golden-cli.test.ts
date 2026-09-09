@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, expect, it } from "vitest";
 
-import { keychainAccountForHome } from "./provider-golden-rail.js";
 import { goldenPreflight, parseGoldenPreflight } from "./provider-golden-cli.js";
 
 const cleanIdentity = () => ({ commit: "a".repeat(40), tree: "b".repeat(40), status: "" });
@@ -11,14 +10,11 @@ const cleanIdentity = () => ({ commit: "a".repeat(40), tree: "b".repeat(40), sta
 const home = realpathSync(mkdtempSync(join(tmpdir(), "supertwin-golden-cli-")));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-it("emits the exact declaration an owner can authorize without making a call", () => {
-  const output = JSON.parse(goldenPreflight([
+it("hard-refuses source-mode ChatGPT golden without making a call", () => {
+  expect(() => goldenPreflight([
     "--provider", "chatgpt-oauth", "--executor-model", "gpt-exact", "--judge-model", "gpt-judge-exact",
-    "--eval-home", home, "--keychain-account", keychainAccountForHome(home), "--account-fingerprint", "7d41db9e5a28", "--keychain-ownership", "1".repeat(32),
-  ], resolve(import.meta.dirname, "../../.."), cleanIdentity));
-  expect(output).toMatchObject({ provider: "chatgpt-oauth", executor_model: "gpt-exact", judge_model: "gpt-judge-exact",
-    nominal_no_repair_physical_calls: 232, absolute_physical_call_ceiling: 696, cost: "unknown",
-    repository_identity: { commit: "a".repeat(40), tree: "b".repeat(40), scopedStatus: "clean" } });
+    "--eval-home", home,
+  ], resolve(import.meta.dirname, "../../.."), cleanIdentity)).toThrow(/combined signed-app/);
 });
 
 it("rejects scoped tracked/untracked drift and binds commit/tree identity", () => {

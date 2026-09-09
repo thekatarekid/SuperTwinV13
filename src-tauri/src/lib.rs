@@ -38,6 +38,7 @@ mod accessibility;
 // P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
 mod hotkey;
 mod keychain_broker;
+mod signed_golden;
 // P2.1 — hand a URL to the OS (the Accessibility System Settings deep link).
 // The JS `shell.open()` scope rejects `x-apple.systempreferences:`; see opener.rs.
 mod opener;
@@ -141,7 +142,7 @@ impl WorkerProcess {
             }
         }
         if let Ok(mut guard) = self.broker.lock() {
-            if let Some(mut broker) = guard.take() { broker.shutdown(); }
+            if let Some(mut broker) = guard.take() { let _ = broker.shutdown(); }
         }
     }
 }
@@ -494,6 +495,10 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+pub fn maybe_run_signed_golden(args: &[String]) -> Option<i32> {
+    signed_golden::maybe_run(args)
 }
 
 #[cfg(test)]

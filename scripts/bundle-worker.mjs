@@ -74,8 +74,10 @@ function resolveAppVersion() {
 const APP_VERSION = resolveAppVersion();
 
 const ENTRY = join(repoRoot, "worker", "src", "index.ts");
+const GOLDEN_ENTRY = join(repoRoot, "worker", "src", "evals", "provider-golden-combined-cli.ts");
 const BUNDLE_DIR = join(repoRoot, "worker", "bundle");
 const OUT_CJS = join(BUNDLE_DIR, "worker.cjs");
+const GOLDEN_OUT_CJS = join(BUNDLE_DIR, "golden.cjs");
 const NODE_MODULES_SRC = join(repoRoot, "node_modules");
 const NODE_MODULES_DST = join(BUNDLE_DIR, "node_modules");
 
@@ -558,8 +560,38 @@ async function main() {
     sourcemap: false,
     logLevel: "info",
   });
+  await build({
+    entryPoints: [GOLDEN_ENTRY],
+    outfile: GOLDEN_OUT_CJS,
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node22",
+    external: ["better-sqlite3"],
+    sourcemap: false,
+    logLevel: "info",
+  });
 
-  if (!existsSync(OUT_CJS)) fail(`esbuild did not produce ${OUT_CJS}`);
+  if (!existsSync(OUT_CJS) || !existsSync(GOLDEN_OUT_CJS)) fail("esbuild did not produce both signed worker entries");
+  // The signed-app-only golden entry reads immutable bundled fixtures. Source
+  // commands remain fail-closed; no compiler or generated helper is shipped.
+  mkdirSync(join(BUNDLE_DIR, "evals"), { recursive: true });
+  cpSync(join(repoRoot, "evals", "provider-golden-v1.json"),
+    join(BUNDLE_DIR, "evals", "provider-golden-v1.json"), { recursive: false });
+  cpSync(join(repoRoot, "evals", "v13"), join(BUNDLE_DIR, "evals", "v13"),
+    { recursive: true, dereference: true });
+  cpSync(join(repoRoot, "evals", "baseline"), join(BUNDLE_DIR, "evals", "baseline"),
+    { recursive: true, dereference: true });
+  mkdirSync(join(BUNDLE_DIR, "source", "scheduler", "v6"), { recursive: true });
+  cpSync(join(repoRoot, "worker", "src", "scheduler", "v6", "gate.ts"),
+    join(BUNDLE_DIR, "source", "scheduler", "v6", "gate.ts"));
+  const goldenLoad = run(process.execPath, [GOLDEN_OUT_CJS], { cwd: BUNDLE_DIR,
+    env: { PATH: "/usr/bin:/bin", NODE_ENV: "production" } });
+  if (goldenLoad.status !== 2 ||
+      !goldenLoad.out.includes("signed ChatGPT golden requires the app broker")) {
+    fail(`signed golden bundle did not fail closed before live setup:\n${goldenLoad.out}`);
+  }
+  log("golden.cjs loads and fails closed without its signed-app broker");
 
   // --- 2. Stage runtime deps beside worker.cjs.
   mkdirSync(NODE_MODULES_DST, { recursive: true });

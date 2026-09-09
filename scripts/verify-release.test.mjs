@@ -13,13 +13,26 @@ import {
   dmgMetadata,
   expectedArchitectures,
   expectedReleaseDigest,
+  embeddedGoldenTeamId,
   manifestDigest,
   missingBundleFiles,
   nonExecutableFiles,
   parseArgs,
+  signedGoldenAvailability,
 } from "./verify-release.mjs";
 
 describe("release artifact identity", () => {
+  it("reports signed golden unavailable for ad-hoc builds and available only with a Team ID", () => {
+    expect(embeddedGoldenTeamId(Buffer.from("xxSUPERTWIN_GOLDEN_TEAM_ID=ABCDEFGHIJ\0yy"))).toBe("ABCDEFGHIJ");
+    expect(embeddedGoldenTeamId(Buffer.from("SUPERTWIN_GOLDEN_TEAM_ID="))).toBeNull();
+    expect(signedGoldenAvailability("Signature=adhoc\nTeamIdentifier=not set", "")).toMatchObject({ available: false });
+    expect(signedGoldenAvailability("Authority=Developer ID Application: Example (ABCDEFGHIJ)\nTeamIdentifier=ABCDEFGHIJ", "ABCDEFGHIJ"))
+      .toEqual({ available: true, teamId: "ABCDEFGHIJ" });
+    expect(signedGoldenAvailability("Authority=Developer ID Application: Example (ABCDEFGHIJ)\nTeamIdentifier=ABCDEFGHIJ", "KLMNOPQRST"))
+      .toMatchObject({ available: false });
+    expect(signedGoldenAvailability("Authority=Apple Development: Example (ABCDEFGHIJ)\nTeamIdentifier=ABCDEFGHIJ", "ABCDEFGHIJ"))
+      .toMatchObject({ available: false });
+  });
   it("reads canonical Tauri and phase-prefixed archive names", () => {
     expect(dmgMetadata("SuperTwinV13_13.12.3_aarch64.dmg")).toEqual({
       version: "13.12.3",

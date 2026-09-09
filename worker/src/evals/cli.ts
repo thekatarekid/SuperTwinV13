@@ -92,6 +92,10 @@ export interface CliOptions {
 }
 
 export function repoRoot(): string {
+  if (process.env.SUPERTWIN_SIGNED_GOLDEN_BROKER === "1" &&
+      process.env.SUPERTWIN_GOLDEN_BUNDLE_ROOT?.startsWith("/")) {
+    return resolve(process.env.SUPERTWIN_GOLDEN_BUNDLE_ROOT);
+  }
   // worker/src/evals -> worker/src -> worker -> repo root (same shape in dist/).
   return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 }

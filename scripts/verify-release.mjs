@@ -21,10 +21,28 @@ export const APP_NAME = "SuperTwinV13";
 export const BUNDLE_ID = "com.supertwin.v13";
 export const MIN_MACOS = "13.0";
 
+export function embeddedGoldenTeamId(bytes) {
+  const match = Buffer.from(bytes).toString("latin1").match(/SUPERTWIN_GOLDEN_TEAM_ID=([A-Z0-9]{10})(?![A-Z0-9])/);
+  return match?.[1] ?? null;
+}
+
+export function signedGoldenAvailability(signatureText, expectedTeamId) {
+  const teamId = /^TeamIdentifier=([A-Z0-9]{10})$/m.exec(String(signatureText))?.[1] ?? null;
+  const adhoc = /^Signature=adhoc$/m.test(String(signatureText)) || /^TeamIdentifier=not set$/m.test(String(signatureText));
+  const developerId = /^Authority=Developer ID Application:/m.test(String(signatureText));
+  return /^[A-Z0-9]{10}$/.test(expectedTeamId) && teamId === expectedTeamId && !adhoc && developerId
+    ? { available: true, teamId }
+    : { available: false, teamId: null, reason: "matching build-time Developer ID Team signing is required" };
+}
+
 export const REQUIRED_BUNDLE_FILES = [
   "Contents/MacOS/supertwinv13",
   "Contents/MacOS/node",
   "Contents/Resources/worker/worker.cjs",
+  "Contents/Resources/worker/golden.cjs",
+  "Contents/Resources/worker/evals/provider-golden-v1.json",
+  "Contents/Resources/worker/evals/baseline/v13.json",
+  "Contents/Resources/worker/source/scheduler/v6/gate.ts",
   "Contents/Resources/worker/package.json",
   "Contents/Resources/worker/bin/whatsapp-go",
   "Contents/Resources/worker/bin/screenwatch",
@@ -287,6 +305,8 @@ function verifyMountedApp({ appPath, version, dmgArch, allowAdhoc }) {
     architectures: executableArchitectures["Contents/MacOS/supertwinv13"],
     executableArchitectures,
     distribution,
+    signedGolden: signedGoldenAvailability(signatureText,
+      embeddedGoldenTeamId(readFileSync(join(appPath, "Contents/MacOS/supertwinv13"))) ?? ""),
   };
 }
 

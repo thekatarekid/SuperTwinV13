@@ -4,12 +4,17 @@ import type { Readable, Writable } from "node:stream";
 export const KEYCHAIN_BROKER_HELLO_PREFIX = "SUPERTWIN_KEYCHAIN_HELLO_V1 ";
 export const KEYCHAIN_BROKER_REQUEST_PREFIX = "SUPERTWIN_KEYCHAIN_REQUEST_V1 ";
 export const KEYCHAIN_BROKER_RESPONSE_PREFIX = "SUPERTWIN_KEYCHAIN_RESPONSE_V1 ";
+export const SIGNED_GOLDEN_DECLARATION_PREFIX = "SUPERTWIN_SIGNED_GOLDEN_DECLARATION_V1 ";
+export const SIGNED_GOLDEN_APPROVAL_PREFIX = "SUPERTWIN_SIGNED_GOLDEN_APPROVAL_V1 ";
 const PROTOCOL = "supertwin-keychain-broker-v1";
 const MAX_FRAME_BYTES = 768 * 1024;
 const MAX_INPUT_BYTES = 128 * 1024;
 const MAX_PENDING = 8;
 const TIMEOUT_MS = 10_000;
 const SAFE_SESSION = /^[a-f0-9]{64}$/;
+const SAFE_AUTHORIZATION = /^[a-f0-9]{64}$/;
+
+export type KeychainBrokerOperation = "exists" | "read" | "upsert" | "delete" | "binding";
 
 export interface KeychainBrokerResult { stdout: string; stderr: string }
 
@@ -55,6 +60,7 @@ function exactObject(value: unknown, keys: readonly string[]): value is Record<s
 }
 
 export class StdioKeychainBroker {
+  readonly #disconnect = new AbortController();
   readonly #input: Readable;
   readonly #output: Pick<Writable, "write">;
   readonly #pending = new Map<number, Pending>();
@@ -66,6 +72,8 @@ export class StdioKeychainBroker {
   #started = false;
   #failed = false;
   #helloWaiters: Array<{ resolve(): void; reject(error: Error): void }> = [];
+  #goldenApproval?: { expected: string; resolve(): void; reject(error: Error): void;
+    timer: NodeJS.Timeout; signal?: AbortSignal; abort?: () => void };
 
   constructor(input: Readable, output: Pick<Writable, "write">) {
     this.#input = input;
@@ -85,6 +93,7 @@ export class StdioKeychainBroker {
   #poison(message: string): void {
     if (this.#failed) return;
     this.#failed = true;
+    this.#disconnect.abort();
     this.#secret?.fill(0);
     this.#secret = undefined;
     this.#session = undefined;
@@ -96,8 +105,16 @@ export class StdioKeychainBroker {
       if (pending.abort && pending.signal) pending.signal.removeEventListener("abort", pending.abort);
       pending.reject(error);
     }
+    if (this.#goldenApproval) {
+      const approval = this.#goldenApproval; this.#goldenApproval = undefined;
+      clearTimeout(approval.timer);
+      if (approval.abort && approval.signal) approval.signal.removeEventListener("abort", approval.abort);
+      approval.reject(error);
+    }
     this.#retired.clear();
   }
+
+  disconnectSignal(): AbortSignal { this.#start(); return this.#disconnect.signal; }
 
   #onData(chunk: string): void {
     if (this.#failed) return;
@@ -111,9 +128,22 @@ export class StdioKeychainBroker {
       this.#buffer = this.#buffer.slice(newline + 1);
       if (line.startsWith(KEYCHAIN_BROKER_HELLO_PREFIX)) this.#onHello(line);
       else if (line.startsWith(KEYCHAIN_BROKER_RESPONSE_PREFIX)) this.#onResponse(line);
+      else if (line.startsWith(SIGNED_GOLDEN_APPROVAL_PREFIX)) this.#onGoldenApproval(line);
       else if (line.length > 0) { this.#poison("credential broker sent an invalid frame"); return; }
       newline = this.#buffer.indexOf("\n");
     }
+  }
+
+  #onGoldenApproval(line: string): void {
+    const approval = this.#goldenApproval;
+    const value = line.slice(SIGNED_GOLDEN_APPROVAL_PREFIX.length);
+    if (!approval || value !== approval.expected || !SAFE_AUTHORIZATION.test(value)) {
+      this.#poison("signed golden owner approval was invalid"); return;
+    }
+    this.#goldenApproval = undefined;
+    clearTimeout(approval.timer);
+    if (approval.abort && approval.signal) approval.signal.removeEventListener("abort", approval.abort);
+    approval.resolve();
   }
 
   #onHello(line: string): void {
@@ -186,7 +216,7 @@ export class StdioKeychainBroker {
     });
   }
 
-  async command(operation: "exists" | "read" | "upsert" | "delete", input?: string,
+  async command(operation: KeychainBrokerOperation, input?: string,
     signal?: AbortSignal): Promise<KeychainBrokerResult> {
     await this.#ready(signal);
     // Abort before allocating an id or emitting a possibly mutating frame. An
@@ -229,15 +259,58 @@ export class StdioKeychainBroker {
       }
     });
   }
+
+  async requestGoldenOwnerApproval(declaration: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<void> {
+    await this.#ready(signal);
+    if (signal?.aborted) throw failure("Signed golden owner approval cancelled");
+    if (this.#goldenApproval || this.#pending.size > 0) throw failure("signed golden owner approval is unavailable");
+    const authorizationId = declaration.authorization_id;
+    if (typeof authorizationId !== "string" || !SAFE_AUTHORIZATION.test(authorizationId)) {
+      throw failure("signed golden declaration is invalid");
+    }
+    const encoded = Buffer.from(JSON.stringify(declaration), "utf8").toString("base64url");
+    const frame = `${SIGNED_GOLDEN_DECLARATION_PREFIX}${encoded}\n`;
+    if (Buffer.byteLength(frame) > MAX_FRAME_BYTES) throw failure("signed golden declaration is invalid");
+    return new Promise<void>((resolve, reject) => {
+      const finish = (action: () => void): void => {
+        const approval = this.#goldenApproval;
+        if (!approval) return;
+        this.#goldenApproval = undefined; clearTimeout(approval.timer);
+        if (approval.abort && approval.signal) approval.signal.removeEventListener("abort", approval.abort);
+        action();
+      };
+      const timer = setTimeout(() => finish(() => reject(failure("Signed golden owner approval timed out"))), 300_000);
+      timer.unref();
+      const abort = signal ? () => finish(() => reject(failure("Signed golden owner approval cancelled"))) : undefined;
+      this.#goldenApproval = { expected: authorizationId, resolve, reject, timer,
+        ...(signal ? { signal } : {}), ...(abort ? { abort } : {}) };
+      signal?.addEventListener("abort", abort!, { once: true });
+      try { this.#output.write(frame, "utf8"); }
+      catch { finish(() => reject(failure("signed golden owner approval is unavailable"))); }
+    });
+  }
 }
 
 let productionBroker: StdioKeychainBroker | undefined;
 
 export function runStdioKeychainBrokerCommand(
-  operation: "exists" | "read" | "upsert" | "delete",
+  operation: KeychainBrokerOperation,
   input?: string,
   signal?: AbortSignal,
 ): Promise<KeychainBrokerResult> {
   productionBroker ??= new StdioKeychainBroker(process.stdin, process.stdout);
   return productionBroker.command(operation, input, signal);
+}
+
+/** Parent-pipe lifetime capability. Golden execution must terminate on abort. */
+export function stdioKeychainBrokerDisconnectSignal(): AbortSignal {
+  productionBroker ??= new StdioKeychainBroker(process.stdin, process.stdout);
+  return productionBroker.disconnectSignal();
+}
+
+export function requestSignedGoldenOwnerApproval(
+  declaration: Readonly<Record<string, unknown>>, signal?: AbortSignal,
+): Promise<void> {
+  productionBroker ??= new StdioKeychainBroker(process.stdin, process.stdout);
+  return productionBroker.requestGoldenOwnerApproval(declaration, signal);
 }

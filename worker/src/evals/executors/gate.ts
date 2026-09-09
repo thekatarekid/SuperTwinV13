@@ -20,7 +20,7 @@
 // ===========================================================================
 
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getDb } from "../../db/connection.js";
@@ -50,7 +50,10 @@ function num(v: unknown, dflt: number): number {
 let gateSourceViolations: number | null = null;
 function contentGatedCalls(): number {
   if (gateSourceViolations !== null) return gateSourceViolations;
-  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../scheduler/v6/gate.ts"), "utf8");
+  const bundledRoot = process.env.SUPERTWIN_SIGNED_GOLDEN_BROKER === "1" &&
+    process.env.SUPERTWIN_GOLDEN_BUNDLE_ROOT?.startsWith("/")
+    ? resolve(process.env.SUPERTWIN_GOLDEN_BUNDLE_ROOT, "source/scheduler/v6/gate.ts") : null;
+  const src = readFileSync(bundledRoot ?? join(dirname(fileURLToPath(import.meta.url)), "../../scheduler/v6/gate.ts"), "utf8");
   const code = src
     .split("\n")
     .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*") && !l.trim().startsWith("/*"))

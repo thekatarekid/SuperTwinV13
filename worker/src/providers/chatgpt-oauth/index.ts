@@ -110,6 +110,8 @@ export interface ChatGptOAuthProviderDependencies {
   now?: () => number;
   runAttempt?: ProviderAttemptRunner;
   canaryIntervalMs?: number;
+  /** P6-F-only: the frozen corpus itself is the compatibility evidence. */
+  suppressCompatibilityCanary?: boolean;
 }
 
 export interface ChatGptOAuthProvider extends ProviderV2 {
@@ -320,6 +322,10 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
         (dependencies.now !== undefined && typeof dependencies.now !== "function")) {
       throw new ChatGptProviderError("PROVIDER_UNAVAILABLE", "ChatGPT provider configuration is invalid");
     }
+    if (dependencies.suppressCompatibilityCanary !== undefined &&
+        typeof dependencies.suppressCompatibilityCanary !== "boolean") {
+      throw new ChatGptProviderError("PROVIDER_UNAVAILABLE", "ChatGPT provider configuration is invalid");
+    }
     if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(dependencies.appVersion) ||
         Buffer.byteLength(dependencies.appVersion, "utf8") > 128) {
       throw new ChatGptProviderError("PROVIDER_UNAVAILABLE", "ChatGPT app version is invalid");
@@ -387,9 +393,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
     try {
       const signal = combineSignals(entry.controller, stableRequest);
       const now = this.now();
-      const canaryDue = this.canaryState !== "ready" ||
+      const canaryDue = !this.dependencies.suppressCompatibilityCanary && (this.canaryState !== "ready" ||
         !Number.isSafeInteger(now) || now < this.canaryCheckedAt ||
-        now - this.canaryCheckedAt >= this.canaryIntervalMs;
+        now - this.canaryCheckedAt >= this.canaryIntervalMs);
       if (canaryDue) {
         let outcome: CanaryOutcome;
         try {
@@ -403,7 +409,7 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
       }
 
       const result = await this.sendWithRetry(stableRequest, model, body, signal);
-      if (result.errorCode === "BACKEND_UNSUPPORTED" && !signal.aborted) {
+      if (!this.dependencies.suppressCompatibilityCanary && result.errorCode === "BACKEND_UNSUPPORTED" && !signal.aborted) {
         // Exactly one shared diagnostic canary on the first unexplained parser or
         // private-backend contract failure. Its events never reach the caller.
         this.canaryState = "unknown";
@@ -434,6 +440,7 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
   async checkCanary(modelId: string, force = false): Promise<boolean> {
     if (this.authExpiryIsCurrent()) return false;
     const model = this.model(modelId);
+    if (this.dependencies.suppressCompatibilityCanary) return true;
     return (await this.ensureCanary(model, force)).ok;
   }
 
@@ -613,7 +620,6 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
         try {
           enforceGoldenPhysicalSend({ provider: "chatgpt-oauth", model: model.id,
             accountId: authorization.accountId, reason: attempt === 2 ? "http_401_retry" : "initial" });
-          recordGoldenProviderCost("chatgpt-oauth", undefined);
           response = await this.dependencies.fetch(CHATGPT_RESPONSES_URL, {
             method: "POST",
             redirect: "error",
@@ -675,6 +681,7 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
             status: parsed.status,
             ...(parsedErrorCode === undefined ? {} : { errorCode: parsedErrorCode }),
           };
+          recordGoldenProviderCost("chatgpt-oauth", result.usage.costUsd);
           const responseRevision = authorizationRevision(authorization);
           if (result.errorCode === "RATE_LIMITED") this.dependencies.onRateLimited?.(null, responseRevision);
           this.dependencies.onResponseSettled?.(responseRevision);

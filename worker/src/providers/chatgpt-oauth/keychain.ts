@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
 import { homeRoot } from "../../home.js";
+import { enforceGoldenChatGptMetadata } from "../../evals/provider-golden-rail.js";
 import type { ProviderAuthState, ProviderErrorCode } from "../types.js";
 
 /** Public only so the native release verifier can target one exact item. */
@@ -426,6 +427,7 @@ export function createChatGptOAuthRefresher(options: ChatGptOAuthRefreshOptions)
     let response: Response;
     try {
       const timeout = AbortSignal.timeout(15_000);
+      enforceGoldenChatGptMetadata("refresh");
       response = await options.fetch(OAUTH_TOKEN_URL, {
         method: "POST",
         redirect: "error",

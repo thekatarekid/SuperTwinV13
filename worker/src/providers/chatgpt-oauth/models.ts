@@ -5,6 +5,7 @@ import {
   type ProviderCatalogueStore,
 } from "../catalogue.js";
 import type { ProviderModel, ProviderModelCatalogue } from "../types.js";
+import { enforceGoldenChatGptMetadata } from "../../evals/provider-golden-rail.js";
 
 const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const MAX_CATALOGUE_MODELS = 512;
@@ -81,6 +82,7 @@ export async function discoverChatGptAccountModels(
   const authorization = await abortable(options.session.authorization(signal), signal);
   let response: Response;
   try {
+    enforceGoldenChatGptMetadata("models", authorization.accountId);
     response = await options.fetch(CHATGPT_ACCOUNT_MODELS_URL, {
       method: "GET",
       redirect: "error",

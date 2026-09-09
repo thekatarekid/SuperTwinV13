@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ProviderId } from "../providers/types.js";
-import { ProviderGoldenRail, readGoldenManifest, type GoldenDeclaration } from "./provider-golden-rail.js";
+import { ProviderGoldenRail, readGoldenManifest, resolveGoldenRepositoryIdentity, type GoldenDeclaration,
+  type GoldenRepositoryIdentityReader } from "./provider-golden-rail.js";
 
 function value(argv: readonly string[], flag: string): string | undefined {
   const at = argv.indexOf(flag);
@@ -30,9 +31,10 @@ export function parseGoldenPreflight(argv: readonly string[]): GoldenDeclaration
   };
 }
 
-export function goldenPreflight(argv: readonly string[], repoRoot = resolve(import.meta.dirname, "../../..")): string {
+export function goldenPreflight(argv: readonly string[], repoRoot = resolve(import.meta.dirname, "../../.."),
+  repositoryIdentity?: GoldenRepositoryIdentityReader): string {
   const rail = new ProviderGoldenRail(readGoldenManifest(repoRoot), parseGoldenPreflight(argv));
-  return JSON.stringify(rail.preflightDeclaration(), null, 2);
+  return JSON.stringify(rail.preflightDeclaration(resolveGoldenRepositoryIdentity(repoRoot, repositoryIdentity)), null, 2);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

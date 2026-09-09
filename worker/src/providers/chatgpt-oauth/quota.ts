@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { parseChatGptQuota, type ChatGptQuotaSnapshot } from "./usage.js";
+import { enforceGoldenChatGptMetadata } from "../../evals/provider-golden-rail.js";
 
 export const CHATGPT_ACCOUNT_QUOTA_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const CHATGPT_QUOTA_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -49,6 +50,7 @@ export async function pollChatGptQuota(options: {
   const authorization = await abortable(options.session.authorization(signal), signal);
   let response: Response;
   try {
+    enforceGoldenChatGptMetadata("quota", authorization.accountId);
     response = await options.fetch(CHATGPT_ACCOUNT_QUOTA_URL, {
       method: "GET", redirect: "error", signal,
       headers: {

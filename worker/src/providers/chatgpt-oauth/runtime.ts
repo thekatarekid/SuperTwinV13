@@ -37,6 +37,7 @@ import {
   installChatGptOAuthRouteRuntime,
   type ChatGptOAuthRouteRuntime,
 } from "../../server/chatgpt-oauth-routes.js";
+import { goldenCanarySuppressionAllowed } from "../../evals/provider-golden-rail.js";
 
 export const CHATGPT_FEATURE_FLAG_KEY = "ai.chatgpt.enabled";
 export const CHATGPT_CATALOGUE_CREDENTIAL_REVISION_KEY =
@@ -86,6 +87,8 @@ export interface ProductionChatGptRuntimeDependencies {
   checkQuota?: () => void;
   authManager?: BrowserOAuthManager;
   catalogueStore?: ProviderCatalogueStore;
+  /** Accepted only inside the P6-F ChatGPT golden rail. */
+  suppressCompatibilityCanary?: boolean;
 }
 
 function cachedCatalogue(store?: ProviderCatalogueStore): ProviderModelCatalogue {
@@ -122,6 +125,9 @@ export async function initializeProductionChatGptRuntime(
   dependencies: ProductionChatGptRuntimeDependencies,
 ): Promise<ProductionChatGptRuntime> {
   const fetchImpl = dependencies.fetch ?? fetch;
+  if (dependencies.suppressCompatibilityCanary === true && !goldenCanarySuppressionAllowed()) {
+    throw new Error("ChatGPT compatibility canary suppression is restricted to provider golden mode");
+  }
   const enabled = (dependencies.enabled ?? (() => appStateGet(CHATGPT_FEATURE_FLAG_KEY) === "1"))();
   const readActiveProvider = dependencies.activeProvider ?? getActiveProvider;
   const activeProvider = readActiveProvider();
@@ -240,6 +246,7 @@ export async function initializeProductionChatGptRuntime(
     onResponseSettled: scheduleQuotaPoll,
     fetch: fetchImpl,
     appVersion: dependencies.appVersion,
+    suppressCompatibilityCanary: dependencies.suppressCompatibilityCanary === true,
   });
   let activation: ChatGptOAuthActivationResult = { registered: false, canary: "skipped" };
   let canaryCheckedAt: string | null = null;

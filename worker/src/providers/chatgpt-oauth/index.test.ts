@@ -238,6 +238,16 @@ describe("ChatGPT OAuth ProviderV2", () => {
     expect(f.fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  it("suppresses both compatibility canaries in golden mode and preserves unknown cost as absent", async () => {
+    const f = fixture({ suppressCompatibilityCanary: true });
+    const result = await f.provider.send(userRequest("golden-no-canary"));
+    expect(result.status).toBe("ok");
+    expect(result.usage).not.toHaveProperty("costUsd");
+    expect(f.fetchSpy).toHaveBeenCalledOnce();
+    await expect(f.provider.checkCanary("gpt-test", true)).resolves.toBe(true);
+    expect(f.fetchSpy).toHaveBeenCalledOnce();
+  });
+
   it("streams one strict user request after canary and preserves continuation/usage", async () => {
     const f = fixture();
     await ready(f);

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,7 +10,7 @@ import { GoldenRailError, ProviderGoldenRail, enforceGoldenPhysicalSend, keychai
   withProviderGoldenRail } from "./provider-golden-rail.js";
 
 const repo = resolve(import.meta.dirname, "../../..");
-const home = mkdtempSync(join(tmpdir(), "supertwin-golden-rail-"));
+const home = realpathSync(mkdtempSync(join(tmpdir(), "supertwin-golden-rail-")));
 const manifest = readGoldenManifest(repo);
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
@@ -29,7 +29,13 @@ describe("P6-F provider golden fail-closed rail", () => {
     expect(rail("chatgpt-oauth").preflightDeclaration()).toMatchObject({
       provider: "chatgpt-oauth", executor_model: "gpt-executor", judge_model: "gpt-judge",
       nominal_no_repair_physical_calls: 232, absolute_physical_call_ceiling: 696,
-      repairs_and_401_retries_are_counted: true, cost: "unknown",
+      repairs_and_401_retries_are_counted: true, cost: "unknown", compatibility_canary: "suppressed_zero_calls",
+      inference_endpoint: { method: "POST", url: "https://chatgpt.com/backend-api/codex/responses" },
+      metadata_endpoint_call_ceilings: {
+        models: { method: "GET", url: "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0", calls: 1 },
+        quota: { method: "GET", url: "https://chatgpt.com/backend-api/wham/usage", calls: 697 },
+        refresh: { method: "POST", url: "https://auth.openai.com/oauth/token", calls: 1394 },
+      },
     });
   });
 
@@ -67,7 +73,7 @@ describe("P6-F provider golden fail-closed rail", () => {
       subject.beforePhysicalSend(kind); subject.beforePhysicalSend(kind, "http_401_retry");
     }
     expect(subject.snapshot()).toEqual({ physical: 696, executor: 232, judgeInitial: 232, judgeRepair: 232,
-      http401Retries: 348, claudeUsd: 0 });
+      http401Retries: 348, claudeUsd: 0, models: 0, quota: 0, refresh: 0 });
     expect(() => subject.beforePhysicalSend("judge_repair")).toThrowError(/CALL_CEILING/);
   });
 
@@ -79,6 +85,40 @@ describe("P6-F provider golden fail-closed rail", () => {
     expect(() => new ProviderGoldenRail(manifest, { ...base, keychainAccount: "supertwin.chatgpt-oauth.wrong" })).toThrowError(/INVALID_DECLARATION/);
     expect(() => new ProviderGoldenRail(manifest, { ...base, accountFingerprint: undefined })).toThrowError(/INVALID_DECLARATION/);
     expect(() => new ProviderGoldenRail(manifest, { ...base, evalHome: productionHome() })).toThrow();
+  });
+
+  it("rejects a symlink eval-home before canonicalization", () => {
+    const link = `${home}-link`;
+    symlinkSync(home, link);
+    try {
+      expect(() => new ProviderGoldenRail(manifest, { provider: "claude-local", executorModel: "sonnet",
+        judgeModel: "haiku", evalHome: link })).toThrowError(/INVALID_DECLARATION/);
+    } finally { rmSync(link, { force: true }); }
+  });
+
+  it("rejects a symlink in an eval-home parent component", () => {
+    const target = realpathSync(mkdtempSync(join(tmpdir(), "supertwin-golden-parent-")));
+    const child = join(target, "child");
+    const link = `${target}-link`;
+    try {
+      mkdirSync(child, { mode: 0o700 });
+      symlinkSync(target, link);
+      expect(() => new ProviderGoldenRail(manifest, { provider: "claude-local", executorModel: "sonnet",
+        judgeModel: "haiku", evalHome: join(link, "child") })).toThrowError(/INVALID_DECLARATION/);
+    } finally { rmSync(link, { force: true }); rmSync(target, { recursive: true, force: true }); }
+  });
+
+  it("counts exact ChatGPT metadata endpoints and binds account-visible GETs", () => {
+    const accountId = "metadata-account";
+    const fingerprint = createHash("sha256").update(accountId).digest("hex").slice(0, 12);
+    const subject = new ProviderGoldenRail(manifest, { ...rail("chatgpt-oauth").declaration,
+      accountFingerprint: fingerprint });
+    subject.beforeChatGptMetadata("models", accountId);
+    subject.beforeChatGptMetadata("quota", accountId);
+    subject.beforeChatGptMetadata("refresh");
+    expect(subject.snapshot()).toMatchObject({ models: 1, quota: 1, refresh: 1, physical: 0 });
+    expect(() => subject.beforeChatGptMetadata("models", accountId)).toThrowError(/CALL_CEILING/);
+    expect(() => subject.beforeChatGptMetadata("quota", "wrong-account")).toThrowError(/INVALID_DECLARATION/);
   });
 
   it("keeps ChatGPT cost unknown and freezes Claude per-call and run ceilings", () => {

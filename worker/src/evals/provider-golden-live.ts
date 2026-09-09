@@ -10,7 +10,8 @@ import { bootstrapBuiltInProviders } from "../providers/bootstrap.js";
 import { initializeProductionChatGptRuntime, type ProductionChatGptRuntime } from "../providers/chatgpt-oauth/runtime.js";
 import { main as evalMain } from "./cli.js";
 import { parseGoldenPreflight } from "./provider-golden-cli.js";
-import { ProviderGoldenRail, readGoldenManifest, withProviderGoldenRail } from "./provider-golden-rail.js";
+import { ProviderGoldenRail, readGoldenManifest, resolveGoldenRepositoryIdentity, withProviderGoldenRail,
+  type GoldenRepositoryIdentityReader } from "./provider-golden-rail.js";
 
 export const GOLDEN_LIVE_OPT_IN = "SUPERTWIN_RUN_PROVIDER_GOLDEN";
 
@@ -18,6 +19,7 @@ interface GoldenLiveDependencies {
   initializeChatGpt: typeof initializeProductionChatGptRuntime;
   runEval: typeof evalMain;
   output(line: string): void;
+  repositoryIdentity?: GoldenRepositoryIdentityReader;
 }
 
 const DEFAULT_DEPENDENCIES: GoldenLiveDependencies = {
@@ -27,7 +29,11 @@ const DEFAULT_DEPENDENCIES: GoldenLiveDependencies = {
 };
 
 function assertFreshSafeHome(path: string): string {
-  const home = realpathSync(resolve(path));
+  const requested = resolve(path);
+  if (lstatSync(requested).isSymbolicLink()) {
+    throw new Error("provider golden eval home must be a fresh empty 0700 directory");
+  }
+  const home = realpathSync(requested);
   const stat = lstatSync(home);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || readdirSync(home).length !== 0) {
     throw new Error("provider golden eval home must be a fresh empty 0700 directory");
@@ -48,7 +54,8 @@ export async function executeProviderGolden(
   const repoRoot = resolve(import.meta.dirname, "../../..");
   const manifest = readGoldenManifest(repoRoot);
   const rail = new ProviderGoldenRail(manifest, declaration);
-  const preflight = rail.preflightDeclaration();
+  const repositoryIdentity = resolveGoldenRepositoryIdentity(repoRoot, dependencies.repositoryIdentity);
+  const preflight = rail.preflightDeclaration(repositoryIdentity);
   dependencies.output(`${JSON.stringify(preflight, null, 2)}\n`);
   if (executeAt === -1) return 0;
   if (argv[executeAt + 1] !== "yes" || env[GOLDEN_LIVE_OPT_IN] !== "1" ||
@@ -65,6 +72,13 @@ export async function executeProviderGolden(
     return await withProviderGoldenRail(rail, async () => {
       let chatRuntime: ProductionChatGptRuntime | null = null;
       try {
+        const executionIdentity = resolveGoldenRepositoryIdentity(repoRoot, dependencies.repositoryIdentity);
+        if (JSON.stringify(executionIdentity) !== JSON.stringify(repositoryIdentity)) {
+          throw new Error("provider golden repository identity changed after authorization");
+        }
+        // Keep this last: a repository-status subprocess is an attacker-controlled
+        // scheduling window. Rebind the home immediately before the first write.
+        rail.assertEvalHomeUnchanged();
         runMigrations();
         bootstrapBuiltInProviders();
         setActiveProvider(declaration.provider);
@@ -74,7 +88,7 @@ export async function executeProviderGolden(
           // Runtime construction, including any compatibility canary, is inside the same
           // rail as the suite. There is no preflight-to-fetch gap.
           chatRuntime = await dependencies.initializeChatGpt({ appVersion: "13.12.2", enabled: () => true,
-            activeProvider: () => "claude-local" });
+            activeProvider: () => "claude-local", suppressCompatibilityCanary: true });
           if (chatRuntime.session.authState().status !== "ready") throw new Error("isolated ChatGPT eval home is not signed in");
         }
         return await dependencies.runEval(["--dir", resolve(repoRoot, manifest.fixture_root), "--judge", "haiku",

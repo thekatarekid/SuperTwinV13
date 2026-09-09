@@ -14,7 +14,7 @@ import {
   CODEX_RESPONSES_URL,
   CODEX_USAGE_URL,
 } from "./constants.js";
-import { buildContractProbeMatrix } from "./matrix.js";
+import { buildContractProbeMatrix, PHASE0B_V4_REMAINING_POSTS } from "./matrix.js";
 import { redactedJson } from "./redact.js";
 import { LIVE_CANARY_PROBE_ENV } from "./safety.js";
 import {
@@ -165,7 +165,7 @@ describe("Phase 0b canary-only runner", () => {
       caseSequence: 1,
       caseName: "canary.blank-context",
       acceptancePolicyVersion: "phase0b-canary-success-v1",
-      plannedInferencePosts: 43,
+      plannedInferencePosts: PHASE0B_V4_REMAINING_POSTS - 1,
       reservationPost: 1,
     });
     const output = redactedJson(evidence);

@@ -43,7 +43,7 @@ export const MAX_DEVICE_POLL_SECONDS = 15 * 60;
 export const MAX_DEVICE_POLL_REQUESTS =
   MAX_DEVICE_POLL_SECONDS / MIN_DEVICE_POLL_INTERVAL_SECONDS;
 export const LIVE_AUTH_HTTP_REQUEST_BUDGET =
-  MAX_DEVICE_CODE_REQUESTS + MAX_DEVICE_POLL_REQUESTS + 1;
+  1; // Authorization-code exchange; browser navigation is declared separately.
 
 export function superTwinUserAgent(env: NodeJS.ProcessEnv = process.env): string {
   const version = env.SUPERTWIN_APP_VERSION?.trim() || env.npm_package_version?.trim();

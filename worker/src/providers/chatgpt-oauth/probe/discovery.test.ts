@@ -467,9 +467,9 @@ describe("Phase 0b metadata-only discovery runner", () => {
 
   it("declares the exact metadata-only endpoint ceilings", () => {
     expect(LIVE_DISCOVERY_HTTP_LIMITS).toEqual({
-      deviceCode: 1, devicePoll: 300, token: 1, models: 1,
+      deviceCode: 0, devicePoll: 0, token: 1, models: 1,
       quota: 1, inference: 0, other: 0,
     });
-    expect(Object.values(LIVE_DISCOVERY_HTTP_LIMITS).reduce((sum, value) => sum + value, 0)).toBe(304);
+    expect(Object.values(LIVE_DISCOVERY_HTTP_LIMITS).reduce((sum, value) => sum + value, 0)).toBe(3);
   });
 });

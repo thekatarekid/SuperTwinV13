@@ -7,7 +7,7 @@ import {
   FULL_PROBE_CASE_BUDGET,
   FULL_PROBE_INFERENCE_POST_BUDGET,
 } from "./constants.js";
-import { runDeviceCodeFlow, type DeviceFlowHooks } from "./device-flow.js";
+import { runDeviceCodeFlow, type DeviceFlowHooks, type EphemeralOAuthTokens } from "./device-flow.js";
 import {
   buildContractProbeMatrix,
   isPostedProbeCase,
@@ -28,6 +28,7 @@ import {
   type ProbeQuotaEvidence,
 } from "./quota.js";
 import {
+  LEGACY_DEVICE_CONTRACT_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_LIMITS,
   ProbeHttpAccounting,
   type ProbeHttpCounts,
@@ -57,6 +58,7 @@ const MAX_INFERENCE_REQUEST_MS = 30_000;
 const RESTRICTION_RE = /(?:rate[_ -]?limit(?:ed|.{0,30}(?:exceed|restrict|error))|quota.{0,24}(?:exceed|exhaust|restrict|error)|captcha|cloudflare|account.{0,24}(?:flag|restrict|warn|suspend)|subscription.{0,24}(?:restrict|cancel|suspend|disrupt)|token.{0,24}revok|suspicious activity|verify.{0,20}(?:human|identity))/i;
 
 export interface ContractProbeHooks extends DeviceFlowHooks {
+  authenticate?(hooks: ContractProbeHooks): Promise<EphemeralOAuthTokens>;
   requestId?(): string;
   measureNow?(): number;
   resourceSnapshot?(): { rssBytes: number; heapUsedBytes: number; activeSockets: number };
@@ -162,13 +164,14 @@ class ContractRestrictionError extends Error {}
 export function contractHttpLimitsForRun(
   plannedInferencePosts: number,
   reuseCanary: boolean,
+  browserAuth = false,
 ): ProbeHttpLimits {
   if (!Number.isSafeInteger(plannedInferencePosts) || plannedInferencePosts < 1 ||
       plannedInferencePosts > FULL_PROBE_INFERENCE_POST_BUDGET) {
     throw new Error("REFUSED: invalid authorized inference plan count");
   }
   return Object.freeze({
-    ...LIVE_CONTRACT_HTTP_LIMITS,
+    ...(browserAuth ? LIVE_CONTRACT_HTTP_LIMITS : LEGACY_DEVICE_CONTRACT_HTTP_LIMITS),
     inference: plannedInferencePosts - (reuseCanary ? 1 : 0),
   });
 }
@@ -742,6 +745,7 @@ export async function runContractProbeScaffold(
   const accounting = new ProbeHttpAccounting(contractHttpLimitsForRun(
     authorization.ledger.plannedInferencePosts,
     Boolean(authorization.ledger.canaryCheckpoint),
+    hooks.authenticate !== undefined,
   ));
   const probeAbort = new AbortController();
   const signals = [hooks.signal, probeAbort.signal].filter(
@@ -756,7 +760,7 @@ export async function runContractProbeScaffold(
   let session: EphemeralProbeTokenSession | undefined;
   let primaryFailure: unknown;
   try {
-  const tokens = await runDeviceCodeFlow(probeHooks);
+  const tokens = await (probeHooks.authenticate ?? runDeviceCodeFlow)(probeHooks);
   session = new EphemeralProbeTokenSession(tokens);
   const account = assertLiveContractProbeAccount(tokens.accessToken, env);
   const accountId = account.accountId;
@@ -862,7 +866,9 @@ export async function runContractProbeScaffold(
   const finalHttpActuals = accounting.snapshot();
   if (finalHttpActuals.inference !== actualInferencePosts || finalHttpActuals.quota !== 2 ||
       finalHttpActuals.models !== 1 || finalHttpActuals.token !== 2 ||
-      finalHttpActuals.deviceCode !== 1 || finalHttpActuals.other !== 0) {
+      finalHttpActuals.deviceCode !== (hooks.authenticate ? 0 : 1) ||
+      (hooks.authenticate ? finalHttpActuals.devicePoll !== 0 : finalHttpActuals.devicePoll < 1) ||
+      finalHttpActuals.other !== 0) {
     throw new Error("Phase 0b runner HTTP accounting did not match the declared contract flow");
   }
   session.logout();

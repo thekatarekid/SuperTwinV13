@@ -1,4 +1,5 @@
 import {
+  LEGACY_DEVICE_CANARY_HTTP_LIMITS,
   LIVE_CANARY_HTTP_LIMITS,
   ProbeHttpAccounting,
   type ProbeHttpCounts,
@@ -13,6 +14,7 @@ import {
   type ContractProbeHooks,
 } from "./contract-runner.js";
 import { runDeviceCodeFlow } from "./device-flow.js";
+import type { EphemeralOAuthTokens } from "./device-flow.js";
 import { buildContractProbeMatrix } from "./matrix.js";
 import { parseProbeModelCatalogue, selectRequestedProbeModel } from "./models.js";
 import { compareProbeQuota, parseProbeQuota, type ProbeQuotaEvidence } from "./quota.js";
@@ -34,7 +36,9 @@ import type {
   CanaryInferenceReservation,
 } from "./authorization-ledger.js";
 
-export interface CanaryProbeHooks extends ContractProbeHooks {}
+export interface CanaryProbeHooks extends ContractProbeHooks {
+  authenticate?(hooks: CanaryProbeHooks): Promise<EphemeralOAuthTokens>;
+}
 
 export interface CanaryProbeEvidence {
   mode: "canary-only";
@@ -70,7 +74,10 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
   let completedReservation: CanaryInferenceReservation | undefined;
   const evidence: Omit<CanaryProbeEvidence, "checkpoint"> = await enforceScratchHomeInvariant(env, async () => {
     const listeningSocketsBefore = contractListeningSocketCount();
-    const accounting = new ProbeHttpAccounting(LIVE_CANARY_HTTP_LIMITS);
+    const browserAuth = hooks.authenticate !== undefined;
+    const accounting = new ProbeHttpAccounting(
+      browserAuth ? LIVE_CANARY_HTTP_LIMITS : LEGACY_DEVICE_CANARY_HTTP_LIMITS,
+    );
     const probeAbort = new AbortController();
     const signals = [hooks.signal, probeAbort.signal].filter(
       (signal): signal is AbortSignal => signal !== undefined,
@@ -84,7 +91,7 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
     let session: EphemeralProbeTokenSession | undefined;
     let primaryFailure: unknown;
     try {
-      const tokens = await runDeviceCodeFlow(probeHooks);
+      const tokens = await (probeHooks.authenticate ?? runDeviceCodeFlow)(probeHooks);
       session = new EphemeralProbeTokenSession(tokens);
       const account = assertLiveCanaryProbeAccount(tokens.accessToken, env);
       let headers = buildBackendHeaders(tokens.accessToken, account.accountId, env);
@@ -137,7 +144,8 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
         throw new Error("REFUSED: final canary account check changed the dedicated Phase 0b account");
       }
       const actuals = accounting.snapshot();
-      if (actuals.deviceCode !== 1 || actuals.devicePoll < 1 || actuals.token !== 2 ||
+      if (actuals.deviceCode !== (browserAuth ? 0 : 1) ||
+          (browserAuth ? actuals.devicePoll !== 0 : actuals.devicePoll < 1) || actuals.token !== 2 ||
           actuals.models !== 1 || actuals.quota !== 2 || actuals.inference !== 1 ||
           actuals.other !== 0) {
         throw new Error("Canary-only HTTP accounting did not match its declared flow");

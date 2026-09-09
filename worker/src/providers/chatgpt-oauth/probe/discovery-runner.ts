@@ -1,10 +1,11 @@
 import {
+  LEGACY_DEVICE_DISCOVERY_HTTP_LIMITS,
   LIVE_DISCOVERY_HTTP_LIMITS,
   ProbeHttpAccounting,
   type ProbeHttpCounts,
 } from "./accounting.js";
 import { CODEX_MODELS_URL, CODEX_USAGE_URL } from "./constants.js";
-import { runDeviceCodeFlow, type DeviceFlowHooks } from "./device-flow.js";
+import { runDeviceCodeFlow, type DeviceFlowHooks, type EphemeralOAuthTokens } from "./device-flow.js";
 import {
   parseProbeModelCatalogue,
   requestedProbeModelId,
@@ -28,6 +29,7 @@ import {
 const MAX_DISCOVERY_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 export interface DiscoveryProbeHooks extends DeviceFlowHooks {
+  authenticate?(hooks: DiscoveryProbeHooks): Promise<EphemeralOAuthTokens>;
   emitAuthorizationPlan?: true;
   onFinalized?(evidence: {
     httpActuals: ProbeHttpCounts;
@@ -129,7 +131,10 @@ export async function runDiscoveryProbe(
   const requestedPlanModel = hooks.emitAuthorizationPlan ? requestedProbeModelId(env) : undefined;
   return enforceScratchHomeInvariant(env, async () => {
   const listeningSocketsBefore = listeningSocketCount();
-  const accounting = new ProbeHttpAccounting(LIVE_DISCOVERY_HTTP_LIMITS);
+  const browserAuth = hooks.authenticate !== undefined;
+  const accounting = new ProbeHttpAccounting(
+    browserAuth ? LIVE_DISCOVERY_HTTP_LIMITS : LEGACY_DEVICE_DISCOVERY_HTTP_LIMITS,
+  );
   const probeAbort = new AbortController();
   const signals = [hooks.signal, probeAbort.signal].filter(
     (signal): signal is AbortSignal => signal !== undefined,
@@ -142,7 +147,7 @@ export async function runDiscoveryProbe(
   let session: EphemeralProbeTokenSession | undefined;
   let primaryFailure: unknown;
   try {
-    const tokens = await runDeviceCodeFlow(probeHooks);
+    const tokens = await (probeHooks.authenticate ?? runDeviceCodeFlow)(probeHooks);
     session = new EphemeralProbeTokenSession(tokens);
     const account = assertLiveDiscoveryProbeAccount(tokens.accessToken, env);
     const headers = buildBackendHeaders(tokens.accessToken, account.accountId, env);
@@ -161,7 +166,8 @@ export async function runDiscoveryProbe(
     const quota = parseProbeQuota(quotaResponse.value);
     if (!quota.healthy) throw new Error("Phase 0b discovery found a quota or account restriction");
     const actuals = accounting.snapshot();
-    if (actuals.deviceCode !== 1 || actuals.devicePoll < 1 || actuals.token !== 1 ||
+    if (actuals.deviceCode !== (browserAuth ? 0 : 1) ||
+        (browserAuth ? actuals.devicePoll !== 0 : actuals.devicePoll < 1) || actuals.token !== 1 ||
         actuals.models !== 1 || actuals.quota !== 1 || actuals.inference !== 0 ||
         actuals.other !== 0) {
       throw new Error("Phase 0b discovery HTTP accounting did not match its declared flow");

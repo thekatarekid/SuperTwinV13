@@ -4,10 +4,11 @@ import { pathToFileURL } from "node:url";
 import { dryRunSnapshot } from "./requests.js";
 import { redactedJson } from "./redact.js";
 import { accountFingerprint, accountIdFromAccessToken } from "./account.js";
-import { runDeviceCodeFlow, type DeviceCode } from "./device-flow.js";
+import type { DeviceFlowHooks, EphemeralOAuthTokens } from "./device-flow.js";
 import {
   formatHttpAccounting,
   LIVE_AUTH_HTTP_LIMITS,
+  LEGACY_DEVICE_AUTH_HTTP_LIMITS,
   ProbeHttpAccounting,
   type ProbeHttpCounts,
 } from "./accounting.js";
@@ -44,9 +45,11 @@ import {
   createBrowserSmokeRuntimeHooks,
   type BrowserSmokeRuntimeOptions,
 } from "./browser-smoke-runtime.js";
+import { runBrowserEphemeralAuth } from "./browser-ephemeral-auth.js";
 
 export interface ProbeCliDependencies {
-  runAuthFlow?: typeof runDeviceCodeFlow;
+  /** Test-only legacy seam; the executable CLI never installs a device flow. */
+  runAuthFlow?(hooks: DeviceFlowHooks): Promise<EphemeralOAuthTokens>;
   runCanaryProbe?: typeof runCanaryProbe;
   runContractProbe?: typeof runContractProbeScaffold;
   runDiscoveryProbe?: typeof runDiscoveryProbe;
@@ -150,7 +153,9 @@ export async function runProbeCli(
     if (emitAuthorizationPlan) requestedProbeModelId(env);
     return runLiveDiscoveryProbe(env, dependencies, emitAuthorizationPlan);
   }
-  const accounting = new ProbeHttpAccounting(LIVE_AUTH_HTTP_LIMITS);
+  const accounting = new ProbeHttpAccounting(
+    dependencies.runAuthFlow ? LEGACY_DEVICE_AUTH_HTTP_LIMITS : LIVE_AUTH_HTTP_LIMITS,
+  );
   const abortController = new AbortController();
   let session: EphemeralProbeTokenSession | undefined;
   let accountingPrinted = false;
@@ -170,15 +175,22 @@ export async function runProbeCli(
     now: Date.now,
     env,
     signal: abortController.signal,
-    onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
-      process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);
-    },
+    onUserCode: () => { throw new Error("REFUSED: device-code fallback is disabled"); },
   };
   try {
     const evidence = await enforceScratchHomeInvariant(env, async () => {
       assertLiveProbeOptIn(env);
       try {
-        const tokens = await (dependencies.runAuthFlow ?? runDeviceCodeFlow)(hooks);
+        const tokens = dependencies.runAuthFlow
+          ? await dependencies.runAuthFlow(hooks)
+          : await runBrowserEphemeralAuth({
+            ...await createBrowserSmokeRuntimeHooks({
+              env,
+              signal: abortController.signal,
+              onNetworkActuals: () => undefined,
+            }),
+            fetch: hooks.fetch,
+          });
         session = new EphemeralProbeTokenSession(tokens);
         const fingerprint = accountFingerprint(accountIdFromAccessToken(tokens.accessToken));
         return {
@@ -263,9 +275,18 @@ async function runLiveCanaryProbe(
       now: Date.now,
       env,
       signal: abortController.signal,
-      onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
-        process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);
-      },
+      onUserCode: () => { throw new Error("REFUSED: device-code fallback is disabled"); },
+      authenticate: async (probeHooks) => runBrowserEphemeralAuth({
+        ...await createBrowserSmokeRuntimeHooks({
+          env,
+          signal: abortController.signal,
+          onNetworkActuals: () => undefined,
+        }),
+        fetch: probeHooks.fetch,
+        now: probeHooks.now,
+        env: probeHooks.env ?? env,
+        signal: probeHooks.signal,
+      }),
       onFinalized: (finalized) => {
         httpActuals = finalized.httpActuals;
       },
@@ -305,9 +326,18 @@ async function runLiveDiscoveryProbe(
       env,
       ...(emitAuthorizationPlan ? { emitAuthorizationPlan: true as const } : {}),
       signal: abortController.signal,
-      onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
-        process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);
-      },
+      onUserCode: () => { throw new Error("REFUSED: device-code fallback is disabled"); },
+      authenticate: async (probeHooks) => runBrowserEphemeralAuth({
+        ...await createBrowserSmokeRuntimeHooks({
+          env,
+          signal: abortController.signal,
+          onNetworkActuals: () => undefined,
+        }),
+        fetch: probeHooks.fetch,
+        now: probeHooks.now,
+        env: probeHooks.env ?? env,
+        signal: probeHooks.signal,
+      }),
       onFinalized: (finalized) => {
         httpActuals = finalized.httpActuals;
       },
@@ -345,9 +375,18 @@ async function runLiveContractProbe(
       now: Date.now,
       env,
       signal: abortController.signal,
-      onUserCode: ({ userCode, verificationUrl }: DeviceCode) => {
-        process.stderr.write(`Open ${verificationUrl} and enter code ${userCode}. Waiting up to 15 minutes.\n`);
-      },
+      onUserCode: () => { throw new Error("REFUSED: device-code fallback is disabled"); },
+      authenticate: async (probeHooks) => runBrowserEphemeralAuth({
+        ...await createBrowserSmokeRuntimeHooks({
+          env,
+          signal: abortController.signal,
+          onNetworkActuals: () => undefined,
+        }),
+        fetch: probeHooks.fetch,
+        now: probeHooks.now,
+        env: probeHooks.env ?? env,
+        signal: probeHooks.signal,
+      }),
       onFinalized: (finalized) => {
         httpActuals = finalized.httpActuals;
       },

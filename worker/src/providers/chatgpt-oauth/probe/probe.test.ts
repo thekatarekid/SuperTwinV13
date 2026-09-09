@@ -24,7 +24,7 @@ import { runDiscoveryProbe } from "./discovery-runner.js";
 import { runCanaryProbe } from "./canary-runner.js";
 import {
   formatHttpAccounting,
-  LIVE_AUTH_HTTP_LIMITS,
+  LEGACY_DEVICE_AUTH_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_LIMITS,
   LIVE_CONTRACT_HTTP_REQUEST_BUDGET,
   LIVE_CANARY_HTTP_REQUEST_BUDGET,
@@ -210,19 +210,19 @@ describe("Phase 0b offline safety", () => {
 
   it("separates live-auth from the 70-case, 55-POST full probe", () => {
     expect(LIVE_AUTH_INFERENCE_CALL_BUDGET).toBe(0);
-    expect(LIVE_AUTH_HTTP_REQUEST_BUDGET).toBe(302);
+    expect(LIVE_AUTH_HTTP_REQUEST_BUDGET).toBe(1);
     expect(FULL_PROBE_CASE_BUDGET).toBe(70);
     expect(FULL_PROBE_INFERENCE_POST_BUDGET).toBe(55);
-    expect(LIVE_CONTRACT_HTTP_REQUEST_BUDGET).toBe(361);
-    expect(LIVE_DISCOVERY_HTTP_REQUEST_BUDGET).toBe(304);
-    expect(LIVE_CANARY_HTTP_REQUEST_BUDGET).toBe(307);
+    expect(LIVE_CONTRACT_HTTP_REQUEST_BUDGET).toBe(60);
+    expect(LIVE_DISCOVERY_HTTP_REQUEST_BUDGET).toBe(3);
+    expect(LIVE_CANARY_HTTP_REQUEST_BUDGET).toBe(6);
     expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_INFERENCE_POSTS=0");
-    expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=302");
+    expect(formatLiveDeclaration()).toContain("MAX_LIVE_AUTH_HTTP_REQUESTS=1");
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_CASES=70");
     expect(formatLiveDeclaration()).toContain("PLANNED_FULL_PHASE_0B_INFERENCE_POSTS=55");
-    expect(formatLiveDeclaration()).toContain("MAX_LIVE_CONTRACT_HTTP_REQUESTS=361");
+    expect(formatLiveDeclaration()).toContain("MAX_LIVE_CONTRACT_HTTP_REQUESTS=60");
     expect(formatLiveDeclaration()).toContain("INFERENCE_RETRIES=0");
-    expect(formatLiveDeclaration("contract")).toContain("1 token exchange + 1 refresh");
+    expect(formatLiveDeclaration("contract")).toContain("1 authorization-code exchange + 1 refresh");
     expect(formatLiveDeclaration("contract")).toContain(
       "PREFLIGHT_REMAINING_INFERENCE_POSTS=exact authorized plan count; minus 1 only with an exact matched canary checkpoint",
     );
@@ -236,12 +236,12 @@ describe("Phase 0b offline safety", () => {
       "SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID",
     );
     expect(formatLiveDeclaration("discover")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=0");
-    expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
+    expect(formatLiveDeclaration("discover")).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=3");
     expect(formatLiveDeclaration("canary")).toContain("PHASE_0B_LIVE_CANARY_DECLARATION");
     expect(formatLiveDeclaration("canary")).toContain("MAX_SELECTED_MODE_INFERENCE_POSTS=1");
-    expect(formatLiveDeclaration("canary")).toContain("MAX_LIVE_CANARY_HTTP_REQUESTS=307");
+    expect(formatLiveDeclaration("canary")).toContain("MAX_LIVE_CANARY_HTTP_REQUESTS=6");
     expect(formatLiveDeclaration("canary")).toContain("PREFLIGHT_REMAINING_INFERENCE_POSTS=1");
-    expect(formatLiveDeclaration("canary")).toContain("1 token exchange + 1 refresh");
+    expect(formatLiveDeclaration("canary")).toContain("1 authorization-code exchange + 1 refresh");
   });
 
   it("prints the declaration, refuses missing opt-in, and never fetches", async () => {
@@ -307,7 +307,7 @@ describe("Phase 0b offline safety", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(discoveryRunner).not.toHaveBeenCalled();
-    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=304");
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("MAX_LIVE_DISCOVERY_HTTP_REQUESTS=3");
   });
 
   it("delegates discovery without a selected model and prints token-free partial evidence", async () => {
@@ -712,6 +712,7 @@ describe("Phase 0b offline safety", () => {
       total: 68,
     };
     const contractRunner = vi.fn<typeof runContractProbeScaffold>(async (contractHooks) => {
+      expect(contractHooks.authenticate).toEqual(expect.any(Function));
       contractHooks.onFinalized?.({
         httpActuals: actuals,
         logout: { authenticated: false, hasRefreshToken: false, previousRecoveryPairAvailable: false },
@@ -830,7 +831,7 @@ describe("Phase 0b offline safety", () => {
   it("records exact per-endpoint HTTP attempts without retaining request data", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
     const accounting = new ProbeHttpAccounting({
-      ...LIVE_AUTH_HTTP_LIMITS,
+      ...LEGACY_DEVICE_AUTH_HTTP_LIMITS,
       models: 1,
     });
     const countedFetch = accounting.wrap(fetchMock);
@@ -860,8 +861,8 @@ describe("Phase 0b offline safety", () => {
 
   it("hard-limits the complete contract endpoint budget", () => {
     expect(LIVE_CONTRACT_HTTP_LIMITS).toEqual({
-      deviceCode: 1,
-      devicePoll: 300,
+      deviceCode: 0,
+      devicePoll: 0,
       token: 2,
       models: 1,
       quota: 2,

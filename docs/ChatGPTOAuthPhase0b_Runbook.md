@@ -8,16 +8,16 @@ Status: development acceptance only. These commands are not application runtime 
 - Account fingerprint: `7d41db9e5a28`
 - Model: `gpt-5.6-sol`
 - Authorized cumulative inference attempts: `55`
-- Already consumed: `3`
+- Already consumed: `4`
 - Active account-specific planned inference POSTs: `45`
 - Inference retries: `0`
 - Current application version: `13.12.2`
 
-The original live catalogue evidence resolved matrix v1 to 46 inference POSTs and 9 unsupported skips. The compact HTTP-400 evidence showed that the backend rejects `max_output_tokens` when support is not declared, so the append-only active matrix-v2 revision omits that field and resolves to 45 POSTs with 10 skips. The cumulative grant remains 3/55: a fresh run needs 45 of the remaining 52 attempts; after one more successful checkpointed canary, the resume needs 44 of the remaining 51. Do not use full-contract mode until the request-contract canary succeeds and the ledger contains that exact checkpoint.
+The original live catalogue evidence resolved matrix v1 to 46 inference POSTs and 9 unsupported skips. The compact HTTP-400 evidence showed that the backend rejects `max_output_tokens` when support is not declared, so the append-only active matrix-v2 revision omits that field and resolves to 45 POSTs with 10 skips. Revision 2 was appended offline, but its first canary also failed closed; the cumulative grant is now 4/55 with no reusable checkpoint. Do not use full-contract mode until a later explicitly authorized request-contract canary succeeds and the ledger contains that exact checkpoint.
 
 ## 1. Obtain the selected-model plan fingerprint
 
-Run only while the owner is ready to complete the device-code page. Create a fresh empty owner-only scratch directory under the macOS temporary directory, then run:
+Run only while the owner is ready to approve the browser page. The command binds the fixed localhost callback before opening the system browser and completes automatically after approval; the owner never copies or enters a code. Create a fresh empty owner-only scratch directory under the macOS temporary directory, then run:
 
 ```sh
 probe_scratch="$(mktemp -d "${TMPDIR%/}/supertwin-chatgpt-plan.XXXXXX")"
@@ -39,7 +39,7 @@ Acceptance:
 - Account fingerprint is exactly `7d41db9e5a28`; quota is healthy; logout succeeds.
 - `SUPERTWIN_HOME` remains the same empty directory. Remove it only after manually confirming that it is the exact temporary path created above.
 
-Stop on any account mismatch, token-exchange or metadata 401/403, any 429, CAPTCHA, warning, restriction, unhealthy quota, missing model, malformed response, or nonzero inference/other count. Bounded device-poll 403/404 responses mean authorization is still pending and are expected.
+Stop on any account mismatch, token-exchange or metadata 401/403, any 429, CAPTCHA, warning, restriction, unhealthy quota, missing model, malformed response, or nonzero inference/other count. There is one browser navigation and one automatic authorization-code exchange; device-code and device-poll counts must both remain zero.
 
 ## 2. Historical create-once ledger initialization
 
@@ -97,11 +97,11 @@ SUPERTWIN_CHATGPT_AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS=45 \
 npm run probe:chatgpt-oauth -- --append-authorization-plan-successor
 ```
 
-Acceptance: output reports revision `2`, transition `transport-only-request-matrix-v2`, 45 planned POSTs, 55 authorized, 3 consumed, 52 remaining, `networkCalls: 0`, and `appendOnly: true`. The command refuses replay or any predecessor, counter, grant or successor mismatch. Never edit the database to make it pass.
+Completed 2026-09-09: output reported revision `2`, transition `transport-only-request-matrix-v2`, 45 planned POSTs, 55 authorized, 3 consumed, 52 remaining, `networkCalls: 0`, and `appendOnly: true`. The command refuses replay or any predecessor, counter, grant or successor mismatch. Never rerun it or edit the database.
 
-## 4. Run one bounded field-diagnostic canary
+## 4. Historical matrix-v2 canary
 
-Only after step 2 passes and the owner is ready at the device page:
+This command was run once on 2026-09-09 under explicit authorization. It consumed attempt 4 and failed closed on an HTTP-200 non-JSON response, so it must not be replayed without a new exact authorization:
 
 ```sh
 canary_scratch="$(mktemp -d "${TMPDIR%/}/supertwin-chatgpt-canary.XXXXXX")"
@@ -124,6 +124,8 @@ SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_REVISION=2 \
 SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID=transport-only-request-matrix-v2 \
 npm run probe:chatgpt-oauth -- --live-auth --live-canary
 ```
+
+The command shown above now uses browser Authorization Code + PKCE with the automatic `http://localhost:1455/auth/callback` return. It no longer displays or accepts a device code. The exact 2026-09-09 actuals below remain immutable historical evidence from the older probe implementation; they are not the budget for a future run. Any future canary requires a new explicit authorization whose declaration has device-code `0`, device-poll `0`, token `2`, models `1`, quota `2`, inference `1`, other `0`, plus one browser navigation.
 
 If execution reaches the inference boundary, the ledger durably reserves the next attempt before the fetch and never refunds it, including on HTTP 400, cancellation, timeout, SIGINT, or process failure. The mode hard-refuses a second inference request. Record only its bounded redacted diagnostic and exact endpoint counts.
 

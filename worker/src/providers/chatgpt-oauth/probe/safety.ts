@@ -202,8 +202,9 @@ export function formatLiveDeclaration(mode: "auth" | "discover" | "canary" | "co
     ] : []),
     "PREFLIGHT_REJECTIONS=15",
     mode === "contract" || mode === "canary"
-      ? "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange + 1 refresh"
-      : "OAUTH_HTTP_BREAKDOWN=1 device-code request + at most 300 polls + 1 token exchange",
+      ? "OAUTH_HTTP_BREAKDOWN=1 browser navigation + 1 authorization-code exchange + 1 refresh; device-code=0; device-poll=0"
+      : "OAUTH_HTTP_BREAKDOWN=1 browser navigation + 1 authorization-code exchange; device-code=0; device-poll=0",
+    "CALLBACK=http://localhost:1455/auth/callback",
     "INFERENCE_RETRIES=0",
     "STOP_ON_RATE_LIMIT_CAPTCHA_OR_ACCOUNT_FLAG=1",
   ].join("\n");

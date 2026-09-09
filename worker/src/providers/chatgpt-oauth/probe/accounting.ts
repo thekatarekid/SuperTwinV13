@@ -22,8 +22,8 @@ export type ProbeHttpEndpoint = Exclude<keyof ProbeHttpCounts, "total">;
 export type ProbeHttpLimits = Record<ProbeHttpEndpoint, number>;
 
 export const LIVE_AUTH_HTTP_LIMITS: ProbeHttpLimits = {
-  deviceCode: 1,
-  devicePoll: 300,
+  deviceCode: 0,
+  devicePoll: 0,
   token: 1,
   models: 0,
   quota: 0,
@@ -31,9 +31,13 @@ export const LIVE_AUTH_HTTP_LIMITS: ProbeHttpLimits = {
   other: 0,
 };
 
+export const LEGACY_DEVICE_AUTH_HTTP_LIMITS: ProbeHttpLimits = {
+  ...LIVE_AUTH_HTTP_LIMITS, deviceCode: 1, devicePoll: 300,
+};
+
 export const LIVE_DISCOVERY_HTTP_LIMITS: ProbeHttpLimits = {
-  deviceCode: 1,
-  devicePoll: 300,
+  deviceCode: 0,
+  devicePoll: 0,
   token: 1,
   models: 1,
   quota: 1,
@@ -42,8 +46,8 @@ export const LIVE_DISCOVERY_HTTP_LIMITS: ProbeHttpLimits = {
 };
 
 export const LIVE_CONTRACT_HTTP_LIMITS: ProbeHttpLimits = {
-  deviceCode: 1,
-  devicePoll: 300,
+  deviceCode: 0,
+  devicePoll: 0,
   token: 2,
   models: 1,
   quota: 2,
@@ -52,13 +56,24 @@ export const LIVE_CONTRACT_HTTP_LIMITS: ProbeHttpLimits = {
 };
 
 export const LIVE_CANARY_HTTP_LIMITS: ProbeHttpLimits = {
-  deviceCode: 1,
-  devicePoll: 300,
+  deviceCode: 0,
+  devicePoll: 0,
   token: 2,
   models: 1,
   quota: 2,
   inference: 1,
   other: 0,
+};
+
+/** Historical device-flow budgets retained only for direct probe evidence tests. */
+export const LEGACY_DEVICE_DISCOVERY_HTTP_LIMITS: ProbeHttpLimits = {
+  ...LIVE_DISCOVERY_HTTP_LIMITS, deviceCode: 1, devicePoll: 300,
+};
+export const LEGACY_DEVICE_CONTRACT_HTTP_LIMITS: ProbeHttpLimits = {
+  ...LIVE_CONTRACT_HTTP_LIMITS, deviceCode: 1, devicePoll: 300,
+};
+export const LEGACY_DEVICE_CANARY_HTTP_LIMITS: ProbeHttpLimits = {
+  ...LIVE_CANARY_HTTP_LIMITS, deviceCode: 1, devicePoll: 300,
 };
 
 export const LIVE_CONTRACT_HTTP_REQUEST_BUDGET = Object.values(

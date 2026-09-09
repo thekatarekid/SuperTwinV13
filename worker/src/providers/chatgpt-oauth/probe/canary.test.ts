@@ -420,10 +420,10 @@ describe("Phase 0b canary-only runner", () => {
 
   it("hard-refuses a second inference request", async () => {
     expect(LIVE_CANARY_HTTP_LIMITS).toEqual({
-      deviceCode: 1, devicePoll: 300, token: 2, models: 1,
+      deviceCode: 0, devicePoll: 0, token: 2, models: 1,
       quota: 2, inference: 1, other: 0,
     });
-    expect(Object.values(LIVE_CANARY_HTTP_LIMITS).reduce((sum, count) => sum + count, 0)).toBe(307);
+    expect(Object.values(LIVE_CANARY_HTTP_LIMITS).reduce((sum, count) => sum + count, 0)).toBe(6);
     const upstream = vi.fn<typeof fetch>(async () => sseResponse());
     const counted = new ProbeHttpAccounting(LIVE_CANARY_HTTP_LIMITS).wrap(upstream);
     await counted(CODEX_RESPONSES_URL);

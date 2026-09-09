@@ -248,6 +248,30 @@ describe("ChatGPT OAuth ProviderV2", () => {
     expect(f.fetchSpy).toHaveBeenCalledOnce();
   });
 
+  it("admits absent Content-Type SSE only from the exact non-redirected production URL", async () => {
+    const body = await sse().text();
+    const response = (url: string, redirected = false, onCancel?: () => void) => {
+      const bytes = new TextEncoder().encode(body);
+      const value = new Response(new ReadableStream({ start(controller) { controller.enqueue(bytes); },
+        cancel() { onCancel?.(); } }));
+      Object.defineProperty(value, "url", { value: url });
+      Object.defineProperty(value, "redirected", { value: redirected });
+      return value;
+    };
+    const exact = fixture({ suppressCompatibilityCanary: true, fetch: async () => response(CHATGPT_RESPONSES_URL) });
+    await expect(exact.provider.send(userRequest("absent-exact"))).resolves.toMatchObject({ status: "ok" });
+
+    for (const [url, redirected] of [["", false], ["https://wrong.invalid/response", false],
+      [CHATGPT_RESPONSES_URL, true]] as const) {
+      const cancelled = vi.fn();
+      const rejected = fixture({ suppressCompatibilityCanary: true,
+        fetch: async () => response(url, redirected, cancelled) });
+      await expect(rejected.provider.send(userRequest(`absent-reject-${String(redirected)}-${url.length}`)))
+        .resolves.toMatchObject({ status: "error", errorCode: "BACKEND_UNSUPPORTED" });
+      expect(cancelled).toHaveBeenCalledOnce();
+    }
+  });
+
   it("streams one strict user request after canary and preserves continuation/usage", async () => {
     const f = fixture();
     await ready(f);

@@ -19,7 +19,7 @@ import { parseProbeModelCatalogue, selectRequestedProbeModel } from "./models.js
 import { redactProbeValue } from "./redact.js";
 import { buildBackendHeaders } from "./requests.js";
 import { assertLiveContractProbeAccount, assertLiveContractProbePreflight } from "./safety.js";
-import { consumeBoundedSse, type SseProbeEvidence } from "./sse.js";
+import { consumeBoundedSse, MAX_SSE_RESPONSE_BYTES, type SseProbeEvidence } from "./sse.js";
 import { EphemeralProbeTokenSession, ProbeAuthError, type SafeSessionEvidence } from "./refresh.js";
 import {
   compareProbeQuota,
@@ -50,12 +50,21 @@ import {
   reusableCanaryCheckpoint,
 } from "./live-authorization.js";
 import type { CanaryCompletionCheckpoint } from "./authorization-ledger.js";
+import { buildChatGptInferenceWire } from "../inference-wire.js";
+import { superTwinUserAgent } from "./constants.js";
 
 const MAX_JSON_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 128 * 1024;
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_INFERENCE_REQUEST_MS = 30_000;
 const RESTRICTION_RE = /(?:rate[_ -]?limit(?:ed|.{0,30}(?:exceed|restrict|error))|quota.{0,24}(?:exceed|exhaust|restrict|error)|captcha|cloudflare|account.{0,24}(?:flag|restrict|warn|suspend)|subscription.{0,24}(?:restrict|cancel|suspend|disrupt)|token.{0,24}revok|suspicious activity|verify.{0,20}(?:human|identity))/i;
+let physicalRequestNonce = 0;
+
+function freshPhysicalId(prefix: string, suffix?: number): string {
+  physicalRequestNonce = (physicalRequestNonce + 1) % Number.MAX_SAFE_INTEGER;
+  const tail = suffix === undefined ? "" : `-${suffix}`;
+  return boundedRequestId(`${prefix}-${randomUUID()}-${physicalRequestNonce.toString(36)}${tail}`);
+}
 
 export interface ContractProbeHooks extends DeviceFlowHooks {
   authenticate?(hooks: ContractProbeHooks): Promise<EphemeralOAuthTokens>;
@@ -81,6 +90,11 @@ export interface ContractCaseEvidence {
   request: unknown;
   stream?: SseProbeEvidence;
   responseBytes?: number;
+  responseContentTypeCategory?: ContractCaseMismatchDiagnostic["contentTypeCategory"];
+  responseContentEncodingCategory?: ContractCaseMismatchDiagnostic["contentEncodingCategory"];
+  responseRedirected?: boolean;
+  responseExpectedUrlMatch?: boolean;
+  responseBodyShapeCategory?: ContractCaseMismatchDiagnostic["bodyShapeCategory"];
   preflightErrors?: string[];
   startedAtMs?: number;
   completedAtMs?: number;
@@ -98,6 +112,10 @@ type DiagnosticErrorCodeCategory =
 export interface ContractCaseMismatchDiagnostic {
   status: number;
   contentTypeCategory: "event-stream" | "json" | "other" | "absent";
+  contentEncodingCategory: "absent" | "gzip" | "br" | "deflate" | "other";
+  bodyShapeCategory: "html-like" | "sse-like" | "json" | "other";
+  redirected: boolean;
+  expectedUrlMatch: boolean;
   eventCount: number;
   outputTextBytes: number;
   eventTypes: string[];
@@ -347,13 +365,33 @@ export function buildContractCaseMismatchDiagnostic(
   contentType: string | null | undefined,
   stream?: SseProbeEvidence,
   rawNonSse?: unknown,
+  metadata: { redirected?: unknown; url?: unknown; expectedUrl?: string; contentEncoding?: unknown } = {},
 ): ContractCaseMismatchDiagnostic {
   const eventTypes = stream?.eventTypes ?? [];
   const contentTypeCategory = classifyDiagnosticContentType(contentType);
   const eventStream = contentTypeCategory === "event-stream";
+  const encoding = typeof metadata.contentEncoding === "string" ? metadata.contentEncoding.trim().toLowerCase() : "";
+  const contentEncodingCategory = encoding === "" ? "absent"
+    : (["gzip", "br", "deflate"] as const).includes(encoding as "gzip" | "br" | "deflate")
+      ? encoding as "gzip" | "br" | "deflate" : "other";
+  const rawText = rawNonSse && typeof rawNonSse === "object"
+    ? Object.getOwnPropertyDescriptor(rawNonSse, "text")?.value : undefined;
+  let bodyShapeCategory: ContractCaseMismatchDiagnostic["bodyShapeCategory"] = "other";
+  if (typeof rawText === "string") {
+    try { JSON.parse(rawText); bodyShapeCategory = "json"; }
+    catch {
+      const prefix = rawText.slice(0, 4096).trimStart();
+      if (/^(?:<!doctype\s+html\b|<html\b)/i.test(prefix)) bodyShapeCategory = "html-like";
+      else if (/^(?:data|event|id|retry):/m.test(prefix)) bodyShapeCategory = "sse-like";
+    }
+  } else if (eventStream) bodyShapeCategory = "sse-like";
   return {
     status: response.status,
     contentTypeCategory,
+    contentEncodingCategory,
+    bodyShapeCategory,
+    redirected: metadata.redirected === true,
+    expectedUrlMatch: typeof metadata.url === "string" && metadata.url === metadata.expectedUrl,
     eventCount: boundedDiagnosticCount(stream?.eventCount, 10_000),
     outputTextBytes: boundedDiagnosticCount(stream?.outputTextBytes, 2 * 1024 * 1024),
     eventTypes: eventTypes.slice(0, MAX_DIAGNOSTIC_EVENT_TYPES).map(
@@ -451,6 +489,7 @@ function matchesExpectation(
     return false;
   }
   if (!stream.substantiveOutput) return false;
+  if (probe.name === "canary.blank-context") return stream.outputMatchesExactTrimmedOk;
   if (probe.name === "focused.strict-json") return stream.outputMatchesExactOkBooleanSchema;
   if (probe.name === "focused.tool-call") {
     return stream.invalidFunctionNameCount === 0 && stream.functionCalls.length === 1 && stream.functionCalls.some(
@@ -567,10 +606,10 @@ export async function executeContractProbeCase(
   }
   const requestHeaders = {
     ...headers,
-    Accept: "text/event-stream",
+    Accept: "application/json",
     "Content-Type": "application/json",
-    session_id: boundedRequestId(`phase0b-${probe.sequence}`),
-    "x-client-request-id": boundedRequestId(hooks.requestId?.() ?? randomUUID()),
+    session_id: freshPhysicalId("phase0b-session", probe.sequence),
+    "x-client-request-id": freshPhysicalId("phase0b-request"),
   };
   const requestSignals = [
     controller.signal,
@@ -598,12 +637,12 @@ export async function executeContractProbeCase(
       }
       await hooks.reserveInferencePosts(1);
     }
-    const response = await hooks.fetch(CODEX_RESPONSES_URL, {
-      method: "POST",
-      headers: requestHeaders,
-      body: bodyText,
+    const response = await hooks.fetch(CODEX_RESPONSES_URL, buildChatGptInferenceWire({
+      accessToken: headers.Authorization?.replace(/^Bearer /, "") ?? "",
+      accountId: headers["ChatGPT-Account-ID"] ?? "", userAgent: superTwinUserAgent(hooks.env),
+      sessionId: requestHeaders.session_id, requestId: requestHeaders["x-client-request-id"], bodyText,
       signal: AbortSignal.any(requestSignals),
-    });
+    }));
     if (response.status === 429) {
       for (const active of controllers) active.abort();
       throw new ContractRestrictionError("Contract probe stopped on HTTP 429");
@@ -611,6 +650,9 @@ export async function executeContractProbeCase(
 
     const contentType = response.headers.get("content-type");
     const contentTypeCategory = classifyDiagnosticContentType(contentType);
+    if (contentTypeCategory === "absent" && (response.redirected || response.url !== CODEX_RESPONSES_URL)) {
+      throw new Error("BACKEND_UNSUPPORTED: absent content type came from an unexpected response URL");
+    }
     let stream: SseProbeEvidence | undefined;
     let responseBytes: number | undefined;
     let rawNonSse: { text: string; bytes: number } | undefined;
@@ -626,6 +668,20 @@ export async function executeContractProbeCase(
         for (const active of controllers) active.abort();
         throw new ContractRestrictionError("Contract probe stopped on an SSE restriction signal");
       }
+    } else if (contentTypeCategory === "absent" && response.body) {
+      const bounded = await readBoundedText(response, MAX_SSE_RESPONSE_BYTES);
+      responseBytes = bounded.bytes;
+      if (bounded.bytes <= MAX_ERROR_RESPONSE_BYTES) rawNonSse = bounded;
+      try {
+        stream = await consumeBoundedSse(new Response(bounded.text, {
+          status: response.status, headers: { "content-type": "text/event-stream" },
+        }), {
+          stopAfterFirstSubstantiveDelta: probe.expectation === "cancelled",
+          onFirstSubstantiveDelta: probe.expectation === "cancelled"
+            ? () => controller.abort(new Error("Phase 0b cancellation probe reached a substantive delta")) : undefined,
+          isRequestAborted: () => controller.signal.aborted,
+        });
+      } catch { stream = undefined; }
     } else {
       const bounded = await readBoundedText(response, MAX_ERROR_RESPONSE_BYTES);
       responseBytes = bounded.bytes;
@@ -650,6 +706,15 @@ export async function executeContractProbeCase(
       request: redactProbeValue({ headers: requestHeaders, body: requestBody }),
       stream,
       responseBytes,
+      responseContentTypeCategory: contentTypeCategory,
+      responseContentEncodingCategory: response.headers.get("content-encoding") === null ? "absent"
+        : ["gzip", "br", "deflate"].includes(response.headers.get("content-encoding")!.toLowerCase())
+          ? response.headers.get("content-encoding")!.toLowerCase() as "gzip" | "br" | "deflate" : "other",
+      responseRedirected: response.redirected,
+      responseExpectedUrlMatch: response.url === CODEX_RESPONSES_URL,
+      responseBodyShapeCategory: stream ? "sse-like"
+        : typeof rawNonSse?.text === "string" && /^(?:<!doctype\s+html\b|<html\b)/i.test(rawNonSse.text.trimStart())
+          ? "html-like" : "other",
       startedAtMs,
       completedAtMs,
       ...resourcePeak,
@@ -660,6 +725,8 @@ export async function executeContractProbeCase(
         contentType,
         stream,
         rawNonSse,
+        { redirected: response.redirected, url: response.url, expectedUrl: CODEX_RESPONSES_URL,
+          contentEncoding: response.headers.get("content-encoding") },
       );
       throw new Error(
         `Contract case ${probe.name} did not match its declared expectation; ` +

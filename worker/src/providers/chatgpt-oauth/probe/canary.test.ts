@@ -209,6 +209,22 @@ describe("Phase 0b canary-only runner", () => {
     }));
   });
 
+  it("rejects a completed substantive NOT OK canary while retaining its charge and no checkpoint", async () => {
+    const accountId = "acct-canary-not-ok";
+    const liveEnv = await env(accountId);
+    const notOk = () => new Response([
+      { type: "response.output_text.delta", delta: "NOT OK" },
+      { type: "response.completed", response: { id: "resp-secret", usage: { input_tokens: 3, output_tokens: 2 } } },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+      status: 200, headers: { "content-type": "text/event-stream" },
+    });
+    const { fetchMock } = canaryFetch(accountId, true, notOk);
+    await expect(runCanaryProbe({ fetch: fetchMock, sleep: vi.fn(async () => undefined), now: vi.fn(() => 0),
+      onUserCode: vi.fn(), env: liveEnv })).rejects.toThrow(/canary\.blank-context did not match/);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(1);
+    expect(testMatchedCanaryReservationPost(liveEnv)).toBeUndefined();
+  });
+
   it("projects only allowlisted non-SSE error categories and suppresses hostile strings", async () => {
     const accountId = "acct-canary-json-error";
     const secret = "secret-message-request-id-must-not-appear";

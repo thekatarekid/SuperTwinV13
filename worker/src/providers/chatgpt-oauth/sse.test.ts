@@ -423,4 +423,21 @@ describe("production ChatGPT SSE parsing", () => {
     }), sink.options)).rejects.toMatchObject({ code: "BACKEND_UNSUPPORTED" });
     expect(JSON.stringify(sink.events)).not.toContain(secret);
   });
+
+  it("accepts absent Content-Type only when strict bounded SSE framing completes", async () => {
+    const sink = capture();
+    const wire = eventBlock({ type: "response.output_text.delta", delta: "OK" }) +
+      eventBlock({ type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 1 } } });
+    const bytes = new TextEncoder().encode(wire);
+    const absentType = new Response(new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close(); } }));
+    await expect(consumeChatGptSse(absentType, sink.options)).resolves.toMatchObject({ status: "ok" });
+    const hostile = "<!doctype html><html>private-marker</html>";
+    const failed = capture();
+    const hostileBytes = new TextEncoder().encode(hostile);
+    const hostileResponse = new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(hostileBytes); controller.close();
+    } }));
+    await expect(consumeChatGptSse(hostileResponse, failed.options)).rejects.toMatchObject({ code: "BACKEND_UNSUPPORTED" });
+    expect(JSON.stringify(failed.events)).not.toContain("private-marker");
+  });
 });

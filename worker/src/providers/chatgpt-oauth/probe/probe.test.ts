@@ -381,7 +381,7 @@ describe("Phase 0b offline safety", () => {
         planFingerprint: {
           accountFingerprint: "7d41db9e5a28",
           modelId: "gpt-safe",
-          matrixVersion: "phase0b-contract-matrix-v2",
+          matrixVersion: "phase0b-contract-matrix-v3",
           matrixHash: "b".repeat(64),
           caseCount: 70,
           inferencePostCount: 55,

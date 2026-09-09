@@ -16,7 +16,7 @@ import {
 } from "./matrix.js";
 import type { ProbeModelCatalogue } from "./models.js";
 
-export const PHASE0B_MATRIX_VERSION = "phase0b-contract-matrix-v2";
+export const PHASE0B_MATRIX_VERSION = "phase0b-contract-matrix-v3";
 export const PHASE0B_INFERENCE_RETRIES = 0;
 
 export interface Phase0bAuthorizationPlan {
@@ -119,14 +119,14 @@ export function phase0bAuthorizationPlanFromCases(
       method: "POST",
       redirect: "error",
       headers: [
-        "accept:text/event-stream",
+        "accept:application/json",
         "authorization:bearer",
         "chatgpt-account-id:present",
         "content-type:application/json",
         "originator:supertwinv13",
         `user-agent:${userAgent}`,
-        "session_id:bounded",
-        "x-client-request-id:bounded",
+        "session_id:fresh-independent-high-entropy-per-physical-request-bounded",
+        "x-client-request-id:fresh-independent-high-entropy-per-physical-request-bounded",
       ],
     },
   };

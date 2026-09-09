@@ -33,7 +33,7 @@ describe("Phase 0b authorization plan fingerprint", () => {
     expect(first).toEqual(second);
     expect(first).toEqual({
       matrixVersion: PHASE0B_MATRIX_VERSION,
-      matrixHash: "3c0a8fb94c1e19de6ec991e7c665045403bcf64bd24c3ad633f351bd451769a2",
+      matrixHash: "5846456a7c58a6fdb7f37ad91c5a69bfe86e1be350689186998204b545196fdc",
       caseCount: 70,
       inferencePostCount: 55,
       inferenceRetries: 0,
@@ -80,7 +80,7 @@ describe("Phase 0b authorization plan fingerprint", () => {
     }] };
     expect(buildPhase0bAuthorizationPlan(liveShape, "gpt-5.6-sol", planEnv)).toEqual({
       matrixVersion: PHASE0B_MATRIX_VERSION,
-      matrixHash: "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09",
+      matrixHash: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
       caseCount: 70,
       inferencePostCount: 45,
       inferenceRetries: 0,

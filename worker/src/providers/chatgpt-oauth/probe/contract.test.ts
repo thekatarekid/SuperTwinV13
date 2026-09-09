@@ -17,6 +17,7 @@ import {
 import {
   buildContractCaseMismatchDiagnostic,
   contractHttpLimitsForRun,
+  executeContractProbeCase,
   runContractProbeScaffold,
 } from "./contract-runner.js";
 import { ProbeHttpAccounting } from "./accounting.js";
@@ -98,7 +99,7 @@ function jsonResponse(status: number, value: unknown): Response {
   });
 }
 
-function sseResponse(type = "response.completed", output = "probe", toolCall = false): Response {
+function sseResponse(type = "response.completed", output = "OK", toolCall = false): Response {
   const usage = {
     input_tokens: 10,
     output_tokens: 1,
@@ -150,6 +151,61 @@ describe("Phase 0b declarative contract matrix", () => {
 });
 
 describe("ephemeral account and SSE evidence", () => {
+  it("uses independent fresh IDs for every physical call despite repeated sequence and hook collisions", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const probe = buildContractProbeMatrix("gpt-probe")[0]!;
+    const hooks = { fetch: (async (_url, init) => {
+      seen.push(init?.headers as Record<string, string>); return sseResponse();
+    }) as typeof fetch, sleep: async () => undefined, onUserCode: () => undefined,
+    requestId: () => "forced-collision", reserveInferencePosts: async () => undefined,
+    now: () => Date.now() };
+    await executeContractProbeCase(probe, { Authorization: "Bearer token", "ChatGPT-Account-ID": "account",
+      "User-Agent": "SuperTwinV13/test", originator: "supertwinv13" }, hooks, new Set());
+    await executeContractProbeCase(probe, { Authorization: "Bearer token", "ChatGPT-Account-ID": "account",
+      "User-Agent": "SuperTwinV13/test", originator: "supertwinv13" }, hooks, new Set());
+    expect(new Set(seen.map((headers) => headers.session_id)).size).toBe(2);
+    expect(new Set(seen.map((headers) => headers["x-client-request-id"])).size).toBe(2);
+    expect(seen.every((headers) => headers.session_id !== headers["x-client-request-id"])).toBe(true);
+    expect(seen.every((headers) => headers.session_id.length <= 128 &&
+      headers["x-client-request-id"]!.length <= 128)).toBe(true);
+  });
+
+  it("accepts absent Content-Type only for strict SSE from the exact response endpoint", async () => {
+    const probe = buildContractProbeMatrix("gpt-probe")[0]!;
+    const absent = (url: string, body = sseResponse().body!) => {
+      const response = new Response(body); Object.defineProperty(response, "url", { value: url }); return response;
+    };
+    const hooks = { fetch: (async () => absent(CODEX_RESPONSES_URL)) as typeof fetch, now: () => 0,
+      sleep: async () => undefined, onUserCode: () => undefined, reserveInferencePosts: async () => undefined };
+    await expect(executeContractProbeCase(probe, { Authorization: "Bearer token", "ChatGPT-Account-ID": "account",
+      "User-Agent": "SuperTwinV13/test", originator: "supertwinv13" }, hooks, new Set())).resolves.toMatchObject({
+      matchedExpectation: true, responseContentTypeCategory: "absent" });
+    hooks.fetch = (async () => absent("https://wrong.invalid/response")) as typeof fetch;
+    await expect(executeContractProbeCase(probe, { Authorization: "Bearer token", "ChatGPT-Account-ID": "account",
+      "User-Agent": "SuperTwinV13/test", originator: "supertwinv13" }, hooks, new Set())).rejects.toThrow(/unexpected response URL/);
+  });
+
+  it("retains only bounded safe evidence for an absent-type HTML response", async () => {
+    const marker = "private-html-marker";
+    const html = `<!doctype html><html>${marker}</html>`;
+    const response = new Response(new TextEncoder().encode(html), { headers: { "content-encoding": "gzip" } });
+    Object.defineProperty(response, "url", { value: CODEX_RESPONSES_URL });
+    const probe = buildContractProbeMatrix("gpt-probe")[0]!;
+    let failure = "";
+    try {
+      await executeContractProbeCase(probe, { Authorization: "Bearer token", "ChatGPT-Account-ID": "account",
+        "User-Agent": "SuperTwinV13/test", originator: "supertwinv13" }, {
+        fetch: async () => response, now: () => 0, sleep: async () => undefined, onUserCode: () => undefined,
+        reserveInferencePosts: async () => undefined,
+      }, new Set());
+    } catch (error) { failure = String(error); }
+    expect(failure).toContain('"bodyShapeCategory":"html-like"');
+    expect(failure).toContain('"contentEncodingCategory":"gzip"');
+    expect(failure).toContain(`"nonSseResponseBytes":${Buffer.byteLength(html)}`);
+    expect(failure).toContain('"expectedUrlMatch":true');
+    expect(failure).not.toContain(marker);
+  });
+
   it("decodes the routing claim but exposes only a stable fingerprint in evidence", () => {
     const accountId = "acct-sensitive-value";
     expect(accountIdFromAccessToken(jwt(accountId))).toBe(accountId);
@@ -186,6 +242,27 @@ describe("ephemeral account and SSE evidence", () => {
     expect(output).not.toContain("unsafe secret");
     expect(output).not.toContain("identifier_shaped_unknown");
     expect(output).not.toContain("resp-secret");
+  });
+
+  it("classifies intermediary-shaped responses without retaining raw body, header, or URL values", () => {
+    const marker = "raw-marker-must-never-appear";
+    const html = `<!doctype html><html><body>${marker}</body></html>`;
+    const diagnostic = buildContractCaseMismatchDiagnostic(
+      new Response("ignored", { status: 200 }), null, undefined,
+      { text: html, bytes: Buffer.byteLength(html) },
+      { redirected: true, url: `https://wrong.example/${marker}`, expectedUrl: CODEX_RESPONSES_URL,
+        contentEncoding: `x-${marker}` },
+    );
+    expect(diagnostic).toMatchObject({ contentTypeCategory: "absent", contentEncodingCategory: "other",
+      bodyShapeCategory: "html-like", redirected: true, expectedUrlMatch: false });
+    expect(JSON.stringify(diagnostic)).not.toContain(marker);
+    for (const [header, category] of [[undefined, "absent"], ["gzip", "gzip"], ["br", "br"],
+      ["deflate", "deflate"]] as const) {
+      expect(buildContractCaseMismatchDiagnostic(new Response("x"), null, undefined,
+        { text: "data: {}\n\n", bytes: 10 }, { url: CODEX_RESPONSES_URL, expectedUrl: CODEX_RESPONSES_URL,
+          contentEncoding: header })).toMatchObject({ contentEncodingCategory: category,
+        bodyShapeCategory: "sse-like", redirected: false, expectedUrlMatch: true });
+    }
   });
 
   it("classifies bounded non-SSE bodies and re-sanitizes hostile builder input", () => {
@@ -530,7 +607,7 @@ describe("mocked contract runner scaffold", () => {
       "x-client-request-id",
     ].sort());
     expect(canaryHeaders).toMatchObject({
-      Accept: "text/event-stream",
+      Accept: "application/json",
       "Content-Type": "application/json",
       "User-Agent": "SuperTwinV13/13.12.2",
       originator: "supertwinv13",
@@ -550,8 +627,8 @@ describe("mocked contract runner scaffold", () => {
       { SUPERTWIN_APP_VERSION: "13.12.2" },
     );
     expect(plan).toEqual({
-      matrixVersion: "phase0b-contract-matrix-v2",
-      matrixHash: "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09",
+      matrixVersion: "phase0b-contract-matrix-v3",
+      matrixHash: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
       caseCount: 70,
       inferencePostCount: 45,
       inferenceRetries: 0,

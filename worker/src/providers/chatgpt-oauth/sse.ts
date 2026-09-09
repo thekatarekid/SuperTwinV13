@@ -298,7 +298,8 @@ export async function consumeChatGptSse(
 
   const contentType = response.headers.get("content-type")
     ?.split(";", 1)[0]?.trim().toLowerCase();
-  if (contentType !== "text/event-stream") {
+  const inferredAbsentContentType = contentType === undefined;
+  if (contentType !== undefined && contentType !== "text/event-stream") {
     fail(new ChatGptSseError(
       "BACKEND_UNSUPPORTED",
       "ChatGPT response was not an event stream",
@@ -801,7 +802,12 @@ export async function consumeChatGptSse(
     ));
   } catch (error) {
     await reader.cancel().catch(() => undefined);
-    if (error instanceof ChatGptSseError) return fail(error);
+    if (error instanceof ChatGptSseError) {
+      if (inferredAbsentContentType && error.code !== "CANCELLED") {
+        return fail(new ChatGptSseError("BACKEND_UNSUPPORTED", "ChatGPT response was not a valid event stream"));
+      }
+      return fail(error);
+    }
     return fail(new ChatGptSseError("TRANSPORT_ERROR", "ChatGPT stream processing failed"));
   } finally {
     options.signal?.removeEventListener("abort", abortReader);

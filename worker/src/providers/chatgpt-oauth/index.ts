@@ -20,9 +20,9 @@ import type { ChatGptTokenSession } from "./keychain.js";
 import { buildChatGptRequest } from "./request.js";
 import { consumeChatGptSse, ChatGptSseError } from "./sse.js";
 import { enforceGoldenPhysicalSend, recordGoldenProviderCost } from "../../evals/provider-golden-rail.js";
+import { buildChatGptInferenceWire, CHATGPT_RESPONSES_URL } from "./inference-wire.js";
 
-export const CHATGPT_BACKEND_BASE_URL = "https://chatgpt.com/backend-api/codex";
-export const CHATGPT_RESPONSES_URL = `${CHATGPT_BACKEND_BASE_URL}/responses`;
+export { CHATGPT_BACKEND_BASE_URL, CHATGPT_RESPONSES_URL } from "./inference-wire.js";
 export const CHATGPT_CANARY_RECHECK_MS = 6 * 60 * 60 * 1_000;
 export const CHATGPT_DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1_000;
 export const CHATGPT_MAX_REQUEST_TIMEOUT_MS = 30 * 60 * 1_000;
@@ -49,6 +49,18 @@ export interface ChatGptProviderSession {
   credentialRevision(): string;
   authorization(signal: AbortSignal): Promise<ChatGptAuthorizationSnapshot>;
   refreshAuthorization(signal: AbortSignal): Promise<ChatGptAuthorizationSnapshot>;
+}
+
+/** Exact zero-user-data request used by the production compatibility canary. */
+export function buildProductionCanaryRequest(model: ProviderModel, runId: string,
+  onEvent: ProviderRequest["onEvent"]): ProviderRequest {
+  return {
+    runId, model: model.id, instructions: "",
+    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Reply with OK." }] }],
+    plainCompletion: true,
+    maxOutputTokens: model.maxOutputTokens === null ? 16 : Math.min(16, model.maxOutputTokens),
+    maxAgentTurns: 1, persistContinuation: false, onEvent,
+  };
 }
 
 function authorizationRevision(value: ChatGptAuthorizationSnapshot): string {
@@ -486,23 +498,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
   private async performCanary(model: ProviderModel): Promise<CanaryOutcome> {
     let output = "";
     const runId = `canary-${this.identifier()}`;
-    const request: ProviderRequest = {
-      runId,
-      model: model.id,
-      instructions: "",
-      input: [{
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "Reply with OK." }],
-      }],
-      plainCompletion: true,
-      maxOutputTokens: model.maxOutputTokens === null ? 16 : Math.min(16, model.maxOutputTokens),
-      maxAgentTurns: 1,
-      persistContinuation: false,
-      onEvent: (event) => {
+    const request = buildProductionCanaryRequest(model, runId, (event) => {
         if (event.type === "delta") output += event.text;
-      },
-    };
+      });
     const result = await this.sendManaged(
       request,
       model,
@@ -620,22 +618,10 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
         try {
           enforceGoldenPhysicalSend({ provider: "chatgpt-oauth", model: model.id,
             accountId: authorization.accountId, reason: attempt === 2 ? "http_401_retry" : "initial" });
-          response = await this.dependencies.fetch(CHATGPT_RESPONSES_URL, {
-            method: "POST",
-            redirect: "error",
-            signal,
-            headers: {
-              Authorization: `Bearer ${authorization.accessToken}`,
-              "ChatGPT-Account-ID": authorization.accountId,
-              "User-Agent": this.userAgent,
-              originator: "supertwinv13",
-              Accept: "text/event-stream",
-              "Content-Type": "application/json",
-              session_id: sessionId,
-              "x-client-request-id": requestId,
-            },
-            body: JSON.stringify(body),
-          });
+          response = await this.dependencies.fetch(CHATGPT_RESPONSES_URL, buildChatGptInferenceWire({
+            accessToken: authorization.accessToken, accountId: authorization.accountId, userAgent: this.userAgent,
+            sessionId, requestId, bodyText: JSON.stringify(body), signal,
+          }));
         } catch {
           return this.physicalFailure(0, signal.aborted ? abortedCode(signal) : "TRANSPORT_ERROR", onEvent);
         }
@@ -656,6 +642,11 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
             authorization,
             retryAfter,
           );
+        }
+        if (!response.headers.get("content-type") &&
+            (response.redirected || response.url !== CHATGPT_RESPONSES_URL)) {
+          await response.body?.cancel().catch(() => undefined);
+          return this.physicalFailure(response.status, "BACKEND_UNSUPPORTED", onEvent);
         }
         try {
           const parsed = await consumeChatGptSse(response, {

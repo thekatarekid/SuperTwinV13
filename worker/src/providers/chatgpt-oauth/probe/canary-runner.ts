@@ -179,11 +179,17 @@ export async function runCanaryProbe(hooks: CanaryProbeHooks): Promise<CanaryPro
           ...finalQuota,
         },
         refresh,
-        canary: buildContractCaseMismatchDiagnostic({
+        canary: { ...buildContractCaseMismatchDiagnostic({
           status: caseEvidence.status as number,
           ok: typeof caseEvidence.status === "number" && caseEvidence.status >= 200 && caseEvidence.status < 300,
           body: eventStream ? ({} as ReadableStream<Uint8Array>) : null,
-        }, eventStream ? "text/event-stream" : null, caseEvidence.stream),
+        }, caseEvidence.responseContentTypeCategory === "event-stream" ? "text/event-stream"
+          : caseEvidence.responseContentTypeCategory === "json" ? "application/json"
+            : caseEvidence.responseContentTypeCategory === "other" ? "application/octet-stream" : null,
+        caseEvidence.stream), redirected: caseEvidence.responseRedirected ?? false,
+        expectedUrlMatch: caseEvidence.responseExpectedUrlMatch ?? false,
+        contentEncodingCategory: caseEvidence.responseContentEncodingCategory ?? "absent",
+        bodyShapeCategory: caseEvidence.responseBodyShapeCategory ?? "other" },
         httpActuals: actuals,
         logout,
         localListeningSocketsCreated: false,

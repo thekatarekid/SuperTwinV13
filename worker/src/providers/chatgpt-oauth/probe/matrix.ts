@@ -342,7 +342,7 @@ export function buildContractProbeMatrix(
       expectation: "completed",
       concurrency: 1,
       stage: "canary",
-      body: baseline(model, CACHE_PROBE_PROMPT),
+      body: baseline(model, "Reply with OK."),
     },
     {
       sequence: 0,

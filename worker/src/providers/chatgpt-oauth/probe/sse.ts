@@ -36,6 +36,7 @@ export interface SseProbeEvidence {
   outputJsonValid: boolean;
   outputJsonObject: boolean;
   outputMatchesExactOkBooleanSchema: boolean;
+  outputMatchesExactTrimmedOk: boolean;
   functionCalls: SseFunctionCallEvidence[];
   invalidFunctionNameCount: number;
   usagePresent: boolean;
@@ -298,6 +299,7 @@ export async function consumeBoundedSse(
       restrictionSignal,
       outputTextBytes: Buffer.byteLength(outputText, "utf8"),
       substantiveOutput: substantiveOutput || outputText.length > 0 || functions.length > 0,
+      outputMatchesExactTrimmedOk: outputText.trim() === "OK",
       ...jsonFlags(outputText),
       functionCalls: functions,
       invalidFunctionNameCount,

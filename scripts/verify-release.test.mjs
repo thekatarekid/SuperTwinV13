@@ -129,7 +129,7 @@ describe("self-contained bundle contract", () => {
     expect(REQUIRED_EXECUTABLE_FILES).toContain("Contents/MacOS/node");
     expect(REQUIRED_EXECUTABLE_FILES).toContain("Contents/Resources/worker/bin/screenwatch");
     expect(REQUIRED_EXECUTABLE_FILES).not.toContain("Contents/Resources/worker/bin/supertwin-keychain");
-    expect(REQUIRED_EXECUTABLE_FILES).toContain("Contents/Resources/worker/bin/supertwin-keychain-acl");
+    expect(REQUIRED_EXECUTABLE_FILES).not.toContain("Contents/Resources/worker/bin/supertwin-keychain-acl");
   });
 
   it("requires every declared DMG architecture across all native executables", () => {

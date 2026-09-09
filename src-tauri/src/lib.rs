@@ -38,12 +38,19 @@ mod accessibility;
 // P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
 mod hotkey;
 mod keychain_broker;
+mod native_keychain_verification;
 mod signed_golden;
 // P2.1 — hand a URL to the OS (the Accessibility System Settings deep link).
 // The JS `shell.open()` scope rejects `x-apple.systempreferences:`; see opener.rs.
 mod opener;
 // P2.3 — menu bar tray (◉◔●⏸), 360px glass panel, transient nudge window.
 mod tray;
+
+/// Dispatch the startup-only native Keychain verification ceremony before the
+/// Tauri Builder creates a WebView or starts the worker/server.
+pub fn maybe_run_native_keychain_verification(args: &[String]) -> Option<i32> {
+    native_keychain_verification::maybe_run(args)
+}
 
 /// Roll the worker log over to `worker.log.old` if it already exceeds ~5 MB, so
 /// it never grows unbounded across many app launches. Best-effort: any IO error

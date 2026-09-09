@@ -1,4 +1,7 @@
-use base64::{engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
@@ -93,14 +96,7 @@ struct WireResponse {
 }
 
 pub trait CredentialBackend: Send + Sync + 'static {
-    fn execute(
-        &self,
-        operation: &str,
-        account: &str,
-        label: Option<&str>,
-        persistent_ref: Option<&str>,
-        input: Option<&[u8]>,
-    ) -> Result<(i32, Vec<u8>), ()>;
+    fn execute(&self, operation: &str, account: &str, label: Option<&str>, persistent_ref: Option<&str>, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()>;
 }
 
 #[derive(Debug, Clone)]
@@ -109,7 +105,19 @@ pub struct GoldenBrokerOptions {
     pub receipt_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Non-secret, item-targeted ACL evidence returned only to the Rust owner.
+/// This is deliberately not a worker wire operation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GoldenAclSnapshot {
+    pub found: bool,
+    pub allow_all_applications: bool,
+    pub trusted_application_count: u64,
+    pub authorization_count: u64,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct GoldenReceipt {
     schema: u8,
@@ -151,14 +159,7 @@ extern "C" {
 }
 
 impl CredentialBackend for NativeCredentialBackend {
-    fn execute(
-        &self,
-        operation: &str,
-        account: &str,
-        label: Option<&str>,
-        persistent_ref: Option<&str>,
-        input: Option<&[u8]>,
-    ) -> Result<(i32, Vec<u8>), ()> {
+    fn execute(&self, operation: &str, account: &str, label: Option<&str>, persistent_ref: Option<&str>, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()> {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (operation, account, label, persistent_ref, input);
@@ -177,21 +178,31 @@ impl CredentialBackend for NativeCredentialBackend {
             // allocates output with calloc and transfers ownership to us.
             let code = unsafe {
                 supertwin_keychain_execute(
-                    operation.as_ptr(), account.as_ptr(),
+                    operation.as_ptr(),
+                    account.as_ptr(),
                     label.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
                     persistent_ref.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
-                    bytes.as_ptr(), bytes.len(), &mut output, &mut output_len,
+                    bytes.as_ptr(),
+                    bytes.len(),
+                    &mut output,
+                    &mut output_len,
                 )
             };
             if output_len > MAX_OUTPUT_BYTES || (output_len > 0 && output.is_null()) {
-                if !output.is_null() { unsafe { supertwin_keychain_free(output.cast()) }; }
+                if !output.is_null() {
+                    unsafe { supertwin_keychain_free(output.cast()) };
+                }
                 return Err(());
             }
-            let copied = if output_len == 0 { Vec::new() } else {
+            let copied = if output_len == 0 {
+                Vec::new()
+            } else {
                 // SAFETY: bridge returned output_len initialized bytes.
                 unsafe { std::slice::from_raw_parts(output, output_len).to_vec() }
             };
-            if !output.is_null() { unsafe { supertwin_keychain_free(output.cast()) }; }
+            if !output.is_null() {
+                unsafe { supertwin_keychain_free(output.cast()) };
+            }
             Ok((code, copied))
         }
     }
@@ -205,18 +216,23 @@ pub struct BrokerSession<B: CredentialBackend> {
     backend: B,
     scope: BrokerScope,
     _account_lease: Option<File>,
+    cleanup_on_drop: bool,
 }
 
 impl<B: CredentialBackend> Drop for BrokerSession<B> {
     fn drop(&mut self) {
-        let _ = self.cleanup_golden();
+        if self.cleanup_on_drop {
+            let _ = self.cleanup_golden();
+        }
         self.secret.fill(0);
         self.session.clear();
     }
 }
 
 fn fixed_equal(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() { return false; }
+    if left.len() != right.len() {
+        return false;
+    }
     left.iter().zip(right).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
 }
 
@@ -238,23 +254,30 @@ fn message_mac(secret: &[u8; 32], direction: &[u8], id: u64, body: &[u8]) -> Str
     let mut outer = Sha256::new();
     outer.update(outer_key);
     outer.update(inner_digest);
-    inner_key.fill(0); outer_key.fill(0);
+    inner_key.fill(0);
+    outer_key.fill(0);
     hex::encode(outer.finalize())
 }
 
 pub fn account_for_home(home: &Path) -> Result<String, BrokerError> {
-    if !home.is_absolute() { return Err(BrokerError::InvalidFrame); }
+    if !home.is_absolute() {
+        return Err(BrokerError::InvalidFrame);
+    }
     let mut normalized = std::path::PathBuf::from("/");
     for component in home.components() {
         match component {
             std::path::Component::RootDir | std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => { normalized.pop(); }
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
             std::path::Component::Normal(value) => normalized.push(value),
             std::path::Component::Prefix(_) => return Err(BrokerError::InvalidFrame),
         }
     }
     let text = normalized.to_str().ok_or(BrokerError::InvalidFrame)?;
-    if text.is_empty() || text.len() > 16 * 1024 { return Err(BrokerError::InvalidFrame); }
+    if text.is_empty() || text.len() > 16 * 1024 {
+        return Err(BrokerError::InvalidFrame);
+    }
     let digest = Sha256::digest(text.as_bytes());
     Ok(format!("supertwin.chatgpt-oauth.{}", hex::encode(digest)[..16].to_string()))
 }
@@ -262,8 +285,14 @@ pub fn account_for_home(home: &Path) -> Result<String, BrokerError> {
 fn acquire_account_lease(account: &str) -> Result<File, BrokerError> {
     let suffix = account.strip_prefix("supertwin.chatgpt-oauth.").ok_or(BrokerError::InvalidFrame)?;
     let path = format!("/tmp/com.supertwinv13.keychain.{}.{}.lock", unsafe { libc::geteuid() }, suffix);
-    let file = OpenOptions::new().read(true).write(true).create(true).mode(0o600)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW).open(path).map_err(|_| BrokerError::Backend)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| BrokerError::Backend)?;
     let metadata = file.metadata().map_err(|_| BrokerError::Backend)?;
     if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
         return Err(BrokerError::Backend);
@@ -277,8 +306,9 @@ fn acquire_account_lease(account: &str) -> Result<File, BrokerError> {
 }
 
 fn safe_account(value: &str) -> bool {
-    value.strip_prefix("supertwin.chatgpt-oauth.").is_some_and(|suffix|
-        suffix.len() == 16 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    value
+        .strip_prefix("supertwin.chatgpt-oauth.")
+        .is_some_and(|suffix| suffix.len() == 16 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
 }
 
 fn safe_fingerprint(value: &str) -> bool {
@@ -286,30 +316,34 @@ fn safe_fingerprint(value: &str) -> bool {
 }
 
 fn safe_label(value: &str) -> bool {
-    value.strip_prefix("SuperTwinV13 golden ").is_some_and(|suffix|
-        suffix.len() == 32 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    value
+        .strip_prefix("SuperTwinV13 golden ")
+        .is_some_and(|suffix| suffix.len() == 32 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
 }
 
 fn safe_persistent_ref(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 8192 && value.bytes().all(|byte|
-        byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    !value.is_empty() && value.len() <= 8192 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 fn receipt_parent(path: &Path) -> Result<&Path, BrokerError> {
-    if !path.is_absolute() || path.file_name().is_none() { return Err(BrokerError::InvalidFrame); }
+    if !path.is_absolute() || path.file_name().is_none() {
+        return Err(BrokerError::InvalidFrame);
+    }
     let parent = path.parent().ok_or(BrokerError::InvalidFrame)?;
     let metadata = fs::symlink_metadata(parent).map_err(|_| BrokerError::Backend)?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() ||
-        metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
         return Err(BrokerError::Backend);
     }
     Ok(parent)
 }
 
 fn validate_receipt(receipt: &GoldenReceipt) -> Result<(), BrokerError> {
-    if receipt.schema != 1 || !safe_account(&receipt.account) || !safe_label(&receipt.label) ||
-        !safe_fingerprint(&receipt.expected_account_fingerprint) ||
-        receipt.persistent_ref.as_deref().is_some_and(|value| !safe_persistent_ref(value)) {
+    if receipt.schema != 1
+        || !safe_account(&receipt.account)
+        || !safe_label(&receipt.label)
+        || !safe_fingerprint(&receipt.expected_account_fingerprint)
+        || receipt.persistent_ref.as_deref().is_some_and(|value| !safe_persistent_ref(value))
+    {
         return Err(BrokerError::InvalidFrame);
     }
     Ok(())
@@ -323,13 +357,14 @@ fn read_receipt(path: &Path) -> Result<Option<GoldenReceipt>, BrokerError> {
         Err(_) => return Err(BrokerError::Backend),
     };
     let metadata = file.metadata().map_err(|_| BrokerError::Backend)?;
-    if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 ||
-        metadata.len() as usize > MAX_RECEIPT_BYTES {
+    if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 || metadata.len() as usize > MAX_RECEIPT_BYTES {
         return Err(BrokerError::Backend);
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.read_to_end(&mut bytes).map_err(|_| BrokerError::Backend)?;
-    if bytes.is_empty() || bytes.len() > MAX_RECEIPT_BYTES { return Err(BrokerError::InvalidFrame); }
+    if bytes.is_empty() || bytes.len() > MAX_RECEIPT_BYTES {
+        return Err(BrokerError::InvalidFrame);
+    }
     let receipt: GoldenReceipt = serde_json::from_slice(&bytes).map_err(|_| BrokerError::InvalidFrame)?;
     validate_receipt(&receipt)?;
     Ok(Some(receipt))
@@ -339,14 +374,21 @@ fn write_receipt(path: &Path, receipt: &GoldenReceipt) -> Result<(), BrokerError
     validate_receipt(receipt)?;
     let parent = receipt_parent(path)?;
     let bytes = serde_json::to_vec(receipt).map_err(|_| BrokerError::Backend)?;
-    if bytes.len() > MAX_RECEIPT_BYTES { return Err(BrokerError::Backend); }
+    if bytes.len() > MAX_RECEIPT_BYTES {
+        return Err(BrokerError::Backend);
+    }
     let name = path.file_name().and_then(|value| value.to_str()).ok_or(BrokerError::InvalidFrame)?;
     let mut nonce = [0u8; 16];
     getrandom::fill(&mut nonce).map_err(|_| BrokerError::Backend)?;
     let temporary = parent.join(format!(".{name}.{}.tmp", hex::encode(nonce)));
     let write_result = (|| {
-        let mut file = OpenOptions::new().write(true).create_new(true).mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW).open(&temporary).map_err(|_| BrokerError::Backend)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(|_| BrokerError::Backend)?;
         file.write_all(&bytes).map_err(|_| BrokerError::Backend)?;
         file.sync_all().map_err(|_| BrokerError::Backend)?;
         let metadata = file.metadata().map_err(|_| BrokerError::Backend)?;
@@ -355,29 +397,29 @@ fn write_receipt(path: &Path, receipt: &GoldenReceipt) -> Result<(), BrokerError
         }
         if path.exists() {
             let current = fs::symlink_metadata(path).map_err(|_| BrokerError::Backend)?;
-            if !current.is_file() || current.file_type().is_symlink() ||
-                current.uid() != unsafe { libc::geteuid() } || current.mode() & 0o077 != 0 {
+            if !current.is_file() || current.file_type().is_symlink() || current.uid() != unsafe { libc::geteuid() } || current.mode() & 0o077 != 0 {
                 return Err(BrokerError::Backend);
             }
         }
         fs::rename(&temporary, path).map_err(|_| BrokerError::Backend)?;
         File::open(parent).and_then(|directory| directory.sync_all()).map_err(|_| BrokerError::Backend)
     })();
-    if write_result.is_err() { let _ = fs::remove_file(&temporary); }
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
     write_result
 }
 
 fn remove_receipt(path: &Path) -> Result<(), BrokerError> {
     receipt_parent(path)?;
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() &&
-            metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o077 == 0 => {}
+        Ok(metadata)
+            if metadata.is_file() && !metadata.file_type().is_symlink() && metadata.uid() == unsafe { libc::geteuid() } && metadata.mode() & 0o077 == 0 => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         _ => return Err(BrokerError::Backend),
     }
     fs::remove_file(path).map_err(|_| BrokerError::Backend)?;
-    File::open(path.parent().ok_or(BrokerError::InvalidFrame)?)
-        .and_then(|directory| directory.sync_all()).map_err(|_| BrokerError::Backend)
+    File::open(path.parent().ok_or(BrokerError::InvalidFrame)?).and_then(|directory| directory.sync_all()).map_err(|_| BrokerError::Backend)
 }
 
 #[derive(Deserialize)]
@@ -399,10 +441,16 @@ struct DurableEnvelope {
 }
 
 fn validate_pair(pair: &DurablePair, expected_fingerprint: &str) -> Result<(), BrokerError> {
-    if pair.access_token.is_empty() || pair.access_token.len() > 64 * 1024 ||
-        pair.refresh_token.is_empty() || pair.refresh_token.len() > 64 * 1024 || pair.expires_at_ms == 0 ||
-        pair.account_id.is_empty() || pair.account_id.len() > 4 * 1024 || pair.account_id.chars().any(char::is_control) ||
-        hex::encode(Sha256::digest(pair.account_id.as_bytes()))[..12] != *expected_fingerprint {
+    if pair.access_token.is_empty()
+        || pair.access_token.len() > 64 * 1024
+        || pair.refresh_token.is_empty()
+        || pair.refresh_token.len() > 64 * 1024
+        || pair.expires_at_ms == 0
+        || pair.account_id.is_empty()
+        || pair.account_id.len() > 4 * 1024
+        || pair.account_id.chars().any(char::is_control)
+        || hex::encode(Sha256::digest(pair.account_id.as_bytes()))[..12] != *expected_fingerprint
+    {
         return Err(BrokerError::InvalidFrame);
     }
     Ok(())
@@ -410,9 +458,13 @@ fn validate_pair(pair: &DurablePair, expected_fingerprint: &str) -> Result<(), B
 
 fn account_id_from_envelope(bytes: &[u8], expected_fingerprint: &str) -> Result<String, BrokerError> {
     let envelope: DurableEnvelope = serde_json::from_slice(bytes).map_err(|_| BrokerError::InvalidFrame)?;
-    if envelope.version != 1 { return Err(BrokerError::InvalidFrame); }
+    if envelope.version != 1 {
+        return Err(BrokerError::InvalidFrame);
+    }
     validate_pair(&envelope.current, expected_fingerprint)?;
-    if let Some(previous) = envelope.previous.as_ref() { validate_pair(previous, expected_fingerprint)?; }
+    if let Some(previous) = envelope.previous.as_ref() {
+        validate_pair(previous, expected_fingerprint)?;
+    }
     Ok(envelope.current.account_id)
 }
 
@@ -434,26 +486,28 @@ struct ValidatedBinding {
 
 fn parse_binding(bytes: &[u8], receipt: &GoldenReceipt) -> Result<ValidatedBinding, BrokerError> {
     let binding: OwnedBinding = serde_json::from_slice(bytes).map_err(|_| BrokerError::Backend)?;
-    if binding.service != SERVICE || binding.account != receipt.account || binding.label != receipt.label ||
-        !safe_persistent_ref(&binding.persistent_ref) {
+    if binding.service != SERVICE || binding.account != receipt.account || binding.label != receipt.label || !safe_persistent_ref(&binding.persistent_ref) {
         return Err(BrokerError::RecoveryRequired);
     }
     let value = STANDARD.decode(&binding.value_base64).map_err(|_| BrokerError::Backend)?;
     if STANDARD.encode(&value) != binding.value_base64 || value.is_empty() || value.len() > MAX_INPUT_BYTES {
         return Err(BrokerError::Backend);
     }
-    let account_id = account_id_from_envelope(&value, &receipt.expected_account_fingerprint)
-        .map_err(|_| BrokerError::RecoveryRequired)?;
+    let account_id = account_id_from_envelope(&value, &receipt.expected_account_fingerprint).map_err(|_| BrokerError::RecoveryRequired)?;
     Ok(ValidatedBinding { persistent_ref: binding.persistent_ref, value, account_id })
 }
 
-fn load_golden_binding<B: CredentialBackend>(backend: &B, receipt: &GoldenReceipt)
-    -> Result<Option<ValidatedBinding>, BrokerError> {
+fn load_golden_binding<B: CredentialBackend>(backend: &B, receipt: &GoldenReceipt) -> Result<Option<ValidatedBinding>, BrokerError> {
     let operation = if receipt.persistent_ref.is_some() { "read-ref" } else { "lookup-owned" };
-    let (code, output) = backend.execute(operation, &receipt.account, Some(&receipt.label),
-        receipt.persistent_ref.as_deref(), None).map_err(|_| BrokerError::RecoveryRequired)?;
-    if code == 44 { return Ok(None); }
-    if code != 0 { return Err(BrokerError::RecoveryRequired); }
+    let (code, output) = backend
+        .execute(operation, &receipt.account, Some(&receipt.label), receipt.persistent_ref.as_deref(), None)
+        .map_err(|_| BrokerError::RecoveryRequired)?;
+    if code == 44 {
+        return Ok(None);
+    }
+    if code != 0 {
+        return Err(BrokerError::RecoveryRequired);
+    }
     let binding = parse_binding(&output, receipt)?;
     if receipt.persistent_ref.as_deref().is_some_and(|value| value != binding.persistent_ref) {
         return Err(BrokerError::RecoveryRequired);
@@ -471,11 +525,15 @@ fn cleanup_golden_scope<B: CredentialBackend>(backend: &B, scope: &mut GoldenSco
         scope.receipt.persistent_ref = Some(binding.persistent_ref.clone());
         write_receipt(&scope.receipt_path, &scope.receipt)?;
     }
-    let (code, output) = backend.execute("delete-owned-ref", &scope.receipt.account,
-        Some(&scope.receipt.label), Some(&binding.persistent_ref), Some(binding.account_id.as_bytes()))
+    let (code, output) = backend
+        .execute("delete-owned-ref", &scope.receipt.account, Some(&scope.receipt.label), Some(&binding.persistent_ref), Some(binding.account_id.as_bytes()))
         .map_err(|_| BrokerError::RecoveryRequired)?;
-    if !output.is_empty() || (code != 0 && code != 44) { return Err(BrokerError::RecoveryRequired); }
-    if load_golden_binding(backend, &scope.receipt)?.is_some() { return Err(BrokerError::RecoveryRequired); }
+    if !output.is_empty() || (code != 0 && code != 44) {
+        return Err(BrokerError::RecoveryRequired);
+    }
+    if load_golden_binding(backend, &scope.receipt)?.is_some() {
+        return Err(BrokerError::RecoveryRequired);
+    }
     remove_receipt(&scope.receipt_path)?;
     scope.receipt.persistent_ref = None;
     Ok(())
@@ -483,7 +541,9 @@ fn cleanup_golden_scope<B: CredentialBackend>(backend: &B, scope: &mut GoldenSco
 
 fn recover_golden_with<B: CredentialBackend>(receipt_path: &Path, backend: &B) -> Result<(), BrokerError> {
     receipt_parent(receipt_path)?;
-    let Some(receipt) = read_receipt(receipt_path)? else { return Ok(()); };
+    let Some(receipt) = read_receipt(receipt_path)? else {
+        return Ok(());
+    };
     if !safe_account(&receipt.account) || !safe_fingerprint(&receipt.expected_account_fingerprint) {
         return Err(BrokerError::RecoveryRequired);
     }
@@ -493,12 +553,22 @@ fn recover_golden_with<B: CredentialBackend>(receipt_path: &Path, backend: &B) -
 
 impl<B: CredentialBackend> BrokerSession<B> {
     pub fn new(account: String, backend: B) -> Result<Self, BrokerError> {
-        if !safe_account(&account) { return Err(BrokerError::InvalidFrame); }
+        if !safe_account(&account) {
+            return Err(BrokerError::InvalidFrame);
+        }
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret).map_err(|_| BrokerError::Backend)?;
         let lease = acquire_account_lease(&account)?;
-        Ok(Self { session: hex::encode(secret), secret, account, next_id: 1, backend, scope: BrokerScope::Normal,
-            _account_lease: Some(lease) })
+        Ok(Self {
+            session: hex::encode(secret),
+            secret,
+            account,
+            next_id: 1,
+            backend,
+            scope: BrokerScope::Normal,
+            _account_lease: Some(lease),
+            cleanup_on_drop: true,
+        })
     }
 
     pub fn new_golden(account: String, backend: B, options: GoldenBrokerOptions) -> Result<Self, BrokerError> {
@@ -508,46 +578,103 @@ impl<B: CredentialBackend> BrokerSession<B> {
         receipt_parent(&options.receipt_path)?;
         let lease = acquire_account_lease(&account)?;
         if let Some(receipt) = read_receipt(&options.receipt_path)? {
-            if receipt.account != account { return Err(BrokerError::RecoveryRequired); }
+            if receipt.account != account {
+                return Err(BrokerError::RecoveryRequired);
+            }
             let mut stale = GoldenScope { receipt, receipt_path: options.receipt_path.clone() };
             cleanup_golden_scope(&backend, &mut stale)?;
         }
         let mut ownership = [0u8; 16];
         getrandom::fill(&mut ownership).map_err(|_| BrokerError::Backend)?;
         let scope = GoldenScope {
-            receipt: GoldenReceipt { schema: 1, account: account.clone(),
+            receipt: GoldenReceipt {
+                schema: 1,
+                account: account.clone(),
                 label: format!("SuperTwinV13 golden {}", hex::encode(ownership)),
-                expected_account_fingerprint: options.expected_account_fingerprint, persistent_ref: None },
+                expected_account_fingerprint: options.expected_account_fingerprint,
+                persistent_ref: None,
+            },
             receipt_path: options.receipt_path,
         };
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret).map_err(|_| BrokerError::Backend)?;
-        Ok(Self { session: hex::encode(secret), secret, account, next_id: 1, backend,
-            scope: BrokerScope::Golden(scope), _account_lease: Some(lease) })
+        Ok(Self {
+            session: hex::encode(secret),
+            secret,
+            account,
+            next_id: 1,
+            backend,
+            scope: BrokerScope::Golden(scope),
+            _account_lease: Some(lease),
+            cleanup_on_drop: true,
+        })
+    }
+
+    fn resume_golden_inner(receipt_path: PathBuf, backend: B, secret: [u8; 32], lease: Option<File>) -> Result<Self, BrokerError> {
+        receipt_parent(&receipt_path)?;
+        let receipt = read_receipt(&receipt_path)?.ok_or(BrokerError::RecoveryRequired)?;
+        if receipt.persistent_ref.is_none() {
+            return Err(BrokerError::RecoveryRequired);
+        }
+        let account = receipt.account.clone();
+        load_golden_binding(&backend, &receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+        Ok(Self {
+            session: hex::encode(secret),
+            secret,
+            account,
+            next_id: 1,
+            backend,
+            scope: BrokerScope::Golden(GoldenScope { receipt, receipt_path }),
+            _account_lease: lease,
+            cleanup_on_drop: true,
+        })
+    }
+
+    pub fn resume_golden(receipt_path: PathBuf, backend: B) -> Result<Self, BrokerError> {
+        receipt_parent(&receipt_path)?;
+        let receipt = read_receipt(&receipt_path)?.ok_or(BrokerError::RecoveryRequired)?;
+        let lease = acquire_account_lease(&receipt.account)?;
+        let mut secret = [0u8; 32];
+        getrandom::fill(&mut secret).map_err(|_| BrokerError::Backend)?;
+        Self::resume_golden_inner(receipt_path, backend, secret, Some(lease))
     }
 
     #[cfg(test)]
     fn with_secret(account: String, backend: B, secret: [u8; 32]) -> Self {
-        Self { session: hex::encode(secret), secret, account, next_id: 1, backend,
-            scope: BrokerScope::Normal, _account_lease: None }
+        Self { session: hex::encode(secret), secret, account, next_id: 1, backend, scope: BrokerScope::Normal, _account_lease: None, cleanup_on_drop: true }
     }
 
     #[cfg(test)]
-    fn with_secret_golden(account: String, backend: B, secret: [u8; 32], options: GoldenBrokerOptions)
-        -> Result<Self, BrokerError> {
+    fn with_secret_golden(account: String, backend: B, secret: [u8; 32], options: GoldenBrokerOptions) -> Result<Self, BrokerError> {
         if !safe_account(&account) || !safe_fingerprint(&options.expected_account_fingerprint) {
             return Err(BrokerError::InvalidFrame);
         }
         if let Some(receipt) = read_receipt(&options.receipt_path)? {
-            if receipt.account != account { return Err(BrokerError::RecoveryRequired); }
+            if receipt.account != account {
+                return Err(BrokerError::RecoveryRequired);
+            }
             let mut stale = GoldenScope { receipt, receipt_path: options.receipt_path.clone() };
             cleanup_golden_scope(&backend, &mut stale)?;
         }
         let label = "SuperTwinV13 golden 11111111111111111111111111111111".to_string();
-        Ok(Self { session: hex::encode(secret), secret, account: account.clone(), next_id: 1, backend,
-            scope: BrokerScope::Golden(GoldenScope { receipt: GoldenReceipt { schema: 1, account, label,
-                expected_account_fingerprint: options.expected_account_fingerprint, persistent_ref: None },
-                receipt_path: options.receipt_path }), _account_lease: None })
+        Ok(Self {
+            session: hex::encode(secret),
+            secret,
+            account: account.clone(),
+            next_id: 1,
+            backend,
+            scope: BrokerScope::Golden(GoldenScope {
+                receipt: GoldenReceipt { schema: 1, account, label, expected_account_fingerprint: options.expected_account_fingerprint, persistent_ref: None },
+                receipt_path: options.receipt_path,
+            }),
+            _account_lease: None,
+            cleanup_on_drop: true,
+        })
+    }
+
+    #[cfg(test)]
+    fn resume_golden_with_secret(receipt_path: PathBuf, backend: B, secret: [u8; 32]) -> Result<Self, BrokerError> {
+        Self::resume_golden_inner(receipt_path, backend, secret, None)
     }
 
     pub fn hello(&self) -> String {
@@ -555,54 +682,147 @@ impl<B: CredentialBackend> BrokerSession<B> {
     }
 
     pub fn cleanup_golden(&mut self) -> Result<(), BrokerError> {
-        let BrokerScope::Golden(scope) = &mut self.scope else { return Ok(()); };
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Ok(());
+        };
         cleanup_golden_scope(&self.backend, scope)
     }
 
-    fn execute_golden(&mut self, operation: &BrokerOperation, input: Option<&[u8]>)
-        -> Result<(i32, Vec<u8>), BrokerError> {
-        let BrokerScope::Golden(scope) = &mut self.scope else { return Err(BrokerError::InvalidFrame); };
+    fn local_golden_upsert(&mut self, value: &[u8]) -> Result<String, BrokerError> {
+        if value.is_empty() || value.len() > MAX_INPUT_BYTES {
+            return Err(BrokerError::InvalidFrame);
+        }
+        let (code, output) = self.execute_golden(&BrokerOperation::Upsert, Some(value))?;
+        let digest = String::from_utf8(output).map_err(|_| BrokerError::Backend)?;
+        if code != 0 || digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()) {
+            return Err(BrokerError::Backend);
+        }
+        Ok(digest)
+    }
+
+    fn local_golden_read_digest(&mut self) -> Result<String, BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
+        let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+        Ok(hex::encode(Sha256::digest(&binding.value)))
+    }
+
+    fn local_golden_binding(&mut self) -> Result<String, BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
+        let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+        Ok(hex::encode(Sha256::digest(binding.persistent_ref.as_bytes())))
+    }
+
+    fn local_golden_exists(&mut self) -> Result<bool, BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
+        Ok(load_golden_binding(&self.backend, &scope.receipt)?.is_some())
+    }
+
+    fn local_golden_acl_snapshot(&mut self) -> Result<GoldenAclSnapshot, BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
+        let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+        let (code, output) = self
+            .backend
+            .execute("acl-owned-ref", &scope.receipt.account, Some(&scope.receipt.label), Some(&binding.persistent_ref), None)
+            .map_err(|_| BrokerError::RecoveryRequired)?;
+        if code != 0 || output.is_empty() || output.len() > MAX_OUTPUT_BYTES {
+            return Err(BrokerError::RecoveryRequired);
+        }
+        let snapshot: GoldenAclSnapshot = serde_json::from_slice(&output).map_err(|_| BrokerError::RecoveryRequired)?;
+        if !snapshot.found
+            || snapshot.trusted_application_count > 4096
+            || snapshot.authorization_count > 4096
+            || snapshot.fingerprint.len() != 64
+            || !snapshot.fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(BrokerError::RecoveryRequired);
+        }
+        Ok(snapshot)
+    }
+
+    fn local_golden_delete(&mut self) -> Result<(), BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
+        cleanup_golden_scope(&self.backend, scope)
+    }
+
+    fn handoff_golden(&mut self) -> Result<(), BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
+        let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+        if scope.receipt.persistent_ref.as_deref() != Some(binding.persistent_ref.as_str()) {
+            return Err(BrokerError::RecoveryRequired);
+        }
+        write_receipt(&scope.receipt_path, &scope.receipt)?;
+        if read_receipt(&scope.receipt_path)?.as_ref() != Some(&scope.receipt) {
+            return Err(BrokerError::RecoveryRequired);
+        }
+        self.cleanup_on_drop = false;
+        Ok(())
+    }
+
+    fn execute_golden(&mut self, operation: &BrokerOperation, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), BrokerError> {
+        let BrokerScope::Golden(scope) = &mut self.scope else {
+            return Err(BrokerError::InvalidFrame);
+        };
         match operation {
             BrokerOperation::Exists => {
                 let exists = load_golden_binding(&self.backend, &scope.receipt)?.is_some();
                 Ok((if exists { 0 } else { 44 }, Vec::new()))
             }
             BrokerOperation::Read => {
-                let binding = load_golden_binding(&self.backend, &scope.receipt)?
-                    .ok_or(BrokerError::RecoveryRequired)?;
+                let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
                 Ok((0, binding.value))
             }
             BrokerOperation::Upsert => {
                 let value = input.ok_or(BrokerError::InvalidFrame)?;
                 account_id_from_envelope(value, &scope.receipt.expected_account_fingerprint)?;
                 if let Some(persistent_ref) = scope.receipt.persistent_ref.clone() {
-                    let (code, output) = self.backend.execute("update-owned-ref", &scope.receipt.account,
-                        Some(&scope.receipt.label), Some(&persistent_ref), Some(value))
+                    let (code, output) = self
+                        .backend
+                        .execute("update-owned-ref", &scope.receipt.account, Some(&scope.receipt.label), Some(&persistent_ref), Some(value))
                         .map_err(|_| BrokerError::RecoveryRequired)?;
-                    if code != 0 || !output.is_empty() { return Err(BrokerError::RecoveryRequired); }
-                    let binding = load_golden_binding(&self.backend, &scope.receipt)?
-                        .ok_or(BrokerError::RecoveryRequired)?;
-                    if binding.value != value { return Err(BrokerError::RecoveryRequired); }
+                    if code != 0 || !output.is_empty() {
+                        return Err(BrokerError::RecoveryRequired);
+                    }
+                    let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+                    if binding.value != value {
+                        return Err(BrokerError::RecoveryRequired);
+                    }
                 } else {
                     // The armed receipt closes the SecItemAdd-success/process-crash
                     // window: recovery can locate the unique Rust-generated label
                     // even before the persistent reference has been journalled.
                     write_receipt(&scope.receipt_path, &scope.receipt)?;
-                    let (code, output) = self.backend.execute("create", &scope.receipt.account,
-                        Some(&scope.receipt.label), None, Some(value))
+                    let (code, output) = self
+                        .backend
+                        .execute("create", &scope.receipt.account, Some(&scope.receipt.label), None, Some(value))
                         .map_err(|_| BrokerError::RecoveryRequired)?;
-                    if code != 0 { return Err(BrokerError::RecoveryRequired); }
+                    if code != 0 {
+                        return Err(BrokerError::RecoveryRequired);
+                    }
                     let persistent_ref = String::from_utf8(output).map_err(|_| BrokerError::RecoveryRequired)?;
-                    if !safe_persistent_ref(&persistent_ref) { return Err(BrokerError::RecoveryRequired); }
+                    if !safe_persistent_ref(&persistent_ref) {
+                        return Err(BrokerError::RecoveryRequired);
+                    }
                     scope.receipt.persistent_ref = Some(persistent_ref);
                     write_receipt(&scope.receipt_path, &scope.receipt)?;
-                    let binding = load_golden_binding(&self.backend, &scope.receipt)?
-                        .ok_or(BrokerError::RecoveryRequired)?;
-                    if binding.value != value { return Err(BrokerError::RecoveryRequired); }
+                    let binding = load_golden_binding(&self.backend, &scope.receipt)?.ok_or(BrokerError::RecoveryRequired)?;
+                    if binding.value != value {
+                        return Err(BrokerError::RecoveryRequired);
+                    }
                 }
-                let digest = scope.receipt.persistent_ref.as_ref()
-                    .map(|value| hex::encode(Sha256::digest(value.as_bytes())))
-                    .ok_or(BrokerError::RecoveryRequired)?;
+                let digest =
+                    scope.receipt.persistent_ref.as_ref().map(|value| hex::encode(Sha256::digest(value.as_bytes()))).ok_or(BrokerError::RecoveryRequired)?;
                 Ok((0, digest.into_bytes()))
             }
             BrokerOperation::Delete => {
@@ -618,26 +838,32 @@ impl<B: CredentialBackend> BrokerSession<B> {
 
     pub fn handle_line(&mut self, line: &str) -> Result<String, BrokerError> {
         let encoded = line.strip_prefix(REQUEST_PREFIX).ok_or(BrokerError::InvalidFrame)?;
-        if encoded.is_empty() || encoded.len() > MAX_FRAME_BYTES || !encoded.bytes().all(|byte|
-            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
+        if encoded.is_empty() || encoded.len() > MAX_FRAME_BYTES || !encoded.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_') {
             return Err(BrokerError::InvalidFrame);
         }
         let wire_bytes = URL_SAFE_NO_PAD.decode(encoded).map_err(|_| BrokerError::InvalidFrame)?;
-        if URL_SAFE_NO_PAD.encode(&wire_bytes) != encoded { return Err(BrokerError::InvalidFrame); }
-        if wire_bytes.len() > MAX_FRAME_BYTES { return Err(BrokerError::InvalidFrame); }
+        if URL_SAFE_NO_PAD.encode(&wire_bytes) != encoded {
+            return Err(BrokerError::InvalidFrame);
+        }
+        if wire_bytes.len() > MAX_FRAME_BYTES {
+            return Err(BrokerError::InvalidFrame);
+        }
         let wire: WireEnvelope = serde_json::from_slice(&wire_bytes).map_err(|_| BrokerError::InvalidFrame)?;
-        if wire.protocol != PROTOCOL || wire.id != self.next_id ||
-            wire.mac.len() != 64 || !wire.mac.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        if wire.protocol != PROTOCOL || wire.id != self.next_id || wire.mac.len() != 64 || !wire.mac.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(BrokerError::InvalidFrame);
         }
         let body = URL_SAFE_NO_PAD.decode(&wire.body).map_err(|_| BrokerError::InvalidFrame)?;
         let expected_mac = message_mac(&self.secret, b"request", wire.id, &body);
-        if !fixed_equal(wire.mac.as_bytes(), expected_mac.as_bytes()) { return Err(BrokerError::InvalidFrame); }
+        if !fixed_equal(wire.mac.as_bytes(), expected_mac.as_bytes()) {
+            return Err(BrokerError::InvalidFrame);
+        }
         let request: BrokerRequest = serde_json::from_slice(&body).map_err(|_| BrokerError::InvalidFrame)?;
         let input = match request.operation {
             BrokerOperation::Upsert => {
                 let value = request.input.as_deref().ok_or(BrokerError::InvalidFrame)?;
-                if value.is_empty() || value.len() > MAX_INPUT_BYTES { return Err(BrokerError::InvalidFrame); }
+                if value.is_empty() || value.len() > MAX_INPUT_BYTES {
+                    return Err(BrokerError::InvalidFrame);
+                }
                 Some(value.as_bytes())
             }
             _ if request.input.is_some() => return Err(BrokerError::InvalidFrame),
@@ -650,18 +876,20 @@ impl<B: CredentialBackend> BrokerSession<B> {
             BrokerScope::Normal if matches!(request.operation, BrokerOperation::Binding) => {
                 return Err(BrokerError::InvalidFrame);
             }
-            BrokerScope::Normal => self.backend.execute(request.operation.as_str(), &self.account, None, None, input)
-                .map_err(|_| BrokerError::Backend)?,
+            BrokerScope::Normal => self.backend.execute(request.operation.as_str(), &self.account, None, None, input).map_err(|_| BrokerError::Backend)?,
             BrokerScope::Golden(_) => self.execute_golden(&request.operation, input)?,
         };
-        if ![0, 1, 44, 45, 64, 65, 66].contains(&code) || output.len() > MAX_OUTPUT_BYTES ||
-            (code != 0 && !output.is_empty()) { return Err(BrokerError::Backend); }
+        if ![0, 1, 44, 45, 64, 65, 66].contains(&code) || output.len() > MAX_OUTPUT_BYTES || (code != 0 && !output.is_empty()) {
+            return Err(BrokerError::Backend);
+        }
         let stdout = String::from_utf8(output).map_err(|_| BrokerError::Backend)?;
-        let response_body = serde_json::to_vec(&BrokerResponse { code, stdout: &stdout })
-            .map_err(|_| BrokerError::Backend)?;
-        let response = WireResponse { protocol: PROTOCOL, id: wire.id,
+        let response_body = serde_json::to_vec(&BrokerResponse { code, stdout: &stdout }).map_err(|_| BrokerError::Backend)?;
+        let response = WireResponse {
+            protocol: PROTOCOL,
+            id: wire.id,
             body: URL_SAFE_NO_PAD.encode(&response_body),
-            mac: message_mac(&self.secret, b"response", wire.id, &response_body) };
+            mac: message_mac(&self.secret, b"response", wire.id, &response_body),
+        };
         let frame = serde_json::to_vec(&response).map_err(|_| BrokerError::Backend)?;
         Ok(format!("{RESPONSE_PREFIX}{}\n", URL_SAFE_NO_PAD.encode(frame)))
     }
@@ -669,6 +897,13 @@ impl<B: CredentialBackend> BrokerSession<B> {
 
 enum ActorMessage {
     Request(String, SyncSender<Result<String, BrokerError>>),
+    LocalGoldenUpsert(Vec<u8>, SyncSender<Result<String, BrokerError>>),
+    LocalGoldenReadDigest(SyncSender<Result<String, BrokerError>>),
+    LocalGoldenBinding(SyncSender<Result<String, BrokerError>>),
+    LocalGoldenExists(SyncSender<Result<bool, BrokerError>>),
+    LocalGoldenAcl(SyncSender<Result<GoldenAclSnapshot, BrokerError>>),
+    LocalGoldenDelete(SyncSender<Result<(), BrokerError>>),
+    HandoffGolden(SyncSender<Result<(), BrokerError>>),
     Shutdown,
 }
 
@@ -688,13 +923,23 @@ impl BrokerActor {
         Self::start_session(session)
     }
 
+    /// Resume the exact receipt-bound golden item without creating, deleting,
+    /// or selecting a new account/label/ref. The constructor validates the
+    /// receipt and the credential envelope before exposing the actor.
+    pub fn resume_golden(receipt_path: &Path) -> Result<(Self, String), BrokerError> {
+        let session = BrokerSession::resume_golden(receipt_path.to_path_buf(), NativeCredentialBackend)?;
+        Self::start_session(session)
+    }
+
     /// Recover a prior crash receipt before a new random eval-home/account is
     /// selected. The receipt contains no tokens; its exact recorded account,
     /// label and persistent ref are revalidated by Security.framework before
     /// deletion and absence proof.
     pub fn recover_golden(receipt_path: &Path) -> Result<(), BrokerError> {
         receipt_parent(receipt_path)?;
-        let Some(receipt) = read_receipt(receipt_path)? else { return Ok(()); };
+        let Some(receipt) = read_receipt(receipt_path)? else {
+            return Ok(());
+        };
         if !safe_account(&receipt.account) || !safe_fingerprint(&receipt.expected_account_fingerprint) {
             return Err(BrokerError::RecoveryRequired);
         }
@@ -705,22 +950,53 @@ impl BrokerActor {
     fn start_session<B: CredentialBackend>(session: BrokerSession<B>) -> Result<(Self, String), BrokerError> {
         let hello = session.hello();
         let (sender, receiver) = mpsc::sync_channel::<ActorMessage>(8);
-        let thread = thread::Builder::new().name("supertwin-keychain-broker".into()).spawn(move || {
-            let mut session = session;
-            let mut terminal = Ok(());
-            while let Ok(message) = receiver.recv() {
-                match message {
-                    ActorMessage::Request(line, response) => {
-                        let _ = response.send(session.handle_line(&line));
-                    }
-                    ActorMessage::Shutdown => {
-                        terminal = session.cleanup_golden();
-                        break;
+        let thread = thread::Builder::new()
+            .name("supertwin-keychain-broker".into())
+            .spawn(move || {
+                let mut session = session;
+                let mut terminal = Ok(());
+                while let Ok(message) = receiver.recv() {
+                    match message {
+                        ActorMessage::Request(line, response) => {
+                            let _ = response.send(session.handle_line(&line));
+                        }
+                        ActorMessage::LocalGoldenUpsert(mut value, response) => {
+                            let result = session.local_golden_upsert(&value);
+                            value.fill(0);
+                            let _ = response.send(result);
+                        }
+                        ActorMessage::LocalGoldenReadDigest(response) => {
+                            let _ = response.send(session.local_golden_read_digest());
+                        }
+                        ActorMessage::LocalGoldenBinding(response) => {
+                            let _ = response.send(session.local_golden_binding());
+                        }
+                        ActorMessage::LocalGoldenExists(response) => {
+                            let _ = response.send(session.local_golden_exists());
+                        }
+                        ActorMessage::LocalGoldenAcl(response) => {
+                            let _ = response.send(session.local_golden_acl_snapshot());
+                        }
+                        ActorMessage::LocalGoldenDelete(response) => {
+                            let _ = response.send(session.local_golden_delete());
+                        }
+                        ActorMessage::HandoffGolden(response) => {
+                            let result = session.handoff_golden();
+                            let complete = result.is_ok();
+                            let _ = response.send(result);
+                            if complete {
+                                break;
+                            }
+                        }
+                        ActorMessage::Shutdown => {
+                            terminal = session.cleanup_golden();
+                            break;
+                        }
                     }
                 }
-            }
-            terminal
-        }).map_err(|_| BrokerError::Backend)?;
+                terminal
+            })
+            .map_err(|_| BrokerError::Backend)?;
         Ok((Self { sender, thread: Some(thread) }, hello))
     }
 
@@ -730,19 +1006,80 @@ impl BrokerActor {
         Ok(receiver)
     }
 
+    /// Rust-only verification seam. None of these methods is representable on
+    /// the authenticated worker protocol, and no method returns credential bytes
+    /// or a raw persistent reference.
+    pub fn local_golden_upsert(&self, value: Vec<u8>) -> Result<String, BrokerError> {
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::LocalGoldenUpsert(value, response)).map_err(|_| BrokerError::Backend)?;
+        receiver.recv().map_err(|_| BrokerError::Backend)?
+    }
+
+    pub fn local_golden_read_digest(&self) -> Result<String, BrokerError> {
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::LocalGoldenReadDigest(response)).map_err(|_| BrokerError::Backend)?;
+        receiver.recv().map_err(|_| BrokerError::Backend)?
+    }
+
+    pub fn local_golden_binding(&self) -> Result<String, BrokerError> {
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::LocalGoldenBinding(response)).map_err(|_| BrokerError::Backend)?;
+        receiver.recv().map_err(|_| BrokerError::Backend)?
+    }
+
+    pub fn local_golden_exists(&self) -> Result<bool, BrokerError> {
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::LocalGoldenExists(response)).map_err(|_| BrokerError::Backend)?;
+        receiver.recv().map_err(|_| BrokerError::Backend)?
+    }
+
+    pub fn local_golden_acl_snapshot(&self) -> Result<GoldenAclSnapshot, BrokerError> {
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::LocalGoldenAcl(response)).map_err(|_| BrokerError::Backend)?;
+        receiver.recv().map_err(|_| BrokerError::Backend)?
+    }
+
+    pub fn local_golden_delete(&self) -> Result<(), BrokerError> {
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::LocalGoldenDelete(response)).map_err(|_| BrokerError::Backend)?;
+        receiver.recv().map_err(|_| BrokerError::Backend)?
+    }
+
+    /// Stop this actor without deleting its golden item. The exact non-secret
+    /// receipt remains durable so a sequentially launched signed app copy can
+    /// call `resume_golden`. Successful return includes joining the actor, which
+    /// releases the per-account lease before the next process opens it.
+    pub fn handoff_golden(&mut self) -> Result<(), BrokerError> {
+        if self.thread.is_none() {
+            return Err(BrokerError::Backend);
+        }
+        let (response, receiver) = mpsc::sync_channel(1);
+        self.sender.send(ActorMessage::HandoffGolden(response)).map_err(|_| BrokerError::Backend)?;
+        let result = receiver.recv().map_err(|_| BrokerError::Backend)?;
+        if result.is_ok() {
+            let thread = self.thread.take().ok_or(BrokerError::Backend)?;
+            thread.join().map_err(|_| BrokerError::Backend)??;
+        }
+        result
+    }
+
     pub fn shutdown(&mut self) -> Result<(), BrokerError> {
         // Security.framework queries explicitly disable authentication UI, so
         // they are expected to settle without waiting for an owner prompt. Do
         // not pretend a mutation was cancelled: join the serialized actor and
         // keep the app alive until the current operation has actually settled.
         let _ = self.sender.send(ActorMessage::Shutdown);
-        if let Some(thread) = self.thread.take() { return thread.join().map_err(|_| BrokerError::Backend)?; }
+        if let Some(thread) = self.thread.take() {
+            return thread.join().map_err(|_| BrokerError::Backend)?;
+        }
         Ok(())
     }
 }
 
 impl Drop for BrokerActor {
-    fn drop(&mut self) { let _ = self.shutdown(); }
+    fn drop(&mut self) {
+        let _ = self.shutdown();
+    }
 }
 
 #[cfg(test)]
@@ -755,8 +1092,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct FakeBackend(Arc<Mutex<Vec<(String, String, Option<Vec<u8>>)>>>);
     impl CredentialBackend for FakeBackend {
-        fn execute(&self, operation: &str, account: &str, _: Option<&str>, _: Option<&str>,
-            input: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()> {
+        fn execute(&self, operation: &str, account: &str, _: Option<&str>, _: Option<&str>, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()> {
             self.0.lock().unwrap().push((operation.into(), account.into(), input.map(<[u8]>::to_vec)));
             Ok((if operation == "read" { 0 } else { 44 }, if operation == "read" { b"secret".to_vec() } else { vec![] }))
         }
@@ -778,14 +1114,14 @@ mod tests {
     fn durable(account_id: &str, token: &str) -> String {
         serde_json::json!({ "version": 1, "current": { "accessToken": token,
             "refreshToken": format!("refresh-{token}"), "expiresAtMs": 1_900_000_000_000u64,
-            "accountId": account_id } }).to_string()
+            "accountId": account_id } })
+        .to_string()
     }
 
     fn test_receipt(name: &str) -> PathBuf {
         let mut nonce = [0u8; 8];
         getrandom::fill(&mut nonce).unwrap();
-        let root = std::env::temp_dir().join(format!("supertwin-golden-broker-{name}-{}-{}",
-            std::process::id(), hex::encode(nonce)));
+        let root = std::env::temp_dir().join(format!("supertwin-golden-broker-{name}-{}-{}", std::process::id(), hex::encode(nonce)));
         fs::create_dir(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         root.join("receipt.json")
@@ -795,34 +1131,63 @@ mod tests {
     struct GoldenFakeBackend(Arc<Mutex<GoldenFakeState>>);
 
     #[derive(Clone)]
-    struct GoldenFakeItem { account: String, label: String, persistent_ref: String, value: Vec<u8> }
+    struct GoldenFakeItem {
+        account: String,
+        label: String,
+        persistent_ref: String,
+        value: Vec<u8>,
+    }
 
     #[derive(Default)]
-    struct GoldenFakeState { item: Option<GoldenFakeItem>, operations: Vec<String>, fail_after_create: bool }
+    struct GoldenFakeState {
+        item: Option<GoldenFakeItem>,
+        operations: Vec<String>,
+        fail_after_create: bool,
+    }
 
     impl GoldenFakeBackend {
-        fn new() -> Self { Self(Arc::new(Mutex::new(GoldenFakeState::default()))) }
-        fn fail_after_create(&self) { self.0.lock().unwrap().fail_after_create = true; }
+        fn new() -> Self {
+            Self(Arc::new(Mutex::new(GoldenFakeState::default())))
+        }
+        fn fail_after_create(&self) {
+            self.0.lock().unwrap().fail_after_create = true;
+        }
     }
 
     impl CredentialBackend for GoldenFakeBackend {
-        fn execute(&self, operation: &str, account: &str, label: Option<&str>, persistent_ref: Option<&str>,
-            input: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()> {
+        fn execute(
+            &self,
+            operation: &str,
+            account: &str,
+            label: Option<&str>,
+            persistent_ref: Option<&str>,
+            input: Option<&[u8]>,
+        ) -> Result<(i32, Vec<u8>), ()> {
             let mut state = self.0.lock().unwrap();
             state.operations.push(operation.into());
             match operation {
                 "create" => {
-                    if state.item.is_some() { return Ok((45, Vec::new())); }
-                    let item = GoldenFakeItem { account: account.into(), label: label.ok_or(())?.into(),
-                        persistent_ref: "cGVyc2lzdGVudC1yZWY".into(), value: input.ok_or(())?.to_vec() };
+                    if state.item.is_some() {
+                        return Ok((45, Vec::new()));
+                    }
+                    let item = GoldenFakeItem {
+                        account: account.into(),
+                        label: label.ok_or(())?.into(),
+                        persistent_ref: "cGVyc2lzdGVudC1yZWY".into(),
+                        value: input.ok_or(())?.to_vec(),
+                    };
                     state.item = Some(item.clone());
-                    if state.fail_after_create { state.fail_after_create = false; return Err(()); }
+                    if state.fail_after_create {
+                        state.fail_after_create = false;
+                        return Err(());
+                    }
                     Ok((0, item.persistent_ref.into_bytes()))
                 }
                 "lookup-owned" | "read-ref" => {
-                    let Some(item) = state.item.as_ref() else { return Ok((44, Vec::new())); };
-                    if item.account != account || Some(item.label.as_str()) != label ||
-                        persistent_ref.is_some_and(|value| value != item.persistent_ref) {
+                    let Some(item) = state.item.as_ref() else {
+                        return Ok((44, Vec::new()));
+                    };
+                    if item.account != account || Some(item.label.as_str()) != label || persistent_ref.is_some_and(|value| value != item.persistent_ref) {
                         return Ok((44, Vec::new()));
                     }
                     let frame = serde_json::json!({ "service": SERVICE, "account": item.account,
@@ -831,20 +1196,45 @@ mod tests {
                     Ok((0, serde_json::to_vec(&frame).unwrap()))
                 }
                 "update-owned-ref" => {
-                    let Some(item) = state.item.as_mut() else { return Ok((44, Vec::new())); };
-                    if item.account != account || Some(item.label.as_str()) != label ||
-                        Some(item.persistent_ref.as_str()) != persistent_ref { return Ok((44, Vec::new())); }
+                    let Some(item) = state.item.as_mut() else {
+                        return Ok((44, Vec::new()));
+                    };
+                    if item.account != account || Some(item.label.as_str()) != label || Some(item.persistent_ref.as_str()) != persistent_ref {
+                        return Ok((44, Vec::new()));
+                    }
                     item.value = input.ok_or(())?.to_vec();
                     Ok((0, Vec::new()))
                 }
                 "delete-owned-ref" => {
-                    let Some(item) = state.item.as_ref() else { return Ok((44, Vec::new())); };
-                    if item.account != account || Some(item.label.as_str()) != label ||
-                        Some(item.persistent_ref.as_str()) != persistent_ref { return Ok((44, Vec::new())); }
+                    let Some(item) = state.item.as_ref() else {
+                        return Ok((44, Vec::new()));
+                    };
+                    if item.account != account || Some(item.label.as_str()) != label || Some(item.persistent_ref.as_str()) != persistent_ref {
+                        return Ok((44, Vec::new()));
+                    }
                     let envelope: serde_json::Value = serde_json::from_slice(&item.value).map_err(|_| ())?;
-                    if envelope["current"]["accountId"].as_str().map(str::as_bytes) != input { return Ok((66, Vec::new())); }
+                    if envelope["current"]["accountId"].as_str().map(str::as_bytes) != input {
+                        return Ok((66, Vec::new()));
+                    }
                     state.item = None;
                     Ok((0, Vec::new()))
+                }
+                "acl-owned-ref" => {
+                    let Some(item) = state.item.as_ref() else {
+                        return Ok((44, Vec::new()));
+                    };
+                    if item.account != account || Some(item.label.as_str()) != label || Some(item.persistent_ref.as_str()) != persistent_ref || input.is_some()
+                    {
+                        return Ok((66, Vec::new()));
+                    }
+                    let snapshot = GoldenAclSnapshot {
+                        found: true,
+                        allow_all_applications: false,
+                        trusted_application_count: 1,
+                        authorization_count: 2,
+                        fingerprint: "a".repeat(64),
+                    };
+                    Ok((0, serde_json::to_vec(&snapshot).unwrap()))
                 }
                 _ => Err(()),
             }
@@ -869,24 +1259,23 @@ mod tests {
     fn rejects_bad_mac_unknown_fields_inputs_and_oversize_before_backend() {
         let secret = [8u8; 32];
         let backend = FakeBackend::default();
-        for body in [br#"{"operation":"read","input":"x"}"#.as_slice(),
-            br#"{"operation":"other"}"#.as_slice(), br#"{"operation":"read","extra":1}"#.as_slice()] {
+        for body in [br#"{"operation":"read","input":"x"}"#.as_slice(), br#"{"operation":"other"}"#.as_slice(), br#"{"operation":"read","extra":1}"#.as_slice()]
+        {
             let mut broker = BrokerSession::with_secret("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret);
             assert!(broker.handle_line(&request(&secret, 1, body)).is_err());
         }
         let mut broker = BrokerSession::with_secret("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret);
         let mut bad = request(&secret, 1, br#"{"operation":"read"}"#);
-        bad.pop(); bad.push('A');
+        bad.pop();
+        bad.push('A');
         assert!(broker.handle_line(&bad).is_err());
         assert!(backend.0.lock().unwrap().is_empty());
     }
 
     #[test]
     fn derives_the_same_closed_account_namespace_from_an_absolute_home() {
-        assert_eq!(account_for_home(Path::new("/tmp/example")).unwrap(),
-            "supertwin.chatgpt-oauth.f33aa9244af53b88");
-        assert_eq!(account_for_home(Path::new("/tmp/./a/../example")).unwrap(),
-            "supertwin.chatgpt-oauth.f33aa9244af53b88");
+        assert_eq!(account_for_home(Path::new("/tmp/example")).unwrap(), "supertwin.chatgpt-oauth.f33aa9244af53b88");
+        assert_eq!(account_for_home(Path::new("/tmp/./a/../example")).unwrap(), "supertwin.chatgpt-oauth.f33aa9244af53b88");
         assert!(account_for_home(Path::new("relative")).is_err());
     }
 
@@ -898,11 +1287,17 @@ mod tests {
         let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
         let receipt = test_receipt("lifecycle");
         let backend = GoldenFakeBackend::new();
-        let mut broker = BrokerSession::with_secret_golden(account, backend.clone(), secret,
-            GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() }).unwrap();
+        let mut broker = BrokerSession::with_secret_golden(
+            account,
+            backend.clone(),
+            secret,
+            GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() },
+        )
+        .unwrap();
         let first = durable(account_id, "access-secret-one");
-        let created = response_body(&broker.handle_line(&request(&secret, 1,
-            serde_json::json!({ "operation": "upsert", "input": first }).to_string().as_bytes())).unwrap());
+        let created = response_body(
+            &broker.handle_line(&request(&secret, 1, serde_json::json!({ "operation": "upsert", "input": first }).to_string().as_bytes())).unwrap(),
+        );
         let digest = created["stdout"].as_str().unwrap();
         assert_eq!(created["code"], 0);
         assert_eq!(digest.len(), 64);
@@ -920,8 +1315,7 @@ mod tests {
         assert_eq!(read["stdout"], first);
 
         let second = durable(account_id, "access-secret-two");
-        broker.handle_line(&request(&secret, 4,
-            serde_json::json!({ "operation": "upsert", "input": second }).to_string().as_bytes())).unwrap();
+        broker.handle_line(&request(&secret, 4, serde_json::json!({ "operation": "upsert", "input": second }).to_string().as_bytes())).unwrap();
         let read = response_body(&broker.handle_line(&request(&secret, 5, br#"{"operation":"read"}"#)).unwrap());
         assert_eq!(read["stdout"], second);
         broker.handle_line(&request(&secret, 6, br#"{"operation":"delete"}"#)).unwrap();
@@ -933,16 +1327,107 @@ mod tests {
     }
 
     #[test]
+    fn rust_only_golden_seam_returns_digests_acl_and_no_secret_material() {
+        let receipt = test_receipt("local-seam");
+        let backend = GoldenFakeBackend::new();
+        let account_id = "local-seam-account";
+        let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
+        let mut broker = BrokerSession::with_secret_golden(
+            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
+            backend.clone(),
+            [31u8; 32],
+            GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() },
+        )
+        .unwrap();
+        let first = durable(account_id, "local-secret-one");
+        let binding = broker.local_golden_upsert(first.as_bytes()).unwrap();
+        assert_eq!(binding.len(), 64);
+        assert_eq!(broker.local_golden_binding().unwrap(), binding);
+        assert_eq!(broker.local_golden_read_digest().unwrap(), hex::encode(Sha256::digest(first.as_bytes())));
+        assert!(broker.local_golden_exists().unwrap());
+        assert_eq!(
+            broker.local_golden_acl_snapshot().unwrap(),
+            GoldenAclSnapshot { found: true, allow_all_applications: false, trusted_application_count: 1, authorization_count: 2, fingerprint: "a".repeat(64) }
+        );
+        let second = durable(account_id, "local-secret-two");
+        assert_eq!(broker.local_golden_upsert(second.as_bytes()).unwrap(), binding);
+        assert_eq!(broker.local_golden_read_digest().unwrap(), hex::encode(Sha256::digest(second.as_bytes())));
+        let receipt_text = fs::read_to_string(&receipt).unwrap();
+        assert!(!receipt_text.contains("local-secret"));
+        assert!(!receipt_text.contains(account_id));
+        broker.local_golden_delete().unwrap();
+        assert!(!broker.local_golden_exists().unwrap());
+        assert!(!receipt.exists());
+        assert!(backend.0.lock().unwrap().operations.contains(&"acl-owned-ref".to_string()));
+        fs::remove_dir(receipt.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn golden_actor_handoff_and_resume_preserve_exact_item_until_final_cleanup() {
+        let receipt = test_receipt("handoff-resume");
+        let backend = GoldenFakeBackend::new();
+        let account_id = "handoff-account";
+        let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
+        let session = BrokerSession::with_secret_golden(
+            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
+            backend.clone(),
+            [32u8; 32],
+            GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() },
+        )
+        .unwrap();
+        let (mut parent, _) = BrokerActor::start_session(session).unwrap();
+        let value = durable(account_id, "handoff-secret");
+        let binding = parent.local_golden_upsert(value.as_bytes().to_vec()).unwrap();
+        let value_digest = hex::encode(Sha256::digest(value.as_bytes()));
+        parent.handoff_golden().unwrap();
+        assert!(receipt.exists());
+        assert!(backend.0.lock().unwrap().item.is_some());
+
+        let copied_session = BrokerSession::resume_golden_with_secret(receipt.clone(), backend.clone(), [33u8; 32]).unwrap();
+        let (mut copied, _) = BrokerActor::start_session(copied_session).unwrap();
+        assert_eq!(copied.local_golden_binding().unwrap(), binding);
+        assert_eq!(copied.local_golden_read_digest().unwrap(), value_digest);
+        assert!(!copied.local_golden_acl_snapshot().unwrap().allow_all_applications);
+        copied.handoff_golden().unwrap();
+        assert!(receipt.exists());
+        assert!(backend.0.lock().unwrap().item.is_some());
+
+        let final_session = BrokerSession::resume_golden_with_secret(receipt.clone(), backend.clone(), [34u8; 32]).unwrap();
+        let (mut final_owner, _) = BrokerActor::start_session(final_session).unwrap();
+        final_owner.shutdown().unwrap();
+        assert!(!receipt.exists());
+        assert!(backend.0.lock().unwrap().item.is_none());
+        fs::remove_dir(receipt.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn normal_scope_rejects_all_rust_only_golden_operations_without_backend_access() {
+        let backend = FakeBackend::default();
+        let mut broker = BrokerSession::with_secret("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [35u8; 32]);
+        assert!(matches!(broker.local_golden_upsert(b"value"), Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.local_golden_read_digest(), Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.local_golden_binding(), Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.local_golden_exists(), Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.local_golden_acl_snapshot(), Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.local_golden_delete(), Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.handoff_golden(), Err(BrokerError::InvalidFrame)));
+        assert!(backend.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn golden_scope_rejects_wrong_account_before_durable_create() {
         let secret = [11u8; 32];
         let receipt = test_receipt("fingerprint");
         let backend = GoldenFakeBackend::new();
         let mut broker = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret,
-            GoldenBrokerOptions { expected_account_fingerprint: "0".repeat(12), receipt_path: receipt.clone() }).unwrap();
+            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
+            backend.clone(),
+            secret,
+            GoldenBrokerOptions { expected_account_fingerprint: "0".repeat(12), receipt_path: receipt.clone() },
+        )
+        .unwrap();
         let body = serde_json::json!({ "operation": "upsert", "input": durable("wrong-account", "secret") });
-        assert!(matches!(broker.handle_line(&request(&secret, 1, body.to_string().as_bytes())),
-            Err(BrokerError::InvalidFrame)));
+        assert!(matches!(broker.handle_line(&request(&secret, 1, body.to_string().as_bytes())), Err(BrokerError::InvalidFrame)));
         assert!(!receipt.exists());
         assert!(backend.0.lock().unwrap().item.is_none());
         assert!(backend.0.lock().unwrap().operations.is_empty());
@@ -957,18 +1442,16 @@ mod tests {
         let backend = GoldenFakeBackend::new();
         let account_id = "recovery-account";
         let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
-        let options = GoldenBrokerOptions { expected_account_fingerprint: fingerprint,
-            receipt_path: receipt.clone() };
-        let mut crashed = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret, options.clone()).unwrap();
+        let options = GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() };
+        let mut crashed =
+            BrokerSession::with_secret_golden("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret, options.clone()).unwrap();
         let body = serde_json::json!({ "operation": "upsert", "input": durable(account_id, "crash-secret") });
         crashed.handle_line(&request(&secret, 1, body.to_string().as_bytes())).unwrap();
         std::mem::forget(crashed);
         assert!(receipt.exists());
         assert!(backend.0.lock().unwrap().item.is_some());
 
-        let recovered = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [13u8; 32], options).unwrap();
+        let recovered = BrokerSession::with_secret_golden("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [13u8; 32], options).unwrap();
         assert!(!receipt.exists());
         assert!(backend.0.lock().unwrap().item.is_none());
         let operations = backend.0.lock().unwrap().operations.clone();
@@ -984,8 +1467,12 @@ mod tests {
         let account_id = "old-run-account";
         let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
         let mut crashed = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [21u8; 32],
-            GoldenBrokerOptions { expected_account_fingerprint: fingerprint.clone(), receipt_path: receipt.clone() }).unwrap();
+            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
+            backend.clone(),
+            [21u8; 32],
+            GoldenBrokerOptions { expected_account_fingerprint: fingerprint.clone(), receipt_path: receipt.clone() },
+        )
+        .unwrap();
         let body = serde_json::json!({ "operation": "upsert", "input": durable(account_id, "old-secret") });
         crashed.handle_line(&request(&[21u8; 32], 1, body.to_string().as_bytes())).unwrap();
         std::mem::forget(crashed);
@@ -993,8 +1480,12 @@ mod tests {
         assert!(!receipt.exists());
         assert!(backend.0.lock().unwrap().item.is_none());
         let next = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.bbbbbbbbbbbbbbbb".into(), backend, [22u8; 32],
-            GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() }).unwrap();
+            "supertwin.chatgpt-oauth.bbbbbbbbbbbbbbbb".into(),
+            backend,
+            [22u8; 32],
+            GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() },
+        )
+        .unwrap();
         drop(next);
         fs::remove_dir(receipt.parent().unwrap()).unwrap();
     }
@@ -1007,25 +1498,21 @@ mod tests {
         backend.fail_after_create();
         let account_id = "armed-account";
         let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
-        let options = GoldenBrokerOptions { expected_account_fingerprint: fingerprint,
-            receipt_path: receipt.clone() };
-        let mut crashed = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret, options.clone()).unwrap();
+        let options = GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() };
+        let mut crashed =
+            BrokerSession::with_secret_golden("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret, options.clone()).unwrap();
         let body = serde_json::json!({ "operation": "upsert", "input": durable(account_id, "armed-secret") });
-        assert!(matches!(crashed.handle_line(&request(&secret, 1, body.to_string().as_bytes())),
-            Err(BrokerError::RecoveryRequired)));
+        assert!(matches!(crashed.handle_line(&request(&secret, 1, body.to_string().as_bytes())), Err(BrokerError::RecoveryRequired)));
         std::mem::forget(crashed);
         let armed = fs::read_to_string(&receipt).unwrap();
         assert!(!armed.contains("persistent_ref"));
         assert!(!armed.contains("armed-secret"));
 
-        let recovered = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [15u8; 32], options).unwrap();
+        let recovered = BrokerSession::with_secret_golden("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [15u8; 32], options).unwrap();
         assert!(!receipt.exists());
         assert!(backend.0.lock().unwrap().item.is_none());
         let operations = backend.0.lock().unwrap().operations.clone();
-        assert!(operations.windows(3).any(|items|
-            items == ["lookup-owned", "delete-owned-ref", "read-ref"]));
+        assert!(operations.windows(3).any(|items| items == ["lookup-owned", "delete-owned-ref", "read-ref"]));
         drop(recovered);
         fs::remove_dir(receipt.parent().unwrap()).unwrap();
     }
@@ -1039,8 +1526,12 @@ mod tests {
         let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
         {
             let mut broker = BrokerSession::with_secret_golden(
-                "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret,
-                GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() }).unwrap();
+                "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
+                backend.clone(),
+                secret,
+                GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() },
+            )
+            .unwrap();
             let body = serde_json::json!({ "operation": "upsert", "input": durable(account_id, "drop-secret") });
             broker.handle_line(&request(&secret, 1, body.to_string().as_bytes())).unwrap();
         }
@@ -1056,10 +1547,9 @@ mod tests {
         let backend = GoldenFakeBackend::new();
         let account_id = "protected-account";
         let fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
-        let options = GoldenBrokerOptions { expected_account_fingerprint: fingerprint,
-            receipt_path: receipt.clone() };
-        let mut crashed = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret, options.clone()).unwrap();
+        let options = GoldenBrokerOptions { expected_account_fingerprint: fingerprint, receipt_path: receipt.clone() };
+        let mut crashed =
+            BrokerSession::with_secret_golden("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret, options.clone()).unwrap();
         let body = serde_json::json!({ "operation": "upsert", "input": durable(account_id, "protected-secret") });
         crashed.handle_line(&request(&secret, 1, body.to_string().as_bytes())).unwrap();
         std::mem::forget(crashed);
@@ -1067,9 +1557,10 @@ mod tests {
         stale.expected_account_fingerprint = "0".repeat(12);
         write_receipt(&receipt, &stale).unwrap();
 
-        assert!(matches!(BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [19u8; 32], options),
-            Err(BrokerError::RecoveryRequired)));
+        assert!(matches!(
+            BrokerSession::with_secret_golden("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [19u8; 32], options),
+            Err(BrokerError::RecoveryRequired)
+        ));
         assert!(receipt.exists());
         assert!(backend.0.lock().unwrap().item.is_some());
         // Restore the exact receipt so the test itself exits without leaving
@@ -1077,9 +1568,12 @@ mod tests {
         stale.expected_account_fingerprint = hex::encode(Sha256::digest(account_id.as_bytes()))[..12].to_string();
         write_receipt(&receipt, &stale).unwrap();
         let recovered = BrokerSession::with_secret_golden(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), [20u8; 32],
-            GoldenBrokerOptions { expected_account_fingerprint: stale.expected_account_fingerprint.clone(),
-                receipt_path: receipt.clone() }).unwrap();
+            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
+            backend.clone(),
+            [20u8; 32],
+            GoldenBrokerOptions { expected_account_fingerprint: stale.expected_account_fingerprint.clone(), receipt_path: receipt.clone() },
+        )
+        .unwrap();
         drop(recovered);
         fs::remove_dir(receipt.parent().unwrap()).unwrap();
     }
@@ -1088,10 +1582,8 @@ mod tests {
     fn normal_scope_rejects_golden_binding_without_backend_access() {
         let secret = [16u8; 32];
         let backend = FakeBackend::default();
-        let mut broker = BrokerSession::with_secret(
-            "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret);
-        assert!(matches!(broker.handle_line(&request(&secret, 1, br#"{"operation":"binding"}"#)),
-            Err(BrokerError::InvalidFrame)));
+        let mut broker = BrokerSession::with_secret("supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(), backend.clone(), secret);
+        assert!(matches!(broker.handle_line(&request(&secret, 1, br#"{"operation":"binding"}"#)), Err(BrokerError::InvalidFrame)));
         assert!(backend.0.lock().unwrap().is_empty());
     }
 
@@ -1102,12 +1594,13 @@ mod tests {
             release: Arc<(Mutex<bool>, Condvar)>,
         }
         impl CredentialBackend for StalledBackend {
-            fn execute(&self, _: &str, _: &str, _: Option<&str>, _: Option<&str>,
-                _: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()> {
+            fn execute(&self, _: &str, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&[u8]>) -> Result<(i32, Vec<u8>), ()> {
                 let _ = self.entered.send(());
                 let (lock, wake) = &*self.release;
                 let mut released = lock.lock().unwrap();
-                while !*released { released = wake.wait(released).unwrap(); }
+                while !*released {
+                    released = wake.wait(released).unwrap();
+                }
                 Ok((0, b"settled".to_vec()))
             }
         }
@@ -1116,7 +1609,8 @@ mod tests {
         let release = Arc::new((Mutex::new(false), Condvar::new()));
         let session = BrokerSession::with_secret(
             "supertwin.chatgpt-oauth.aaaaaaaaaaaaaaaa".into(),
-            StalledBackend { entered: entered_tx, release: release.clone() }, secret,
+            StalledBackend { entered: entered_tx, release: release.clone() },
+            secret,
         );
         let (actor, _) = BrokerActor::start_session(session).unwrap();
         let response = actor.request(request(&secret, 1, br#"{"operation":"read"}"#)).unwrap();

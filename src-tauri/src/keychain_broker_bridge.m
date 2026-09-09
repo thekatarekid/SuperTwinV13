@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <Security/Security.h>
 
 static NSString *const Service = @"SuperTwinV13 ChatGPT OAuth";
@@ -68,6 +69,122 @@ static int matchFrame(NSDictionary *match, NSString *account, NSString *label,
   return json ? copyOutput(json, output, outputLength) : 65;
 }
 
+static NSString *sha256Hex(NSData *data) {
+  if (!data || data.length > UINT32_MAX) return nil;
+  unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+  CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
+  NSMutableString *hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
+  for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index++) {
+    [hex appendFormat:@"%02x", digest[index]];
+  }
+  return hex;
+}
+
+static int aclSnapshot(SecKeychainItemRef item, uint8_t **output, size_t *outputLength) {
+  if (!item) return 65;
+  SecAccessRef access = NULL;
+  if (SecKeychainItemCopyAccess(item, &access) != errSecSuccess || !access) return 1;
+  CFArrayRef aclList = NULL;
+  OSStatus status = SecAccessCopyACLList(access, &aclList);
+  CFRelease(access);
+  if (status != errSecSuccess || !aclList) return mapped(status);
+
+  BOOL allowAll = NO;
+  NSUInteger trustedCount = 0;
+  NSUInteger authorizationCount = 0;
+  NSMutableArray<NSString *> *canonical = [NSMutableArray array];
+  for (id rawAcl in (__bridge NSArray *)aclList) {
+    SecACLRef acl = (__bridge SecACLRef)rawAcl;
+    CFArrayRef applications = NULL;
+    CFStringRef description = NULL;
+    SecKeychainPromptSelector prompt = 0;
+    if (SecACLCopyContents(acl, &applications, &description, &prompt) != errSecSuccess) {
+      if (applications) CFRelease(applications);
+      if (description) CFRelease(description);
+      CFRelease(aclList);
+      return 1;
+    }
+    if (!applications) allowAll = YES;
+    CFIndex applicationCount = applications ? CFArrayGetCount(applications) : 0;
+    if (applicationCount < 0 || (NSUInteger)applicationCount > 4096 - MIN(trustedCount, (NSUInteger)4096)) {
+      if (applications) CFRelease(applications);
+      if (description) CFRelease(description);
+      CFRelease(aclList);
+      return 65;
+    }
+    trustedCount += (NSUInteger)applicationCount;
+    NSMutableArray<NSString *> *applicationFingerprints = [NSMutableArray array];
+    for (CFIndex index = 0; index < applicationCount; index++) {
+      SecTrustedApplicationRef application =
+        (SecTrustedApplicationRef)CFArrayGetValueAtIndex(applications, index);
+      CFDataRef applicationData = NULL;
+      if (!application || SecTrustedApplicationCopyData(application, &applicationData) != errSecSuccess ||
+          !applicationData) {
+        if (applicationData) CFRelease(applicationData);
+        if (applications) CFRelease(applications);
+        if (description) CFRelease(description);
+        CFRelease(aclList);
+        return 1;
+      }
+      NSString *fingerprint = sha256Hex((__bridge NSData *)applicationData);
+      CFRelease(applicationData);
+      if (!fingerprint) {
+        if (applications) CFRelease(applications);
+        if (description) CFRelease(description);
+        CFRelease(aclList);
+        return 65;
+      }
+      [applicationFingerprints addObject:fingerprint];
+    }
+    [applicationFingerprints sortUsingSelector:@selector(compare:)];
+
+    CFArrayRef authorizations = SecACLCopyAuthorizations(acl);
+    if (!authorizations) {
+      if (applications) CFRelease(applications);
+      if (description) CFRelease(description);
+      CFRelease(aclList);
+      return 1;
+    }
+    NSArray<NSString *> *authorizationStrings =
+      [(__bridge NSArray *)authorizations sortedArrayUsingSelector:@selector(compare:)];
+    if (authorizationStrings.count > 4096 - MIN(authorizationCount, (NSUInteger)4096)) {
+      CFRelease(authorizations);
+      if (applications) CFRelease(applications);
+      if (description) CFRelease(description);
+      CFRelease(aclList);
+      return 65;
+    }
+    authorizationCount += authorizationStrings.count;
+    NSDictionary *projection = @{ @"applications": applicationFingerprints,
+      @"authorizations": authorizationStrings,
+      @"description": description ? (__bridge NSString *)description : @"",
+      @"prompt": @((unsigned int)prompt) };
+    NSData *projectionData = [NSJSONSerialization dataWithJSONObject:projection
+      options:NSJSONWritingSortedKeys error:nil];
+    if (!projectionData) {
+      CFRelease(authorizations);
+      if (applications) CFRelease(applications);
+      if (description) CFRelease(description);
+      CFRelease(aclList);
+      return 65;
+    }
+    [canonical addObject:[projectionData base64EncodedStringWithOptions:0]];
+    CFRelease(authorizations);
+    if (applications) CFRelease(applications);
+    if (description) CFRelease(description);
+  }
+  CFRelease(aclList);
+  [canonical sortUsingSelector:@selector(compare:)];
+  NSData *canonicalData = [NSJSONSerialization dataWithJSONObject:canonical options:0 error:nil];
+  NSString *fingerprint = sha256Hex(canonicalData);
+  if (!fingerprint) return 65;
+  NSDictionary *snapshot = @{ @"found": @YES, @"allowAllApplications": @(allowAll),
+    @"trustedApplicationCount": @(trustedCount), @"authorizationCount": @(authorizationCount),
+    @"fingerprint": fingerprint };
+  NSData *json = [NSJSONSerialization dataWithJSONObject:snapshot options:NSJSONWritingSortedKeys error:nil];
+  return json ? copyOutput(json, output, outputLength) : 65;
+}
+
 // Called only inside the signed Tauri process. The stdio broker validates the
 // request and derives the account before crossing this ABI.
 int supertwin_keychain_execute(const char *operationBytes, const char *accountBytes,
@@ -82,7 +199,8 @@ int supertwin_keychain_execute(const char *operationBytes, const char *accountBy
     NSString *label = labelBytes ? [NSString stringWithUTF8String:labelBytes] : nil;
     NSString *persistentRefText = persistentRefBytes ? [NSString stringWithUTF8String:persistentRefBytes] : nil;
     NSSet<NSString *> *allowed = [NSSet setWithArray:@[@"exists", @"read", @"upsert", @"delete",
-      @"create", @"lookup-owned", @"read-ref", @"update-owned-ref", @"delete-owned-ref"]];
+      @"create", @"lookup-owned", @"read-ref", @"update-owned-ref", @"delete-owned-ref",
+      @"acl-owned-ref"]];
     if (![allowed containsObject:operation] ||
         !exact(account, @"supertwin\\.chatgpt-oauth\\.[a-f0-9]{16}") ||
         (label && !exact(label, @"SuperTwinV13 golden [a-f0-9]{32}"))) return 64;
@@ -132,6 +250,39 @@ int supertwin_keychain_execute(const char *operationBytes, const char *accountBy
           NSString *encoded = encodeRef(persistent);
           result = encoded ? copyOutput([encoded dataUsingEncoding:NSUTF8StringEncoding], output, outputLength) : 65;
         } else result = mapped(status);
+      }
+    } else if ([operation isEqualToString:@"acl-owned-ref"]) {
+      NSData *persistent = decodeRef(persistentRefText);
+      if (!label || !persistent || inputLength != 0) result = 64;
+      else {
+        NSDictionary *attributesQuery = @{ (__bridge id)kSecValuePersistentRef: persistent,
+          (__bridge id)kSecReturnAttributes: @YES, (__bridge id)kSecReturnPersistentRef: @YES,
+          (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne,
+          (__bridge id)kSecUseAuthenticationUI: (__bridge id)kSecUseAuthenticationUIFail };
+        CFTypeRef foundAttributes = NULL;
+        OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)attributesQuery, &foundAttributes);
+        if (status != errSecSuccess) result = mapped(status);
+        else {
+          NSDictionary *attributes = CFBridgingRelease(foundAttributes);
+          NSData *actualRef = attributes[(__bridge id)kSecValuePersistentRef];
+          NSString *actualService = attributes[(__bridge id)kSecAttrService];
+          NSString *actualAccount = attributes[(__bridge id)kSecAttrAccount];
+          NSString *actualLabel = attributes[(__bridge id)kSecAttrLabel];
+          if (![actualRef isEqualToData:persistent] || ![actualService isEqualToString:Service] ||
+              ![actualAccount isEqualToString:account] || ![actualLabel isEqualToString:label]) result = 66;
+          else {
+            NSDictionary *itemQuery = @{ (__bridge id)kSecValuePersistentRef: persistent,
+              (__bridge id)kSecReturnRef: @YES,
+              (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne,
+              (__bridge id)kSecUseAuthenticationUI: (__bridge id)kSecUseAuthenticationUIFail };
+            CFTypeRef foundItem = NULL;
+            status = SecItemCopyMatching((__bridge CFDictionaryRef)itemQuery, &foundItem);
+            if (status != errSecSuccess) result = mapped(status);
+            else if (!foundItem || CFGetTypeID(foundItem) != SecKeychainItemGetTypeID()) result = 66;
+            else result = aclSnapshot((SecKeychainItemRef)foundItem, output, outputLength);
+            if (foundItem) CFRelease(foundItem);
+          }
+        }
       }
     } else if ([operation isEqualToString:@"lookup-owned"] || [operation isEqualToString:@"read-ref"] ||
                [operation isEqualToString:@"update-owned-ref"] ||
@@ -221,6 +372,42 @@ int supertwin_signed_app_valid(const char *pathBytes, const char *teamBytes) {
     if (requirement) CFRelease(requirement);
     if (code) CFRelease(code);
     return valid == errSecSuccess ? 1 : 0;
+  }
+}
+
+int supertwin_native_verification_app_valid(const char *pathBytes) {
+  @autoreleasepool {
+    if (!pathBytes) return 0;
+    NSString *path = [NSString stringWithUTF8String:pathBytes];
+    if (!path || ![path.pathExtension isEqualToString:@"app"]) return 0;
+    SecStaticCodeRef code = NULL;
+    SecRequirementRef requirement = NULL;
+    OSStatus created = SecStaticCodeCreateWithPath((__bridge CFURLRef)[NSURL fileURLWithPath:path],
+      kSecCSDefaultFlags, &code);
+    OSStatus required = SecRequirementCreateWithString(CFSTR("identifier \"com.supertwin.v13\""),
+      kSecCSDefaultFlags, &requirement);
+    OSStatus valid = (created == errSecSuccess && required == errSecSuccess)
+      ? SecStaticCodeCheckValidity(code, kSecCSCheckAllArchitectures | kSecCSStrictValidate, requirement) : errSecParam;
+    if (requirement) CFRelease(requirement);
+    if (code) CFRelease(code);
+    return valid == errSecSuccess ? 1 : 0;
+  }
+}
+
+int supertwin_confirm_native_verification(const uint8_t *bytes, size_t length) {
+  @autoreleasepool {
+    if (!bytes || length == 0 || length > 128 * 1024) return 0;
+    NSString *declaration = [[NSString alloc] initWithBytes:bytes length:length encoding:NSUTF8StringEncoding];
+    if (!declaration) return 0;
+    [NSApplication sharedApplication];
+    [NSApp activateIgnoringOtherApps:YES];
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.alertStyle = NSAlertStyleCritical;
+    alert.messageText = @"Authorize isolated native Keychain verification?";
+    alert.informativeText = declaration;
+    [alert addButtonWithTitle:@"Authorize exact dummy-only operation"];
+    [alert addButtonWithTitle:@"Cancel"];
+    return [alert runModal] == NSAlertFirstButtonReturn ? 1 : 0;
   }
 }
 

@@ -101,9 +101,11 @@ Completed 2026-09-09: output reported revision `2`, transition `transport-only-r
 
 After attempt 5, the reviewed matrix-v3 successor was also appended offline. It activated revision `3`, transition `request-matrix-v3-production-canary`, matrix hash `5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9`, and 45 planned POSTs while preserving 5/55 consumed and 50 remaining. It reported `networkCalls: 0` and created no inference reservation or checkpoint. Both successor operations are complete; never rerun either one.
 
-## 4. Current matrix-v3 canary
+## 4. Completed matrix-v3 canary and authorized-resume boundary
 
-The historical matrix-v2 canaries consumed attempts 4 and 5 and failed closed on identical HTTP-200, absent-Content-Type, 5,884-byte responses. Attempt 5 used the automatic browser callback and no manual code entry. The command below is the current matrix-v3 canary and has not been run. It requires a fresh exact authorization:
+The historical matrix-v2 canaries consumed attempts 4 and 5 and failed closed on identical HTTP-200, absent-Content-Type, 5,884-byte responses. Attempt 5 used the automatic browser callback and no manual code entry. Matrix-v3 attempt 6 then passed with the production-equivalent canary: exactly one `gpt-5.6-sol` inference POST, zero retries, exact trimmed `OK`, and the automatic browser callback. Its durable sequence-1 checkpoint leaves the ledger at 6/55. The exact matrix-v3 resume requires 44 additional inference POSTs and would leave 5; it remains forbidden until the owner grants that separate live authorization.
+
+The completed canary command was:
 
 ```sh
 canary_scratch="$(mktemp -d "${TMPDIR%/}/supertwin-chatgpt-canary.XXXXXX")"
@@ -127,13 +129,13 @@ SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID=request-matrix-v3-production-
 npm run probe:chatgpt-oauth -- --live-auth --live-canary
 ```
 
-The command uses browser Authorization Code + PKCE with the automatic `http://localhost:1455/auth/callback` return. It never displays or accepts a device code. A fresh authorization must declare device-code `0`, device-poll `0`, token POSTs `2`, models GET `1`, quota GETs up to `2`, inference POST `1`, other `0`, zero retries, plus one browser navigation. It sends blank instructions and one `Reply with OK.` input, accepts only exact trimmed `OK`, and stops on any mismatch or restriction.
+The command used browser Authorization Code + PKCE with the automatic `http://localhost:1455/auth/callback` return. It never displayed or accepted a device code. Actual worker fetches were token POSTs `2`, models GET `1`, quota GETs `2`, inference POST `1`, with device-code/device-poll/other `0` and zero retries, plus one browser navigation.
 
-If execution reaches the inference boundary, the ledger durably reserves the next attempt before the fetch and never refunds it, including on HTTP 400, cancellation, timeout, SIGINT, or process failure. The mode hard-refuses a second inference request. Record only its bounded redacted diagnostic and exact endpoint counts.
+The separately authorized resume must use the same immutable environment binding above, add `SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE=1`, and run `npm run probe:chatgpt-oauth -- --live-auth --live-contract` from a new canonical empty `0700` scratch home. The checkpoint skips only sequence 1. Its maximum external operations are one automatic browser navigation, one localhost callback, token POSTs `2`, models GET `1`, quota GETs up to `2`, inference POSTs exactly `44`, device-code/device-poll/other `0`, and zero retries. That is at most 49 worker fetches. Stop on the first mismatch, restriction, 401/403/429, unhealthy quota, cancellation, or transport/schema error; reservations are never refunded.
 
 ## Forbidden operations
 
-- Do not set the full-contract opt-in or pass `--live-contract` before a successful canary checkpoint exists.
+- Do not set the full-contract opt-in or pass `--live-contract` without a fresh authorization for the exact 44-request matrix-v3 checkpoint resume.
 - Do not use a different account, model, app version, matrix fingerprint, owner, authorization ID, or cap.
 - Do not reuse a nonempty scratch home or the production SuperTwin home.
 - Do not edit SQLite manually, copy in a lower counter, delete the ledger, or initialize a replacement grant.

@@ -5,7 +5,7 @@
   "fixture_sha256": "b3905513a9aaa92e51457da7b44ef68d38c57f6a6d3161173082e648ca0a7a69",
   "code_identity": {
     "files": ["worker/src/evals/provider-golden-live.ts", "worker/src/evals/provider-golden-rail.ts", "worker/src/providers/chatgpt-oauth/index.ts", "worker/src/providers/chatgpt-oauth/keychain.ts", "worker/src/providers/chatgpt-oauth/models.ts", "worker/src/providers/chatgpt-oauth/quota.ts", "worker/src/providers/chatgpt-oauth/runtime.ts", "worker/src/providers/claude-local/index.ts"],
-    "sha256": "8d1e8368b42efa6b9e333252571b26d431d069d089ac909084ba581d41dbd380"
+    "sha256": "79a2bd2e08eb25e14d88271858fb4f04078a42f0d6eb1593c7397e542bdbf30d"
   },
   "cases": { "live": 116, "code": 162 },
   "logical_calls": { "executor": 116, "judge_initial": 116, "judge_repair": 116 },

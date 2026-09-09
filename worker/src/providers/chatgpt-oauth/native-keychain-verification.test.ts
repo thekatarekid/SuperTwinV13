@@ -1,3 +1,5 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
   cpSync,
   mkdirSync,
@@ -11,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CHATGPT_KEYCHAIN_SERVICE } from "./keychain.js";
@@ -20,6 +23,7 @@ import {
   NATIVE_KEYCHAIN_VERIFY_ENV,
   NativeKeychainVerificationError,
   assertNativeKeychainVerificationOptIn,
+  nativeKeychainCommandForOfflineTests,
   runNativeKeychainVerification,
   type NativeKeychainAclSnapshot,
   type NativeKeychainVerificationDependencies,
@@ -45,24 +49,45 @@ afterEach(() => {
 
 function keychain(initial?: string) {
   let value = initial;
+  let label = initial === undefined ? undefined : "pre-existing";
   const calls: Array<{ executable: string; args: readonly string[]; stdin?: string }> = [];
   const command: KeychainCommand = async (executable, args, stdin) => {
     calls.push({ executable, args: [...args], ...(stdin === undefined ? {} : { stdin }) });
+    const labelIndex = args.indexOf("-l");
+    const requestedLabel = labelIndex >= 0 ? args[labelIndex + 1] : undefined;
     if (args[0] === "find-generic-password") {
-      if (value === undefined) throw Object.assign(new Error("missing"), { code: 44 });
-      return { stdout: `${value}\n`, stderr: "" };
+      if (value === undefined || (requestedLabel !== undefined && requestedLabel !== label)) {
+        throw Object.assign(new Error("missing"), { code: 44 });
+      }
+      return { stdout: args.includes("-w") ? `${value}\n` : "metadata-only\n", stderr: "" };
     }
     if (args[0] === "add-generic-password") {
+      if (value !== undefined && !args.includes("-U")) {
+        throw Object.assign(new Error("duplicate"), { code: 45 });
+      }
       value = stdin;
+      label = requestedLabel;
       return { stdout: "", stderr: "" };
     }
     if (args[0] === "delete-generic-password") {
+      if (value === undefined || (requestedLabel !== undefined && requestedLabel !== label)) {
+        throw Object.assign(new Error("missing"), { code: 44 });
+      }
       value = undefined;
+      label = undefined;
       return { stdout: "", stderr: "" };
     }
     throw new Error("unexpected command");
   };
-  return { command, calls, value: () => value };
+  return {
+    command,
+    calls,
+    value: () => value,
+    replace: (next: string | undefined, nextLabel?: string) => {
+      value = next;
+      label = nextLabel;
+    },
+  };
 }
 
 const ACL: NativeKeychainAclSnapshot = {
@@ -108,6 +133,44 @@ function deps(root: string, command: KeychainCommand, overrides: Partial<NativeK
 }
 
 describe("native Keychain release verification rail", () => {
+  it("preserves exit 44 and waits for child close after a forced-kill error", async () => {
+    const fakeChild = () => {
+      const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+      Object.assign(child, {
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: vi.fn(() => true),
+      });
+      return child;
+    };
+    const killed = fakeChild();
+    const spawnKilled = vi.fn(() => killed) as unknown as typeof import("node:child_process").spawn;
+    const commandKilled = nativeKeychainCommandForOfflineTests(spawnKilled);
+    const abort = new AbortController();
+    let settled = false;
+    const pending = commandKilled("/fixture-only", [], undefined, abort.signal).then(
+      () => ({ error: undefined }),
+      (error: unknown) => ({ error }),
+    ).finally(() => { settled = true; });
+    abort.abort();
+    expect(killed.kill).toHaveBeenCalledWith("SIGKILL");
+    killed.emit("error", new Error("fixture spawn error"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    killed.emit("close", null, "SIGKILL");
+    const killedResult = await pending;
+    expect(killedResult.error).toBeInstanceOf(NativeKeychainVerificationError);
+    expect((killedResult.error as Error).message).toMatch(/interrupted/);
+
+    const absent = fakeChild();
+    const spawnAbsent = vi.fn(() => absent) as unknown as typeof import("node:child_process").spawn;
+    const absentResult = nativeKeychainCommandForOfflineTests(spawnAbsent)("/fixture-only", [])
+      .then(() => ({ error: undefined }), (error: unknown) => ({ error }));
+    absent.emit("close", 44, null);
+    expect(await absentResult).toMatchObject({ error: { code: 44 } });
+  });
+
   it("refuses before side effects unless macOS, interactive, and both explicit opt-ins match", () => {
     const { app } = fixture();
     const good = ["--native-keychain-verification", "--app", app, NATIVE_ADHOC_RESIGN_FLAG];
@@ -177,6 +240,12 @@ describe("native Keychain release verification rail", () => {
     expect(add.args).not.toContain("-A");
     expect(add.stdin).toContain("dummy-access-");
     expect(add.args.join(" ")).not.toContain("dummy-access-");
+    const itemReads = fake.calls.filter((call) => call.args[0] === "find-generic-password");
+    expect(itemReads[0]!.args).not.toContain("-w");
+    expect(itemReads.filter((call) => call.args.includes("-w"))
+      .every((call) => call.args.includes("-l"))).toBe(true);
+    const deletion = fake.calls.find((call) => call.args[0] === "delete-generic-password")!;
+    expect(deletion.args).toContain("-l");
     const publicJson = JSON.stringify(evidence);
     expect(publicJson).not.toContain("dummy-access-");
     expect(publicJson).not.toContain("dummy-refresh-");
@@ -206,7 +275,7 @@ describe("native Keychain release verification rail", () => {
     } });
     const command: KeychainCommand = async (executable, args, stdin, signal) => {
       if (args[0] === "add-generic-password") {
-        await fake.command(executable, args, raced, signal);
+        fake.replace(raced, "foreign-label");
         throw new Error("duplicate item");
       }
       return fake.command(executable, args, stdin, signal);
@@ -216,6 +285,8 @@ describe("native Keychain release verification rail", () => {
     expect(error).toBeInstanceOf(NativeKeychainVerificationError);
     expect(fake.value()).toBe(raced);
     expect(fake.calls.some((call) => call.args[0] === "delete-generic-password")).toBe(false);
+    expect(fake.calls.some((call) => call.args[0] === "find-generic-password" && call.args.includes("-w")))
+      .toBe(false);
     expect(readdirSync(root)).toEqual(["Signed Source.app"]);
   });
 
@@ -291,18 +362,43 @@ describe("native Keychain release verification rail", () => {
     expect(readdirSync(root)).toEqual(["Signed Source.app"]);
   });
 
-  it("aborts an in-flight owner confirmation and cleans on SIGINT/SIGTERM hook", async () => {
+  it("aborts an in-flight owner confirmation without external release and keeps signals through cleanup", async () => {
     const { root, app } = fixture();
     const fake = keychain();
-    let release!: () => void;
-    const confirmation = new Promise<boolean>((resolve) => { release = () => resolve(true); });
-    const h = deps(root, fake.command, { confirmAcl: vi.fn(async () => confirmation) });
+    const order: string[] = [];
+    let signalHandler: (() => void) | undefined;
+    const command: KeychainCommand = async (executable, args, stdin, signal) => {
+      if (args[0] === "delete-generic-password") order.push("delete");
+      return fake.command(executable, args, stdin, signal);
+    };
+    const h = deps(root, command, {
+      confirmAcl: vi.fn(async (_prompt, signal) => new Promise<boolean>((_resolve, reject) => {
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      })),
+      installSignalHandlers: (handler) => {
+        signalHandler = handler;
+        return () => {
+          order.push("uninstall");
+          signalHandler = undefined;
+        };
+      },
+    });
     const running = runNativeKeychainVerification(app, h.dependencies);
     await vi.waitFor(() => expect(fake.value()).toBeDefined());
-    h.signal();
-    release();
+    signalHandler?.();
     await expect(running).rejects.toThrow(/interrupted|failed/);
     expect(fake.value()).toBeUndefined();
+    expect(readdirSync(root)).toEqual(["Signed Source.app"]);
+    expect(order).toEqual(["delete", "uninstall"]);
+  });
+
+  it("removes the fresh scratch when random setup fails before any Keychain command", async () => {
+    const { root, app } = fixture();
+    const fake = keychain();
+    const h = deps(root, fake.command, { random: () => { throw new Error("random setup failed"); } });
+    await expect(runNativeKeychainVerification(app, h.dependencies)).rejects.toThrow(/cleanup was attempted/);
+    expect(fake.calls).toHaveLength(0);
     expect(readdirSync(root)).toEqual(["Signed Source.app"]);
   });
 

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdtempSync,
   realpathSync,
@@ -81,7 +82,7 @@ export interface NativeKeychainVerificationDependencies {
     account: string,
     signal?: AbortSignal,
   ) => Promise<unknown>;
-  confirmAcl: (prompt: NativeKeychainAclPrompt) => Promise<boolean>;
+  confirmAcl: (prompt: NativeKeychainAclPrompt, signal?: AbortSignal) => Promise<boolean>;
   random?: (bytes: number) => Buffer;
   temporaryRoot?: string;
   installSignalHandlers?: (onSignal: () => void) => () => void;
@@ -96,6 +97,10 @@ interface ScratchIdentity {
 interface NativeCommandResult {
   stdout: string;
   stderr: string;
+}
+
+interface NativeCommandFailure extends Error {
+  code?: number;
 }
 
 function refuse(message: string): never {
@@ -169,10 +174,11 @@ async function nativeCommand(
   args: readonly string[],
   secretStdin?: string,
   signal?: AbortSignal,
+  spawnProcess: typeof spawn = spawn,
 ): Promise<NativeCommandResult> {
   signal?.throwIfAborted();
   return new Promise((resolveCommand, rejectCommand) => {
-    const child = spawn(executable, [...args], {
+    const child = spawnProcess(executable, [...args], {
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -181,6 +187,7 @@ async function nativeCommand(
     let stderr = "";
     let bytes = 0;
     let settled = false;
+    let forcedError: Error | undefined;
     let timer: NodeJS.Timeout | undefined;
     const finish = (error?: Error): void => {
       if (settled) return;
@@ -191,8 +198,9 @@ async function nativeCommand(
       else resolveCommand({ stdout, stderr });
     };
     const stop = (message: string): void => {
+      if (settled || forcedError) return;
+      forcedError = new NativeKeychainVerificationError(message);
       child.kill("SIGKILL");
-      finish(new NativeKeychainVerificationError(message));
     };
     const collect = (target: "stdout" | "stderr", chunk: Buffer): void => {
       bytes += chunk.byteLength;
@@ -207,15 +215,53 @@ async function nativeCommand(
     child.stdout.on("data", (chunk: Buffer) => collect("stdout", chunk));
     child.stderr.on("data", (chunk: Buffer) => collect("stderr", chunk));
     child.stdin.on("error", () => undefined);
-    child.once("error", () => finish(new NativeKeychainVerificationError("native verification command failed")));
-    child.once("close", (code) => finish(code === 0
-      ? undefined
-      : new NativeKeychainVerificationError("native verification command failed")));
+    child.once("error", () => {
+      forcedError ??= new NativeKeychainVerificationError("native verification command failed");
+    });
+    child.once("close", (code) => {
+      if (forcedError) finish(forcedError);
+      else if (code === 0) finish();
+      else finish(Object.assign(
+        new NativeKeychainVerificationError("native verification command failed"),
+        { code: code ?? undefined },
+      ));
+    });
     signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     timer = setTimeout(() => stop("native verification command timed out"), NATIVE_TIMEOUT_MS);
     timer.unref();
     child.stdin.end(secretStdin);
   });
+}
+
+/** Offline-test seam for child close/error ordering; production uses the closed runner above. */
+export function nativeKeychainCommandForOfflineTests(spawnProcess: typeof spawn): KeychainCommand {
+  return (executable, args, secretStdin, signal) =>
+    nativeCommand(executable, args, secretStdin, signal, spawnProcess);
+}
+
+function commandExitCode(error: unknown): number | undefined {
+  const code = (error as NativeCommandFailure | undefined)?.code;
+  return typeof code === "number" ? code : undefined;
+}
+
+async function exactItemExists(
+  command: KeychainCommand,
+  account: string,
+  label?: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const args = [
+    "find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", account,
+    ...(label ? ["-l", label] : []),
+  ];
+  try {
+    await command("/usr/bin/security", args, undefined, signal);
+    return true;
+  } catch (error) {
+    if (commandExitCode(error) === 44) return false;
+    return refuse("native verification could not confirm exact Keychain item absence");
+  }
 }
 
 function normalizeAclSnapshot(value: unknown): NativeKeychainAclSnapshot {
@@ -266,8 +312,8 @@ function samePair(left: ChatGptTokenPair | undefined, right: ChatGptTokenPair): 
 }
 
 function defaultSignalHandlers(onSignal: () => void): () => void {
-  process.once("SIGINT", onSignal);
-  process.once("SIGTERM", onSignal);
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
   return () => {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
@@ -281,77 +327,98 @@ export async function runNativeKeychainVerification(
 ): Promise<NativeKeychainVerificationEvidence> {
   const sourceApp = assertSourceApp(sourceAppPath);
   const scratch = freshScratch(dependencies.temporaryRoot);
-  const appCopy = join(scratch.path, APP_COPY_NAME);
-  const protectedAccounts = new Set([
-    chatGptKeychainAccount(resolve(homedir(), "SuperTwinV13")),
-    chatGptKeychainAccount(),
-  ]);
-  const observations: Array<{ executable: string; args: readonly string[]; hasStdin: boolean }> = [];
-  const baseKeychainCommand = dependencies.keychainCommand ?? nativeCommand;
-  const observedCommand: KeychainCommand = async (executable, args, secretStdin, signal) => {
-    // The production store updates an existing credential. This disposable verifier must
-    // instead be create-once so a preflight race can never overwrite another item.
-    const forwardedArgs = args[0] === "add-generic-password"
-      ? args.filter((arg) => arg !== "-U")
-      : [...args];
-    observations.push({ executable, args: forwardedArgs, hasStdin: secretStdin !== undefined });
-    return baseKeychainCommand(executable, forwardedArgs, secretStdin, signal);
-  };
-  const codesign = dependencies.codesign ?? (async (args, signal) => {
-    await nativeCommand("/usr/bin/codesign", args, undefined, signal);
-  });
-  const signatureFingerprint = dependencies.signatureFingerprint ?? (async (appPath, signal) => {
-    const result = await nativeCommand("/usr/bin/codesign", ["-dv", "--verbose=4", appPath], undefined, signal);
-    const match = `${result.stdout}\n${result.stderr}`.match(/^CDHash=([a-f0-9]+)$/mi);
-    if (!match) refuse("native verification could not fingerprint the source signature");
-    return match[1]!.toLowerCase();
-  });
-  const copyApp = dependencies.copyApp ?? (async (source, destination, signal) => {
-    await nativeCommand("/usr/bin/ditto", ["--noqtn", source, destination], undefined, signal);
-  });
-  let aclHelperReady = false;
-  const inspectAcl = dependencies.inspectAcl ?? (async (service, account, signal) => {
-    const source = resolve(import.meta.dirname, "../../../../scripts/native-keychain-acl.m");
-    const helper = join(scratch.path, "native-keychain-acl");
-    if (!aclHelperReady) {
-      await nativeCommand("/usr/bin/xcrun", [
-        "clang", "-fobjc-arc", "-framework", "Foundation", "-framework", "Security",
-        source, "-o", helper,
-      ], undefined, signal);
-      aclHelperReady = true;
-    }
-    const result = await nativeCommand(
-      helper,
-      ["--service", service, "--account", account],
-      undefined,
-      signal,
-    );
-    return parseAclSnapshot(result.stdout);
-  });
-  const store = new ChatGptKeychainStore({ command: observedCommand, resolveHome: () => scratch.path });
-  const random = dependencies.random ?? randomBytes;
-  const dummy: ChatGptTokenPair = {
-    accessToken: `dummy-access-${random(32).toString("base64url")}`,
-    refreshToken: `dummy-refresh-${random(32).toString("base64url")}`,
-    expiresAtMs: Date.now() + 60 * 60_000,
-    accountId: `dummy-account-${random(16).toString("hex")}`,
-  };
   const abort = new AbortController();
-  const uninstallSignals = (dependencies.installSignalHandlers ?? defaultSignalHandlers)(() => abort.abort());
+  let uninstallSignals = (): void => undefined;
+  let store: ChatGptKeychainStore | undefined;
+  let dummy: ChatGptTokenPair | undefined;
+  let ownershipLabel: string | undefined;
   let mayHaveCreatedItem = false;
-  let itemRemoved = false;
+  let itemRemoved = true;
   let failure: NativeKeychainVerificationError | undefined;
   let evidence: NativeKeychainVerificationEvidence | undefined;
   try {
+    const appCopy = join(scratch.path, APP_COPY_NAME);
+    const protectedAccounts = new Set([
+      chatGptKeychainAccount(resolve(homedir(), "SuperTwinV13")),
+      chatGptKeychainAccount(),
+    ]);
+    const observations: Array<{ executable: string; args: readonly string[]; hasStdin: boolean }> = [];
+    const baseKeychainCommand = dependencies.keychainCommand ?? nativeCommand;
+    const random = dependencies.random ?? randomBytes;
+    ownershipLabel = `SuperTwinV13 native verification ${random(16).toString("hex")}`;
+    dummy = {
+      accessToken: `dummy-access-${random(32).toString("base64url")}`,
+      refreshToken: `dummy-refresh-${random(32).toString("base64url")}`,
+      expiresAtMs: Date.now() + 60 * 60_000,
+      accountId: `dummy-account-${random(16).toString("hex")}`,
+    };
+    const observedCommand: KeychainCommand = async (executable, args, secretStdin, signal) => {
+      let forwardedArgs = [...args];
+      if (args[0] === "add-generic-password") {
+        forwardedArgs = [
+          "add-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", store!.account,
+          "-l", ownershipLabel!, "-w",
+        ];
+      } else if (args[0] === "find-generic-password" && args.includes("-w")) {
+        forwardedArgs = [
+          "find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", store!.account,
+          "-l", ownershipLabel!, "-w",
+        ];
+      } else if (args[0] === "delete-generic-password") {
+        forwardedArgs = [
+          "delete-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", store!.account,
+          "-l", ownershipLabel!,
+        ];
+      }
+      observations.push({ executable, args: forwardedArgs, hasStdin: secretStdin !== undefined });
+      return baseKeychainCommand(executable, forwardedArgs, secretStdin, signal);
+    };
+    const codesign = dependencies.codesign ?? (async (args, signal) => {
+      await nativeCommand("/usr/bin/codesign", args, undefined, signal);
+    });
+    const signatureFingerprint = dependencies.signatureFingerprint ?? (async (appPath, signal) => {
+      const result = await nativeCommand("/usr/bin/codesign", ["-dv", "--verbose=4", appPath], undefined, signal);
+      const match = `${result.stdout}\n${result.stderr}`.match(/^CDHash=([a-f0-9]+)$/mi);
+      if (!match) refuse("native verification could not fingerprint the source signature");
+      return match[1]!.toLowerCase();
+    });
+    const copyApp = dependencies.copyApp ?? (async (source, destination, signal) => {
+      await nativeCommand("/usr/bin/ditto", ["--noqtn", source, destination], undefined, signal);
+    });
+    let aclHelperReady = false;
+    const inspectAcl = dependencies.inspectAcl ?? (async (service, account, signal) => {
+      const source = resolve(import.meta.dirname, "../../../../scripts/native-keychain-acl.m");
+      const helper = join(scratch.path, "native-keychain-acl");
+      if (!aclHelperReady) {
+        assertScratchIdentity(scratch);
+        await nativeCommand("/usr/bin/xcrun", [
+          "clang", "-fobjc-arc", "-framework", "Foundation", "-framework", "Security",
+          source, "-o", helper,
+        ], undefined, signal);
+        aclHelperReady = true;
+      }
+      const result = await nativeCommand(
+        helper,
+        ["--service", service, "--account", account],
+        undefined,
+        signal,
+      );
+      return parseAclSnapshot(result.stdout);
+    });
+    store = new ChatGptKeychainStore({ command: observedCommand, resolveHome: () => scratch.path });
+    uninstallSignals = (dependencies.installSignalHandlers ?? defaultSignalHandlers)(() => abort.abort());
     if (protectedAccounts.has(store.account)) refuse("native verification refused the production Keychain account");
-    if (await store.load() !== undefined) refuse("native verification dummy Keychain account is not empty");
+    if (await exactItemExists(baseKeychainCommand, store.account, undefined, abort.signal)) {
+      refuse("native verification dummy Keychain account is not empty");
+    }
     const sourceSignatureBefore = await signatureFingerprint(sourceApp, abort.signal);
     mayHaveCreatedItem = true;
     await store.save(dummy, abort.signal);
     if (!samePair(await store.load(), dummy)) refuse("native verification could not reload the dummy item");
     const add = observations.find((entry) => entry.args[0] === "add-generic-password");
     const exactAdd = [
-      "add-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", store.account, "-w",
+      "add-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE, "-a", store.account,
+      "-l", ownershipLabel, "-w",
     ];
     if (!add || add.executable !== "/usr/bin/security" ||
         JSON.stringify(add.args) !== JSON.stringify(exactAdd) || !add.hasStdin || add.args.includes("-A")) {
@@ -366,10 +433,12 @@ export async function runNativeKeychainVerification(
       account: store.account,
       requiredConfirmation: NATIVE_KEYCHAIN_CONFIRMATION,
       acl: aclBefore,
-    })) refuse("native verification ACL confirmation was refused");
+    }, abort.signal)) refuse("native verification ACL confirmation was refused");
     abort.signal.throwIfAborted();
 
     await codesign(["--verify", "--deep", "--strict", sourceApp], abort.signal);
+    assertScratchIdentity(scratch);
+    if (existsSync(appCopy)) refuse("native verification app copy destination already exists");
     await copyApp(sourceApp, appCopy, abort.signal);
     assertScratchIdentity(scratch);
     const copied = realpathSync(appCopy);
@@ -416,23 +485,27 @@ export async function runNativeKeychainVerification(
       ? error
       : new NativeKeychainVerificationError("native Keychain verification failed; dummy cleanup was attempted");
   } finally {
-    uninstallSignals();
-    if (mayHaveCreatedItem) {
+    if (mayHaveCreatedItem && store && dummy && ownershipLabel) {
+      itemRemoved = false;
       try {
-        const current = await store.load();
-        if (current === undefined) {
+        const owned = await exactItemExists(dependencies.keychainCommand ?? nativeCommand, store.account, ownershipLabel);
+        if (owned) {
+          const current = await store.load();
+          if (!samePair(current, dummy)) {
+            failure = new NativeKeychainVerificationError(
+              `native verification cleanup failed for ${CHATGPT_KEYCHAIN_SERVICE}/${store.account}`,
+            );
+          } else {
+            await store.clear();
+          }
+        }
+        if (!await exactItemExists(dependencies.keychainCommand ?? nativeCommand, store.account)) {
           itemRemoved = true;
-        } else if (samePair(current, dummy)) {
-          await store.clear();
-          itemRemoved = await store.load() === undefined;
-        } else {
-          // A racing process owns the exact account now. Never delete an item we did not create.
-          itemRemoved = false;
         }
       } catch {
         itemRemoved = false;
       }
-    } else itemRemoved = true;
+    }
     try {
       assertScratchIdentity(scratch);
       rmSync(scratch.path, { recursive: true, force: false });
@@ -441,9 +514,10 @@ export async function runNativeKeychainVerification(
     }
     if (!itemRemoved) {
       failure = new NativeKeychainVerificationError(
-        `native verification cleanup failed for ${CHATGPT_KEYCHAIN_SERVICE}/${store.account}`,
+        `native verification cleanup failed for ${CHATGPT_KEYCHAIN_SERVICE}/${store?.account ?? "unavailable"}`,
       );
     }
+    uninstallSignals();
   }
   if (failure || !evidence) throw failure ?? new NativeKeychainVerificationError("native verification failed");
   return evidence;

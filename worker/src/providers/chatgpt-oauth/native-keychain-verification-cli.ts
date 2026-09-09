@@ -19,14 +19,14 @@ export async function runNativeKeychainVerificationCli(
     platform: dependencies.platform,
     interactive: dependencies.interactive,
   });
-  const confirmAcl = dependencies.confirmAcl ?? (async ({ service, account }) => {
+  const confirmAcl = dependencies.confirmAcl ?? (async ({ service, account }, signal) => {
     const terminal = createInterface({ input: process.stdin, output: process.stderr });
     try {
       process.stderr.write(
         `Open Keychain Access and inspect only service "${service}", account "${account}". ` +
         `Confirm Access Control does not allow all applications. Type ${NATIVE_KEYCHAIN_CONFIRMATION}: `,
       );
-      return (await terminal.question("")).trim() === NATIVE_KEYCHAIN_CONFIRMATION;
+      return (await terminal.question("", { signal })).trim() === NATIVE_KEYCHAIN_CONFIRMATION;
     } finally {
       terminal.close();
     }

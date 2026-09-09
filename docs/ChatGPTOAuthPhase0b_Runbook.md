@@ -8,12 +8,12 @@ Status: development acceptance only. These commands are not application runtime 
 - Account fingerprint: `7d41db9e5a28`
 - Model: `gpt-5.6-sol`
 - Authorized cumulative inference attempts: `55`
-- Already consumed: `4`
+- Already consumed: `5`
 - Active account-specific planned inference POSTs: `45`
 - Inference retries: `0`
 - Current application version: `13.12.2`
 
-The original live catalogue evidence resolved matrix v1 to 46 inference POSTs and 9 unsupported skips. The compact HTTP-400 evidence showed that the backend rejects `max_output_tokens` when support is not declared, so the append-only active matrix-v2 revision omits that field and resolves to 45 POSTs with 10 skips. Revision 2 was appended offline, but its first canary also failed closed; the cumulative grant is now 4/55 with no reusable checkpoint. Do not use full-contract mode until a later explicitly authorized request-contract canary succeeds and the ledger contains that exact checkpoint.
+The original live catalogue evidence resolved matrix v1 to 46 inference POSTs and 9 unsupported skips. Matrix v2 omitted unsupported `max_output_tokens` and resolved to 45 POSTs with 10 skips. Attempts 4 and 5 then exposed probe-only request differences: a reused deterministic session ID, a 12.8 KiB cache prompt instead of the production canary, and strict rejection before parsing an absent-Content-Type response. Append-only revision 3 now uses fresh independent request/session IDs, the exact production `Reply with OK.` canary, shared `Accept: application/json` wire construction, exact trimmed `OK` acceptance, and bounded strict SSE parsing for exact non-redirected absent-Content-Type responses. The cumulative grant is 5/55 with no reusable checkpoint. Do not use full-contract mode until a later explicitly authorized matrix-v3 canary succeeds and the ledger contains that exact checkpoint.
 
 ## 1. Obtain the selected-model plan fingerprint
 
@@ -73,7 +73,7 @@ Acceptance: output reports `plannedInferencePosts: 46`, `authorizedPosts: 55`, `
 
 This step has already completed. Do not rerun it or create a replacement ledger. The existing ledger subsequently charged attempt 3, leaving the cumulative state at 3/55.
 
-## 3. Append the reviewed matrix-v2 successor offline
+## 3. Historical append-only successors
 
 The successor changes only the transport request matrix. It preserves the existing grant, root plan, attempt 3 and cumulative 3/55 state. Run this sole-argument command only against that existing ledger:
 
@@ -99,9 +99,11 @@ npm run probe:chatgpt-oauth -- --append-authorization-plan-successor
 
 Completed 2026-09-09: output reported revision `2`, transition `transport-only-request-matrix-v2`, 45 planned POSTs, 55 authorized, 3 consumed, 52 remaining, `networkCalls: 0`, and `appendOnly: true`. The command refuses replay or any predecessor, counter, grant or successor mismatch. Never rerun it or edit the database.
 
-## 4. Historical matrix-v2 canary
+After attempt 5, the reviewed matrix-v3 successor was also appended offline. It activated revision `3`, transition `request-matrix-v3-production-canary`, matrix hash `5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9`, and 45 planned POSTs while preserving 5/55 consumed and 50 remaining. It reported `networkCalls: 0` and created no inference reservation or checkpoint. Both successor operations are complete; never rerun either one.
 
-This command was run once on 2026-09-09 under explicit authorization. It consumed attempt 4 and failed closed on an HTTP-200 non-JSON response, so it must not be replayed without a new exact authorization:
+## 4. Current matrix-v3 canary
+
+The historical matrix-v2 canaries consumed attempts 4 and 5 and failed closed on identical HTTP-200, absent-Content-Type, 5,884-byte responses. Attempt 5 used the automatic browser callback and no manual code entry. The command below is the current matrix-v3 canary and has not been run. It requires a fresh exact authorization:
 
 ```sh
 canary_scratch="$(mktemp -d "${TMPDIR%/}/supertwin-chatgpt-canary.XXXXXX")"
@@ -117,15 +119,15 @@ SUPERTWIN_CHATGPT_AUTHORIZATION_LEDGER_PATH="$ledger_dir/inference-authorization
 SUPERTWIN_CHATGPT_AUTHORIZATION_ID=phase0b-2026-09-08-gpt-5.6-sol-55 \
 SUPERTWIN_CHATGPT_AUTHORIZATION_OWNER="Aditya Katare" \
 SUPERTWIN_CHATGPT_AUTHORIZED_INFERENCE_POSTS=55 \
-SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_VERSION=phase0b-contract-matrix-v2 \
-SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_HASH=a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_VERSION=phase0b-contract-matrix-v3 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_MATRIX_HASH=5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9 \
 SUPERTWIN_CHATGPT_AUTHORIZED_PLANNED_INFERENCE_POSTS=45 \
-SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_REVISION=2 \
-SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID=transport-only-request-matrix-v2 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_REVISION=3 \
+SUPERTWIN_CHATGPT_AUTHORIZATION_PLAN_TRANSITION_ID=request-matrix-v3-production-canary \
 npm run probe:chatgpt-oauth -- --live-auth --live-canary
 ```
 
-The command shown above now uses browser Authorization Code + PKCE with the automatic `http://localhost:1455/auth/callback` return. It no longer displays or accepts a device code. The exact 2026-09-09 actuals below remain immutable historical evidence from the older probe implementation; they are not the budget for a future run. Any future canary requires a new explicit authorization whose declaration has device-code `0`, device-poll `0`, token `2`, models `1`, quota `2`, inference `1`, other `0`, plus one browser navigation.
+The command uses browser Authorization Code + PKCE with the automatic `http://localhost:1455/auth/callback` return. It never displays or accepts a device code. A fresh authorization must declare device-code `0`, device-poll `0`, token POSTs `2`, models GET `1`, quota GETs up to `2`, inference POST `1`, other `0`, zero retries, plus one browser navigation. It sends blank instructions and one `Reply with OK.` input, accepts only exact trimmed `OK`, and stops on any mismatch or restriction.
 
 If execution reaches the inference boundary, the ledger durably reserves the next attempt before the fetch and never refunds it, including on HTTP 400, cancellation, timeout, SIGINT, or process failure. The mode hard-refuses a second inference request. Record only its bounded redacted diagnostic and exact endpoint counts.
 

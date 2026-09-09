@@ -144,4 +144,19 @@ describe("SuperTwin-owned agent-turn loop", () => {
     expect(result.status).toBe("ok");
     expect(backend.send).toHaveBeenCalledTimes(2);
   });
+
+  it("rejects a provider without safe continuation before fetch or tool side effects", async () => {
+    const execute = vi.fn(async () => "must not run");
+    const backend = provider([]);
+    Object.defineProperty(backend, "capabilities", { value: {
+      ...backend.capabilities, continuation: false,
+    } });
+    await expect(sendProviderRequest({
+      provider: backend,
+      request: request(2),
+      toolHandlers: { weather: { validate: () => true, execute } },
+    })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
+    expect(backend.send).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

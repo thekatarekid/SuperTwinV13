@@ -12,11 +12,14 @@ import {
   assertContractProbeMatrix,
   buildContractProbeMatrix,
   isPostedProbeCase,
+  PHASE0B_V4_PREFIX_CONSUMED_POSTS,
+  PHASE0B_V4_PREFIX_LAST_SEQUENCE,
+  PHASE0B_V4_PREFIX_RESERVATIONS,
   type ContractProbeCase,
 } from "./matrix.js";
 import type { ProbeModelCatalogue } from "./models.js";
 
-export const PHASE0B_MATRIX_VERSION = "phase0b-contract-matrix-v3";
+export const PHASE0B_MATRIX_VERSION = "phase0b-contract-matrix-v4";
 export const PHASE0B_INFERENCE_RETRIES = 0;
 
 export interface Phase0bAuthorizationPlan {
@@ -25,6 +28,13 @@ export interface Phase0bAuthorizationPlan {
   caseCount: typeof FULL_PROBE_CASE_BUDGET;
   inferencePostCount: number;
   inferenceRetries: typeof PHASE0B_INFERENCE_RETRIES;
+  prefixCheckpoint: {
+    consumedPosts: typeof PHASE0B_V4_PREFIX_CONSUMED_POSTS;
+    lastSequence: typeof PHASE0B_V4_PREFIX_LAST_SEQUENCE;
+    predecessorRevision: 3;
+    predecessorConsumedPosts: 5;
+    reservations: typeof PHASE0B_V4_PREFIX_RESERVATIONS;
+  };
 }
 
 type CanonicalJson = null | boolean | number | string | CanonicalJson[] | { [key: string]: CanonicalJson };
@@ -85,6 +95,7 @@ function canonicalCase(probe: ContractProbeCase): CanonicalJson {
     category: probe.category,
     concurrency: probe.concurrency,
     disposition: probe.disposition ?? null,
+    checkpointOutcome: probe.checkpointOutcome ?? null,
     expectation: probe.expectation,
     name: probe.name,
     sequence: probe.sequence,
@@ -98,6 +109,13 @@ export function phase0bAuthorizationPlanFromCases(
   env: NodeJS.ProcessEnv = process.env,
 ): Phase0bAuthorizationPlan {
   assertContractProbeMatrix(cases);
+  if (!cases.slice(0, PHASE0B_V4_PREFIX_LAST_SEQUENCE).every(
+    (probe) => probe.disposition === "prefix-checkpoint" && probe.checkpointOutcome !== undefined,
+  ) || cases.slice(PHASE0B_V4_PREFIX_LAST_SEQUENCE).some(
+    (probe) => probe.disposition === "prefix-checkpoint",
+  )) {
+    throw new Error("Phase 0b matrix-v4 authorization requires the exact observed prefix checkpoint");
+  }
   const userAgent = superTwinUserAgent(env);
   if (!/^SuperTwinV13\/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(userAgent)) {
     throw new Error("Phase 0b authorization plan requires a concrete app version");
@@ -111,6 +129,13 @@ export function phase0bAuthorizationPlanFromCases(
     caseCount: FULL_PROBE_CASE_BUDGET,
     inferencePostCount: posted,
     inferenceRetries: PHASE0B_INFERENCE_RETRIES,
+    prefixCheckpoint: {
+      consumedPosts: PHASE0B_V4_PREFIX_CONSUMED_POSTS,
+      lastSequence: PHASE0B_V4_PREFIX_LAST_SEQUENCE,
+      predecessorRevision: 3,
+      predecessorConsumedPosts: 5,
+      reservations: [...PHASE0B_V4_PREFIX_RESERVATIONS],
+    },
     matrixVersion: PHASE0B_MATRIX_VERSION,
     transport: {
       clientId: CODEX_OAUTH_CLIENT_ID,
@@ -136,6 +161,13 @@ export function phase0bAuthorizationPlanFromCases(
     caseCount: FULL_PROBE_CASE_BUDGET,
     inferencePostCount: posted,
     inferenceRetries: PHASE0B_INFERENCE_RETRIES,
+    prefixCheckpoint: Object.freeze({
+      consumedPosts: PHASE0B_V4_PREFIX_CONSUMED_POSTS,
+      lastSequence: PHASE0B_V4_PREFIX_LAST_SEQUENCE,
+      predecessorRevision: 3,
+      predecessorConsumedPosts: 5,
+      reservations: PHASE0B_V4_PREFIX_RESERVATIONS,
+    }),
   });
 }
 
@@ -145,7 +177,7 @@ export function buildPhase0bAuthorizationPlan(
   env: NodeJS.ProcessEnv = process.env,
 ): Phase0bAuthorizationPlan {
   return phase0bAuthorizationPlanFromCases(
-    buildContractProbeMatrix(catalogue, requestedModel, env),
+    buildContractProbeMatrix(catalogue, requestedModel, env, true),
     env,
   );
 }

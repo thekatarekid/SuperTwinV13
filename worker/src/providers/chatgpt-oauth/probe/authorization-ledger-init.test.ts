@@ -1,6 +1,6 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 
@@ -105,17 +105,37 @@ async function successorEnv(): Promise<NodeJS.ProcessEnv> {
     planTransitionId: active.planTransitionId! };
   await reserveInferencePosts(location, binding, 1);
   await reserveInferencePosts(location, binding, 1);
+  await appendInferenceAuthorizationPlanSuccessor(location, baseGrant,
+    { revision: 2, matrixVersion: "phase0b-contract-matrix-v2",
+      matrixHash: "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09",
+      plannedInferencePosts: 45, expectedConsumedPosts: 5 },
+    { transitionId: "request-matrix-v3-production-canary", matrixVersion: "phase0b-contract-matrix-v3",
+      matrixHash: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
+      plannedInferencePosts: 45 });
+  const v3Grant = { ...baseGrant, matrixVersion: "phase0b-contract-matrix-v3",
+    matrixHash: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
+    plannedInferencePosts: 45 };
+  const v3Active = await readInferenceAuthorizationLedger(location, v3Grant);
+  const v3Binding = { ...v3Grant, planRevision: v3Active.planRevision,
+    planRevisionDigest: v3Active.planRevisionDigest, planTransitionId: v3Active.planTransitionId! };
+  await reserveInferencePosts(location, v3Binding, 8);
+  // The attended run removes its scratch home. A successor is deliberately
+  // allowed to bind a new empty owner-only scratch; the durable ledger is
+  // external and binds the grant/revision rather than a disposable pathname.
+  const successorHome = join(dirname(env[AUTHORIZATION_LEDGER_PATH_ENV]!), "..", "fresh-resume-home");
+  await mkdir(successorHome, { mode: 0o700 });
   return {
     ...env,
-    [AUTHORIZATION_PREDECESSOR_REVISION_ENV]: "2",
-    [AUTHORIZATION_PREDECESSOR_MATRIX_VERSION_ENV]: "phase0b-contract-matrix-v2",
-    [AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV]: "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09",
+    SUPERTWIN_HOME: successorHome,
+    [AUTHORIZATION_PREDECESSOR_REVISION_ENV]: "3",
+    [AUTHORIZATION_PREDECESSOR_MATRIX_VERSION_ENV]: "phase0b-contract-matrix-v3",
+    [AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV]: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
     [AUTHORIZATION_PREDECESSOR_PLANNED_INFERENCE_POSTS_ENV]: "45",
-    [AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV]: "5",
-    [AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV]: "request-matrix-v3-production-canary",
-    [AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV]: "phase0b-contract-matrix-v3",
+    [AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV]: "13",
+    [AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV]: "request-matrix-v4-continuation-fail-closed",
+    [AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV]: "phase0b-contract-matrix-v4",
     [AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV]: SUCCESSOR_AUTHORIZATION_MATRIX_HASH,
-    [AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV]: "45",
+    [AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV]: "37",
   };
 }
 
@@ -233,28 +253,28 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     await expect(initializeInferenceAuthorizationFromEnvironment(relative)).rejects.toThrow(/absolute paths/);
   });
 
-  it("appends matrix v3 offline while preserving 5/55 and path-free evidence", async () => {
+  it("appends matrix v4 offline while preserving 13/55 and path-free evidence", async () => {
     const env = await successorEnv();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).resolves.toEqual({
       status: "authorization-plan-successor-appended",
       accountFingerprint: "7d41db9e5a28",
       modelId: "gpt-5.6-sol",
-      planRevision: 3,
-      planTransitionId: "request-matrix-v3-production-canary",
-      matrixVersion: "phase0b-contract-matrix-v3",
+      planRevision: 4,
+      planTransitionId: "request-matrix-v4-continuation-fail-closed",
+      matrixVersion: "phase0b-contract-matrix-v4",
       matrixHash: SUCCESSOR_AUTHORIZATION_MATRIX_HASH,
-      plannedInferencePosts: 45,
+      plannedInferencePosts: 37,
       authorizedPosts: 55,
-      consumedPosts: 5,
-      remainingPosts: 50,
+      consumedPosts: 13,
+      remainingPosts: 42,
       networkCalls: 0,
       appendOnly: true,
     });
     expect(fetchSpy).not.toHaveBeenCalled();
     const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true });
     expect(db.prepare("SELECT authorized_posts, consumed_posts FROM inference_authorization").get())
-      .toEqual({ authorized_posts: 55, consumed_posts: 5 });
+      .toEqual({ authorized_posts: 55, consumed_posts: 13 });
     expect(db.prepare("SELECT reservation_post, state FROM inference_attempt").get())
       .toEqual({ reservation_post: 3, state: "reserved" });
     db.close();
@@ -287,7 +307,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
       const db = new Database(ledgerPath, { readonly: true });
       expect(db.pragma("user_version", { simple: true })).toBe(4);
       expect(db.prepare("SELECT authorized_posts, consumed_posts FROM inference_authorization").get())
-        .toEqual({ authorized_posts: 55, consumed_posts: 5 });
+        .toEqual({ authorized_posts: 55, consumed_posts: 13 });
       db.close();
     }
 
@@ -295,6 +315,7 @@ describe("Phase 0b offline authorization ledger initializer", () => {
       [AUTHORIZATION_PREDECESSOR_REVISION_ENV, "1"],
       [AUTHORIZATION_PREDECESSOR_MATRIX_HASH_ENV, "c".repeat(64)],
       [AUTHORIZATION_EXPECTED_CONSUMED_POSTS_ENV, "4"],
+      [AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV, "request-matrix-v4-alternate"],
       [AUTHORIZATION_SUCCESSOR_MATRIX_VERSION_ENV, "phase0b-contract-matrix-v1"],
       [AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV, "d".repeat(64)],
       [AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV, "46"],
@@ -310,15 +331,43 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     }
   });
 
+  it.each(["missing", "symlink", "nonempty", "broad", "wrong-mode"])(
+    "rejects a %s successor scratch home before appending",
+    async (variant) => {
+      const env = await successorEnv();
+      const validHome = env.SUPERTWIN_HOME!;
+      if (variant === "missing") {
+        env.SUPERTWIN_HOME = join(dirname(validHome), "missing-home");
+      } else if (variant === "symlink") {
+        const link = join(dirname(validHome), "linked-home");
+        await symlink(validHome, link);
+        env.SUPERTWIN_HOME = link;
+      } else if (variant === "nonempty") {
+        await writeFile(join(validHome, "artifact"), "x");
+      } else if (variant === "broad") {
+        env.SUPERTWIN_HOME = tmpdir();
+      } else {
+        await chmod(validHome, 0o755);
+      }
+      await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).rejects.toThrow(
+        /scratch home|no-residual-artifacts|system temporary directory/,
+      );
+      const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM authorization_plan_revision").get())
+        .toEqual({ count: 3 });
+      db.close();
+    },
+  );
+
   it("refuses an exact second successor append without changing the active revision or counter", async () => {
     const env = await successorEnv();
     await appendInferenceAuthorizationPlanSuccessorFromEnvironment(env);
     await expect(appendInferenceAuthorizationPlanSuccessorFromEnvironment(env)).rejects.toThrow(/predecessor/);
     const db = new Database(env[AUTHORIZATION_LEDGER_PATH_ENV]!, { readonly: true });
     expect(db.prepare("SELECT COUNT(*) AS count FROM authorization_plan_revision").get())
-      .toEqual({ count: 3 });
+      .toEqual({ count: 4 });
     expect(db.prepare("SELECT authorized_posts, consumed_posts FROM inference_authorization").get())
-      .toEqual({ authorized_posts: 55, consumed_posts: 5 });
+      .toEqual({ authorized_posts: 55, consumed_posts: 13 });
     db.close();
   });
 
@@ -332,9 +381,9 @@ describe("Phase 0b offline authorization ledger initializer", () => {
     expect(stderrSpy).not.toHaveBeenCalled();
     const output = stdoutSpy.mock.calls.map(([value]) => String(value)).join("");
     expect(output).toContain('"status": "authorization-plan-successor-appended"');
-    expect(output).toContain('"planRevision": 3');
-    expect(output).toContain('"plannedInferencePosts": 45');
-    expect(output).toContain('"consumedPosts": 5');
+    expect(output).toContain('"planRevision": 4');
+    expect(output).toContain('"plannedInferencePosts": 37');
+    expect(output).toContain('"consumedPosts": 13');
     expect(output).not.toContain(env[AUTHORIZATION_LEDGER_PATH_ENV]!);
     expect(output).not.toContain(env[AUTHORIZATION_ID_ENV]!);
     expect(output).not.toContain(env[AUTHORIZATION_OWNER_ENV]!);

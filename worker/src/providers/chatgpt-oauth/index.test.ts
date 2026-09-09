@@ -186,9 +186,9 @@ describe("ChatGPT OAuth ProviderV2", () => {
       id: "chatgpt-oauth",
       displayName: "ChatGPT subscription",
       capabilities: {
-        functionTools: true,
+        functionTools: false,
         hostTools: false,
-        continuation: true,
+        continuation: false,
         requiresAuthentication: true,
       },
     });
@@ -272,7 +272,7 @@ describe("ChatGPT OAuth ProviderV2", () => {
     }
   });
 
-  it("streams one strict user request after canary and preserves continuation/usage", async () => {
+  it("rejects persistence-dependent continuation before user inference", async () => {
     const f = fixture();
     await ready(f);
     f.fetchSpy.mockResolvedValueOnce(sse("hello", { id: "resp_continue", input: 10, output: 2 }));
@@ -280,20 +280,10 @@ describe("ChatGPT OAuth ProviderV2", () => {
     const result = await f.provider.send(userRequest("run-stream", events, {
       persistContinuation: true,
     }));
-    expect(result).toMatchObject({
-      status: "ok",
-      continuation: "resp_continue",
-      freshFallback: false,
-      usage: { inputTokens: 10, outputTokens: 2 },
-    });
-    expect(events.mock.calls.flatMap((call) => call[0].type)).toEqual([
-      "delta", "usage", "continuation", "done",
-    ]);
-    expect(f.fetchSpy).toHaveBeenCalledOnce();
-    expect(f.attempts).toEqual([1]);
-    const body = JSON.parse(String((f.fetchSpy.mock.calls[0]![1] as RequestInit).body));
-    expect(body).toMatchObject({ model: "gpt-test", instructions: "system-safe", store: false, stream: true });
-    expect(body.input[0].content[0].text).toBe("user-safe");
+    expect(result).toMatchObject({ status: "error", errorCode: "CAPABILITY_UNSUPPORTED" });
+    expect(events.mock.calls.flatMap((call) => call[0].type)).toEqual(["error"]);
+    expect(f.fetchSpy).not.toHaveBeenCalled();
+    expect(f.attempts).toEqual([]);
   });
 
   it("gates each physical POST and performs exactly one refresh plus one retry on 401", async () => {

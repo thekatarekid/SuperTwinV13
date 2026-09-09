@@ -144,6 +144,15 @@ export function beginScratchHomeProof(env: NodeJS.ProcessEnv = process.env): Scr
   };
 }
 
+/** Successor/live-run entry points require the disposable leaf to exist now. */
+export function beginExistingScratchHomeProof(env: NodeJS.ProcessEnv = process.env): ScratchHomeProof {
+  const proof = beginScratchHomeProof(env);
+  const baseline = inspectScratchBaseline(proof.path);
+  if (!baseline.leafPresent) return refuseArtifact();
+  proof.assertEmpty();
+  return proof;
+}
+
 export function assertEmptyScratchHome(env: NodeJS.ProcessEnv = process.env): string {
   return beginScratchHomeProof(env).path;
 }

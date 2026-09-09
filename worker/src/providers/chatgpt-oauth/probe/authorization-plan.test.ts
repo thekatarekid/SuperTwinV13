@@ -5,7 +5,7 @@ import {
   PHASE0B_MATRIX_VERSION,
   phase0bAuthorizationPlanFromCases,
 } from "./authorization-plan.js";
-import { buildContractProbeMatrix } from "./matrix.js";
+import { buildContractProbeMatrix, PHASE0B_V4_PREFIX_RESERVATIONS } from "./matrix.js";
 import type { ProbeModelCatalogue } from "./models.js";
 
 const catalogue: ProbeModelCatalogue = {
@@ -27,21 +27,23 @@ const catalogue: ProbeModelCatalogue = {
 const planEnv = { SUPERTWIN_APP_VERSION: "13.12.2" };
 
 describe("Phase 0b authorization plan fingerprint", () => {
-  it("binds the full capable matrix to one deterministic 70-case/55-POST digest", () => {
+  it("binds the full capable matrix and immutable prefix to one deterministic digest", () => {
     const first = buildPhase0bAuthorizationPlan(catalogue, "gpt-probe", planEnv);
     const second = buildPhase0bAuthorizationPlan(catalogue, "gpt-probe", planEnv);
     expect(first).toEqual(second);
     expect(first).toEqual({
       matrixVersion: PHASE0B_MATRIX_VERSION,
-      matrixHash: "5846456a7c58a6fdb7f37ad91c5a69bfe86e1be350689186998204b545196fdc",
+      matrixHash: "900f6a6791cfa023362722a2adfda39aa2223c3b21257867105fde1edb9eda0a",
       caseCount: 70,
-      inferencePostCount: 55,
+      inferencePostCount: 43,
       inferenceRetries: 0,
+      prefixCheckpoint: { consumedPosts: 13, lastSequence: 21, predecessorRevision: 3,
+        predecessorConsumedPosts: 5, reservations: PHASE0B_V4_PREFIX_RESERVATIONS },
     });
   });
 
   it("changes when a valid posted request body changes", () => {
-    const cases = buildContractProbeMatrix(catalogue, "gpt-probe", {});
+    const cases = buildContractProbeMatrix(catalogue, "gpt-probe", {}, true);
     const original = phase0bAuthorizationPlanFromCases(cases, planEnv);
     const changed = cases.map((probe) => probe.sequence === 1
       ? {
@@ -73,22 +75,24 @@ describe("Phase 0b authorization plan fingerprint", () => {
     expect(reduced.caseCount).toBe(70);
   });
 
-  it("binds the observed gpt-5.6-sol capability shape to the revised 45-POST plan", () => {
+  it("binds the observed gpt-5.6-sol capability shape to the 37-POST v4 resume", () => {
     const liveShape: ProbeModelCatalogue = { models: [{
       id: "gpt-5.6-sol",
       capabilities: { inputModalities: ["text", "image"], parallelToolCalls: true },
     }] };
     expect(buildPhase0bAuthorizationPlan(liveShape, "gpt-5.6-sol", planEnv)).toEqual({
       matrixVersion: PHASE0B_MATRIX_VERSION,
-      matrixHash: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
+      matrixHash: "5d0620739e82a1c8ea4bc610ed2afd91247c67554b4552a6d26a145172ccaa6b",
       caseCount: 70,
-      inferencePostCount: 45,
+      inferencePostCount: 37,
       inferenceRetries: 0,
+      prefixCheckpoint: { consumedPosts: 13, lastSequence: 21, predecessorRevision: 3,
+        predecessorConsumedPosts: 5, reservations: PHASE0B_V4_PREFIX_RESERVATIONS },
     });
   });
 
   it("rejects incomplete matrices instead of fingerprinting a smaller plan", () => {
-    const cases = buildContractProbeMatrix(catalogue, "gpt-probe", {});
+    const cases = buildContractProbeMatrix(catalogue, "gpt-probe", {}, true);
     expect(() => phase0bAuthorizationPlanFromCases(cases.slice(1), planEnv)).toThrow(/exactly 70/);
     const invalidDisposition = cases.map((probe) => probe.sequence === 1
       ? { ...probe, disposition: "preflight-reject" as const }
@@ -121,7 +125,7 @@ describe("Phase 0b authorization plan fingerprint", () => {
     };
     expect(buildPhase0bAuthorizationPlan(withAnotherModel, "gpt-probe", planEnv).matrixHash)
       .toBe(buildPhase0bAuthorizationPlan(catalogue, "gpt-probe", planEnv).matrixHash);
-    const cases = buildContractProbeMatrix(catalogue, "gpt-probe", {});
+    const cases = buildContractProbeMatrix(catalogue, "gpt-probe", {}, true);
     const invalid = cases.map((probe) => probe.sequence === 1
       ? { ...probe, body: { ...probe.body, input: [1n] } }
       : probe);

@@ -17,11 +17,7 @@ export const CHATGPT_MAX_JSON_NODES = 10_000;
 
 const MAX_TEXT_BYTES = 512 * 1024;
 const MAX_DESCRIPTION_BYTES = 8 * 1024;
-const MAX_CONTINUATION_BYTES = 2 * 1024;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-// Keep continuation acceptance identical to the response IDs admitted by the
-// SSE parser. These values are opaque to callers, but not arbitrary strings.
-const SAFE_RESPONSE_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SAFE_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const SAFE_CACHE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const SAFE_DATA_IMAGE = /^data:image\/(?:png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/;
@@ -542,6 +538,12 @@ function buildChatGptRequestUnchecked(
   for (const field of ["persistContinuation", "plainCompletion", "skipHostSettings"] as const) {
     if (source[field] !== undefined && typeof source[field] !== "boolean") fail("BAD_REQUEST", field);
   }
+  // The subscription backend does not retain store:false responses for
+  // previous_response_id.  Fail closed until a continuation mechanism that
+  // preserves the mandatory no-storage contract is proven live.
+  if (source.continuation !== undefined || source.persistContinuation === true) {
+    fail("CAPABILITY_UNSUPPORTED", "continuation with store false");
+  }
   if (source.cwd !== undefined) boundedString(source.cwd, 4_096, "working directory");
 
   const mappedInput = rawInput.map((item) => mapInputItem(item as ProviderInputItem));
@@ -625,14 +627,6 @@ function buildChatGptRequestUnchecked(
     if (!Number.isSafeInteger(model.maxOutputTokens) || model.maxOutputTokens <= 0 ||
         maxOutputTokens > model.maxOutputTokens) fail("CAPABILITY_UNSUPPORTED", "max output tokens");
     body.max_output_tokens = maxOutputTokens;
-  }
-
-  if (source.continuation !== undefined) {
-    const continuation = dataRecord(source.continuation, "continuation");
-    exactKeys(continuation, ["token"], ["token"], "continuation");
-    const token = boundedString(continuation.token, MAX_CONTINUATION_BYTES, "continuation token");
-    if (!SAFE_RESPONSE_ID.test(token)) fail("BAD_REQUEST", "continuation token");
-    body.previous_response_id = token;
   }
 
   if (source.cache !== undefined) {

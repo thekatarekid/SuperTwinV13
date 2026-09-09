@@ -85,7 +85,7 @@ export interface ContractCaseEvidence {
   category: ContractProbeCase["category"];
   expectation: ContractProbeCase["expectation"];
   concurrency: ContractProbeCase["concurrency"];
-  status: number | "preflight-rejected" | "unsupported-skip" | "checkpoint-reused";
+  status: number | "preflight-rejected" | "unsupported-skip" | "checkpoint-reused" | "prefix-checkpoint";
   matchedExpectation: boolean;
   request: unknown;
   stream?: SseProbeEvidence;
@@ -555,6 +555,23 @@ function unsupportedEvidence(probe: ContractProbeCase): ContractCaseEvidence {
   };
 }
 
+function prefixCheckpointEvidence(probe: ContractProbeCase): ContractCaseEvidence {
+  if (probe.disposition !== "prefix-checkpoint" || !probe.checkpointOutcome) {
+    throw new Error(`Probe ${probe.name} is missing immutable prefix evidence`);
+  }
+  return {
+    sequence: probe.sequence,
+    name: probe.name,
+    category: probe.category,
+    expectation: probe.expectation,
+    concurrency: probe.concurrency,
+    status: "prefix-checkpoint",
+    matchedExpectation: true,
+    request: { checkpointReused: true, outcome: probe.checkpointOutcome },
+    ...(probe.unsupportedReason ? { preflightErrors: [probe.unsupportedReason] } : {}),
+  };
+}
+
 function checkpointEvidence(
   probe: ContractProbeCase,
   checkpoint: CanaryCompletionCheckpoint,
@@ -757,7 +774,9 @@ async function executeMatrix(
   let previousResponseId: string | undefined;
   const serial = cases.filter((probe) => probe.category !== "ladder");
   for (const probe of serial) {
-    const result = checkpoint && probe.sequence === 1
+    const result = probe.disposition === "prefix-checkpoint"
+      ? prefixCheckpointEvidence(probe)
+      : checkpoint && probe.sequence === 1
       ? checkpointEvidence(probe, checkpoint)
       : probe.disposition === "unsupported-skip"
       ? unsupportedEvidence(probe)
@@ -811,7 +830,8 @@ export async function runContractProbeScaffold(
   const listeningSocketsBefore = contractListeningSocketCount();
   const accounting = new ProbeHttpAccounting(contractHttpLimitsForRun(
     authorization.ledger.plannedInferencePosts,
-    Boolean(authorization.ledger.canaryCheckpoint),
+    Boolean(authorization.ledger.canaryCheckpoint) &&
+      authorization.ledger.matrixVersion !== "phase0b-contract-matrix-v4",
     hooks.authenticate !== undefined,
   ));
   const probeAbort = new AbortController();
@@ -861,7 +881,7 @@ export async function runContractProbeScaffold(
   }
   headers = buildBackendHeaders(refreshed.accessToken, accountId, env);
   const refreshEvidence = session.evidence();
-  const matrix = buildContractProbeMatrix(catalogue, selectedModel.id, env);
+  const matrix = buildContractProbeMatrix(catalogue, selectedModel.id, env, true);
   const checkpoint = reusableCanaryCheckpoint(boundAuthorization);
   const cases = await executeMatrix(matrix, headers, {
     ...probeHooks,
@@ -869,7 +889,7 @@ export async function runContractProbeScaffold(
   }, checkpoint);
   const evidenceInferencePosts = cases.filter(
     (probe) => probe.status !== "preflight-rejected" && probe.status !== "unsupported-skip" &&
-      probe.status !== "checkpoint-reused",
+      probe.status !== "checkpoint-reused" && probe.status !== "prefix-checkpoint",
   ).length;
   const matrixHttpActuals = accounting.snapshot();
   const actualInferencePosts = matrixHttpActuals.inference;

@@ -300,9 +300,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
   readonly id = "chatgpt-oauth" as const;
   readonly displayName = "ChatGPT subscription";
   readonly capabilities = Object.freeze({
-    functionTools: true,
+    functionTools: false,
     hostTools: false,
-    continuation: true,
+    continuation: false,
     requiresAuthentication: true,
   });
 
@@ -386,6 +386,9 @@ class ChatGptOAuthProviderImpl implements ChatGptOAuthProvider {
     try {
       stableRequest = snapshotRequest(request);
       if (typeof stableRequest.onEvent === "function") onEvent = stableRequest.onEvent;
+      if ((stableRequest.tools?.length ?? 0) > 0) {
+        return failureResult("CAPABILITY_UNSUPPORTED", onEvent);
+      }
       model = this.model(stableRequest.model);
       // Build once before canary/network so hostile request shapes fail locally.
       body = buildChatGptRequest(stableRequest, model);

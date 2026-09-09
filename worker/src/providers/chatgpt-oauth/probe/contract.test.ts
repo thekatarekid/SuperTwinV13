@@ -12,7 +12,6 @@ import {
   CODEX_RESPONSES_URL,
   CODEX_USAGE_URL,
   FULL_PROBE_CASE_BUDGET,
-  FULL_PROBE_INFERENCE_POST_BUDGET,
 } from "./constants.js";
 import {
   buildContractCaseMismatchDiagnostic,
@@ -24,6 +23,7 @@ import { ProbeHttpAccounting } from "./accounting.js";
 import { buildPhase0bAuthorizationPlan } from "./authorization-plan.js";
 import {
   buildContractProbeMatrix,
+  PHASE0B_V4_PREFIX_RESERVATIONS,
   PROBED_ALLOWLIST_FIELDS,
 } from "./matrix.js";
 import { redactedJson } from "./redact.js";
@@ -32,7 +32,6 @@ import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
 import type { ProbeModelCatalogue } from "./models.js";
 import {
   addTestInferenceAuthorization,
-  addTestSuccessorInferenceAuthorization,
   cleanupTestInferenceAuthorizations,
   testConsumedInferencePosts,
   testMatchedCanaryReservationPost,
@@ -147,6 +146,25 @@ describe("Phase 0b declarative contract matrix", () => {
       expect(matrix.filter((probe) => probe.name === `allowlist.${field}.rejected`)).toHaveLength(1);
     }
     expect(matrix.filter((probe) => probe.expectation === "rejected")).toHaveLength(15);
+  });
+
+  it("freezes the observed prefix and exposes only the 37 untouched live-shape posts", () => {
+    const cases = buildContractProbeMatrix(
+      DISCOVERED_GPT_5_6_SOL_CATALOGUE,
+      "gpt-5.6-sol",
+      { SUPERTWIN_APP_VERSION: "13.12.2" },
+      true,
+    );
+    expect(cases.slice(0, 21).every(({ disposition }) => disposition === "prefix-checkpoint")).toBe(true);
+    expect(cases.filter(({ disposition }) => disposition === "post")).toHaveLength(37);
+    expect(cases.filter(({ disposition }) => disposition === "post")
+      .every(({ sequence }) => sequence > 21)).toBe(true);
+    expect(cases[20]).toMatchObject({
+      sequence: 21,
+      name: "allowlist.previous_response_id.accepted",
+      disposition: "prefix-checkpoint",
+      checkpointOutcome: "backend-incompatible",
+    });
   });
 });
 
@@ -550,17 +568,17 @@ describe("mocked contract runner scaffold", () => {
       env: liveEnv,
     });
 
-    expect(inferencePosts).toBe(FULL_PROBE_INFERENCE_POST_BUDGET);
-    expect(testConsumedInferencePosts(liveEnv)).toBe(FULL_PROBE_INFERENCE_POST_BUDGET);
+    expect(inferencePosts).toBe(43);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(43);
     expect(consumedAtStageStart).toEqual(new Map([
-      [42, 27], [43, 31], [47, 39], [55, 55],
+      [42, 15], [43, 19], [47, 27], [55, 43],
     ]));
-    expect(fetchMock).toHaveBeenCalledTimes(62);
+    expect(fetchMock).toHaveBeenCalledTimes(50);
     expect(evidence).toMatchObject({
       persistedCredentials: false,
       inferenceRetries: 0,
-      plannedInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
-      actualInferencePosts: FULL_PROBE_INFERENCE_POST_BUDGET,
+      plannedInferencePosts: 43,
+      actualInferencePosts: 43,
       modelCatalogue: { ids: ["gpt-probe"], selectedId: "gpt-probe" },
       quotaComparison: { healthyAtStart: true, healthyAtEnd: true },
       refresh: { authenticated: true, previousRecoveryPairAvailable: true },
@@ -571,9 +589,9 @@ describe("mocked contract runner scaffold", () => {
         token: 2,
         models: 1,
         quota: 2,
-        inference: 55,
+        inference: 43,
         other: 0,
-        total: 62,
+        total: 50,
       },
       localListeningSocketsCreated: false,
     });
@@ -589,29 +607,14 @@ describe("mocked contract runner scaffold", () => {
     expect(evidence.cache.supported).toBe(true);
     if (!evidence.cache.supported) throw new Error("Mocked capable model unexpectedly skipped cache evidence");
     expect(evidence.cache.modes.map(({ mode }) => mode)).toEqual(["none", "implicit", "explicit"]);
-    expect(evidence.cases[1]?.stream?.stoppedEarly).toBe(true);
-    expect(cancellationSignal?.aborted).toBe(true);
+    expect(evidence.cases[1]?.status).toBe("prefix-checkpoint");
+    expect(cancellationSignal).toBeUndefined();
     expect(evidence.cases.find(({ name }) => name === "focused.strict-json")?.stream)
       .toMatchObject({ outputMatchesExactOkBooleanSchema: true });
     expect(evidence.cases.find(({ name }) => name === "focused.tool-call")?.stream?.functionCalls)
       .toEqual([{ name: "probe_echo", argumentBytes: 17, argumentsJsonValid: true, argumentsMatchProbeEchoSchema: true }]);
-    expect(continuationBody?.previous_response_id).toBe("resp_probe");
-    expect(Object.keys(canaryHeaders ?? {}).sort()).toEqual([
-      "Accept",
-      "Authorization",
-      "ChatGPT-Account-ID",
-      "Content-Type",
-      "User-Agent",
-      "originator",
-      "session_id",
-      "x-client-request-id",
-    ].sort());
-    expect(canaryHeaders).toMatchObject({
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "User-Agent": "SuperTwinV13/13.12.2",
-      originator: "supertwinv13",
-    });
+    expect(continuationBody).toBeUndefined();
+    expect(canaryHeaders).toBeUndefined();
     const output = redactedJson(evidence);
     expect(output).not.toContain(accountId);
     expect(output).not.toContain("refresh-secret");
@@ -619,7 +622,7 @@ describe("mocked contract runner scaffold", () => {
     expect(output).not.toContain("resp_probe");
   });
 
-  it("runs the exact discovered gpt-5.6-sol 45-POST plan end to end", async () => {
+  it("runs only the exact untouched gpt-5.6-sol 37-POST suffix", async () => {
     const accountId = "acct-discovered-gpt-5-6-sol";
     const plan = buildPhase0bAuthorizationPlan(
       DISCOVERED_GPT_5_6_SOL_CATALOGUE,
@@ -627,20 +630,22 @@ describe("mocked contract runner scaffold", () => {
       { SUPERTWIN_APP_VERSION: "13.12.2" },
     );
     expect(plan).toEqual({
-      matrixVersion: "phase0b-contract-matrix-v3",
-      matrixHash: "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9",
+      matrixVersion: "phase0b-contract-matrix-v4",
+      matrixHash: "5d0620739e82a1c8ea4bc610ed2afd91247c67554b4552a6d26a145172ccaa6b",
       caseCount: 70,
-      inferencePostCount: 45,
+      inferencePostCount: 37,
       inferenceRetries: 0,
+      prefixCheckpoint: { consumedPosts: 13, lastSequence: 21, predecessorRevision: 3,
+        predecessorConsumedPosts: 5, reservations: PHASE0B_V4_PREFIX_RESERVATIONS },
     });
-    const liveEnv = await addTestSuccessorInferenceAuthorization({
+    const liveEnv = await addTestInferenceAuthorization({
       SUPERTWIN_RUN_LIVE_CHATGPT_OAUTH_PROBE: "1",
       [LIVE_CONTRACT_PROBE_ENV]: "1",
       SUPERTWIN_CHATGPT_PROBE_ACCOUNT_FINGERPRINT: accountFingerprint(accountId),
       SUPERTWIN_CHATGPT_PROBE_MODEL: "gpt-5.6-sol",
       SUPERTWIN_APP_VERSION: "13.12.2",
       SUPERTWIN_HOME: join(tmpdir(), "supertwin-phase0b-discovered-plan-test"),
-    }, DISCOVERED_GPT_5_6_SOL_CATALOGUE);
+    }, DISCOVERED_GPT_5_6_SOL_CATALOGUE, { consumedPosts: 13 });
 
     let inferencePosts = 0;
     const sequences: number[] = [];
@@ -690,23 +695,29 @@ describe("mocked contract runner scaffold", () => {
       env: liveEnv,
     });
 
-    expect(sequences).toHaveLength(45);
-    expect(new Set(sequences).size).toBe(45);
-    expect(inferencePosts).toBe(45);
-    expect(testConsumedInferencePosts(liveEnv)).toBe(48);
-    expect(fetchMock).toHaveBeenCalledTimes(52);
+    expect(sequences).toHaveLength(37);
+    expect(sequences.every((sequence) => sequence > 21)).toBe(true);
+    expect(new Set(sequences).size).toBe(37);
+    expect(inferencePosts).toBe(37);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(50);
+    expect(fetchMock).toHaveBeenCalledTimes(44);
     expect(evidence).toMatchObject({
-      plannedInferencePosts: 45,
-      actualInferencePosts: 45,
+      plannedInferencePosts: 37,
+      actualInferencePosts: 37,
       checkpoint: { canary: "not-reused" },
       modelCatalogue: { ids: ["gpt-5.6-sol"], selectedId: "gpt-5.6-sol" },
-      httpActuals: { inference: 45, total: 52 },
+      httpActuals: { inference: 37, total: 44 },
     });
     expect(evidence.cases).toHaveLength(70);
-    expect(evidence.cases.filter(({ status }) => status === "unsupported-skip")).toHaveLength(10);
+    expect(evidence.cases.slice(0, 21).every(({ status }) => status === "prefix-checkpoint")).toBe(true);
+    expect(evidence.cases[20]).toMatchObject({
+      name: "allowlist.previous_response_id.accepted",
+      status: "prefix-checkpoint",
+      matchedExpectation: true,
+    });
   });
 
-  it("reuses only an exact matched canary and runs the remaining 54 POSTs", async () => {
+  it("never lets a historical canary checkpoint rerun the immutable v4 prefix", async () => {
     const accountId = "acct-checkpoint-resume";
     const liveEnv = await contractEnv(
       accountId,
@@ -723,7 +734,6 @@ describe("mocked contract runner scaffold", () => {
 
     const sequences: number[] = [];
     const consumedAtStageStart = new Map<number, number>();
-    let continuationBody: Record<string, unknown> | undefined;
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input);
       if (url === CODEX_DEVICE_CODE_URL) {
@@ -757,7 +767,6 @@ describe("mocked contract runner scaffold", () => {
       if ([42, 43, 47, 55].includes(sequence) && !consumedAtStageStart.has(sequence)) {
         consumedAtStageStart.set(sequence, testConsumedInferencePosts(liveEnv));
       }
-      if (sequence === 21) continuationBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
       if (sequence >= 4 && sequence <= 32 && sequence % 2 === 0) {
         return jsonResponse(400, { error: { code: "invalid_request" } });
       }
@@ -774,29 +783,21 @@ describe("mocked contract runner scaffold", () => {
       env: liveEnv,
     });
 
-    expect(sequences).toHaveLength(54);
-    expect(sequences).not.toContain(1);
-    expect(Object.fromEntries(consumedAtStageStart)).toEqual({ 42: 29, 43: 33, 47: 41, 55: 57 });
-    expect(continuationBody?.previous_response_id).toBe("resp_probe");
-    expect(testConsumedInferencePosts(liveEnv)).toBe(57);
+    expect(sequences).toHaveLength(43);
+    expect(sequences.every((sequence) => sequence > 21)).toBe(true);
+    expect(Object.fromEntries(consumedAtStageStart)).toEqual({ 42: 18, 43: 22, 47: 30, 55: 46 });
+    expect(testConsumedInferencePosts(liveEnv)).toBe(46);
     expect(testMatchedCanaryReservationPost(liveEnv)).toBe(3);
     expect(evidence).toMatchObject({
-      plannedInferencePosts: 54,
-      actualInferencePosts: 54,
-      checkpoint: {
-        canary: "reused",
-        caseSequence: 1,
-        caseName: "canary.blank-context",
-        acceptancePolicyVersion: "phase0b-canary-success-v1",
-        plannedInferencePosts: 55,
-        reservationPost: 3,
-      },
-      httpActuals: { inference: 54, total: 61 },
+      plannedInferencePosts: 43,
+      actualInferencePosts: 43,
+      checkpoint: { canary: "not-reused" },
+      httpActuals: { inference: 43, total: 50 },
     });
     expect(evidence.cases).toHaveLength(70);
     expect(evidence.cases[0]).toMatchObject({
       sequence: 1,
-      status: "checkpoint-reused",
+      status: "prefix-checkpoint",
       matchedExpectation: true,
     });
     expect(evidence.cases[0]?.stream).toBeUndefined();
@@ -928,7 +929,7 @@ describe("mocked contract runner scaffold", () => {
       failure = error;
     }
     const message = failure instanceof Error ? failure.message : String(failure);
-    expect(message).toContain("canary.blank-context did not match");
+    expect(message).toContain("allowlist.prompt_cache_key.accepted did not match");
     expect(message).toContain('"status":200');
     expect(message).toContain('"contentTypeCategory":"event-stream"');
     expect(message).toContain('"eventCount":3');
@@ -1015,6 +1016,6 @@ describe("mocked contract runner scaffold", () => {
     expect(settledPeers).toEqual(new Set([44, 45, 46]));
     expect(startedSequences).toEqual(expect.arrayContaining([42, 43, 44, 45, 46]));
     expect(startedSequences.some((sequence) => sequence >= 47)).toBe(false);
-    expect(testConsumedInferencePosts(liveEnv)).toBe(31);
+    expect(testConsumedInferencePosts(liveEnv)).toBe(19);
   });
 });

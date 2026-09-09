@@ -97,7 +97,7 @@ describe("Phase 0b live cumulative authorization wiring", () => {
       consumedPosts: 2,
     });
     await expect(prepareLiveInferenceAuthorization("contract", contractEnv)).resolves.toMatchObject({
-      ledger: { plannedInferencePosts: 43, authorizedPosts: 55, consumedPosts: 2 },
+      ledger: { plannedInferencePosts: 36, authorizedPosts: 55, consumedPosts: 2 },
     });
     const currentPlanCatalogue = {
       models: [{ id: "gpt-probe", capabilities: { parallelToolCalls: true, structuredOutput: true } }],
@@ -108,16 +108,16 @@ describe("Phase 0b live cumulative authorization wiring", () => {
     });
     const currentPrepared = await prepareLiveInferenceAuthorization("contract", currentGrantEnv);
     expect(currentPrepared).toMatchObject({
-      ledger: { plannedInferencePosts: 45, authorizedPosts: 55, consumedPosts: 2 },
+      ledger: { plannedInferencePosts: 37, authorizedPosts: 55, consumedPosts: 2 },
     });
     await expect(bindLiveInferenceAuthorizationPlan(
       currentPrepared,
       currentPlanCatalogue,
       "gpt-probe",
       currentGrantEnv,
-    )).resolves.toMatchObject({ plan: { inferencePostCount: 45 } });
+    )).resolves.toMatchObject({ plan: { inferencePostCount: 37 } });
     const insufficientEnv = await addTestInferenceAuthorization(baseEnv("contract"), undefined, {
-      authorizedPosts: 44,
+      authorizedPosts: 37,
       consumedPosts: 2,
     });
     await expect(prepareLiveInferenceAuthorization("contract", insufficientEnv)).rejects.toThrow(/insufficient/);

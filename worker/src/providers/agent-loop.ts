@@ -12,14 +12,14 @@ import { emptyUsage } from "./usage.js";
 const SAFE_CALL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const SAFE_CONTINUATION = /^[A-Za-z0-9_-]{1,256}$/;
 
-export type AgentTurnLoopErrorCode = "BAD_REQUEST";
+export type AgentTurnLoopErrorCode = "BAD_REQUEST" | "CAPABILITY_UNSUPPORTED";
 
 export class AgentTurnLoopError extends Error {
   readonly code: AgentTurnLoopErrorCode;
-  constructor(message: string) {
+  constructor(message: string, code: AgentTurnLoopErrorCode = "BAD_REQUEST") {
     super(message);
     this.name = "AgentTurnLoopError";
-    this.code = "BAD_REQUEST";
+    this.code = code;
   }
 }
 
@@ -37,7 +37,14 @@ export interface RunAgentTurnLoopOptions {
 
 /** Production dispatch seam: function-tool requests cannot bypass the owned loop. */
 export async function sendProviderRequest(options: RunAgentTurnLoopOptions): Promise<NeutralProviderResult> {
-  return (options.request.tools?.length ?? 0) > 0
+  const hasTools = (options.request.tools?.length ?? 0) > 0;
+  if (hasTools && !options.provider.capabilities.continuation) {
+    throw new AgentTurnLoopError(
+      "Provider cannot safely continue an agent turn",
+      "CAPABILITY_UNSUPPORTED",
+    );
+  }
+  return hasTools
     ? runAgentTurnLoop(options)
     : options.provider.send(options.request);
 }

@@ -18,6 +18,7 @@ import {
   AUTHORIZED_PLANNED_INFERENCE_POSTS_ENV,
 } from "./live-authorization.js";
 import { REQUESTED_PROBE_MODEL_ENV } from "./models.js";
+import { beginExistingScratchHomeProof } from "./scratch.js";
 
 export { AUTHORIZATION_MATRIX_HASH_ENV, AUTHORIZATION_MATRIX_VERSION_ENV } from "./live-authorization.js";
 export const AUTHORIZATION_INITIAL_CONSUMED_POSTS_ENV =
@@ -47,15 +48,17 @@ export const AUTHORIZATION_SUCCESSOR_MATRIX_HASH_ENV =
 export const AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV =
   "SUPERTWIN_CHATGPT_AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS";
 
-export const CURRENT_ACTIVE_MATRIX_VERSION = "phase0b-contract-matrix-v2";
-export const CURRENT_ACTIVE_MATRIX_HASH = "a6c50fd7c7725b65525d35db1e9ad4d3060619be5e7e405ead68cf19d2555b09";
+export const CURRENT_ACTIVE_MATRIX_VERSION = "phase0b-contract-matrix-v3";
+export const CURRENT_ACTIVE_MATRIX_HASH = "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9";
 export const CURRENT_ACTIVE_PLANNED_INFERENCE_POSTS = 45;
-export const CURRENT_AUTHORIZATION_PLAN_REVISION = 2;
-export const CURRENT_AUTHORIZATION_EXPECTED_CONSUMED_POSTS = 5;
-export const SUCCESSOR_AUTHORIZATION_PLAN_REVISION = 3;
-export const SUCCESSOR_AUTHORIZED_PLANNED_INFERENCE_POSTS = 45;
+export const CURRENT_AUTHORIZATION_PLAN_REVISION = 3;
+export const CURRENT_AUTHORIZATION_EXPECTED_CONSUMED_POSTS = 13;
+export const SUCCESSOR_AUTHORIZATION_PLAN_REVISION = 4;
+export const SUCCESSOR_AUTHORIZED_PLANNED_INFERENCE_POSTS = 37;
 export const SUCCESSOR_AUTHORIZATION_MATRIX_HASH =
-  "5bcf8cfc86f44bcb16e26b78522d096deaf1527cef32f2b3b37503dbbed2dfd9";
+  "5d0620739e82a1c8ea4bc610ed2afd91247c67554b4552a6d26a145172ccaa6b";
+export const SUCCESSOR_AUTHORIZATION_TRANSITION_ID =
+  "request-matrix-v4-continuation-fail-closed";
 
 export interface AuthorizationLedgerInitializationEvidence {
   status: "authorization-ledger-created";
@@ -147,7 +150,6 @@ export async function initializeInferenceAuthorizationFromEnvironment(
   if (!isAbsolute(ledgerPath) || !isAbsolute(superTwinHome)) {
     throw new Error("REFUSED: ledger initialization paths must be explicit absolute paths");
   }
-
   const matrixVersion = required(env, AUTHORIZATION_MATRIX_VERSION_ENV);
   if (matrixVersion !== INITIAL_AUTHORIZATION_MATRIX_VERSION) {
     throw new Error(
@@ -190,7 +192,7 @@ export async function initializeInferenceAuthorizationFromEnvironment(
 }
 
 
-/** Explicit offline append-only activation of the observed transport-only matrix successor. */
+/** Explicit offline append-only activation of the prefix-preserving matrix-v4 successor. */
 export async function appendInferenceAuthorizationPlanSuccessorFromEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<AuthorizationPlanSuccessorAppendEvidence> {
@@ -199,6 +201,7 @@ export async function appendInferenceAuthorizationPlanSuccessorFromEnvironment(
   if (!isAbsolute(ledgerPath) || !isAbsolute(superTwinHome)) {
     throw new Error("REFUSED: authorization successor paths must be explicit absolute paths");
   }
+  const scratchProof = beginExistingScratchHomeProof(env);
   const authorizedPosts = requireExactInteger(
     env,
     AUTHORIZED_INFERENCE_POSTS_ENV,
@@ -244,30 +247,40 @@ export async function appendInferenceAuthorizationPlanSuccessorFromEnvironment(
     AUTHORIZATION_SUCCESSOR_PLANNED_INFERENCE_POSTS_ENV,
     SUCCESSOR_AUTHORIZED_PLANNED_INFERENCE_POSTS,
   );
-  const transitionId = required(env, AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV);
-  const ledger = await appendInferenceAuthorizationPlanSuccessor(
-    { ledgerPath, superTwinHome },
-    {
-      authorizationId: required(env, AUTHORIZATION_ID_ENV),
-      owner: required(env, AUTHORIZATION_OWNER_ENV),
-      accountFingerprint: required(env, EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
-      modelId: required(env, REQUESTED_PROBE_MODEL_ENV),
-      authorizedPosts,
-    },
-    {
-      revision: predecessorRevision,
-      matrixVersion: predecessorMatrixVersion,
-      matrixHash: predecessorMatrixHash,
-      plannedInferencePosts: predecessorPlannedInferencePosts,
-      expectedConsumedPosts,
-    },
-    {
-      transitionId,
-      matrixVersion: successorMatrixVersion,
-      matrixHash: successorMatrixHash,
-      plannedInferencePosts: successorPlannedInferencePosts,
-    },
+  const transitionId = requireExact(
+    env,
+    AUTHORIZATION_SUCCESSOR_TRANSITION_ID_ENV,
+    SUCCESSOR_AUTHORIZATION_TRANSITION_ID,
   );
+  scratchProof.assertEmpty();
+  let ledger: InferenceAuthorizationLedger;
+  try {
+    ledger = await appendInferenceAuthorizationPlanSuccessor(
+      { ledgerPath, superTwinHome },
+      {
+        authorizationId: required(env, AUTHORIZATION_ID_ENV),
+        owner: required(env, AUTHORIZATION_OWNER_ENV),
+        accountFingerprint: required(env, EXPECTED_PROBE_ACCOUNT_FINGERPRINT_ENV),
+        modelId: required(env, REQUESTED_PROBE_MODEL_ENV),
+        authorizedPosts,
+      },
+      {
+        revision: predecessorRevision,
+        matrixVersion: predecessorMatrixVersion,
+        matrixHash: predecessorMatrixHash,
+        plannedInferencePosts: predecessorPlannedInferencePosts,
+        expectedConsumedPosts,
+      },
+      {
+        transitionId,
+        matrixVersion: successorMatrixVersion,
+        matrixHash: successorMatrixHash,
+        plannedInferencePosts: successorPlannedInferencePosts,
+      },
+    );
+  } finally {
+    scratchProof.assertEmpty();
+  }
   if (ledger.planRevision !== SUCCESSOR_AUTHORIZATION_PLAN_REVISION ||
       ledger.planTransitionId !== transitionId || ledger.matrixVersion !== PHASE0B_MATRIX_VERSION ||
       ledger.matrixHash !== SUCCESSOR_AUTHORIZATION_MATRIX_HASH ||

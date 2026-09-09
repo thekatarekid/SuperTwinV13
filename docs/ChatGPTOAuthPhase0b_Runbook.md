@@ -131,11 +131,13 @@ npm run probe:chatgpt-oauth -- --live-auth --live-canary
 
 The command used browser Authorization Code + PKCE with the automatic `http://localhost:1455/auth/callback` return. It never displayed or accepted a device code. Actual worker fetches were token POSTs `2`, models GET `1`, quota GETs `2`, inference POST `1`, with device-code/device-poll/other `0` and zero retries, plus one browser navigation.
 
-The separately authorized resume must use the same immutable environment binding above, add `SUPERTWIN_RUN_LIVE_CHATGPT_CONTRACT_PROBE=1`, and run `npm run probe:chatgpt-oauth -- --live-auth --live-contract` from a new canonical empty `0700` scratch home. The checkpoint skips only sequence 1. Its maximum external operations are one automatic browser navigation, one localhost callback, token POSTs `2`, models GET `1`, quota GETs up to `2`, inference POSTs exactly `44`, device-code/device-poll/other `0`, and zero retries. That is at most 49 worker fetches. Stop on the first mismatch, restriction, 401/403/429, unhealthy quota, cancellation, or transport/schema error; reservations are never refunded.
+The separately authorized matrix-v3 resume used the same immutable binding and stopped correctly at sequence 21 after seven inference POSTs. Exact actuals were token POSTs `2`, models GET `1`, quota GETs `1`, inference POSTs `7`, total worker fetches `11`, plus one automatic browser navigation and localhost callback; device-code/device-poll/other and retries were `0`. The ledger is now 13/55. The HTTP 400 safely identified `previous_response_id`: the prior response was deliberately `store:false`, so the backend could not resume it. No later matrix case ran.
+
+Matrix-v4 preserves reservation posts 6–13 as the exact sequence map `1,2,3,5,7,13,17,21`, records sequence 21 as `backend-incompatible`, and converts sequences 1–21 into immutable non-posting prefix evidence. Its SHA-256 is `5d0620739e82a1c8ea4bc610ed2afd91247c67554b4552a6d26a145172ccaa6b`; the suffix contains exactly 37 untouched posts and zero retries, leaving 5 under the existing cap if completed. Do not append revision 4 or run its suffix without a new exact authorization. The successor requires a new canonical, nonsymlink, empty owner-only `0700` directory under system temp and the existing external ledger; it rejects any alternate transition ID or scratch shape.
 
 ## Forbidden operations
 
-- Do not set the full-contract opt-in or pass `--live-contract` without a fresh authorization for the exact 44-request matrix-v3 checkpoint resume.
+- Do not append matrix-v4 or pass `--live-contract` without a fresh authorization for the exact revision-4/hash-bound 37-request suffix.
 - Do not use a different account, model, app version, matrix fingerprint, owner, authorization ID, or cap.
 - Do not reuse a nonempty scratch home or the production SuperTwin home.
 - Do not edit SQLite manually, copy in a lower counter, delete the ledger, or initialize a replacement grant.

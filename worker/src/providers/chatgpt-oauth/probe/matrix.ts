@@ -20,13 +20,28 @@ export interface ContractProbeCase {
   concurrency: ProbeConcurrency;
   stage: string;
   body: Record<string, unknown>;
-  disposition?: "post" | "preflight-reject" | "unsupported-skip";
+  disposition?: "post" | "preflight-reject" | "unsupported-skip" | "prefix-checkpoint";
   unsupportedReason?: string;
+  checkpointOutcome?: "matched" | "backend-incompatible" | "preflight-rejected" | "unsupported-skip";
 }
 
 export function isPostedProbeCase(probe: ContractProbeCase): boolean {
   return probe.disposition === "post";
 }
+
+export const PHASE0B_V4_PREFIX_LAST_SEQUENCE = 21;
+export const PHASE0B_V4_PREFIX_CONSUMED_POSTS = 13;
+export const PHASE0B_V4_REMAINING_POSTS = 37;
+export const PHASE0B_V4_PREFIX_RESERVATIONS = Object.freeze([
+  { reservationPost: 6, caseSequence: 1, outcome: "matched" },
+  { reservationPost: 7, caseSequence: 2, outcome: "matched" },
+  { reservationPost: 8, caseSequence: 3, outcome: "matched" },
+  { reservationPost: 9, caseSequence: 5, outcome: "matched" },
+  { reservationPost: 10, caseSequence: 7, outcome: "matched" },
+  { reservationPost: 11, caseSequence: 13, outcome: "matched" },
+  { reservationPost: 12, caseSequence: 17, outcome: "matched" },
+  { reservationPost: 13, caseSequence: 21, outcome: "backend-incompatible" },
+] as const);
 
 export const PROBED_ALLOWLIST_FIELDS = [
   "model",
@@ -328,6 +343,7 @@ export function buildContractProbeMatrix(
   source: string | ProbeModelCatalogue,
   requestedModel?: string,
   env: NodeJS.ProcessEnv = process.env,
+  reuseObservedPrefix = false,
 ): ContractProbeCase[] {
   const selected = typeof source === "string"
     ? { id: source.trim(), capabilities: {} }
@@ -375,9 +391,31 @@ export function buildContractProbeMatrix(
     ...focusedFixtures(model),
     ...ladderFixtures(model),
   ];
-  const cases = unordered.map((probe, index) =>
-    applyModelCapabilities({ ...probe, sequence: index + 1 }, selected));
+  const cases: ContractProbeCase[] = unordered.map((probe, index): ContractProbeCase => {
+    const resolved = applyModelCapabilities({ ...probe, sequence: index + 1 }, selected);
+    if (!reuseObservedPrefix || resolved.sequence > PHASE0B_V4_PREFIX_LAST_SEQUENCE) return resolved;
+    const checkpointOutcome: NonNullable<ContractProbeCase["checkpointOutcome"]> =
+      resolved.name === "allowlist.previous_response_id.accepted"
+      ? "backend-incompatible"
+      : resolved.disposition === "preflight-reject"
+        ? "preflight-rejected"
+        : resolved.disposition === "unsupported-skip"
+          ? "unsupported-skip"
+          : "matched";
+    return {
+      ...resolved,
+      disposition: "prefix-checkpoint" as const,
+      checkpointOutcome,
+      ...(checkpointOutcome === "backend-incompatible"
+        ? { unsupportedReason: "store:false response IDs are not resumable by the subscription backend" }
+        : {}),
+    };
+  });
   assertContractProbeMatrix(cases);
+  if (reuseObservedPrefix && selected.id === "gpt-5.6-sol" &&
+      cases.filter(isPostedProbeCase).length !== PHASE0B_V4_REMAINING_POSTS) {
+    throw new Error("Phase 0b matrix-v4 must contain exactly 37 untouched inference POSTs");
+  }
   return cases;
 }
 
@@ -423,7 +461,15 @@ export function assertContractProbeMatrix(cases: readonly ContractProbeCase[]): 
     if (probe.category === "ladder" && !isPostedProbeCase(probe)) {
       throw new Error(`Ladder fixture ${probe.name} must be posted`);
     }
-    if (probe.expectation === "rejected") {
+    if (probe.disposition === "prefix-checkpoint") {
+      if (!probe.checkpointOutcome || probe.sequence > PHASE0B_V4_PREFIX_LAST_SEQUENCE) {
+        throw new Error(`Prefix fixture ${probe.name} has invalid checkpoint evidence`);
+      }
+      if (probe.name === "allowlist.previous_response_id.accepted" &&
+          probe.checkpointOutcome !== "backend-incompatible") {
+        throw new Error("Phase 0b continuation failure evidence is missing");
+      }
+    } else if (probe.expectation === "rejected") {
       if (probe.disposition !== "preflight-reject") {
         throw new Error(`Rejected fixture ${probe.name} has an invalid disposition`);
       }

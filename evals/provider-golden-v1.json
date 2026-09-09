@@ -7,8 +7,8 @@
   "baseline_sha256": "82535339a203ebe9a227ce18c7c2c91dc0cb23931962e36f7f60e38c3cadbead",
   "gate_source_sha256": "f1fb0dadf926d32317d1a7d3811b6022d20a53ed394f0725fa55e626cfd8abc3",
   "code_identity": {
-    "files": ["worker/src/evals/provider-golden-combined-cli.ts", "worker/src/evals/provider-golden-combined.ts", "worker/src/evals/provider-golden-live.ts", "worker/src/evals/provider-golden-rail.ts", "worker/src/providers/chatgpt-oauth/index.ts", "worker/src/providers/chatgpt-oauth/keychain-broker.ts", "worker/src/providers/chatgpt-oauth/keychain.ts", "worker/src/providers/chatgpt-oauth/models.ts", "worker/src/providers/chatgpt-oauth/quota.ts", "worker/src/providers/chatgpt-oauth/runtime.ts", "worker/src/providers/claude-local/index.ts"],
-    "sha256": "9ab551a01e9403347c89ec8b63a4eddd33072ab2cf2556ba654ba2d60bafc351"
+    "files": ["worker/src/evals/provider-golden-combined-cli.ts", "worker/src/evals/provider-golden-combined.ts", "worker/src/evals/provider-golden-live.ts", "worker/src/evals/provider-golden-rail.ts", "worker/src/providers/chatgpt-oauth/index.ts", "worker/src/providers/chatgpt-oauth/keychain-broker.ts", "worker/src/providers/chatgpt-oauth/keychain.ts", "worker/src/providers/chatgpt-oauth/models.ts", "worker/src/providers/chatgpt-oauth/quota.ts", "worker/src/providers/chatgpt-oauth/runtime.ts", "worker/src/providers/claude-local/index.ts", "worker/src/providers/claude-local/neutral.ts"],
+    "sha256": "5525574327ca63efd7bf626e3f68fe69754d530e97e89711c29a873ad23395dd"
   },
   "cases": { "live": 116, "code": 162 },
   "logical_calls": { "executor": 116, "judge_initial": 116, "judge_repair": 116 },

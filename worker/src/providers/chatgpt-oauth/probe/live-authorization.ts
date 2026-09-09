@@ -15,6 +15,7 @@ import {
 } from "./authorization-ledger.js";
 import {
   buildPhase0bAuthorizationPlan,
+  PHASE0B_MATRIX_VERSION,
   type Phase0bAuthorizationPlan,
 } from "./authorization-plan.js";
 import { requestedProbeModelId } from "./models.js";
@@ -142,7 +143,8 @@ export async function prepareLiveInferenceAuthorization(
   }
   const intendedPosts = mode === "canary"
     ? 1
-    : ledger.plannedInferencePosts - (ledger.canaryCheckpoint ? 1 : 0);
+    : ledger.plannedInferencePosts -
+      (ledger.canaryCheckpoint && ledger.matrixVersion !== PHASE0B_MATRIX_VERSION ? 1 : 0);
   if (ledger.authorizedPosts - ledger.consumedPosts < intendedPosts) {
     throw new Error(`REFUSED: cumulative inference authorization is insufficient for ${mode}`);
   }
@@ -177,7 +179,8 @@ export async function bindLiveInferenceAuthorizationPlan(
     throw new Error("REFUSED: canary checkpoint changed after preflight");
   }
   const required = authorization.mode === "contract"
-    ? ledger.plannedInferencePosts - (ledger.canaryCheckpoint ? 1 : 0)
+    ? ledger.plannedInferencePosts -
+      (ledger.canaryCheckpoint && ledger.matrixVersion !== PHASE0B_MATRIX_VERSION ? 1 : 0)
     : 1;
   if (ledger.authorizedPosts - ledger.consumedPosts < required) {
     throw new Error(`REFUSED: cumulative inference authorization is insufficient for ${authorization.mode}`);
@@ -196,6 +199,7 @@ export async function reserveLiveInferencePosts(
 export function reusableCanaryCheckpoint(
   authorization: BoundLiveInferenceAuthorization,
 ): CanaryCompletionCheckpoint | undefined {
+  if (authorization.plan.prefixCheckpoint.lastSequence >= 1) return undefined;
   return authorization.ledger.canaryCheckpoint;
 }
 

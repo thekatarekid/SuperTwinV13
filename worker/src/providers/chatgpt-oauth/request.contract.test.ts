@@ -99,11 +99,13 @@ describe("P4-D core and input contract", () => {
     }
     expect(buildChatGptRequest(request(), model({ maxOutputTokens: null })))
       .not.toHaveProperty("max_output_tokens");
-    expect(buildChatGptRequest(request({ continuation: { token: "resp_valid_1" } }), model()))
-      .toHaveProperty("previous_response_id", "resp_valid_1");
+    expectCode(
+      () => buildChatGptRequest(request({ continuation: { token: "resp_valid_1" } }), model()),
+      "CAPABILITY_UNSUPPORTED",
+    );
     expectCode(
       () => buildChatGptRequest(request({ continuation: { token: "resp.invalid" } }), model()),
-      "BAD_REQUEST",
+      "CAPABILITY_UNSUPPORTED",
     );
   });
 });
@@ -149,13 +151,11 @@ describe("P4-D tools contract", () => {
       }), model()),
       "BAD_REQUEST",
     );
-    expect(buildChatGptRequest(request({
+    expectCode(() => buildChatGptRequest(request({
       tools: [tool],
       input: [{ type: "function_call_output", call_id: "call-1", output: "done" }],
       continuation: { token: "resp_tool_1" },
-    }), model()).input).toEqual([
-      { type: "function_call_output", call_id: "call-1", output: "done" },
-    ]);
+    }), model()), "CAPABILITY_UNSUPPORTED");
   });
 });
 

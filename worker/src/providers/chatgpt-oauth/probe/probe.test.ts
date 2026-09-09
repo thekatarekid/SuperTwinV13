@@ -22,6 +22,7 @@ import { runProbeCli } from "./cli.js";
 import { runContractProbeScaffold } from "./contract-runner.js";
 import { runDiscoveryProbe } from "./discovery-runner.js";
 import { runCanaryProbe } from "./canary-runner.js";
+import { PHASE0B_V4_PREFIX_RESERVATIONS } from "./matrix.js";
 import {
   formatHttpAccounting,
   LEGACY_DEVICE_AUTH_HTTP_LIMITS,
@@ -381,11 +382,13 @@ describe("Phase 0b offline safety", () => {
         planFingerprint: {
           accountFingerprint: "7d41db9e5a28",
           modelId: "gpt-safe",
-          matrixVersion: "phase0b-contract-matrix-v3",
+          matrixVersion: "phase0b-contract-matrix-v4",
           matrixHash: "b".repeat(64),
           caseCount: 70,
           inferencePostCount: 55,
           inferenceRetries: 0,
+          prefixCheckpoint: { consumedPosts: 13, lastSequence: 21, predecessorRevision: 3,
+            predecessorConsumedPosts: 5, reservations: PHASE0B_V4_PREFIX_RESERVATIONS },
         },
         quota: {
           status: 200,

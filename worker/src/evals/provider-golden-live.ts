@@ -7,6 +7,8 @@ import { runMigrations } from "../db/index.js";
 import { closeDb } from "../db/connection.js";
 import { PROVIDER_SETTING_KEYS, setActiveProvider, setProviderModelSelection } from "../db/settings.js";
 import { bootstrapBuiltInProviders } from "../providers/bootstrap.js";
+import { claudeLocalAuthState } from "../providers/claude-local/neutral.js";
+import type { ProviderAuthState } from "../providers/types.js";
 import { main as evalMain } from "./cli.js";
 import { parseGoldenPreflight } from "./provider-golden-cli.js";
 import { ProviderGoldenRail, readGoldenManifest, resolveGoldenRepositoryIdentity, withProviderGoldenRail,
@@ -18,12 +20,19 @@ interface GoldenLiveDependencies {
   runEval: typeof evalMain;
   output(line: string): void;
   repositoryIdentity?: GoldenRepositoryIdentityReader;
+  /** Bounded local `claude auth status` seam. It must never send a prompt. */
+  authState?: () => ProviderAuthState;
 }
 
 const DEFAULT_DEPENDENCIES: GoldenLiveDependencies = {
   runEval: evalMain,
   output: (line) => process.stdout.write(line),
+  authState: claudeLocalAuthState,
 };
+
+function emitActuals(dependencies: GoldenLiveDependencies, rail: ProviderGoldenRail): void {
+  dependencies.output(`${JSON.stringify({ provider_golden_actuals: rail.snapshot() })}\n`);
+}
 
 function assertFreshSafeHome(path: string): string {
   const requested = resolve(path);
@@ -64,6 +73,25 @@ export async function executeProviderGolden(
   }
   if (env.EVAL_FIXTURES !== undefined) throw new Error("provider golden refuses EVAL_FIXTURES overrides");
   const home = assertFreshSafeHome(declaration.evalHome);
+  let authState: ProviderAuthState;
+  try {
+    authState = (dependencies.authState ?? DEFAULT_DEPENDENCIES.authState!)();
+  } catch {
+    emitActuals(dependencies, rail);
+    throw new Error("PROVIDER_UNAVAILABLE: Claude auth readiness could not be checked");
+  }
+  if (authState.status !== "ready") {
+    emitActuals(dependencies, rail);
+    if (authState.status === "signed_out") throw new Error("AUTH_REQUIRED: Claude sign-in required");
+    throw new Error("PROVIDER_UNAVAILABLE: Claude auth readiness is unavailable");
+  }
+  const executionIdentity = resolveGoldenRepositoryIdentity(repoRoot, dependencies.repositoryIdentity);
+  if (JSON.stringify(executionIdentity) !== JSON.stringify(repositoryIdentity)) {
+    throw new Error("provider golden repository identity changed after authorization");
+  }
+  // The auth-status subprocess is a scheduling window. Rebind the home only
+  // after it settles and immediately before the first write.
+  rail.assertEvalHomeUnchanged();
   const priorHome = process.env.SUPERTWIN_HOME;
   const priorDb = process.env.SUPERTWIN_DB_PATH;
   process.env.SUPERTWIN_HOME = home;
@@ -71,13 +99,6 @@ export async function executeProviderGolden(
   try {
     return await withProviderGoldenRail(rail, async () => {
       try {
-        const executionIdentity = resolveGoldenRepositoryIdentity(repoRoot, dependencies.repositoryIdentity);
-        if (JSON.stringify(executionIdentity) !== JSON.stringify(repositoryIdentity)) {
-          throw new Error("provider golden repository identity changed after authorization");
-        }
-        // Keep this last: a repository-status subprocess is an attacker-controlled
-        // scheduling window. Rebind the home immediately before the first write.
-        rail.assertEvalHomeUnchanged();
         runMigrations();
         bootstrapBuiltInProviders();
         setActiveProvider(declaration.provider);
@@ -87,7 +108,7 @@ export async function executeProviderGolden(
           "--strict", "--allow-pending", manifest.allowed_pending_case_ids.join(","),
           "--compare-baseline", "--ast-parity"]);
       } finally {
-        dependencies.output(`${JSON.stringify({ provider_golden_actuals: rail.snapshot() })}\n`);
+        emitActuals(dependencies, rail);
       }
     });
   } finally {

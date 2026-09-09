@@ -97,7 +97,6 @@ describe("buildChatGptRequest", () => {
           image_url: "data:image/png;base64,iVBORw0KGgo=",
           detail: "low",
         }] },
-        { type: "function_call_output", call_id: "call_1", output: "done" },
       ],
       tools: [{ type: "function", name: "probe_echo", description: "", parameters, strict: true }],
       toolChoice: "required",
@@ -118,8 +117,7 @@ describe("buildChatGptRequest", () => {
         verbosity: "low",
       },
       cache: { mode: "explicit", key: "supertwin.prompt.v1", ttl: "30m" },
-      continuation: { token: "resp_previous" },
-      persistContinuation: true,
+      persistContinuation: false,
       skipHostSettings: true,
       cwd: "/ignored-by-http",
       maxBudgetUsd: 1,
@@ -130,13 +128,13 @@ describe("buildChatGptRequest", () => {
       parallel_tool_calls: true,
       reasoning: { effort: "high" },
       max_output_tokens: 512,
-      previous_response_id: "resp_previous",
       prompt_cache_key: "supertwin.prompt.v1",
       prompt_cache_options: { mode: "explicit", ttl: "30m" },
       store: false,
       stream: true,
     });
     expect(built).not.toHaveProperty("cwd");
+    expect(built).not.toHaveProperty("previous_response_id");
     expect(built).not.toHaveProperty("maxBudgetUsd");
     expect((built.tools![0] as { parameters: unknown }).parameters).not.toBe(parameters);
   });
@@ -407,19 +405,19 @@ describe("buildChatGptRequest", () => {
     }), model()), "BAD_REQUEST");
   });
 
-  it("preserves explicit history and admits only parser-compatible continuation identifiers", () => {
+  it("preserves explicit history and fails closed on store:false continuation", () => {
     const history: ProviderRequest["input"] = [{
       type: "message", role: "assistant", content: [{ type: "input_text", text: "prior" }],
     }];
     expect(buildChatGptRequest(request({ input: history }), model()).input).toEqual(history);
-    expect(buildChatGptRequest(request({
+    expectCode(() => buildChatGptRequest(request({
       input: history,
       continuation: { token: "resp_valid_123" },
-    }), model()).previous_response_id).toBe("resp_valid_123");
+    }), model()), "CAPABILITY_UNSUPPORTED");
     for (const token of ["resp with spaces", "resp.with.dot", "resp/with/slash", "é", "a".repeat(257)]) {
       expectCode(() => buildChatGptRequest(request({
         continuation: { token },
-      }), model()), "BAD_REQUEST");
+      }), model()), "CAPABILITY_UNSUPPORTED");
     }
   });
 

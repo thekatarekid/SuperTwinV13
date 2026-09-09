@@ -287,6 +287,18 @@ export class ChatGptKeychainStore {
     return envelope ? clonePair(envelope.current) : undefined;
   }
 
+  /** Metadata-only namespace probe; never requests a password value. */
+  async isEmpty(): Promise<boolean> {
+    try {
+      await this.#command("/usr/bin/security", ["find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+        "-a", this.account]);
+      return false;
+    } catch (error) {
+      if (isMissingItem(error)) return true;
+      throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to inspect ChatGPT credential namespace");
+    }
+  }
+
   async save(pair: ChatGptTokenPair, signal?: AbortSignal): Promise<void> {
     await this.#write({ version: 1, current: clonePair(pair) }, signal);
   }
@@ -352,6 +364,54 @@ export class ChatGptKeychainStore {
       if (isMissingItem(error)) return;
       throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to clear ChatGPT credentials from Keychain");
     }
+  }
+
+  /** P6-F create-once item: never updates an item that won an external race. */
+  async createOwned(pair: ChatGptTokenPair, ownership: string, signal?: AbortSignal): Promise<boolean> {
+    if (!/^[a-f0-9]{32}$/.test(ownership)) throw new ChatGptCredentialError("TRANSPORT_ERROR", "Invalid credential ownership");
+    const encoded = encodeEnvelope({ version: 1, current: clonePair(pair) });
+    return withAccountLock(this.account, async () => {
+      try {
+        await this.#command("/usr/bin/security", ["add-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+          "-a", this.account, "-l", `SuperTwinV13 golden ${ownership}`, "-w"], encoded, signal);
+        return true;
+      } catch (error) {
+        // Reconcile an ambiguous command/abort only against our exact labelled item.
+        const durable = await this.loadOwned(ownership).catch(() => undefined);
+        if (durable && envelopesEqual({ version: 1, current: durable }, { version: 1, current: clonePair(pair) })) return true;
+        if ((error as CommandFailure)?.code === 45) return false;
+        throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to create owned ChatGPT credentials");
+      }
+    });
+  }
+
+  /** Reads only the exact unguessable P6-F ownership label. */
+  async loadOwned(ownership: string): Promise<ChatGptTokenPair | undefined> {
+    if (!/^[a-f0-9]{32}$/.test(ownership)) return undefined;
+    try {
+      const loaded = await this.#command("/usr/bin/security", ["find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+        "-a", this.account, "-l", `SuperTwinV13 golden ${ownership}`, "-w"]);
+      return clonePair(decodeEnvelope(loaded.stdout.trimEnd()).current);
+    } catch (error) {
+      if (isMissingItem(error)) return undefined;
+      throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to inspect owned ChatGPT credentials");
+    }
+  }
+
+  /** Deletes only the exact labelled item after proving its account binding is ours. */
+  async clearOwned(ownership: string, expected: ChatGptTokenPair): Promise<boolean> {
+    if (!/^[a-f0-9]{32}$/.test(ownership)) return false;
+    return withAccountLock(this.account, async () => {
+      const loaded = await this.loadOwned(ownership);
+      // Tokens may legitimately rotate during the golden run. The unguessable label
+      // plus immutable account identity proves ownership without requiring stale bytes.
+      if (!loaded?.accountId || loaded.accountId !== expected.accountId) return false;
+      try {
+        await this.#command("/usr/bin/security", ["delete-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+          "-a", this.account, "-l", `SuperTwinV13 golden ${ownership}`]);
+        return await this.loadOwned(ownership) === undefined;
+      } catch (error) { return isMissingItem(error); }
+    });
   }
 
   async #write(envelope: StoredCredentialEnvelope, signal?: AbortSignal): Promise<void> {

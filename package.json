@@ -26,6 +26,7 @@
     "test:scripts": "vitest run --config scripts/vitest.config.mjs",
     "test:security": "npm test -w @supertwinv13/worker -- --run src/security/secret-absence.test.ts src/providers/chatgpt-oauth/auth.test.ts src/providers/chatgpt-oauth/keychain.test.ts src/providers/chatgpt-oauth/native-keychain-verification.test.ts src/providers/chatgpt-oauth/dev-snapshot.test.ts src/server/settings-provider-routes.test.ts",
     "verify:native-keychain": "npm run verify:native-keychain -w @supertwinv13/worker --",
+    "golden:chatgpt:login": "npm run golden:chatgpt:login -w @supertwinv13/worker --",
     "verify:release": "node scripts/verify-release.mjs",
     "release": "node scripts/release.mjs"
   },

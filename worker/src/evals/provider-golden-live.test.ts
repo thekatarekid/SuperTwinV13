@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -17,7 +17,8 @@ it("explicitly suppresses runtime canaries and emits zero extra inference actual
   const accountId = "golden-account-bound-at-fetch";
   const accountFingerprint = createHash("sha256").update(accountId).digest("hex").slice(0, 12);
   const declaration = ["--provider", "chatgpt-oauth", "--executor-model", "gpt-exact", "--judge-model", "gpt-judge",
-    "--eval-home", home, "--keychain-account", keychainAccountForHome(home), "--account-fingerprint", accountFingerprint];
+    "--eval-home", home, "--keychain-account", keychainAccountForHome(home), "--account-fingerprint", accountFingerprint,
+    "--keychain-ownership", "1".repeat(32)];
   const preflight = JSON.parse(goldenPreflight(declaration, resolve(import.meta.dirname, "../../.."), cleanIdentity));
   const lines: string[] = [];
   const shutdown = vi.fn(async () => undefined);
@@ -30,9 +31,27 @@ it("explicitly suppresses runtime canaries and emits zero extra inference actual
       runEval: async () => { throw new Error("offline stop after boot proof"); },
       output: (line) => lines.push(line),
       repositoryIdentity: cleanIdentity,
+      loadCredential: async () => ({ accessToken: "owned", refreshToken: "refresh", expiresAtMs: Date.now() + 60_000,
+        accountId }),
+      cleanupCredential: async () => true,
     })).rejects.toThrow("offline stop");
   expect(shutdown).toHaveBeenCalledOnce();
   expect(lines.join("\n")).toContain('"physical":0');
+});
+
+it("rejects missing exact-owned credentials before database or runtime initialization", async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "supertwin-golden-live-"))); homes.push(home);
+  const declaration = ["--provider", "chatgpt-oauth", "--executor-model", "gpt-exact", "--judge-model", "gpt-judge",
+    "--eval-home", home, "--keychain-account", keychainAccountForHome(home), "--account-fingerprint", "7d41db9e5a28",
+    "--keychain-ownership", "1".repeat(32)];
+  const preflight = JSON.parse(goldenPreflight(declaration, resolve(import.meta.dirname, "../../.."), cleanIdentity));
+  const initializeChatGpt = vi.fn();
+  await expect(executeProviderGolden([...declaration, "--execute", "yes", "--authorization-id", preflight.authorization_id],
+    { [GOLDEN_LIVE_OPT_IN]: "1" }, { initializeChatGpt: initializeChatGpt as never, runEval: vi.fn() as never,
+      output: () => undefined, repositoryIdentity: cleanIdentity, loadCredential: async () => undefined,
+      cleanupCredential: async () => false })).rejects.toThrow(/ownership is invalid/);
+  expect(initializeChatGpt).not.toHaveBeenCalled();
+  expect(readdirSync(home)).toEqual([]);
 });
 
 it("refuses execution before initialization without exact opt-in and authorization", async () => {

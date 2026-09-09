@@ -14,7 +14,7 @@ afterAll(() => rmSync(home, { recursive: true, force: true }));
 it("emits the exact declaration an owner can authorize without making a call", () => {
   const output = JSON.parse(goldenPreflight([
     "--provider", "chatgpt-oauth", "--executor-model", "gpt-exact", "--judge-model", "gpt-judge-exact",
-    "--eval-home", home, "--keychain-account", keychainAccountForHome(home), "--account-fingerprint", "7d41db9e5a28",
+    "--eval-home", home, "--keychain-account", keychainAccountForHome(home), "--account-fingerprint", "7d41db9e5a28", "--keychain-ownership", "1".repeat(32),
   ], resolve(import.meta.dirname, "../../.."), cleanIdentity));
   expect(output).toMatchObject({ provider: "chatgpt-oauth", executor_model: "gpt-exact", judge_model: "gpt-judge-exact",
     nominal_no_repair_physical_calls: 232, absolute_physical_call_ceiling: 696, cost: "unknown",

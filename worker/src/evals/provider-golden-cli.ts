@@ -12,7 +12,7 @@ function value(argv: readonly string[], flag: string): string | undefined {
 }
 
 export function parseGoldenPreflight(argv: readonly string[]): GoldenDeclaration {
-  const known = new Set(["--provider", "--executor-model", "--judge-model", "--eval-home", "--keychain-account", "--account-fingerprint"]);
+  const known = new Set(["--provider", "--executor-model", "--judge-model", "--eval-home", "--keychain-account", "--account-fingerprint", "--keychain-ownership"]);
   const seen = new Set<string>();
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i] ?? "";
@@ -28,6 +28,7 @@ export function parseGoldenPreflight(argv: readonly string[]): GoldenDeclaration
     provider, executorModel, judgeModel, evalHome,
     ...(value(argv, "--keychain-account") ? { keychainAccount: value(argv, "--keychain-account") } : {}),
     ...(value(argv, "--account-fingerprint") ? { accountFingerprint: value(argv, "--account-fingerprint") } : {}),
+    ...(value(argv, "--keychain-ownership") ? { keychainOwnership: value(argv, "--keychain-ownership") } : {}),
   };
 }
 

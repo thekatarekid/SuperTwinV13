@@ -45,6 +45,7 @@ export interface GoldenDeclaration {
   evalHome: string;
   keychainAccount?: string;
   accountFingerprint?: string;
+  keychainOwnership?: string;
 }
 
 export interface GoldenCounters {
@@ -62,7 +63,7 @@ export interface GoldenCounters {
 export interface GoldenRepositoryIdentity { commit: string; tree: string; scopedStatus: "clean" }
 export type GoldenRepositoryIdentityReader = (repoRoot: string) => { commit: string; tree: string; status: string };
 
-interface GoldenHomeIdentity { path: string; dev: number; ino: number; mode: number }
+export interface GoldenHomeIdentity { path: string; dev: number; ino: number; mode: number }
 
 interface GoldenScope { rail: ProviderGoldenRail; kind: GoldenCallKind }
 const goldenScope = new AsyncLocalStorage<GoldenScope>();
@@ -102,7 +103,7 @@ export function resolveGoldenRepositoryIdentity(
   return Object.freeze({ commit: value.commit, tree: value.tree, scopedStatus: "clean" });
 }
 
-function inspectGoldenHome(input: string): GoldenHomeIdentity {
+export function bindGoldenEvalHome(input: string): GoldenHomeIdentity {
   const requested = resolve(input);
   let cursor = parse(requested).root;
   for (const segment of requested.slice(cursor.length).split("/").filter(Boolean)) {
@@ -114,6 +115,12 @@ function inspectGoldenHome(input: string): GoldenHomeIdentity {
   if (canonical !== requested || !stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o700 ||
       readdirSync(canonical).length !== 0) fail("INVALID_DECLARATION");
   return { path: canonical, dev: Number(stat.dev), ino: Number(stat.ino), mode: stat.mode & 0o777 };
+}
+
+export function assertGoldenEvalHomeIdentity(expected: GoldenHomeIdentity): void {
+  const current = bindGoldenEvalHome(expected.path);
+  if (current.path !== expected.path || current.dev !== expected.dev || current.ino !== expected.ino ||
+      current.mode !== expected.mode) fail("INVALID_DECLARATION");
 }
 
 export function keychainAccountForHome(home: string): string {
@@ -193,13 +200,15 @@ export function validateGoldenDeclaration(declaration: GoldenDeclaration): Golde
   if (!SAFE_MODEL.test(declaration.executorModel) || !SAFE_MODEL.test(declaration.judgeModel)) {
     fail("INVALID_DECLARATION");
   }
-  const evalHome = inspectGoldenHome(declaration.evalHome).path;
+  const evalHome = bindGoldenEvalHome(declaration.evalHome).path;
   if (evalHome === realpathSync(productionHome())) fail("INVALID_DECLARATION");
   if (declaration.provider === "chatgpt-oauth") {
     if (!declaration.accountFingerprint || !SAFE_ACCOUNT.test(declaration.accountFingerprint) ||
-        declaration.keychainAccount !== keychainAccountForHome(evalHome)) fail("INVALID_DECLARATION");
+        declaration.keychainAccount !== keychainAccountForHome(evalHome) ||
+        !declaration.keychainOwnership || !/^[a-f0-9]{32}$/.test(declaration.keychainOwnership)) fail("INVALID_DECLARATION");
   } else if (declaration.provider === "claude-local") {
-    if (declaration.accountFingerprint !== undefined || declaration.keychainAccount !== undefined) {
+    if (declaration.accountFingerprint !== undefined || declaration.keychainAccount !== undefined ||
+        declaration.keychainOwnership !== undefined) {
       fail("INVALID_DECLARATION");
     }
   } else fail("INVALID_DECLARATION");
@@ -216,13 +225,11 @@ export class ProviderGoldenRail {
   constructor(manifest: GoldenManifest, declaration: GoldenDeclaration) {
     this.manifest = manifest;
     this.declaration = validateGoldenDeclaration(declaration);
-    this.#homeIdentity = inspectGoldenHome(this.declaration.evalHome);
+    this.#homeIdentity = bindGoldenEvalHome(this.declaration.evalHome);
   }
 
   assertEvalHomeUnchanged(): void {
-    const current = inspectGoldenHome(this.declaration.evalHome);
-    if (current.path !== this.#homeIdentity.path || current.dev !== this.#homeIdentity.dev ||
-        current.ino !== this.#homeIdentity.ino || current.mode !== this.#homeIdentity.mode) fail("INVALID_DECLARATION");
+    assertGoldenEvalHomeIdentity(this.#homeIdentity);
   }
 
   beforePhysicalSend(kind: GoldenCallKind, reason: GoldenAttemptReason = "initial", actual?: {
@@ -316,6 +323,7 @@ export class ProviderGoldenRail {
       eval_home_identity: { dev: this.#homeIdentity.dev, ino: this.#homeIdentity.ino, mode: "0700", empty: true },
       ...(repositoryIdentity ? { repository_identity: repositoryIdentity } : {}),
       ...(this.declaration.accountFingerprint ? { account_fingerprint: this.declaration.accountFingerprint } : {}),
+      ...(this.declaration.keychainOwnership ? { keychain_ownership: this.declaration.keychainOwnership } : {}),
     };
     return { ...declaration, authorization_id: createHash("sha256").update(JSON.stringify(declaration)).digest("hex") };
   }

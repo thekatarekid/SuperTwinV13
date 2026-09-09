@@ -12,13 +12,14 @@ import { GoldenRailError, ProviderGoldenRail, enforceGoldenPhysicalSend, keychai
 const repo = resolve(import.meta.dirname, "../../..");
 const home = realpathSync(mkdtempSync(join(tmpdir(), "supertwin-golden-rail-")));
 const manifest = readGoldenManifest(repo);
+const ownership = "1".repeat(32);
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 function rail(provider: "claude-local" | "chatgpt-oauth" = "claude-local") {
   return new ProviderGoldenRail(manifest, {
     provider, executorModel: provider === "claude-local" ? "claude-sonnet" : "gpt-executor",
     judgeModel: provider === "claude-local" ? "claude-haiku" : "gpt-judge", evalHome: home,
-    ...(provider === "chatgpt-oauth" ? { keychainAccount: keychainAccountForHome(home), accountFingerprint: "7d41db9e5a28" } : {}),
+    ...(provider === "chatgpt-oauth" ? { keychainAccount: keychainAccountForHome(home), accountFingerprint: "7d41db9e5a28", keychainOwnership: ownership } : {}),
   });
 }
 
@@ -79,7 +80,7 @@ describe("P6-F provider golden fail-closed rail", () => {
 
   it("requires explicit models and the separate ChatGPT home namespace/account", () => {
     const base = { provider: "chatgpt-oauth" as const, executorModel: "gpt", judgeModel: "judge", evalHome: home,
-      keychainAccount: keychainAccountForHome(home), accountFingerprint: "7d41db9e5a28" };
+      keychainAccount: keychainAccountForHome(home), accountFingerprint: "7d41db9e5a28", keychainOwnership: ownership };
     expect(() => new ProviderGoldenRail(manifest, { ...base, executorModel: "" })).toThrowError(/INVALID_DECLARATION/);
     expect(() => new ProviderGoldenRail(manifest, { ...base, judgeModel: "" })).toThrowError(/INVALID_DECLARATION/);
     expect(() => new ProviderGoldenRail(manifest, { ...base, keychainAccount: "supertwin.chatgpt-oauth.wrong" })).toThrowError(/INVALID_DECLARATION/);

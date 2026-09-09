@@ -400,6 +400,39 @@ describe("ChatGPT rotating token session", () => {
   });
 });
 
+describe("P6-F exact-owned Keychain items", () => {
+  it("never updates or deletes a foreign item that wins the create race", async () => {
+    const calls: string[][] = [];
+    const command: KeychainCommand = async (_executable, args) => {
+      calls.push([...args]);
+      if (args[0] === "add-generic-password") throw Object.assign(new Error("occupied"), { code: 45 });
+      if (args[0] === "find-generic-password") throw missing();
+      throw new Error("unexpected destructive command");
+    };
+    const owned = new ChatGptKeychainStore({ command, resolveHome: () => "/tmp/golden-owned-race" });
+    await expect(owned.createOwned(pair("ours"), "1".repeat(32))).resolves.toBe(false);
+    expect(calls.flat()).not.toContain("-U");
+    expect(calls.some((args) => args[0] === "delete-generic-password")).toBe(false);
+  });
+
+  it("cleans a rotated token only when exact label and account identity still match", async () => {
+    let encoded: string | undefined; let deleted = false;
+    const command: KeychainCommand = async (_executable, args, stdin) => {
+      if (args[0] === "add-generic-password") { encoded = stdin; return { stdout: "", stderr: "" }; }
+      if (args[0] === "find-generic-password") {
+        if (!encoded) throw missing(); return { stdout: `${encoded}\n`, stderr: "" };
+      }
+      if (args[0] === "delete-generic-password") { deleted = true; encoded = undefined; return { stdout: "", stderr: "" }; }
+      throw new Error("unexpected command");
+    };
+    const owned = new ChatGptKeychainStore({ command, resolveHome: () => "/tmp/golden-owned-cleanup" });
+    const original = { ...pair("original"), accountId: "account" };
+    await owned.createOwned({ ...pair("rotated"), accountId: "account" }, "2".repeat(32));
+    await expect(owned.clearOwned("2".repeat(32), original)).resolves.toBe(true);
+    expect(deleted).toBe(true);
+  });
+});
+
 describe("ChatGPT refresh transport", () => {
   it("uses only the fixed token endpoint and bounded form contract", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({

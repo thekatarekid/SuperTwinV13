@@ -1,14 +1,18 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHATGPT_KEYCHAIN_SERVICE,
   CHATGPT_REFRESH_SKEW_MS,
   ChatGptCredentialError,
   ChatGptKeychainStore,
   ChatGptTokenSession,
   chatGptKeychainAccount,
   createChatGptOAuthRefresher,
+  keychainHelperInvocation,
+  runNativeKeychainCommand,
   type ChatGptTokenPair,
   type KeychainCommand,
 } from "./keychain.js";
@@ -64,6 +68,51 @@ function store(fake: FakeKeychain, home: string): ChatGptKeychainStore {
 }
 
 describe("ChatGPT home-isolated Keychain", () => {
+  it("sends exact raw secret bytes to a native helper without argv or output exposure", async () => {
+    const secret = "private-json-envelope";
+    const args = [
+      "-c",
+      'value=$(cat); printf "native helper" >&2; printf "%s" "${#value}"',
+    ] as const;
+
+    const result = await runNativeKeychainCommand("/bin/sh", args, secret);
+
+    expect(result).toEqual({
+      stdout: String(secret.length),
+      stderr: "native helper",
+    });
+    expect(args.join(" ")).not.toContain(secret);
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("maps every Keychain operation to the bundled helper without secret argv", () => {
+    const account = `supertwin.chatgpt-oauth.${"a".repeat(16)}`;
+    const common = ["-s", CHATGPT_KEYCHAIN_SERVICE, "-a", account];
+    expect(keychainHelperInvocation(["add-generic-password", "-U", ...common, "-w"]).args[0]).toBe("upsert");
+    expect(keychainHelperInvocation(["add-generic-password", ...common, "-l", `SuperTwinV13 golden ${"1".repeat(32)}`, "-w"]).args).toEqual(
+      ["create", "--service", CHATGPT_KEYCHAIN_SERVICE, "--account", account,
+        "--label", `SuperTwinV13 golden ${"1".repeat(32)}`],
+    );
+    expect(keychainHelperInvocation(["find-generic-password", ...common, "-w"]).args[0]).toBe("read");
+    expect(keychainHelperInvocation(["find-generic-password", ...common]).args[0]).toBe("exists");
+    expect(keychainHelperInvocation(["delete-generic-password", ...common]).args[0]).toBe("delete");
+    expect(keychainHelperInvocation(["delete-generic-password", ...common,
+      "-l", `SuperTwinV13 golden ${"1".repeat(32)}`, "--persistent-ref", "cGVyc2lzdGVudA", "--owned"]).args[0])
+      .toBe("delete-owned-ref");
+    expect(keychainHelperInvocation(["find-generic-password", ...common]).executable).toMatch(/\/bin\/supertwin-keychain$/);
+    expect(() => keychainHelperInvocation(["find-generic-password", "-s", "Other", "-a", account, "-w"]))
+      .toThrow(/Invalid Keychain helper request/);
+    expect(() => keychainHelperInvocation(["find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+      "-a", "arbitrary", "-w"])).toThrow(/Invalid Keychain helper request/);
+  });
+
+  it("keeps the superseded standalone golden login command fail-closed", () => {
+    const packageJson = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(packageJson.scripts["golden:chatgpt:login"]).toContain("combined signed-app ChatGPT golden flow is required");
+  });
+
   it("derives the documented generic-password account from the resolved home", () => {
     const home = resolve("fixture", "..", "production-home");
     const digest = createHash("sha256").update(home).digest("hex").slice(0, 16);
@@ -401,6 +450,7 @@ describe("ChatGPT rotating token session", () => {
 });
 
 describe("P6-F exact-owned Keychain items", () => {
+  const persistentRef = "cGVyc2lzdGVudC1yZWY";
   it("never updates or deletes a foreign item that wins the create race", async () => {
     const calls: string[][] = [];
     const command: KeychainCommand = async (_executable, args) => {
@@ -417,19 +467,64 @@ describe("P6-F exact-owned Keychain items", () => {
 
   it("cleans a rotated token only when exact label and account identity still match", async () => {
     let encoded: string | undefined; let deleted = false;
+    const account = chatGptKeychainAccount("/tmp/golden-owned-cleanup");
+    const label = `SuperTwinV13 golden ${"2".repeat(32)}`;
     const command: KeychainCommand = async (_executable, args, stdin) => {
-      if (args[0] === "add-generic-password") { encoded = stdin; return { stdout: "", stderr: "" }; }
+      if (args[0] === "add-generic-password") { encoded = stdin; return { stdout: persistentRef, stderr: "" }; }
       if (args[0] === "find-generic-password") {
-        if (!encoded) throw missing(); return { stdout: `${encoded}\n`, stderr: "" };
+        if (!encoded) throw missing();
+        return { stdout: JSON.stringify({ service: CHATGPT_KEYCHAIN_SERVICE, account, label,
+          persistent_ref: persistentRef, value_base64: Buffer.from(encoded).toString("base64") }), stderr: "" };
       }
-      if (args[0] === "delete-generic-password") { deleted = true; encoded = undefined; return { stdout: "", stderr: "" }; }
+      if (args[0] === "delete-generic-password") {
+        expect(args).toContain("--persistent-ref"); expect(args).toContain(persistentRef);
+        expect(args).toContain("--owned");
+        expect(stdin).toBe("account");
+        deleted = true; encoded = undefined; return { stdout: "", stderr: "" };
+      }
       throw new Error("unexpected command");
     };
     const owned = new ChatGptKeychainStore({ command, resolveHome: () => "/tmp/golden-owned-cleanup" });
     const original = { ...pair("original"), accountId: "account" };
-    await owned.createOwned({ ...pair("rotated"), accountId: "account" }, "2".repeat(32));
-    await expect(owned.clearOwned("2".repeat(32), original)).resolves.toBe(true);
+    await expect(owned.createOwned({ ...pair("rotated"), accountId: "account" }, "2".repeat(32)))
+      .resolves.toBe(persistentRef);
+    await expect(owned.clearOwned("2".repeat(32), persistentRef, original.accountId!)).resolves.toBe(true);
     expect(deleted).toBe(true);
+  });
+
+  it("does not delete a replacement item when the create-time persistent reference no longer resolves", async () => {
+    let deleteCalled = false;
+    const command: KeychainCommand = async (_executable, args) => {
+      if (args[0] === "find-generic-password" && args.includes("--persistent-ref")) throw missing();
+      if (args[0] === "delete-generic-password") deleteCalled = true;
+      return { stdout: "", stderr: "" };
+    };
+    const owned = new ChatGptKeychainStore({ command, resolveHome: () => "/tmp/golden-replaced" });
+    await expect(owned.clearOwned("3".repeat(32), persistentRef, "account")).resolves.toBe(false);
+    expect(deleteCalled).toBe(false);
+  });
+
+  it("adopts and cleans an exact item when create committed before an ambiguous command error", async () => {
+    const home = "/tmp/golden-ambiguous-create";
+    const account = chatGptKeychainAccount(home);
+    const owned = "4".repeat(32);
+    const label = `SuperTwinV13 golden ${owned}`;
+    let encoded = ""; let present = false;
+    const command: KeychainCommand = async (_executable, args, stdin) => {
+      if (args[0] === "add-generic-password") { encoded = stdin!; present = true; throw new Error("close raced"); }
+      if (args[0] === "find-generic-password") {
+        if (!present) throw missing();
+        return { stdout: JSON.stringify({ service: CHATGPT_KEYCHAIN_SERVICE, account, label,
+          persistent_ref: persistentRef, value_base64: Buffer.from(encoded).toString("base64") }), stderr: "" };
+      }
+      if (args[0] === "delete-generic-password") { present = false; return { stdout: "", stderr: "" }; }
+      throw new Error("unexpected command");
+    };
+    const store = new ChatGptKeychainStore({ command, resolveHome: () => home });
+    const original = { ...pair("created"), accountId: "stable-account" };
+    await expect(store.createOwned(original, owned)).resolves.toBe(persistentRef);
+    await expect(store.clearOwned(owned, persistentRef, "stable-account")).resolves.toBe(true);
+    expect(present).toBe(false);
   });
 });
 

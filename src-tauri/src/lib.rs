@@ -16,10 +16,11 @@
 //   * DEV (`debug_assertions`): `npm run worker` (tsx) with cwd = repo root.
 //   * RELEASE: the bundled `node` sidecar runs the bundled `worker.cjs` from
 //     `Resources/worker/` — fully self-contained, no repo/npm/tsx/node on host.
-// Neither profile clears the environment: the sidecar inherits the app's full
-// Finder/launchd env so the child `claude` can read its Keychain OAuth token
-// (which requires USER + LOGNAME + HOME to be present).
+// Both profiles rebuild the inherited environment after removing runtime and
+// dynamic-loader injection variables. Ordinary app state (including HOME,
+// USER, LOGNAME, PATH, and SUPERTWIN_HOME) remains available to the worker.
 
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -36,6 +37,7 @@ use tauri_plugin_shell::ShellExt;
 mod accessibility;
 // P1.7 — summon hotkey (double-tap right-⌘ + ⌘⇧S fallback) and window toggle.
 mod hotkey;
+mod keychain_broker;
 // P2.1 — hand a URL to the OS (the Accessibility System Settings deep link).
 // The JS `shell.open()` scope rejects `x-apple.systempreferences:`; see opener.rs.
 mod opener;
@@ -102,18 +104,131 @@ fn append_worker_log(log: &Arc<Mutex<Option<File>>>, tag: &str, line: &str) {
 
 /// Holds the worker child so the exit hooks can take + kill it exactly once.
 /// `Option` because the handle is consumed by `CommandChild::kill(self)`.
-#[derive(Default)]
-struct WorkerProcess(Mutex<Option<CommandChild>>);
+#[derive(Clone, Default)]
+struct WorkerProcess {
+    child: Arc<Mutex<Option<CommandChild>>>,
+    broker: Arc<Mutex<Option<keychain_broker::BrokerActor>>>,
+}
 
 impl WorkerProcess {
+    fn install(&self, child: CommandChild, broker: keychain_broker::BrokerActor) -> Result<(), String> {
+        let mut guard = self.child.lock().map_err(|_| "worker state lock failed".to_string())?;
+        if guard.is_some() { return Err("worker already running".into()); }
+        *guard = Some(child);
+        *self.broker.lock().map_err(|_| "broker state lock failed".to_string())? = Some(broker);
+        Ok(())
+    }
+
+    fn write(&self, bytes: &[u8]) -> Result<(), String> {
+        let mut guard = self.child.lock().map_err(|_| "worker state lock failed".to_string())?;
+        guard.as_mut().ok_or_else(|| "worker is unavailable".to_string())?
+            .write(bytes).map_err(|_| "worker pipe write failed".to_string())
+    }
+
+    fn broker_request(&self, line: String) -> Result<std::sync::mpsc::Receiver<
+        Result<String, keychain_broker::BrokerError>>, String> {
+        let guard = self.broker.lock().map_err(|_| "broker state lock failed".to_string())?;
+        guard.as_ref().ok_or_else(|| "credential broker is unavailable".to_string())?
+            .request(line).map_err(|_| "credential broker refused a frame".to_string())
+    }
+
     /// Kill the worker if it is still running. Safe to call more than once.
     fn kill(&self) {
-        if let Ok(mut guard) = self.0.lock() {
+        if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.take() {
                 let _ = child.kill();
                 println!("[supertwinv13] worker sidecar killed on app exit");
             }
         }
+        if let Ok(mut guard) = self.broker.lock() {
+            if let Some(mut broker) = guard.take() { broker.shutdown(); }
+        }
+    }
+}
+
+/// Environment prefixes whose values can make Node/npm or the platform loader
+/// execute attacker-selected code before `worker.cjs` starts. Matching is ASCII
+/// case-insensitive so the policy remains conservative on case-insensitive
+/// platforms and when npm normalizes configuration keys.
+const BLOCKED_WORKER_ENV_PREFIXES: &[&str] = &["NODE_", "NPM_CONFIG_", "DYLD_", "LD_"];
+
+/// Other language/runtime startup hooks that can reach worker subprocesses.
+/// These are deliberately narrow: ordinary desktop environment such as HOME,
+/// USER, LOGNAME, PATH, locale, and SUPERTWIN_* configuration is preserved.
+const BLOCKED_WORKER_ENV_KEYS: &[&str] = &[
+    "BASH_ENV",
+    "BASHOPTS",
+    "CDPATH",
+    "ENV",
+    "GLOBIGNORE",
+    "JAVA_TOOL_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+    "OPENSSL_CONF",
+    "OPENSSL_MODULES",
+    "PERL5LIB",
+    "PERL5OPT",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "RUBYLIB",
+    "RUBYOPT",
+    "SHELLOPTS",
+    "ZDOTDIR",
+    "_JAVA_OPTIONS",
+    "_RLD_LIST",
+];
+
+fn is_blocked_worker_env_key(key: &OsStr) -> bool {
+    let normalized = key.to_string_lossy().to_ascii_uppercase();
+    BLOCKED_WORKER_ENV_PREFIXES
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix))
+        || BLOCKED_WORKER_ENV_KEYS.contains(&normalized.as_str())
+}
+
+fn sanitize_worker_environment<I>(environment: I) -> Vec<(OsString, OsString)>
+where
+    I: IntoIterator<Item = (OsString, OsString)>,
+{
+    environment
+        .into_iter()
+        .filter(|(key, _)| !is_blocked_worker_env_key(key))
+        .collect()
+}
+
+fn inherited_worker_environment() -> Vec<(OsString, OsString)> {
+    sanitize_worker_environment(std::env::vars_os())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WorkerStdoutLine {
+    Broker(String),
+    Log(String),
+}
+
+#[derive(Default)]
+struct WorkerStdoutDemux {
+    buffer: Vec<u8>,
+}
+
+impl WorkerStdoutDemux {
+    fn push(&mut self, bytes: &[u8]) -> Result<Vec<WorkerStdoutLine>, ()> {
+        self.buffer.extend_from_slice(bytes);
+        if self.buffer.len() > 1024 * 1024 { return Err(()); }
+        let mut lines = Vec::new();
+        while let Some(newline) = self.buffer.iter().position(|byte| *byte == b'\n') {
+            let raw = self.buffer.drain(..=newline).collect::<Vec<_>>();
+            let line = std::str::from_utf8(&raw[..raw.len().saturating_sub(1)]).map_err(|_| ())?;
+            if line.starts_with(keychain_broker::REQUEST_PREFIX) {
+                lines.push(WorkerStdoutLine::Broker(line.to_string()));
+            } else if line.contains(keychain_broker::REQUEST_PREFIX) {
+                // Never surface an ambiguously framed line to logging: its tail
+                // may be a valid credential request containing secret bytes.
+                return Err(());
+            } else {
+                lines.push(WorkerStdoutLine::Log(line.to_string()));
+            }
+        }
+        Ok(lines)
     }
 }
 
@@ -131,8 +246,8 @@ fn repo_root() -> std::path::PathBuf {
 /// Build the worker `Command` for DEV: `npm run worker`
 /// (→ `npm run dev -w @supertwinv13/worker` → tsx) with cwd = repo root. Running
 /// through npm keeps us aligned with the repo's scripts and avoids hard-coding
-/// an absolute path to tsx/node. Inherits the full app environment (needed so
-/// the child claude can read its Keychain OAuth token via USER/LOGNAME/HOME).
+/// an absolute path to tsx/node. Rebuilds the inherited environment without
+/// runtime-loader injection hooks while retaining normal app configuration.
 #[cfg(debug_assertions)]
 fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
     // The DEV profile runs the LIVE worker script (real home, port 8013): the
@@ -140,6 +255,8 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
     Ok(app
         .shell()
         .command("npm")
+        .env_clear()
+        .envs(inherited_worker_environment())
         .args(["run", "worker:live"])
         .current_dir(repo_root())
         .env("NODE_ENV", "development")
@@ -153,9 +270,9 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
 /// bundled `node` sidecar (externalBin `binaries/node`). Both are shipped inside
 /// the .app — `worker.cjs` at `Resources/worker/worker.cjs`, the node binary
 /// alongside the main executable — so nothing on the host (repo, npm, tsx, node)
-/// is required. We do NOT clear the environment: the sidecar inherits the app's
-/// full Finder/launchd environment so `claude` can reach its Keychain OAuth
-/// token (which needs USER + LOGNAME + HOME present).
+/// is required. The sidecar receives the ordinary Finder/launchd environment but
+/// not runtime-loader injection hooks; USER, LOGNAME, HOME, and SUPERTWIN_HOME
+/// therefore remain available where configured.
 #[cfg(not(debug_assertions))]
 fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
     let worker_dir = app
@@ -175,6 +292,8 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
         .shell()
         .sidecar("node")
         .map_err(|e| format!("could not create node sidecar command: {e}"))?
+        .env_clear()
+        .envs(inherited_worker_environment())
         .args([worker_cjs.to_string_lossy().to_string()])
         .current_dir(worker_dir.clone())
         .env("NODE_ENV", "production")
@@ -188,13 +307,24 @@ fn build_worker_command(app: &tauri::AppHandle) -> Result<Command, String> {
 }
 
 /// Spawn the Node worker and wire up its stdout → `worker-ready` emission.
-/// Returns the `CommandChild` on success so the caller can stash it in state.
-/// The command itself is profile-specific (see `build_worker_command`); the
-/// readiness detection + child bookkeeping below are identical for dev/release.
-fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
-    let command = build_worker_command(app)?;
+/// Installs the child and its private credential broker in shared lifecycle
+/// state. The command itself is profile-specific; readiness detection and
+/// teardown are identical for dev/release.
+fn spawn_worker(app: &tauri::AppHandle, process: WorkerProcess) -> Result<(), String> {
+    use keychain_broker::{account_for_home, BrokerActor};
+
+    let home = worker_home_dir().ok_or_else(|| "worker home is unavailable".to_string())?;
+    let account = account_for_home(&home).map_err(|_| "worker Keychain scope is invalid".to_string())?;
+    let (broker, hello) = BrokerActor::start(account)
+        .map_err(|_| "worker credential broker could not start".to_string())?;
+    let command = build_worker_command(app)?.set_raw_out(true);
 
     let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
+    process.install(child, broker)?;
+    if process.write(hello.as_bytes()).is_err() {
+        process.kill();
+        return Err("worker credential broker handshake failed".into());
+    }
 
     // Open the persistent worker log up front. For a Finder-launched .app,
     // stdout/stderr go nowhere, so this file is the only durable record of the
@@ -208,22 +338,54 @@ fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
     // is both forwarded (println!/eprintln! — so `open -o` capture still works)
     // AND appended to worker.log with a timestamp.
     let handle = app.clone();
+    let broker_process = process.clone();
     tauri::async_runtime::spawn(async move {
         let mut announced_ready = false;
+        let mut stdout_demux = WorkerStdoutDemux::default();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes);
-                    let line = line.trim_end();
-                    if !line.is_empty() {
-                        println!("[worker] {line}");
-                        append_worker_log(&log, "[worker]", line);
-                    }
-                    if !announced_ready && line.contains("WORKER_READY") {
-                        announced_ready = true;
-                        println!("[supertwinv13] worker sidecar reported ready: {line}");
-                        // Best-effort notify the frontend; ignore emit errors.
-                        let _ = handle.emit("worker-ready", line.to_string());
+                    let lines = match stdout_demux.push(&bytes) {
+                        Ok(lines) => lines,
+                        Err(()) => {
+                            append_worker_log(&log, "[supertwinv13]", "worker stdout framing was refused");
+                            broker_process.kill();
+                            return;
+                        }
+                    };
+                    for output in lines {
+                        let line = match output {
+                            WorkerStdoutLine::Broker(line) => {
+                                let receiver = match broker_process.broker_request(line) {
+                                Ok(receiver) => receiver,
+                                Err(_) => {
+                                    append_worker_log(&log, "[supertwinv13]", "credential broker refused a frame");
+                                    broker_process.kill();
+                                    return;
+                                }
+                                };
+                                let response = tauri::async_runtime::spawn_blocking(move || receiver.recv()).await;
+                                match response {
+                                Ok(Ok(Ok(response))) if broker_process.write(response.as_bytes()).is_ok() => {}
+                                _ => {
+                                    append_worker_log(&log, "[supertwinv13]", "credential broker operation failed");
+                                    broker_process.kill();
+                                    return;
+                                }
+                                }
+                                continue;
+                            }
+                            WorkerStdoutLine::Log(line) => line,
+                        };
+                        if !line.is_empty() {
+                            println!("[worker] {line}");
+                            append_worker_log(&log, "[worker]", &line);
+                        }
+                        if !announced_ready && line.contains("WORKER_READY") {
+                            announced_ready = true;
+                            println!("[supertwinv13] worker sidecar reported ready: {line}");
+                            let _ = handle.emit("worker-ready", line.to_string());
+                        }
                     }
                 }
                 CommandEvent::Stderr(bytes) => {
@@ -241,6 +403,7 @@ fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
                     );
                     eprintln!("[supertwinv13] {msg}");
                     append_worker_log(&log, "[supertwinv13]", &msg);
+                    broker_process.kill();
                     break;
                 }
                 _ => {}
@@ -248,7 +411,7 @@ fn spawn_worker(app: &tauri::AppHandle) -> Result<CommandChild, String> {
         }
     });
 
-    Ok(child)
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -272,11 +435,10 @@ pub fn run() {
             // /api/health and retries. Dev runs `npm run worker`; release runs
             // the bundled node sidecar on the bundled worker.cjs.
             let handle = app.handle();
-            match spawn_worker(handle) {
-                Ok(child) => {
-                    if let Some(state) = handle.try_state::<WorkerProcess>() {
-                        *state.0.lock().unwrap() = Some(child);
-                    }
+            let worker_state = handle.try_state::<WorkerProcess>().map(|state| state.inner().clone());
+            match worker_state.ok_or_else(|| "worker process state unavailable".to_string())
+                .and_then(|state| spawn_worker(handle, state)) {
+                Ok(()) => {
                     println!("[supertwinv13] worker sidecar spawned");
                 }
                 Err(err) => {
@@ -332,4 +494,110 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_blocked_worker_env_key, sanitize_worker_environment, WorkerStdoutDemux, WorkerStdoutLine};
+    use std::ffi::{OsStr, OsString};
+
+    fn environment(entries: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        entries
+            .iter()
+            .map(|(key, value)| (OsString::from(key), OsString::from(value)))
+            .collect()
+    }
+
+    #[test]
+    fn blocks_node_npm_and_dynamic_loader_injection() {
+        for key in [
+            "NODE_OPTIONS",
+            "NODE_PATH",
+            "node_repl_external_module",
+            "npm_config_node_options",
+            "NPM_CONFIG_SCRIPT_SHELL",
+            "DYLD_INSERT_LIBRARIES",
+            "dyld_library_path",
+            "LD_PRELOAD",
+            "ld_library_path",
+        ] {
+            assert!(
+                is_blocked_worker_env_key(OsStr::new(key)),
+                "expected {key} to be blocked"
+            );
+        }
+    }
+
+    #[test]
+    fn blocks_subprocess_runtime_startup_hooks() {
+        for key in [
+            "BASH_ENV",
+            "ENV",
+            "ZDOTDIR",
+            "OPENSSL_CONF",
+            "OPENSSL_MODULES",
+            "PYTHONPATH",
+            "PYTHONHOME",
+            "PERL5OPT",
+            "PERL5LIB",
+            "RUBYOPT",
+            "RUBYLIB",
+            "JAVA_TOOL_OPTIONS",
+            "_JAVA_OPTIONS",
+            "JDK_JAVA_OPTIONS",
+        ] {
+            assert!(
+                is_blocked_worker_env_key(OsStr::new(key)),
+                "expected {key} to be blocked"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_worker_home_and_ordinary_app_environment() {
+        let sanitized = sanitize_worker_environment(environment(&[
+            ("HOME", "/Users/test"),
+            ("USER", "test"),
+            ("LOGNAME", "test"),
+            ("PATH", "/usr/bin:/bin"),
+            ("LANG", "en_US.UTF-8"),
+            ("SUPERTWIN_HOME", "/tmp/supertwin-home"),
+            ("SUPERTWIN_FEATURE_FLAG", "enabled"),
+            ("NODE_OPTIONS", "--require=/tmp/inject.js"),
+            ("DYLD_INSERT_LIBRARIES", "/tmp/inject.dylib"),
+            ("BASH_ENV", "/tmp/inject.sh"),
+        ]));
+
+        assert_eq!(
+            sanitized,
+            environment(&[
+                ("HOME", "/Users/test"),
+                ("USER", "test"),
+                ("LOGNAME", "test"),
+                ("PATH", "/usr/bin:/bin"),
+                ("LANG", "en_US.UTF-8"),
+                ("SUPERTWIN_HOME", "/tmp/supertwin-home"),
+                ("SUPERTWIN_FEATURE_FLAG", "enabled"),
+            ])
+        );
+    }
+
+    #[test]
+    fn demuxes_arbitrary_chunks_without_exposing_broker_frames_as_logs() {
+        let wire = format!("normal\n{}c2VjcmV0LWJvZHk\nWORKER_READY port=8013\n",
+            crate::keychain_broker::REQUEST_PREFIX);
+        for split in 0..=wire.len() {
+            let mut demux = WorkerStdoutDemux::default();
+            let mut output = demux.push(&wire.as_bytes()[..split]).unwrap();
+            output.extend(demux.push(&wire.as_bytes()[split..]).unwrap());
+            assert_eq!(output, vec![
+                WorkerStdoutLine::Log("normal".into()),
+                WorkerStdoutLine::Broker(format!("{}c2VjcmV0LWJvZHk", crate::keychain_broker::REQUEST_PREFIX)),
+                WorkerStdoutLine::Log("WORKER_READY port=8013".into()),
+            ]);
+            assert!(!output.iter().any(|line| matches!(line, WorkerStdoutLine::Log(value) if value.contains("c2Vj"))));
+        }
+        let mut demux = WorkerStdoutDemux::default();
+        assert!(demux.push(format!("partial{}c2VjcmV0\n", crate::keychain_broker::REQUEST_PREFIX).as_bytes()).is_err());
+    }
 }

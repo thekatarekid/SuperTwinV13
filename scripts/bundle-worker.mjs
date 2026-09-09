@@ -89,6 +89,8 @@ const GO_BIN_OUT = join(GO_BIN_DIR, "whatsapp-go");
 // resolves it at runtime via join(__dirname_of_worker.cjs, "bin/screenwatch").
 const SCREENWATCH_SRC_DIR = join(repoRoot, "sources", "screenwatch");
 const SCREENWATCH_BIN_OUT = join(GO_BIN_DIR, "screenwatch");
+const KEYCHAIN_ACL_SRC = join(repoRoot, "scripts", "native-keychain-acl.m");
+const KEYCHAIN_ACL_OUT = join(GO_BIN_DIR, "supertwin-keychain-acl");
 // Ad-hoc signing uses the SAME entitlements as the outer app / node sidecar so
 // the nested Mach-O runs under the hardened runtime once the .app is signed.
 const ENTITLEMENTS = join(repoRoot, "src-tauri", "entitlements.plist");
@@ -455,6 +457,19 @@ function bundleScreenwatch() {
   verifyScreenwatch();
 }
 
+function bundleKeychainHelper() {
+  mkdirSync(GO_BIN_DIR, { recursive: true });
+  const aclCompile = run("/usr/bin/clang", ["-fobjc-arc", "-arch", "arm64", "-mmacosx-version-min=13.0",
+    "-framework", "Foundation", "-framework", "Security", KEYCHAIN_ACL_SRC, "-o", KEYCHAIN_ACL_OUT]);
+  if (aclCompile.status !== 0) fail(`Keychain ACL helper build failed:\n${aclCompile.out}`);
+  chmodSync(KEYCHAIN_ACL_OUT, 0o755);
+  const aclSign = run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--options", "runtime",
+    "--identifier", "in.adityakatare.SuperTwinV13.keychain-acl", KEYCHAIN_ACL_OUT]);
+  if (aclSign.status !== 0) fail(`Keychain ACL helper signing failed:\n${aclSign.out}`);
+  const aclVerify = run("/usr/bin/codesign", ["--verify", "--strict", "--verbose=2", KEYCHAIN_ACL_OUT]);
+  if (aclVerify.status !== 0) fail(`Keychain ACL helper signature verification failed:\n${aclVerify.out}`);
+}
+
 function verifyScreenwatch() {
   if (!existsSync(SCREENWATCH_BIN_OUT)) {
     fail(`screenwatch missing after build: ${SCREENWATCH_BIN_OUT}`);
@@ -615,6 +630,9 @@ async function main() {
 
   // --- 6. Compile + sign + verify the Swift screenwatch sidecar (P2.1).
   bundleScreenwatch();
+
+  // --- 7. Compile and sign the metadata-only Keychain ACL inspector.
+  bundleKeychainHelper();
 
   // --- Summary.
   const bundleBytes = statSync(OUT_CJS).size;

@@ -3005,11 +3005,16 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "supertwinv13"
 version = "13.12.2"
 dependencies = [
+ "base64 0.22.1",
  "core-foundation",
  "core-foundation-sys",
  "core-graphics 0.24.0",
+ "getrandom 0.3.4",
+ "hex",
+ "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",

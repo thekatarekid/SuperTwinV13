@@ -23,6 +23,11 @@ tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+getrandom = "0.3"
+hex = "0.4"
+libc = "0.2"
+sha2 = "0.10"
 
 # P1.7 window chrome: liquid-glass = transparent window + NSVisualEffectView
 # vibrancy under the CSS backdrop-filter materials.

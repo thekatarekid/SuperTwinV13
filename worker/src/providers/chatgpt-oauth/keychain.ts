@@ -1,18 +1,21 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { homeRoot } from "../../home.js";
 import { enforceGoldenChatGptMetadata } from "../../evals/provider-golden-rail.js";
 import type { ProviderAuthState, ProviderErrorCode } from "../types.js";
+import { KeychainBrokerOperationError, runStdioKeychainBrokerCommand } from "./keychain-broker.js";
 
 /** Public only so the native release verifier can target one exact item. */
 export const CHATGPT_KEYCHAIN_SERVICE = "SuperTwinV13 ChatGPT OAuth";
 const ACCOUNT_PREFIX = "supertwin.chatgpt-oauth.";
 const REFRESH_SKEW_MS = 120_000;
 const MAX_KEYCHAIN_VALUE_BYTES = 128 * 1024;
+const MAX_KEYCHAIN_OUTPUT_BYTES = 256 * 1024;
 const MAX_TOKEN_BYTES = 64 * 1024;
 const MAX_ACCOUNT_ID_BYTES = 4 * 1024;
+const MAX_PERSISTENT_REF_BYTES = 8 * 1024;
 const MAX_REFRESH_RESPONSE_BYTES = 128 * 1024;
 const OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
@@ -60,6 +63,16 @@ export interface ChatGptTokenPair {
   accountId?: string;
 }
 
+export interface OwnedCredentialBinding {
+  pair: ChatGptTokenPair;
+  persistentRef: string;
+  service: typeof CHATGPT_KEYCHAIN_SERVICE;
+  account: string;
+  label: string;
+}
+
+const SAFE_PERSISTENT_REF = /^[A-Za-z0-9_-]{1,8192}$/;
+
 interface StoredCredentialEnvelope {
   version: 1;
   current: ChatGptTokenPair;
@@ -77,6 +90,41 @@ export type KeychainCommand = (
   secretStdin?: string,
   signal?: AbortSignal,
 ) => Promise<KeychainCommandResult>;
+
+function bundledKeychainHelper(): string {
+  // The release bundler places the signed helper beside worker.cjs. Source-mode
+  // callers inject KeychainCommand in tests; a missing helper therefore fails
+  // closed instead of falling back to the password-reading `security` CLI.
+  const besideEntry = join(dirname(resolve(process.argv[1] ?? "worker.cjs")), "bin", "supertwin-keychain");
+  return besideEntry;
+}
+
+export function keychainHelperInvocation(args: readonly string[]): { executable: string; args: string[] } {
+  const value = (flag: string): string | undefined => {
+    const index = args.indexOf(flag);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  const verb = args[0];
+  const service = value("-s");
+  const account = value("-a");
+  const label = value("-l");
+  if (service !== CHATGPT_KEYCHAIN_SERVICE || !account || !/^supertwin\.chatgpt-oauth\.[a-f0-9]{16}$/.test(account) ||
+      (label !== undefined && !/^SuperTwinV13 (?:golden|native verification) [a-f0-9]{32}$/.test(label)) ||
+      !["add-generic-password", "find-generic-password", "delete-generic-password"].includes(verb ?? "")) {
+    throw new ChatGptCredentialError("TRANSPORT_ERROR", "Invalid Keychain helper request");
+  }
+  const persistentRef = value("--persistent-ref");
+  if (persistentRef && (!SAFE_PERSISTENT_REF.test(persistentRef) || byteLength(persistentRef) > MAX_PERSISTENT_REF_BYTES)) {
+    throw new ChatGptCredentialError("TRANSPORT_ERROR", "Invalid Keychain persistent reference");
+  }
+  const operation = verb === "add-generic-password" ? (args.includes("-U") ? "upsert" : "create")
+    : verb === "find-generic-password" ? (persistentRef ? "read-ref" : args.includes("--owned-binding") ? "lookup-owned"
+      : args.includes("-w") ? "read" : "exists")
+      : persistentRef && args.includes("--owned") ? "delete-owned-ref"
+        : persistentRef ? "delete-ref" : args.includes("--owned") ? "delete-owned" : "delete";
+  return { executable: bundledKeychainHelper(), args: [operation, "--service", service, "--account", account,
+    ...(label ? ["--label", label] : []), ...(persistentRef ? ["--persistent-ref", persistentRef] : [])] };
+}
 
 export interface ChatGptKeychainOptions {
   command?: KeychainCommand;
@@ -177,7 +225,7 @@ function envelopesEqual(
   return encodeEnvelope(left) === encodeEnvelope(right);
 }
 
-async function defaultCommand(
+export async function runNativeKeychainCommand(
   executable: string,
   args: readonly string[],
   secretStdin?: string,
@@ -186,8 +234,9 @@ async function defaultCommand(
   if (signal?.aborted) {
     throw new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation cancelled");
   }
+  const invocation = executable === "/usr/bin/security" ? keychainHelperInvocation(args) : { executable, args: [...args] };
   return new Promise((resolveCommand, rejectCommand) => {
-    const child = spawn(executable, [...args], {
+    const child = spawn(invocation.executable, invocation.args, {
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -204,7 +253,7 @@ async function defaultCommand(
     };
     const collect = (target: "stdout" | "stderr", chunk: Buffer): void => {
       outputBytes += chunk.byteLength;
-      if (outputBytes > MAX_KEYCHAIN_VALUE_BYTES) {
+      if (outputBytes > MAX_KEYCHAIN_OUTPUT_BYTES) {
         stop(new Error("Keychain command output exceeded its limit"));
         return;
       }
@@ -216,12 +265,11 @@ async function defaultCommand(
     // SIGKILL can close the pipe before the bounded secret finishes writing;
     // process completion, not this pipe event, settles the operation.
     child.stdin.on("error", () => undefined);
+    // Spawn/pipe errors are terminal, but cleanup is not complete until close.
+    // Waiting for close preserves the no-live-child-on-return invariant.
     child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      rejectCommand(forcedError ?? error);
+      forcedError ??= error;
+      child.kill("SIGKILL");
     });
     child.once("close", (code) => {
       if (settled) return;
@@ -236,8 +284,29 @@ async function defaultCommand(
     signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => stop(new Error("Keychain command timed out")), 10_000);
     timer.unref();
+    // The bundled Security.framework helper consumes bounded raw stdin bytes;
+    // credentials never appear in argv, the environment, diagnostics or logs.
     child.stdin.end(secretStdin);
   });
+}
+
+async function defaultBrokerCommand(
+  _executable: string,
+  args: readonly string[],
+  secretStdin?: string,
+  signal?: AbortSignal,
+): Promise<KeychainCommandResult> {
+  const invocation = keychainHelperInvocation(args);
+  const operation = invocation.args[0];
+  // Production broker scope is deliberately smaller than the injected command
+  // seam used by isolated golden/native tests. The Tauri parent derives the
+  // service/account itself; no label or persistent reference crosses this pipe.
+  if (!operation || !["exists", "read", "upsert", "delete"].includes(operation) ||
+      invocation.args.includes("--label") || invocation.args.includes("--persistent-ref")) {
+    throw new ChatGptCredentialError("TRANSPORT_ERROR", "Keychain operation requires an isolated credential scope");
+  }
+  return runStdioKeychainBrokerCommand(operation as "exists" | "read" | "upsert" | "delete",
+    operation === "upsert" ? secretStdin : undefined, signal);
 }
 
 function isMissingItem(error: unknown): boolean {
@@ -254,18 +323,16 @@ export function chatGptKeychainAccount(canonicalHome = homeRoot()): string {
 }
 
 /**
- * macOS generic-password storage accessed through `security` with argv only.
- * No shell is involved. We intentionally do not pass `-A`: the login Keychain
- * retains its normal user-authorized ACL instead of granting every process
- * access. Because `security` mediates access, a Tauri re-sign does not rewrite
- * or broaden the item's ACL; the user's login-Keychain policy still applies.
+ * macOS generic-password storage owned by the signed Tauri process. The worker
+ * talks to that in-process Security.framework broker over its private inherited
+ * stdio pipes; there is no credential-capable packaged helper executable.
  */
 export class ChatGptKeychainStore {
   readonly account: string;
   readonly #command: KeychainCommand;
 
   constructor(options: ChatGptKeychainOptions = {}) {
-    this.#command = options.command ?? defaultCommand;
+    this.#command = options.command ?? defaultBrokerCommand;
     this.account = chatGptKeychainAccount((options.resolveHome ?? homeRoot)());
   }
 
@@ -367,22 +434,74 @@ export class ChatGptKeychainStore {
   }
 
   /** P6-F create-once item: never updates an item that won an external race. */
-  async createOwned(pair: ChatGptTokenPair, ownership: string, signal?: AbortSignal): Promise<boolean> {
+  async createOwned(pair: ChatGptTokenPair, ownership: string, signal?: AbortSignal): Promise<string | false> {
     if (!/^[a-f0-9]{32}$/.test(ownership)) throw new ChatGptCredentialError("TRANSPORT_ERROR", "Invalid credential ownership");
     const encoded = encodeEnvelope({ version: 1, current: clonePair(pair) });
     return withAccountLock(this.account, async () => {
       try {
-        await this.#command("/usr/bin/security", ["add-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+        const result = await this.#command("/usr/bin/security", ["add-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
           "-a", this.account, "-l", `SuperTwinV13 golden ${ownership}`, "-w"], encoded, signal);
-        return true;
+        const persistentRef = result.stdout.trim();
+        if (!SAFE_PERSISTENT_REF.test(persistentRef) || byteLength(persistentRef) > MAX_PERSISTENT_REF_BYTES) {
+          throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to bind owned ChatGPT credentials");
+        }
+        return persistentRef;
       } catch (error) {
-        // Reconcile an ambiguous command/abort only against our exact labelled item.
-        const durable = await this.loadOwned(ownership).catch(() => undefined);
-        if (durable && envelopesEqual({ version: 1, current: durable }, { version: 1, current: clonePair(pair) })) return true;
         if ((error as CommandFailure)?.code === 45) return false;
+        // A successful SecItemAdd can race an abort/timeout before its reference
+        // reaches us. Adopt only an exact labelled envelope and its returned ref.
+        const durable = await this.loadOwnedBinding(ownership).catch(() => undefined);
+        if (durable && envelopesEqual({ version: 1, current: durable.pair },
+          { version: 1, current: clonePair(pair) })) return durable.persistentRef;
         throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to create owned ChatGPT credentials");
       }
     });
+  }
+
+  /** Label lookup is restricted to ambiguous create reconciliation. */
+  async loadOwnedBinding(ownership: string): Promise<OwnedCredentialBinding | undefined> {
+    if (!/^[a-f0-9]{32}$/.test(ownership)) return undefined;
+    const label = `SuperTwinV13 golden ${ownership}`;
+    try {
+      const loaded = await this.#command("/usr/bin/security", ["find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+        "-a", this.account, "-l", label, "--owned-binding"]);
+      return this.#decodeOwnedBinding(loaded.stdout, label);
+    } catch (error) {
+      if (isMissingItem(error)) return undefined;
+      throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to inspect owned ChatGPT credentials");
+    }
+  }
+
+  /** Resolves one exact create-time persistent reference and validates all bound attributes. */
+  async loadOwnedByPersistentRef(ownership: string, persistentRef: string): Promise<OwnedCredentialBinding | undefined> {
+    if (!/^[a-f0-9]{32}$/.test(ownership) || !SAFE_PERSISTENT_REF.test(persistentRef) ||
+        byteLength(persistentRef) > MAX_PERSISTENT_REF_BYTES) return undefined;
+    const label = `SuperTwinV13 golden ${ownership}`;
+    try {
+      const loaded = await this.#command("/usr/bin/security", ["find-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
+        "-a", this.account, "-l", label, "--persistent-ref", persistentRef, "-w"]);
+      const binding = this.#decodeOwnedBinding(loaded.stdout, label);
+      if (binding.persistentRef !== persistentRef) throw new Error("binding mismatch");
+      return binding;
+    } catch (error) {
+      if (isMissingItem(error)) return undefined;
+      throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to inspect bound ChatGPT credentials");
+    }
+  }
+
+  #decodeOwnedBinding(stdout: string, label: string): OwnedCredentialBinding {
+    if (byteLength(stdout) > MAX_KEYCHAIN_OUTPUT_BYTES) throw new Error("oversize");
+    const frame = JSON.parse(stdout) as Record<string, unknown>;
+    if (Object.keys(frame).some((key) => !["service", "account", "label", "persistent_ref", "value_base64"].includes(key)) ||
+        frame.service !== CHATGPT_KEYCHAIN_SERVICE || frame.account !== this.account || frame.label !== label ||
+        typeof frame.persistent_ref !== "string" || !SAFE_PERSISTENT_REF.test(frame.persistent_ref) ||
+        typeof frame.value_base64 !== "string") throw new Error("binding mismatch");
+    const encodedBytes = Buffer.from(frame.value_base64, "base64");
+    if (encodedBytes.byteLength > MAX_KEYCHAIN_VALUE_BYTES || encodedBytes.toString("base64") !== frame.value_base64) {
+      throw new Error("invalid frame");
+    }
+    const pair = clonePair(decodeEnvelope(encodedBytes.toString("utf8")).current);
+    return { pair, persistentRef: frame.persistent_ref, service: CHATGPT_KEYCHAIN_SERVICE, account: this.account, label };
   }
 
   /** Reads only the exact unguessable P6-F ownership label. */
@@ -399,17 +518,31 @@ export class ChatGptKeychainStore {
   }
 
   /** Deletes only the exact labelled item after proving its account binding is ours. */
-  async clearOwned(ownership: string, expected: ChatGptTokenPair): Promise<boolean> {
-    if (!/^[a-f0-9]{32}$/.test(ownership)) return false;
+  async clearOwned(
+    ownership: string,
+    persistentRefOrPair: string | ChatGptTokenPair,
+    expectedAccountId?: string,
+  ): Promise<boolean> {
+    let persistentRef = typeof persistentRefOrPair === "string" ? persistentRefOrPair : undefined;
+    let boundAccountId = expectedAccountId ??
+      (typeof persistentRefOrPair === "string" ? undefined : persistentRefOrPair.accountId);
+    // Compatibility for the now-disabled source golden seam. Production and
+    // any future signed-app flow pass the create-time persistent reference.
+    if (!persistentRef && boundAccountId) {
+      const binding = await this.loadOwnedBinding(ownership).catch(() => undefined);
+      if (binding?.pair.accountId === boundAccountId) persistentRef = binding.persistentRef;
+    }
+    if (!/^[a-f0-9]{32}$/.test(ownership) || !persistentRef ||
+        !SAFE_PERSISTENT_REF.test(persistentRef) || !boundAccountId) return false;
     return withAccountLock(this.account, async () => {
-      const loaded = await this.loadOwned(ownership);
-      // Tokens may legitimately rotate during the golden run. The unguessable label
-      // plus immutable account identity proves ownership without requiring stale bytes.
-      if (!loaded?.accountId || loaded.accountId !== expected.accountId) return false;
+      const loaded = await this.loadOwnedByPersistentRef(ownership, persistentRef);
+      // Tokens may rotate; ownership is the immutable create-time reference plus account binding.
+      if (!loaded?.pair.accountId || loaded.pair.accountId !== boundAccountId) return false;
       try {
         await this.#command("/usr/bin/security", ["delete-generic-password", "-s", CHATGPT_KEYCHAIN_SERVICE,
-          "-a", this.account, "-l", `SuperTwinV13 golden ${ownership}`]);
-        return await this.loadOwned(ownership) === undefined;
+          "-a", this.account, "-l", `SuperTwinV13 golden ${ownership}`, "--persistent-ref", persistentRef,
+          "--owned"], boundAccountId);
+        return await this.loadOwnedByPersistentRef(ownership, persistentRef) === undefined;
       } catch (error) { return isMissingItem(error); }
     });
   }
@@ -422,6 +555,10 @@ export class ChatGptKeychainStore {
       ], encoded, signal);
     } catch (error) {
       if (error instanceof ChatGptCredentialError) throw error;
+      if (error instanceof KeychainBrokerOperationError &&
+          ["Keychain operation cancelled", "Keychain broker operation timed out"].includes(error.message)) {
+        throw new ChatGptCredentialError("TRANSPORT_ERROR", error.message);
+      }
       throw new ChatGptCredentialError("TRANSPORT_ERROR", "Unable to persist ChatGPT credentials in Keychain");
     }
   }

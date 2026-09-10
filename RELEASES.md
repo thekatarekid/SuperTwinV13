@@ -52,3 +52,4 @@ Nothing here is ever removed.
 | 13.11.11 | — | no artifact — fix bump |
 | 13.12.1 | 992 MB | `03c055a251bbbf0ab5295c724d95fa870023e9ea175dce7c92d1b9e2c4a9bcca` |
 | 13.12.2 | 992 MB | `5dd4e008631d79205bb43910fea66c1cc098b219ac74ab12dd123f633a8fa04e` |
+| 13.12.3 | 1710 MB | `90e9d0c425fc8e092c1313c9f28bb14475f8fde143c7a4e4dc00c8f0414b8cbc` |

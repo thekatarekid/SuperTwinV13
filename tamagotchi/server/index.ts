@@ -27,6 +27,13 @@ const app = createApp({
 
 // Loopback only: this is a local app and the server holds your API key.
 const server = createServer((req, res) => void app(req, res));
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`[server] port ${port} is already in use — is another \`npm run dev\` still running? Stop it (lsof -nP -iTCP:${port} -sTCP:LISTEN) or set PORT in .env.`);
+    process.exit(1);
+  }
+  throw err;
+});
 server.listen(port, "127.0.0.1", () => {
   console.log(`[server] http://127.0.0.1:${port}  ·  image provider: ${provider.label}`);
   if (provider.id === "mock") {

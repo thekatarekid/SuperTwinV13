@@ -55,3 +55,7 @@ npm run typecheck -w @supertwinv13/worker   # typecheck the worker
 
 - UI dev server (Vite): **1420**
 - Worker HTTP/SSE server: **8013** (override via `SUPERTWIN_WORKER_PORT`)
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md). Free for noncommercial use; commercial use requires a separate license from the copyright holder.

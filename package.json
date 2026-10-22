@@ -1,6 +1,7 @@
 {
   "name": "supertwinv13",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "version": "13.12.3",
   "type": "module",
   "workspaces": [

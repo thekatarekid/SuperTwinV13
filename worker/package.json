@@ -2,6 +2,7 @@
   "name": "@supertwinv13/worker",
   "version": "13.12.3",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

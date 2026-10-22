@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.env
+# Staged by scripts/fetch-models.mjs (wasm copied from node_modules, model downloaded + checksummed)
+public/mediapipe/

@@ -36,3 +36,5 @@ releases/*.dmg
 
 # Local tool state (freebuff project id)
 .freebuff/
+.DS_Store
+.freebuff/

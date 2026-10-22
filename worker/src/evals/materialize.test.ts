@@ -6,8 +6,8 @@ import { repoRoot } from "./cli.js";
 import { CATEGORIES, MATERIALIZED_CASES } from "./fixtures.js";
 import { isCodeCase, isV6P1Authored, materializeDocs, parseDoc, parseGates, parseWrong, REAUTHORED_MARK, toFixture } from "./materialize.js";
 
-const v1 = readFileSync(join(repoRoot(), "SuperTwinV13_GoldenEvals_V1.md"), "utf8");
-const v2 = readFileSync(join(repoRoot(), "SuperTwinV13_GoldenEvals_V2.md"), "utf8");
+const v1 = readFileSync(join(repoRoot(), "docs", "evals", "SuperTwinV13_GoldenEvals_V1.md"), "utf8");
+const v2 = readFileSync(join(repoRoot(), "docs", "evals", "SuperTwinV13_GoldenEvals_V2.md"), "utf8");
 
 describe("parseWrong", () => {
   it("splits on · and extracts backticked labels with parenthetical detail", () => {

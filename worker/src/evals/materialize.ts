@@ -258,10 +258,10 @@ export function materializeDocs(v1Markdown: string, v2Markdown: string): Fixture
   return fixtures;
 }
 
-/** Reads both docs from the repo root and writes `evals/v13/<ID>.json`. */
+/** Reads both docs from docs/evals and writes `evals/v13/<ID>.json`. */
 export function materialize(repoRoot: string): MaterializeResult {
-  const v1 = readFileSync(join(repoRoot, "SuperTwinV13_GoldenEvals_V1.md"), "utf8");
-  const v2 = readFileSync(join(repoRoot, "SuperTwinV13_GoldenEvals_V2.md"), "utf8");
+  const v1 = readFileSync(join(repoRoot, "docs", "evals", "SuperTwinV13_GoldenEvals_V1.md"), "utf8");
+  const v2 = readFileSync(join(repoRoot, "docs", "evals", "SuperTwinV13_GoldenEvals_V2.md"), "utf8");
   const fixtures = materializeDocs(v1, v2);
   const dir = join(repoRoot, "evals", "v13");
   mkdirSync(dir, { recursive: true });

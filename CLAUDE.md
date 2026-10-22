@@ -1,6 +1,6 @@
 # SuperTwinV13 — rules for agents working in this tree
 
-Tauri shell (`src-tauri`) + Node worker (`worker/src`) + React UI (`src`) + Go WhatsApp daemon (`sources/whatsapp-go`) + Swift screen sidecar (`sources/screenwatch`). Build plan: `SuperTwinV13_Build_V6_Phase1.md`; progress log: `progressV13_V6_Phase1.md`.
+Tauri shell (`src-tauri`) + Node worker (`worker/src`) + React UI (`src`) + Go WhatsApp daemon (`sources/whatsapp-go`) + Swift screen sidecar (`sources/screenwatch`). Build plan: `docs/current/SuperTwinV13_Build_V6_Phase1.md`; progress log: `docs/progress/progressV13_V6_Phase1.md`; doc index: `docs/README.md`.
 
 ## Running the worker (HARD rules — build plan §1.3)
 

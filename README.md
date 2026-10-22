@@ -39,7 +39,7 @@ npm run typecheck -w @supertwinv13/worker   # typecheck the worker
 
 ```
 /                    root package.json (npm workspaces: ["worker"]), Vite config
-/docs                PHASE0_ARCHITECTURE.md — the Phase 0 integration contract
+/docs                project docs — see docs/README.md for the index
 /src                 React UI (Vite + React 18 + TS): 5-tab app shell
   /tabs              Inbox, Spaces, Agent, Chat, Settings
 /src-tauri           Tauri 2 Rust shell (single window; worker sidecar wiring)
